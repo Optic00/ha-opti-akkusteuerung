@@ -1,6 +1,6 @@
 # Prognosebasierte & Manuelle Steuerung für Homeassistant von SMA STP SE Hybrid-Wechselrichter #
 
-**DISCLAMER: Alles auf eigene Gefahr! Ich übernehme keine Verantwortung für Schäden oder Probleme die hiermit entstehen.**
+**DISCLAMER: Work in Progress, die Software ist noch nicht fertig und vollständig! Alles auf eigene Gefahr! Ich übernehme keine Verantwortung für Schäden oder Probleme die hiermit entstehen.**
 Dieses Projekt wird in keinster Weise von der Firma SMA begleitet oder supported.
 
 Dieses Projekt ist als Baukasten zu sehen, nicht als "schlüsselfertige Lösung". Leider kann ich keinen persönlichen Support leisten, es gibt aber den einen oder anderen User der schon mal ausgeholfen hat übers Forum oder heir im Issues Tracker. Vielen Dank hierfür!
@@ -14,8 +14,6 @@ Es ist noch Luft nach oben um das Ganze etwas abzurunden. Hier erstmal die erste
 **Neue Betafirma seit 16.07.2024 stellt wieder die alte Funktionalität her, dass der Wechselrichter direkt über Modbus gesteurt werden kann**
 Grid Guard Code usw. nicht mehr notwendig!
 
-(work in progress, noch nicht vollständig!)
-
 # Anleitung # 
 
 Was macht das hier eigentlich?
@@ -26,6 +24,8 @@ Ein Part ist die Reine Akku Lade-/Entladesteuerung die man manuell auswählen ka
 
 Es sollte die SMA Integration von HA eingerichtet werde um den SoC des Akkus auslesen zu können sowie ein Solcast Account für die Prognose der PV-Erträge!
 
+# Komponenten #
+
 **opti-automatik.yaml** - Hiermit wird über den SHM 2.0 und freigeschaltetem GGC der Akku mittels der weiteren Automation gezielt geladen, pausiert und zuende geladen mit 0.2C bzw. 1kW. 
 
 **sma-se-akku-steuerung.yaml** - Falls man den WR noch direkt ansteuern kann und die letzten Updates nicht hat / die neue Beta Firmware (siehe oben) kann man diese Steuer-Automatik nutzen.
@@ -34,56 +34,57 @@ Es sollte die SMA Integration von HA eingerichtet werde um den SoC des Akkus aus
 
 Wer erstmal nur die reine Akkusteuerung möchte, braucht nur die "sma-se-akku-steuerung.yaml" als Automation anlegen und u.g. Helfer und Überschuss Akkuladung anlegen.
 
-**ToDo:**
-- Akku im Winter mindestens 1x die Woche automatisch auf 100% Laden
-- Evtl. Ladegeschwindigkeit ab 95-98% auf 500 Watt begrenzen
-- SBS Version
-- HACS Version für die reine Akkusteuerung
-- English Version of this?
-
-Den Eintrag aus der configuration.yaml bei Homeassistant in die gleichnamige einfügen. 
+# Einrichtung #
 
 Man benötigt einen Sensor der den möglichen Überschuss für den Akku berechnet und einen für den aktuellen Hausverbrauch. 
 
 **Zum Beispiel für den möglichen Akku-Ladeüberschuss:**
 
+```yaml
     - unique_id: maximaler_ueberschuss_akkuladung
       device_class: power
       state_class: measurement
       name: Maximaler Ueberschuss fuer Akkuladung Watt
       unit_of_measurement: W
       state: "{{ (states('sensor.pv_generation_komplett_watt') | float) - (states('sensor.home_energy_usage_watt') | float) - (states('sensor.sn_xxxxxxx_metering_power_absorbed') | float) + ((states('sensor.goecharger_wallbox_hinten_p_all')  | float )* 1000)  }}"
+```
 
 **Zum Beispiel für PV Überschuss warp3_2asq_powernow ist meine Wallbox**
 
+```yaml
     - unique_id: maximaler_ueberschuss_akkuladung
       device_class: power
       state_class: measurement
       name: Maximaler Ueberschuss fuer Akkuladung Watt
       unit_of_measurement: W
       state: "{{ (states('sensor.pv_generation_komplett_watt') | float) - (states('sensor.home_energy_usage_watt') | float) - (states('sensor.sn_3015*****_battery_power_charge_total') | float) + (states('sensor.sn_3015*****_metering_power_absorbed') | float) + ((states('sensor.warp3_2asq_powernow')  | float ))  }}"
-
+```
 
 **Zum Beispiel für den PV-Überschuss um ggf. die 70% Kappung zu erkennen**
 
+```yaml
     - unique_id: akkusteuerung_ueberschuss_pv
       device_class: power
       state_class: measurement
       name: Ueberschuss PV Watt
       unit_of_measurement: W
       state: "{{ (states('sensor.pv_generation_komplett_watt') | float(0) - (states('sensor.home_energy_usage_watt') | float) - (states('sensor.sn_3017XXXXXX_metering_power_absorbed') | float) )  }}"
+```
 
 **Zum Beispiel für den Hausverbrauch:**
 
+```yaml
     - unique_id: home_energy_usage_w
       device_class: power
       state_class: measurement
       name: Home Energy Usage Watt
       unit_of_measurement: W
       state: "{{ (states('sensor.sn_3017XXXXXX_metering_power_absorbed') | float) + (states('sensor.sn_3017XXXXXX_grid_power') | float) - (states('sensor.sn_3017XXXXXX_metering_power_supplied') | float)}}"
+```
 
 **Hier als Extra zwei Sensoren die Wirkungsgrad und Akku_Zyklen in HA trackien**
 
+```yaml
     - unique_id: byd_akku_wirkungsgrad_lade_entlade
       name: BYD Akku Wirkungsgrad Ladung und Entladung
       unit_of_measurement: factor
@@ -93,9 +94,11 @@ Man benötigt einen Sensor der den möglichen Überschuss für den Akku berechne
       name: BYD Akku Zyklen
       unit_of_measurement: factor
       state: "{{ (((((states('sensor.sn_3017XXXXXX_battery_discharge_total') | float) + (states('sensor.sn_3017XXXXXX_battery_charge_total') | float)) / 100 ) * (states('sensor.sn_3017XXXXXX_battery_capacity_total')) | float) / (2*10.2) ) | round(1) }}"
+```
 
 **Hier Restlaufzeit berechnen, ich weiss nicht von wem das herkam aber:**
 
+```yaml
     - unique_id: "house_battery_runtime_raw"
       name: "House Battery Runtime Raw"
       unit_of_measurement: "hours"
@@ -112,12 +115,14 @@ Man benötigt einen Sensor der den möglichen Überschuss für den Akku berechne
 
 ** zum vorherigen braucht man noch einen Statistik Sensor, bei mir unter sensor/statistik.yaml **
 
+```yaml
     - platform: statistics
       name: "House Battery Load 30 mins"
       entity_id: sensor.sn_3015*****_battery_power_discharge_total
       state_characteristic: mean
       max_age:
         minutes: 30
+```
 
 dieser HA-Helfer zur Auswahl des Akku-Modus muss angelegt werden:
 
@@ -149,6 +154,7 @@ So schaut es im HA aktuell aus. Hab noch einen Dummy-Schalter für den Fall das 
 
 <img width="505" alt="image" src="https://github.com/user-attachments/assets/82cfe4d3-9034-4cf5-953c-65b624f5250e">
 
+```yaml
     type: vertical-stack
     cards:
       - type: custom:mushroom-title-card
@@ -271,5 +277,21 @@ So schaut es im HA aktuell aus. Hab noch einen Dummy-Schalter für den Fall das 
           - entity: sensor.akku_target_soc_intelligent
           - entity: sensor.akku_net_verfugbare_energie
           - entity: sensor.verbleibende_sonnenstunden
+```
 
+# ToDo #
 
+- [x] Akku im Winter mindestens 1x die Woche automatisch auf 100% Laden
+- [x] Evtl. Ladegeschwindigkeit ab 95-98% auf 500 Watt begrenzen
+- [ ] SBS Version
+- [ ] HACS Version für die reine Akkusteuerung
+- [ ] English Version of this?
+
+# Fehlerbehebungen
+
+Stelle zuerst sicher, dass du alle nötigen Komponenten und Helfer in Home Assistant installiert hast.
+Nun schaue die beiden Automatisierungen an, ob sie korrekt durch laufen und nicht irgendwo 'mittendrin' stecken bleiben. Das geht am besten über die 'Traces' Ansicht.
+
+Manchmal passiert es, dass der maximale Ladestrom des Akkus alle 4 Minuten gesetzt wird, aber nach jeweils einer Minute für 3 Minuten wieder auf einen beliebigen anderen Wert springt. Prüfe die Konfiguration des SMA Home Managers im SunnyPortal. Die  prognosebasierte Akkusteuerung muss ausgeschaltet sein muss, sonst wird die maximale Ladeleistung regelmäßig neu gesetzt.
+
+Wenn die Ladestärke periodisch immer wieder auf 0 fällt, prüfe die Shadefix-Einstellungen. Diese zieht offenbar alle 6 Minuten 'kurz den Stecker' und die Ladeleistung geht auf 0. Das lässt sich in Maßen einstellen - je nach Setup auf 30 Minuten - oder sogar ganz ausschalten, falls es nicht benötigt wird.

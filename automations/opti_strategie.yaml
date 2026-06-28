@@ -1,0 +1,850 @@
+- id: "1757405050598"
+  alias: "Akku Lade- Entladesteuerung Opti 2.0"
+  description: >-
+    (inkl. Preisladung, 70% und AC-Überschuss) – v2.5: Prognosebasierte
+    Ladeblöcke tag+nacht, PV-Überschussblöcke nur tagsüber, korrekte
+    Mitternacht-Prognose-Reaktion
+  mode: single
+  triggers:
+    # Preisniveau-Quelle: anbieter-agnostischer sensor.strompreis_niveau (Perzentil), nicht mehr Tibber.
+    - trigger: state
+      entity_id:
+        - sensor.strompreis_niveau
+      from: null
+      to: null
+      id: "Tibber Preislevel Änderung"
+      enabled: true
+    - trigger: state
+      entity_id:
+        - input_boolean.akku_opti_automatik
+      to: "on"
+      id: "Akku Opti-Automatik AN/AUS"
+    - trigger: state
+      entity_id:
+        - sensor.sn_SERIENNUMMER_battery_soc_total
+      id: "BYD Änderung"
+    - trigger: numeric_state
+      entity_id:
+        - sensor.mindestentladepreis
+      below: sensor.DEIN_STROMPREIS
+      id: "Entladeschwelle"
+      enabled: true
+    - trigger: numeric_state
+      entity_id:
+        - sensor.sn_SERIENNUMMER_pv_power
+      above: input_number.akkusteuerung_wr_ac_ueberschuss_grenze
+      for:
+        hours: 0
+        minutes: 0
+        seconds: 30
+      id: "AC-Überschuss"
+    - trigger: numeric_state
+      entity_id:
+        - sensor.sn_SERIENNUMMER_pv_power
+      below: input_number.akkusteuerung_wr_ac_ueberschuss_grenze
+      for:
+        hours: 0
+        minutes: 0
+        seconds: 30
+      id: "AC-Überschuss-Aus"
+    - trigger: numeric_state
+      entity_id:
+        - sensor.ueberschuss_pv_watt
+      above: input_number.akkusteuerung_wr_70proz_ueberschuss_grenze
+      for:
+        hours: 0
+        minutes: 0
+        seconds: 30
+      id: "PV-70%-Überschuss"
+    - trigger: numeric_state
+      entity_id:
+        - sensor.ueberschuss_pv_watt
+      below: input_number.akkusteuerung_wr_70proz_ueberschuss_grenze
+      for:
+        hours: 0
+        minutes: 0
+        seconds: 30
+      id: "PV-70%-Überschuss-Aus"
+    - trigger: state
+      entity_id:
+        - sensor.pv_forecast_bewertung_heute
+        - sensor.pv_forecast_bewertung_morgen
+      id: "PV Prognose Bewertung geändert"
+    - trigger: state
+      entity_id:
+        - sensor.akkusteuerung_dynamische_ladestaerke
+      id: "Dynamische Ladestärke geändert"
+    - trigger: state
+      entity_id:
+        - sensor.akku_target_soc_intelligent
+      id: "Target SoC erreicht"
+    - trigger: numeric_state
+      entity_id:
+        - sensor.sn_SERIENNUMMER_battery_soc_total
+      above: 99
+      id: "Akku ist voll"
+    - trigger: state
+      entity_id:
+        - input_number.minsoc
+      id: "MinSOC geändert"
+    - trigger: state
+      entity_id:
+        - input_number.maxsoc
+      id: "MaxSOC geändert"
+    - above: 100
+      entity_id: ["sensor.akku_abregelungsleistung"]
+      for:
+        hours: 0
+        minutes: 0
+        seconds: 30
+      id: "Abregelung droht"
+      trigger: numeric_state
+  conditions:
+    - condition: state
+      entity_id: input_boolean.akku_opti_automatik
+      state: "on"
+  actions:
+    - alias: "Counter auf 0 setzen bei 100% SoC"
+      choose:
+        - conditions:
+            - condition: trigger
+              id:
+                - "Akku ist voll"
+          sequence:
+            - action: counter.reset
+              target:
+                entity_id: counter.tage_seit_akku100
+
+    - alias: "Zwischen Speicherszenarien wählen"
+      choose:
+        # OBERSTE PRIORITÄT: Entladesperre <minsoc — diese Option wird vor allen anderen geprüft
+        # und sperrt das Entladen sofort, sobald der SoC unter den konfigurierten MinSOC-Wert fällt.
+        - alias: "MinSOC Schutz – Entladen sperren wenn SOC unter MinSOC (gilt tag und nacht)"
+          conditions:
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              below: input_number.minsoc
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "MinSOC Schutz aktiv – Entladen gesperrt"
+
+        # Intent: Winter-/Prognose-Ladeblock (SOC < 20 %).
+        # Diese und die folgenden SOC-gestuften Blöcke (< 20 / < 15 / < 45 / < 75 / < 80 %) halten den SoC
+        # praktisch im ~40–60 %-Band und shaven Preisspitzen (Peak-Shaving). Bewährt, nicht perfekt —
+        # explizite Bandregelung ist ein offener Verbesserungskandidat.
+        - alias: "Laden wenn morgen und heute schlecht und SOC unter 20% (tag+nacht)"
+          conditions:
+            - condition: trigger
+              id:
+                - "AC-Überschuss-Aus"
+                - "AC-Überschuss"
+                - "Akku Opti-Automatik AN/AUS"
+                - "PV-70%-Überschuss"
+                - "PV-70%-Überschuss-Aus"
+                - "BYD Änderung"
+                - "Tibber Preislevel Änderung"
+                - "PV Prognose Bewertung geändert"
+            - condition: state
+              entity_id: input_boolean.akku_opti_automatik
+              state: "on"
+            - condition: state
+              entity_id: input_boolean.hausakku_aus_netz_laden
+              state: "off"
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              below: 20
+            - alias: "Heute Kritisch oder Mangelhaft"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_heute
+                  state: "Mangelhaft"
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_heute
+                  state: "Kritisch"
+            - alias: "Aktuelles Preisniveau VERY_CHEAP bis EXPENSIVE"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "CHEAP"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "VERY_CHEAP"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "NORMAL"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "EXPENSIVE"
+            - alias: "Morgen Kritisch oder Mangelhaft"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_morgen
+                  state: "Mangelhaft"
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_morgen
+                  state: "Kritisch"
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        # Intent: Winter-/Prognose-Ladeblock (SOC < 75 %).
+        # Greift bei schlechter Prognose für heute UND morgen, aber nur bis NORMAL-Preis (kein EXPENSIVE).
+        # Teil des bewährten SoC-~40–60 %-Band + Peak-Shaving-Musters; explizite Bandregelung = offener Kandidat.
+        - alias: "Laden wenn morgen und heute schlecht und SOC unter 75% (tag+nacht)"
+          conditions:
+            - condition: trigger
+              id:
+                - "AC-Überschuss-Aus"
+                - "AC-Überschuss"
+                - "Akku Opti-Automatik AN/AUS"
+                - "PV-70%-Überschuss"
+                - "PV-70%-Überschuss-Aus"
+                - "BYD Änderung"
+                - "Tibber Preislevel Änderung"
+                - "PV Prognose Bewertung geändert"
+            - condition: state
+              entity_id: input_boolean.akku_opti_automatik
+              state: "on"
+            - condition: state
+              entity_id: input_boolean.hausakku_aus_netz_laden
+              state: "off"
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              below: 75
+            - alias: "Heute Kritisch oder Mangelhaft"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_heute
+                  state: "Mangelhaft"
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_heute
+                  state: "Kritisch"
+            - alias: "Aktuelles Preisniveau VERY_CHEAP bis NORMAL"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "CHEAP"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "VERY_CHEAP"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "NORMAL"
+            - alias: "Morgen Kritisch oder Mangelhaft"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_morgen
+                  state: "Mangelhaft"
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_morgen
+                  state: "Kritisch"
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        # Intent: Winter-/Prognose-Ladeblock (SOC < 80 %, Wintermodus-Gate).
+        # Sichert den Akku aggressiv auf (bis 80 %) wenn PV-Rest < 15 kWh, kein Sommermodus und beide Tage schlecht.
+        # Teil des bewährten SoC-~40–60 %-Band + Peak-Shaving-Musters; explizite Bandregelung = offener Kandidat.
+        - alias: "Laden wenn heute+morgen schlecht, Strom fast aufgebraucht, Wintermodus, SOC unter 80% (tag+nacht)"
+          conditions:
+            - condition: trigger
+              id:
+                - "AC-Überschuss-Aus"
+                - "AC-Überschuss"
+                - "Akku Opti-Automatik AN/AUS"
+                - "PV-70%-Überschuss"
+                - "PV-70%-Überschuss-Aus"
+                - "BYD Änderung"
+                - "Tibber Preislevel Änderung"
+                - "PV Prognose Bewertung geändert"
+            - condition: state
+              entity_id: input_boolean.akku_opti_automatik
+              state: "on"
+            - condition: state
+              entity_id: input_boolean.hausakku_aus_netz_laden
+              state: "off"
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              below: 80
+            - condition: numeric_state
+              entity_id: sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+              below: 15
+            # optional: Sommermodus-Gate; falls nicht vorhanden, diese Bedingung entfernen
+            - condition: state
+              entity_id: binary_sensor.DEIN_SOMMERMODUS_GATE
+              state: "off"
+            - alias: "Heute Kritisch oder Mangelhaft"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_heute
+                  state: "Mangelhaft"
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_heute
+                  state: "Kritisch"
+            - alias: "Morgen Kritisch oder Mangelhaft"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_morgen
+                  state: "Mangelhaft"
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_morgen
+                  state: "Kritisch"
+            - alias: "Aktuelles Preisniveau VERY_CHEAP bis EXPENSIVE"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "EXPENSIVE"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "NORMAL"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "CHEAP"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "VERY_CHEAP"
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        # Intent: Winter-/Prognose-Ladeblock (SOC < 15 %, Notfall-Schwelle).
+        # Sehr niedriger Trigger: greift auch unabhängig von morgen-Prognose, wenn PV-Rest < 20 kWh.
+        # Teil des bewährten SoC-~40–60 %-Band + Peak-Shaving-Musters; explizite Bandregelung = offener Kandidat.
+        - alias: "Laden wenn heute schlecht, wenig PV-Rest, SOC unter 15% (tag+nacht)"
+          conditions:
+            - condition: trigger
+              id:
+                - "AC-Überschuss-Aus"
+                - "AC-Überschuss"
+                - "Akku Opti-Automatik AN/AUS"
+                - "PV-70%-Überschuss"
+                - "PV-70%-Überschuss-Aus"
+                - "BYD Änderung"
+                - "Tibber Preislevel Änderung"
+                - "PV Prognose Bewertung geändert"
+            - condition: state
+              entity_id: input_boolean.akku_opti_automatik
+              state: "on"
+            - condition: state
+              entity_id: input_boolean.hausakku_aus_netz_laden
+              state: "off"
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              below: 15
+            - condition: numeric_state
+              entity_id: sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+              below: 20
+            - alias: "Heute Kritisch oder Mangelhaft"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_heute
+                  state: "Mangelhaft"
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_heute
+                  state: "Kritisch"
+            - alias: "Aktuelles Preisniveau VERY_CHEAP bis EXPENSIVE"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "EXPENSIVE"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "NORMAL"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "CHEAP"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "VERY_CHEAP"
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        # Intent: Winter-/Prognose-Ladeblock (SOC < 45 %, nur bei CHEAP/VERY_CHEAP).
+        # Peak-Shaving-Variante: lädt opportunistisch bei sehr günstigen Preisen (kein NORMAL/EXPENSIVE).
+        # Teil des bewährten SoC-~40–60 %-Band + Peak-Shaving-Musters; explizite Bandregelung = offener Kandidat.
+        - alias: "Laden wenn heute schlecht, wenig PV-Rest, SOC unter 45% und Strom sehr günstig (tag+nacht)"
+          conditions:
+            - condition: trigger
+              id:
+                - "AC-Überschuss-Aus"
+                - "AC-Überschuss"
+                - "Akku Opti-Automatik AN/AUS"
+                - "PV-70%-Überschuss"
+                - "PV-70%-Überschuss-Aus"
+                - "BYD Änderung"
+                - "Tibber Preislevel Änderung"
+                - "PV Prognose Bewertung geändert"
+            - condition: state
+              entity_id: input_boolean.akku_opti_automatik
+              state: "on"
+            - condition: state
+              entity_id: input_boolean.hausakku_aus_netz_laden
+              state: "off"
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              below: 45
+            - condition: numeric_state
+              entity_id: sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+              below: 20
+            - alias: "Heute Kritisch oder Mangelhaft"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_heute
+                  state: "Mangelhaft"
+                - condition: state
+                  entity_id: sensor.pv_forecast_bewertung_heute
+                  state: "Kritisch"
+            - alias: "Aktuelles Preisniveau VERY_CHEAP oder CHEAP"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "CHEAP"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "VERY_CHEAP"
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        - alias: "Drohende Abregelung in Akku umleiten (nur tagsüber)"
+          # D3: Erzeugung über WR-/Einspeiselimit (sonst gekappt) → Überschuss in den Akku
+          # lenken statt am Dach-Limit zu verlieren. Setzt Modus Akku Dynamisch.
+          conditions:
+            - condition: state
+              entity_id: input_boolean.akku_opti_automatik
+              state: "on"
+            - condition: state
+              entity_id: input_boolean.hausakku_aus_netz_laden
+              state: "off"
+            - condition: sun
+              after: sunrise
+              before: sunset
+            - condition: numeric_state
+              entity_id: sensor.akku_abregelungsleistung
+              above: 100
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              below: 100
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku Dynamisch"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        - alias: "Bei 70% Überschuss diesen in den Akku Laden (nur tagsüber)"
+          conditions:
+            - condition: trigger
+              id:
+                - "AC-Überschuss-Aus"
+                - "AC-Überschuss"
+                - "Akku Opti-Automatik AN/AUS"
+                - "PV-70%-Überschuss"
+                - "PV-70%-Überschuss-Aus"
+                - "BYD Änderung"
+                - "Tibber Preislevel Änderung"
+            - condition: state
+              entity_id: input_boolean.akku_opti_automatik
+              state: "on"
+            - condition: state
+              entity_id: input_boolean.hausakku_aus_netz_laden
+              state: "off"
+            - condition: sun
+              after: sunrise
+              before: sunset
+            - condition: numeric_state
+              entity_id: sensor.ueberschuss_pv_watt
+              above: input_number.akkusteuerung_wr_70proz_ueberschuss_grenze
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              below: "100"
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku Dynamisch"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        - alias: "Bei AC Überschuss diesen in den Akku Laden (nur tagsüber)"
+          conditions:
+            - condition: trigger
+              id:
+                - "AC-Überschuss-Aus"
+                - "AC-Überschuss"
+                - "Akku Opti-Automatik AN/AUS"
+                - "PV-70%-Überschuss"
+                - "PV-70%-Überschuss-Aus"
+                - "BYD Änderung"
+                - "Tibber Preislevel Änderung"
+            - condition: state
+              entity_id: input_boolean.akku_opti_automatik
+              state: "on"
+            - condition: state
+              entity_id: input_boolean.hausakku_aus_netz_laden
+              state: "off"
+            - condition: sun
+              after: sunrise
+              before: sunset
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_pv_power
+              above: input_number.akkusteuerung_wr_ac_ueberschuss_grenze
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              below: "100"
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku Dynamisch"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        - alias: "Bei vollem Akku auf Dynamisch schalten"
+          conditions:
+            - condition: trigger
+              id:
+                - "AC-Überschuss-Aus"
+                - "AC-Überschuss"
+                - "Akku Opti-Automatik AN/AUS"
+                - "PV-70%-Überschuss"
+                - "PV-70%-Überschuss-Aus"
+                - "BYD Änderung"
+                - "Tibber Preislevel Änderung"
+            - condition: state
+              entity_id: input_boolean.akku_opti_automatik
+              state: "on"
+            - condition: state
+              entity_id: input_boolean.hausakku_aus_netz_laden
+              state: "off"
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              above: 99
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku Dynamisch"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        - alias: "Dynamisch laden wenn SOC zwischen MinSoC und DynZielSoC (nur tagsüber)"
+          conditions:
+            - condition: trigger
+              id:
+                - "AC-Überschuss-Aus"
+                - "AC-Überschuss"
+                - "Akku Opti-Automatik AN/AUS"
+                - "PV-70%-Überschuss"
+                - "PV-70%-Überschuss-Aus"
+                - "BYD Änderung"
+                - "Tibber Preislevel Änderung"
+            - condition: state
+              entity_id: input_boolean.akku_opti_automatik
+              state: "on"
+            - condition: state
+              entity_id: input_boolean.hausakku_aus_netz_laden
+              state: "off"
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              above: input_number.minsoc
+              below: sensor.akku_target_soc_intelligent
+            - condition: sun
+              after: sunrise
+              before: sunset
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku Dynamisch"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        - alias: "Nur Entladen wenn SOC über DynZielSoC"
+          conditions:
+            - condition: trigger
+              id:
+                - "AC-Überschuss-Aus"
+                - "AC-Überschuss"
+                - "Akku Opti-Automatik AN/AUS"
+                - "PV-70%-Überschuss"
+                - "PV-70%-Überschuss-Aus"
+                - "BYD Änderung"
+                - "Tibber Preislevel Änderung"
+            - condition: state
+              entity_id: input_boolean.akku_opti_automatik
+              state: "on"
+            - condition: state
+              entity_id: input_boolean.hausakku_aus_netz_laden
+              state: "off"
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              above: sensor.akku_target_soc_intelligent
+            - condition: state
+              entity_id: sensor.pv_forecast_bewertung_morgen
+              state: "Hervorragend"
+              enabled: false
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Entladen"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+      default:
+        - action: input_select.select_option
+          data:
+            option: "Akku Dynamisch"
+          target:
+            entity_id: input_select.akkusteuerung_modus
+
+    - alias: "Netzladen: Booster deaktivieren wenn Akku voll"
+      choose:
+        - conditions:
+            - condition: trigger
+              id:
+                - "Akku ist voll"
+            - condition: state
+              entity_id: input_boolean.hausakku_aus_netz_laden
+              state: "on"
+              enabled: true
+          sequence:
+            - action: input_boolean.turn_off
+              data: {}
+              target:
+                entity_id: input_boolean.hausakku_aus_netz_laden
+            - action: input_number.set_value
+              alias: "Ladepreis Helfer nach aktuellem Strompreis"
+              data:
+                value: "{{ states('sensor.DEIN_STROMPREIS')| float(0) }}"
+              target:
+                entity_id: input_number.ladepreis
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+
+    # Intent: Zweite Lade-Aktionsstufe — Prognosebasiertes Aufladen bei günstigem Strom.
+    # Greift nachgelagert zur choose-Logik oben: hält den SoC praktisch im ~40–60 %-Band
+    # und shaved Preisspitzen (Peak-Shaving). Bewährt, nicht perfekt —
+    # explizite Bandregelung ist ein offener Verbesserungskandidat.
+    - alias: "Akku Nur Laden wenn Prognose schlecht und aufsparen bei CHEAP & VERY_CHEAP & NORMAL"
+      choose:
+        - conditions:
+            - condition: or
+              conditions:
+                - alias: "Wenn SoC <80%, PV <15kWh, Wintermodus und morgen schlecht"
+                  condition: and
+                  conditions:
+                    - condition: numeric_state
+                      entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+                      below: 80
+                    - condition: numeric_state
+                      entity_id: sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+                      below: 15
+                    - alias: "Strom morgen mangelhaft oder kritisch"
+                      condition: or
+                      conditions:
+                        - condition: state
+                          entity_id: sensor.pv_forecast_bewertung_morgen
+                          state: "Mangelhaft"
+                        - condition: state
+                          entity_id: sensor.pv_forecast_bewertung_morgen
+                          state: "Kritisch"
+                    # optional: Sommermodus-Gate; falls nicht vorhanden, diese Bedingung entfernen
+                    - condition: state
+                      entity_id: binary_sensor.DEIN_SOMMERMODUS_GATE
+                      state: "off"
+                - condition: and
+                  conditions:
+                    - condition: time
+                      after: "13:00:00"
+                      before: "23:59:59"
+                    - condition: numeric_state
+                      entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+                      below: 30
+                    - condition: numeric_state
+                      entity_id: sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+                      below: 20
+                    - alias: "Strom morgen mangelhaft oder kritisch"
+                      condition: or
+                      conditions:
+                        - condition: state
+                          entity_id: sensor.pv_forecast_bewertung_morgen
+                          state: "Mangelhaft"
+                        - condition: state
+                          entity_id: sensor.pv_forecast_bewertung_morgen
+                          state: "Kritisch"
+                - condition: and
+                  conditions:
+                    - condition: time
+                      after: "00:00:01"
+                      before: "12:59:59"
+                    - condition: numeric_state
+                      entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+                      below: 30
+                    - alias: "Strom heute mangelhaft oder kritisch"
+                      condition: or
+                      conditions:
+                        - condition: state
+                          entity_id: sensor.pv_forecast_bewertung_heute
+                          state: "Mangelhaft"
+                        - condition: state
+                          entity_id: sensor.pv_forecast_bewertung_heute
+                          state: "Kritisch"
+            - alias: "Wenn CHEAP bis NORMAL Preisniveau ist"
+              condition: or
+              conditions:
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "CHEAP"
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "VERY_CHEAP"
+                  enabled: true
+                - condition: state
+                  entity_id: sensor.strompreis_niveau
+                  state: "NORMAL"
+                  enabled: true
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+
+    # Optionaler Legacy-Block (Tibber-spezifisch), bleibt deaktiviert.
+    - alias: "Tibber Preis-Ladesteuerung (deaktiviert – im Winter kaum wirtschaftlich)"
+      enabled: false
+      choose:
+        - alias: "Netz-Laden wenn Preisspanne lohnt und Funktion aktiviert"
+          conditions:
+            - condition: trigger
+              id:
+                - "Tibber Preislevel Änderung"
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              below: 50
+            - condition: numeric_state
+              entity_id: sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+              below: 10
+            - condition: numeric_state
+              entity_id: sensor.tibber_preisspanne_heute
+              above: 8
+            - condition: numeric_state
+              entity_id: sensor.tibber_aktueller_preis_ist_tageshochstpreis
+              below: 20
+            - condition: state
+              entity_id: input_boolean.akku_nach_preis_laden
+              state: "on"
+          sequence:
+            - action: input_boolean.turn_on
+              data: {}
+              target:
+                entity_id: input_boolean.speicher_eco_netzladen
+            - action: input_boolean.turn_on
+              data: {}
+              target:
+                entity_id:
+                  - input_boolean.hausakku_aus_netz_laden
+                  - input_boolean.hausakku_wurde_netzgeladen
+            - action: input_select.select_option
+              data:
+                option: "Akku Dynamisch"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+
+        - alias: "Akku Automatisch wenn PV-Ertrag gut und Akku hoch (ohne Netzladen)"
+          conditions:
+            - condition: numeric_state
+              entity_id: sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+              above: 25
+            - condition: numeric_state
+              entity_id: sensor.sn_SERIENNUMMER_battery_soc_total
+              above: 60
+            - condition: sun
+              after: sunset
+              before: sunrise
+            - condition: numeric_state
+              entity_id: sensor.maximaler_ueberschuss_fuer_akkuladung_watt
+              below: 1
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku Automatisch"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - action: input_boolean.turn_off
+              data: {}
+              target:
+                entity_id:
+                  - input_boolean.hausakku_aus_netz_laden
+                  - input_boolean.hausakku_wurde_netzgeladen
+
+        - alias: "Akku Automatisch wenn morgen oder heute ausreichend PV"
+          conditions:
+            - condition: or
+              conditions:
+                - condition: numeric_state
+                  entity_id: sensor.solcast_pv_forecast_prognose_morgen
+                  above: 25
+                - condition: numeric_state
+                  entity_id: sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+                  above: 25
+          sequence:
+            - action: input_boolean.turn_off
+              data: {}
+              target:
+                entity_id: input_boolean.speicher_eco_netzladen
+            - action: input_number.set_value
+              alias: "Ladepreis Helfer nach aktuellem Strompreis"
+              data:
+                value: "{{ states('sensor.DEIN_STROMPREIS')| float(0) }}"
+              target:
+                entity_id: input_number.ladepreis
+            - action: input_select.select_option
+              data:
+                option: "Akku Automatisch"
+              target:
+                entity_id: input_select.akkusteuerung_modus

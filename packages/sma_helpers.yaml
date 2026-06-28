@@ -1,0 +1,207 @@
+# =============================================================================
+# SMA Akkusteuerung – Input Helpers & Counter
+# =============================================================================
+# Alle Hilfs-Entitäten für die Akkusteuerung.
+# Diese Datei muss einmalig eingebunden werden – danach werden alle nötigen
+# Entitäten automatisch in HA angelegt.
+#
+# ⚙️  Nichts anpassen – die Standardwerte sind ein guter Ausgangspunkt.
+#     Werte später über die HA-Oberfläche feinjustieren.
+# =============================================================================
+
+input_select:
+  akkusteuerung_modus:
+    name: "Akkusteuerung Modus"
+    options:
+      - "Akku Automatisch"
+      - "Akku schnell Laden"
+      - "Akku schnell Entladen"
+      - "Akku Pause"
+      - "Akku nur Laden"
+      - "Akku nur Entladen"
+      - "Akku Dynamisch"
+      - "Akku 0.2C Laden"
+    initial: "Akku Automatisch"
+    icon: mdi:battery-charging
+
+input_number:
+  # --- Ladeleistungen ---
+  akkusteuerung_ladestaerke_soll:
+    name: "Akkusteuerung Ladestärke Soll"
+    min: 100
+    max: 10000
+    step: 100
+    unit_of_measurement: W
+    mode: box
+    icon: mdi:battery-arrow-up
+
+  akkusteuerung_02c_ladestaerke:
+    name: "Akkusteuerung 0.2C Ladestärke"
+    min: 100
+    max: 10000
+    step: 100
+    unit_of_measurement: W
+    mode: box
+    icon: mdi:battery-arrow-up-outline
+
+  akkusteuerung_min_ladestaerke:
+    name: "Akkusteuerung Min Ladestärke"
+    min: 0
+    max: 2000
+    step: 50
+    initial: 0
+    unit_of_measurement: W
+    mode: box
+
+  akkusteuerung_max_ladestaerke:
+    name: "Akkusteuerung Max Ladestärke"
+    min: 0
+    max: 10000
+    step: 100
+    initial: 5000
+    unit_of_measurement: W
+    mode: box
+
+  # --- Entladeleistungen ---
+  akkusteuerung_entladestaerke_soll:
+    name: "Akkusteuerung Entladestärke Soll"
+    min: 100
+    max: 10000
+    step: 100
+    unit_of_measurement: W
+    mode: box
+    icon: mdi:battery-arrow-down
+
+  akkusteuerung_min_entladestaerke:
+    name: "Akkusteuerung Min Entladestärke"
+    min: 0
+    max: 2000
+    step: 50
+    initial: 0
+    unit_of_measurement: W
+    mode: box
+
+  akkusteuerung_max_entladestaerke:
+    name: "Akkusteuerung Max Entladestärke"
+    min: 0
+    max: 10000
+    step: 100
+    initial: 5000
+    unit_of_measurement: W
+    mode: box
+
+  # --- Überschuss-Grenzen (für Opti-Automatik) ---
+  akkusteuerung_wr_ac_ueberschuss_grenze:
+    name: "Akkusteuerung AC-Überschuss Grenze"
+    min: 0
+    max: 15000
+    step: 100
+    initial: 4500
+    unit_of_measurement: W
+    mode: box
+    icon: mdi:transmission-tower-export
+
+  akkusteuerung_wr_70proz_ueberschuss_grenze:
+    name: "Akkusteuerung 70%-Überschuss Grenze"
+    min: 0
+    max: 15000
+    step: 100
+    initial: 500
+    unit_of_measurement: W
+    mode: box
+
+  # --- SoC-Grenzen ---
+  minsoc:
+    name: "Akku Min SoC"
+    min: 0
+    max: 100
+    step: 1
+    initial: 10
+    unit_of_measurement: "%"
+    mode: slider
+    icon: mdi:battery-low
+
+  maxsoc:
+    name: "Akku Max SoC"
+    min: 0
+    max: 100
+    step: 1
+    initial: 95
+    unit_of_measurement: "%"
+    mode: slider
+    icon: mdi:battery-high
+
+  # --- Preisladen & Mindestentladepreis ---
+  ladepreis:
+    name: "Akku Ladepreis (Referenz)"
+    # Wird automatisch vom aktuellen Strompreis befüllt wenn Netzladen aktiv ist.
+    # Stellt den Preis dar, zu dem der Akku zuletzt netzgeladen wurde.
+    min: 0
+    max: 100
+    step: 0.01
+    unit_of_measurement: ct/kWh
+    mode: box
+    icon: mdi:currency-eur
+
+  mindestpreisdifferenz_lade_entladepreis:
+    name: "Mindestpreisdifferenz Laden/Entladen"
+    # Mindest-Marge zwischen Ladepreis und aktuellem Preis, ab der Entladen wirtschaftlich ist.
+    # Beispiel: Ladepreis 20 ct + Differenz 5 ct → Entladen erst ab 25 ct/kWh sinnvoll.
+    # Empfehlung: 3–8 ct/kWh (deckt Verluste + Akkuverschleiß ab)
+    min: 0
+    max: 30
+    step: 0.5
+    initial: 5
+    unit_of_measurement: ct/kWh
+    mode: box
+    icon: mdi:cash-plus
+
+input_boolean:
+  akku_opti_automatik:
+    name: "Akku Opti-Automatik"
+    icon: mdi:battery-sync
+
+  hausakku_aus_netz_laden:
+    name: "Hausakku aus Netz laden"
+    icon: mdi:transmission-tower
+
+  hausakku_wurde_netzgeladen:
+    name: "Hausakku wurde netzgeladen (Flag)"
+    icon: mdi:battery-check
+
+  akku_nach_preis_laden:
+    name: "Akku nach Preis laden"
+    icon: mdi:currency-eur
+
+  speicher_eco_netzladen:
+    name: "Speicher Eco Netzladen"
+    icon: mdi:leaf
+
+counter:
+  tage_seit_akku100:
+    name: "Tage seit Akku 100%"
+    initial: 0
+    step: 1
+    icon: mdi:counter
+
+# =============================================================================
+# MANUELL ÜBER DIE HA-OBERFLÄCHE ANLEGEN (nicht per YAML möglich)
+# =============================================================================
+#
+# sensor.mindestentladepreis  –  Min/Max-Sensor (Summe)
+# -------------------------------------------------------
+# Dieser Sensor berechnet den Mindestpreis, ab dem das Entladen wirtschaftlich ist:
+#
+#   Mindestentladepreis = Ladepreis + Mindestpreisdifferenz
+#
+# Anlegen unter: Einstellungen → Geräte & Dienste → Helfer → + Helfer hinzufügen
+#                → Min/Max
+#
+#   Name:        Mindestentladepreis
+#   Typ:         Summe
+#   Entitäten:   input_number.ladepreis
+#                input_number.mindestpreisdifferenz_lade_entladepreis
+#
+# Ergebnis: sensor.mindestentladepreis  (wird in der Opti-Automatik als
+# Entladeschwelle verwendet: Entladen nur wenn aktueller Strompreis ≥ diesem Wert)
+# =============================================================================

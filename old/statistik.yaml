@@ -1,0 +1,36 @@
+  - platform: statistics
+    name: "House Battery Load 30 mins"
+    entity_id: sensor.sn_3015XXXXXX_battery_power_discharge_total
+    state_characteristic: mean
+    max_age:
+      hours: 24  # Erhöht für bessere Historie
+    sampling_size: 180  # 180 Samples für genaueren Mittelwert (30min * 60sec / 10sec Intervall)
+    precision: 0
+
+  - platform: statistics
+    name: "House Stromverbrauch 30 min"
+    entity_id: sensor.home_energy_usage_watt
+    state_characteristic: mean
+    max_age:
+      hours: 24  # Erhöht für bessere Historie
+    sampling_size: 180  # 180 Samples für genaueren Mittelwert
+    precision: 0
+
+# Optional: Zusätzlicher Sensor für genauere Laufzeitberechnung
+  - platform: statistics
+    name: "Haus Battery Load 60 mins"
+    entity_id: sensor.sn_3015XXXXXX_battery_power_discharge_total
+    state_characteristic: mean
+    max_age:
+      hours: 24
+    sampling_size: 360  # 360 Samples für 60 Minuten
+    precision: 0
+
+  - platform: statistics
+    name: "Haus Stromverbrauch 60 min"
+    entity_id: sensor.home_energy_usage_watt
+    state_characteristic: mean
+    max_age:
+      hours: 24
+    sampling_size: 360  # 360 Samples für 60 Minuten
+    precision: 0

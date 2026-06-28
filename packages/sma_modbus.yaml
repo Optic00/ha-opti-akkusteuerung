@@ -1,0 +1,64 @@
+# =============================================================================
+# SMA STP SE Hybrid-Wechselrichter – Modbus Konfiguration
+# =============================================================================
+# Dieses Package enthält die Modbus-TCP-Verbindung zum WR.
+#
+# ⚙️  ANPASSEN:
+#   host: IP-Adresse des Wechselrichters im lokalen Netz
+#
+# Voraussetzung: Modbus-Steuerung ohne Grid Guard Code benötigt entweder
+#   deaktivierte Updates oder Beta-Firmware (ab ca. 3.06.xx).
+# =============================================================================
+
+modbus:
+  - name: sma-sr_wr               # ← diesen Namen ggf. in den Blueprints anpassen
+    type: tcp
+    host: 192.168.1.100            # ← ⚙️  IP-Adresse des WR hier eintragen
+    port: 502
+    delay: 2
+    message_wait_milliseconds: 60
+    timeout: 5
+    sensors:
+      - name: SMA-STP-SE_Temperatur
+        data_type: uint32
+        device_class: temperature
+        unit_of_measurement: "°C"
+        slave: 3
+        address: 30953
+        scale: 0.1
+
+      - name: SMA-STP-SE_Inverter_Power_Limit
+        slave: 3
+        address: 41255
+        data_type: int16
+        scan_interval: 60
+
+      - name: SMA-STP-SE_30881_Netzanbindung_der_PV-Anlage
+        slave: 3
+        address: 30881
+        data_type: uint32
+
+      - name: SMA-STP-SE_30217_Netz_Schuetz
+        slave: 3
+        address: 30217
+        data_type: uint32
+
+      - name: SMA-STP-SE_33003_Betriebsstatus
+        slave: 3
+        address: 33003
+        data_type: uint32
+
+      - name: SMA-STP-SE_40187_Batterie_Nennkapazitaet
+        slave: 3
+        address: 40187
+        data_type: uint32
+
+      - name: SMA-STP-SE_40723_Batterie_Minimale_Breite_Ersatzstrom
+        slave: 3
+        address: 40723
+        data_type: uint32
+
+      - name: SMA-STP-SE_31061_Steuerung verfügbar
+        slave: 3
+        address: 31061
+        data_type: uint32

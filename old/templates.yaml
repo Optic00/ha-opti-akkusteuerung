@@ -1,0 +1,334 @@
+    - unique_id: "house_battery_runtime_raw"
+      name: "House Battery Runtime Raw"
+      unit_of_measurement: "hours"
+      state: >
+        {% set soc = states('sensor.sn_3015XXXXXXX_battery_soc_total') %}
+        {% set nennkapazitaet = states('sensor.sma_stp_se_40187_batterie_nennkapazitaet') %}
+        {% set battery_load_raw = states('sensor.house_battery_load_30_mins') %}
+        {% set pv_power = states('sensor.sn_3015XXXXXXX_pv_power') %}
+        {% set min_soc_helper = states('input_number.minsoc') %}
+        {% set max_soc_helper = states('input_number.maxsoc') %}
+        
+        {# Prüfe ob alle Sensoren verfügbar sind #}
+        {% if soc not in ['unavailable', 'unknown', None] and 
+              nennkapazitaet not in ['unavailable', 'unknown', None] and 
+              battery_load_raw not in ['unavailable', 'unknown', None] and
+              pv_power not in ['unavailable', 'unknown', None] %}
+          
+          {% set soc_value = soc|float(0) %}
+          {% set capacity_kwh = nennkapazitaet|float(0) / 1000 %} {# Umrechnung von Wh zu kWh #}
+          {% set pv_power_value = pv_power|float(0) %}
+          
+          {# Min/Max SoC aus Helfern lesen mit Fallbacks #}
+          {% set min_soc = min_soc_helper|float(10) if min_soc_helper not in ['unavailable', 'unknown', None] else 10 %}
+          {% set max_soc = max_soc_helper|float(95) if max_soc_helper not in ['unavailable', 'unknown', None] else 95 %}
+          
+          {# Sicherstellen dass Min < Max und beide im gültigen Bereich #}
+          {% set min_soc_safe = max(0, min(100, min_soc)) %}
+          {% set max_soc_safe = max(min_soc_safe, min(100, max_soc)) %}
+          
+          {# Nur berechnen wenn PV-Produktion sehr gering (< 100W) #}
+          {% if pv_power_value < 100 %}
+            
+            {% set battery_load = battery_load_raw|float(0) %}
+            
+            {# Wenn battery_load negativ ist (Entladung), mache es positiv für Berechnung #}
+            {% if battery_load < 0 %}
+              {% set discharge_power_kw = -battery_load / 1000 %} {# Umrechnung W zu kW #}
+            {% else %}
+              {% set discharge_power_kw = battery_load / 1000 %}
+            {% endif %}
+            
+            {# Verfügbare Energie in kWh basierend auf nutzbarem SoC-Bereich #}
+            {% set current_soc_in_range = max(min_soc_safe, min(max_soc_safe, soc_value)) %}
+            {% set available_soc_percentage = (current_soc_in_range - min_soc_safe) / (max_soc_safe - min_soc_safe) * 100 if max_soc_safe > min_soc_safe else 0 %}
+            {% set available_energy_kwh = (available_soc_percentage / 100) * capacity_kwh %}
+            
+            {# Berechne Laufzeit in Stunden #}
+            {% if discharge_power_kw > 0 and available_energy_kwh > 0 %}
+              {% set runtime_hours = available_energy_kwh / discharge_power_kw %}
+              {# Begrenze auf max 24h (1 Tag) #}
+              {{ [runtime_hours, 24]|min|round(2) }}
+            {% elif discharge_power_kw == 0 %}
+              {# Keine Entladung - unendliche Laufzeit #}
+              999
+            {% else %}
+              {# Keine verfügbare Energie im nutzbaren Bereich #}
+              0
+            {% endif %}
+            
+          {% else %}
+            {# PV produziert noch - keine Berechnung #}
+            0
+          {% endif %}
+          
+        {% else %}
+          {# Sensoren nicht verfügbar #}
+          unavailable
+        {% endif %}
+
+    - unique_id: "akku_dynamische_ladestaerke_akku"
+      name: "Akkusteuerung Dynamische Ladestaerke"
+      unit_of_measurement: W
+      state: >
+        {% set soc_raw = states('sensor.sn_3015XXXXXXX_battery_soc_total') %}
+        {% set temp_raw = states('sensor.sn_3015XXXXXXX_battery_temp_a') %}
+        {% set cap_raw = states('sensor.sma_stp_se_40187_batterie_nennkapazitaet') %}
+        {% set max_soc_helper = states('input_number.maxsoc') %}
+        
+        {# Prüfe Verfügbarkeit der erforderlichen Sensoren #}
+        {% if soc_raw not in ['unavailable', 'unknown', None] and
+              temp_raw not in ['unavailable', 'unknown', None] and
+              cap_raw not in ['unavailable', 'unknown', None] %}
+          
+          {% set soc = soc_raw|float(50) %} {# Fallback 50% bei Fehler #}
+          {% set temp = temp_raw|float(25) %} {# Fallback 25°C bei Fehler #}
+          {% set cap = cap_raw|float(12800) %} {# Fallback 12.8kWh (BYD HVS Standard) #}
+          
+          {# Max SoC aus Helfer lesen mit Fallback #}
+          {% set max_soc = max_soc_helper|float(95) if max_soc_helper not in ['unavailable', 'unknown', None] else 95 %}
+          {% set max_soc_safe = max(5, min(100, max_soc)) %}
+          
+          {# BYD HVS LiFePO4 optimierte C-Raten #}
+          {% set c05 = cap * 0.5 %}   {# 0.5C - Hächste Stufe fuer niedrigen SOC #}
+          {% set c03 = cap * 0.3 %}   {# 0.3C - Optimal für Langlebigkeit #}
+          {% set c02 = cap * 0.2 %}   {# 0.2C - Ausgewogen #}
+          {% set c01 = cap * 0.1 %}   {# 0.1C - Schonend #}
+          {% set c005 = cap * 0.05 %} {# 0.05C - Minimal #}
+          
+          {# BYD HVS LiFePO4 Temperaturbereiche (breiter als andere Chemien) #}
+          {% if temp > 0 and temp < 45 %}  {# LiFePO4 verträgt 0-45°C gut #}
+            {% if soc < 30 %}  {# Schnell laden bei sehr niedrigem SoC #}
+              {% set max_c = c05 %}   {# 0.5C bei kritisch niedrigem SoC #}
+            {% elif soc < 60 %}  {# Volle Power im unteren Bereich #}
+              {% set max_c = c03 %}   {# 0.3C optimal #}
+            {% elif soc < 85 %}  {# Moderate Rate im mittleren Bereich #}
+              {% set max_c = c02 %}   {# 0.2C ausgewogen #}
+            {% elif soc < max_soc_safe %}  {# Schonend bei hohem SoC (bis MaxSoC) #}
+              {% set max_c = c01 %}   {# 0.1C schonend #}
+            {% else %}  {# Sehr schonend bei sehr hohem SoC #}
+              {% set max_c = c005 %}  {# 0.05C minimal #}
+            {% endif %}
+          {% elif temp >= 45 and temp < 50 %}  {# Hohe Temperatur - reduzieren #}
+            {% set max_c = c01 %}     {# 0.1C bei hoher Temperatur #}
+          {% elif temp <= 0 and temp > -5 %}  {# Kalte Temperatur - reduzieren #}
+            {% set max_c = c005 %}    {# 0.05C bei Kälte #}
+          {% else %}  {# Extremtemperaturen - kein Laden #}
+            {% set max_c = 0 %}       {# Kein Laden bei extremen Temperaturen #}
+          {% endif %}
+          
+          {# Maximale C-Rate basierend auf SoC und Temperatur #}
+          {{ max_c|round(0) }}
+          
+        {% else %}
+          {# Fallback bei ausgefallenen Sensoren: 0.1C der Nennkapazität #}
+          {% set fallback_cap = 12800 %} {# 12.8kWh BYD HVS Standard #}
+          {{ (fallback_cap * 0.1)|round(0) }}
+        {% endif %}
+
+    - unique_id: "pv_forecast_bewertung_heute"
+      name: "PV Forecast Bewertung Heute"
+      state: >
+        {% set nennkapazitaet_kwh = states('sensor.sma_stp_se_40187_batterie_nennkapazitaet')|float(0) / 1000 %}
+        {% set prognose = states('sensor.solcast_pv_forecast_prognose_heute')|float(0) %}
+
+        {% if prognose < (nennkapazitaet_kwh * 1.5) %}
+          Kritisch
+        {% elif prognose < (nennkapazitaet_kwh * 2.5) %}
+          Mangelhaft
+        {% elif prognose >= (nennkapazitaet_kwh * 7) %}
+          Hervorragend
+        {% elif prognose >= (nennkapazitaet_kwh * 4) %}
+          Optimal
+        {% elif prognose >= (nennkapazitaet_kwh * 2.5) %}
+          Ausreichend
+        {% else %}
+          Kritisch
+        {% endif %}
+      icon: >
+        {% if is_state('sensor.pv_forecast_bewertung_heute', 'Hervorragend') %}
+          mdi:weather-sunny
+        {% elif is_state('sensor.pv_forecast_bewertung_heute', 'Optimal') %}
+          mdi:white-balance-sunny
+        {% elif is_state('sensor.pv_forecast_bewertung_heute', 'Ausreichend') %}
+          mdi:weather-partly-cloudy
+        {% elif is_state('sensor.pv_forecast_bewertung_heute', 'Mangelhaft') %}
+          mdi:weather-cloudy
+        {% elif is_state('sensor.pv_forecast_bewertung_heute', 'Kritisch') %}
+          mdi:weather-cloudy-alert
+        {% else %}
+          mdi:help
+        {% endif %}
+
+    - unique_id: "pv_forecast_bewertung_morgen"
+      name: "PV Forecast Bewertung Morgen"
+      state: >
+        {% set nennkapazitaet_kwh = states('sensor.sma_stp_se_40187_batterie_nennkapazitaet')|float(0) / 1000 %}
+        {% set prognose = states('sensor.solcast_pv_forecast_prognose_morgen')|float(0) %}
+
+        {% if prognose < (nennkapazitaet_kwh * 1.5) %}
+          Kritisch
+        {% elif prognose < (nennkapazitaet_kwh * 2.5) %}
+          Mangelhaft
+        {% elif prognose >= (nennkapazitaet_kwh * 7) %}
+          Hervorragend
+        {% elif prognose >= (nennkapazitaet_kwh * 4) %}
+          Optimal
+        {% elif prognose >= (nennkapazitaet_kwh * 2.5) %}
+          Ausreichend
+        {% else %}
+          Kritisch
+        {% endif %}
+      icon: >
+        {% if is_state('sensor.pv_forecast_bewertung_morgen', 'Hervorragend') %}
+          mdi:weather-sunny
+        {% elif is_state('sensor.pv_forecast_bewertung_morgen', 'Optimal') %}
+          mdi:white-balance-sunny
+        {% elif is_state('sensor.pv_forecast_bewertung_morgen', 'Ausreichend') %}
+          mdi:weather-partly-cloudy
+        {% elif is_state('sensor.pv_forecast_bewertung_morgen', 'Mangelhaft') %}
+          mdi:weather-cloudy
+        {% elif is_state('sensor.pv_forecast_bewertung_morgen', 'Kritisch') %}
+          mdi:weather-cloudy-alert
+        {% else %}
+          mdi:help
+        {% endif %}
+
+    - unique_id: "akku_target_soc_intelligent"
+      name: "Akku Target SoC Intelligent"
+      unit_of_measurement: "%"
+      state: >
+        {% set cap_kwh = states('sensor.sma_stp_se_40187_batterie_nennkapazitaet')|float(12800) / 1000 %}
+        {% set restproduktion_kwh = states('sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute')|float(0) %}
+        {% set hausverbrauch_w = states('sensor.haus_stromverbrauch_60_min')|float(1500) %}
+        {% set max_soc = states('input_number.maxsoc')|float(95) %}
+        {% set min_soc = states('input_number.minsoc')|float(10) %}
+        {% set netzladen = states('input_boolean.hausakku_aus_netz_laden') %}
+        
+        {# Bei preisgesteuertem Laden direkt auf MaxSOC #}
+        {% if netzladen == 'on' %}
+          {{ max_soc|round(0) }}
+        {% else %}
+          {# Berechne verbleibende Stunden bis Sonnenuntergang mit sun.sun #}
+          {% set sunset_time = state_attr('sun.sun', 'next_setting') %}
+          {% if sunset_time %}
+            {% set now_time = now() %}
+            {% set sunset_dt = sunset_time | as_datetime %}
+            {% set time_diff = sunset_dt - now_time %}
+            {% set remaining_hours = (time_diff.total_seconds() / 3600)|round(1) %}
+            {# Mindestens 0.5h, maximal 12h für realistische Werte #}
+            {% set remaining_hours = max(0.5, min(12, remaining_hours)) %}
+          {% else %}
+            {# Fallback auf DetailedHourly #}
+            {% set detailed_forecast = state_attr('sensor.solcast_pv_forecast_prognose_heute', 'DetailedHourly') %}
+            {% if detailed_forecast %}
+              {% set now = now() %}
+              {% set remaining_hours = 0 %}
+              {% for period in detailed_forecast %}
+                {% set period_start = period.period_start | as_datetime %}
+                {% if period_start >= now and period.pv_estimate|float(0) > 0.1 %}
+                  {% set remaining_hours = remaining_hours + 1 %}
+                {% endif %}
+              {% endfor %}
+              {% if remaining_hours == 0 %}
+                {% set remaining_hours = 1 %}
+              {% endif %}
+            {% else %}
+              {% set remaining_hours = 6 %}
+            {% endif %}
+          {% endif %}
+          
+          {# Geschätzter Hausverbrauch für die verbleibenden Stunden #}
+          {% set estimated_consumption_kwh = (hausverbrauch_w / 1000) * remaining_hours %}
+          
+          {# Was bleibt wirklich für den Akku übrig? #}
+          {% set net_available_kwh = max(0, restproduktion_kwh - estimated_consumption_kwh) %}
+          
+          {# Verhältnis zur Akkukapazität (ähnlich wie bei pv_forecast_bewertung_heute) #}
+          {% set ratio = net_available_kwh / cap_kwh %}
+          
+          {# Target-SoC basierend auf Verhältnis zur Akkukapazität #}
+          {# Je weniger verfügbar, desto höher der Target (präventive Logik) #}
+          {% if ratio >= 3.0 %}
+            {# Mehr als 3x Akkukapazität verfügbar - entspannt bei 50% #}
+            {% set target = 50 %}
+          {% elif ratio >= 2.0 %}
+            {# 2-3x Akkukapazität - auf 60% #}
+            {% set target = 60 %}
+          {% elif ratio >= 1.5 %}
+            {# 1.5-2x Akkukapazität - auf 70% #}
+            {% set target = 70 %}
+          {% elif ratio >= 1.0 %}
+            {# 1-1.5x Akkukapazität - auf 80% #}
+            {% set target = 80 %}
+          {% elif ratio >= 0.5 %}
+            {# 0.5-1x Akkukapazität - auf 90% #}
+            {% set target = 90 %}
+          {% elif ratio >= 0.2 %}
+            {# 0.2-0.5x Akkukapazität - auf MaxSOC #}
+            {% set target = max_soc %}
+          {% else %}
+            {# Weniger als 0.2x Akkukapazität - sofort MaxSOC #}
+            {% set target = max_soc %}
+          {% endif %}
+          
+          {# Begrenze auf Min/Max SoC #}
+          {{ max(min_soc, min(max_soc, target))|round(0) }}
+        {% endif %}
+
+    - unique_id: "akku_net_verfuegbare_energie"
+      name: "Akku Net Verfügbare Energie"
+      unit_of_measurement: "kWh"
+      state: >
+        {% set restproduktion_kwh = states('sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute')|float(0) %}
+        {% set hausverbrauch_w = states('sensor.haus_stromverbrauch_60_min')|float(1500) %}
+        
+        {# Berechne verbleibende Stunden bis Sonnenuntergang mit sun.sun #}
+        {% set sunset_time = state_attr('sun.sun', 'next_setting') %}
+        {% if sunset_time %}
+          {% set now_time = now() %}
+          {% set sunset_dt = sunset_time | as_datetime %}
+          {% set time_diff = sunset_dt - now_time %}
+          {% set remaining_hours = (time_diff.total_seconds() / 3600)|round(1) %}
+          {# Mindestens 0.5h, maximal 12h für realistische Werte #}
+          {% set remaining_hours = max(0.5, min(12, remaining_hours)) %}
+        {% else %}
+          {# Fallback auf DetailedHourly #}
+          {% set detailed_forecast = state_attr('sensor.solcast_pv_forecast_prognose_heute', 'DetailedHourly') %}
+          {% if detailed_forecast %}
+            {% set now = now() %}
+            {% set remaining_hours = 0 %}
+            {% for period in detailed_forecast %}
+              {% set period_start = period.period_start | as_datetime %}
+              {% if period_start >= now and period.pv_estimate|float(0) > 0.1 %}
+                {% set remaining_hours = remaining_hours + 1 %}
+              {% endif %}
+            {% endfor %}
+            {% if remaining_hours == 0 %}
+              {% set remaining_hours = 1 %}
+            {% endif %}
+          {% else %}
+            {% set remaining_hours = 6 %}
+          {% endif %}
+        {% endif %}
+        
+        {# Geschätzter Hausverbrauch für die verbleibenden Stunden #}
+        {% set estimated_consumption_kwh = (hausverbrauch_w / 1000) * remaining_hours %}
+        
+        {# Was bleibt für den Akku übrig? #}
+        {{ max(0, restproduktion_kwh - estimated_consumption_kwh)|round(2) }}
+
+    - unique_id: "akku_remaining_sun_hours"
+      name: "Verbleibende Sonnenstunden"
+      unit_of_measurement: "h"
+      state: >
+        {% set sunset_time = state_attr('sun.sun', 'next_setting') %}
+        {% if sunset_time %}
+          {% set now_time = now() %}
+          {% set sunset_dt = sunset_time | as_datetime %}
+          {% set time_diff = sunset_dt - now_time %}
+          {% set remaining_hours = (time_diff.total_seconds() / 3600)|round(1) %}
+          {{ max(0, min(12, remaining_hours)) }}
+        {% else %}
+          0
+        {% endif %}

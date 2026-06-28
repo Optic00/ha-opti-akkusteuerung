@@ -1,0 +1,401 @@
+alias: Akku Lade- Entladesteuerung Opti 2.0
+description: (inkl. Preisladung, 70% und AC-Überschuss)
+triggers:
+  - entity_id:
+      - sensor.tibber_price_level
+    id: Tibber Preislevel Änderung
+    enabled: false
+    from: null
+    to: null
+    trigger: state
+  - entity_id:
+      - input_boolean.akku_opti_automatik
+    id: Akku Opti-Automatik AN/AUS
+    trigger: state
+    to: "on"
+  - entity_id:
+      - sensor.sn_301XXXXXXX_battery_soc_total
+    id: BYD Änderung
+    trigger: state
+  - entity_id:
+      - sensor.mindestentladepreis
+    below: sensor.electricity_price_musterstrasse_123
+    id: Entladeschwelle
+    enabled: true
+    trigger: numeric_state
+  - entity_id:
+      - sensor.sn_301XXXXXXX_pv_power
+    for:
+      hours: 0
+      minutes: 0
+      seconds: 30
+    id: AC-Überschuss
+    above: input_number.akkusteuerung_wr_ac_ueberschuss_grenze
+    trigger: numeric_state
+  - entity_id:
+      - sensor.sn_301XXXXXXX_pv_power
+    for:
+      hours: 0
+      minutes: 0
+      seconds: 30
+    id: AC-Überschuss-Aus
+    below: input_number.akkusteuerung_wr_ac_ueberschuss_grenze
+    trigger: numeric_state
+  - entity_id:
+      - sensor.ueberschuss_pv_watt
+    for:
+      hours: 0
+      minutes: 0
+      seconds: 30
+    id: PV-70%-Überschuss
+    above: input_number.akkusteuerung_wr_70proz_ueberschuss_grenze
+    trigger: numeric_state
+  - entity_id:
+      - sensor.ueberschuss_pv_watt
+    for:
+      hours: 0
+      minutes: 0
+      seconds: 30
+    id: PV-70%-Überschuss-Aus
+    below: input_number.akkusteuerung_wr_70proz_ueberschuss_grenze
+    trigger: numeric_state
+  - entity_id:
+      - sensor.pv_forecast_bewertung_heute
+      - sensor.pv_forecast_bewertung_morgen
+    id: PV Prognose Bewertung geändert
+    trigger: state
+  - entity_id:
+      - sensor.akkusteuerung_dynamische_ladestaerke
+    id: Dynamische Ladestärke geändert
+    trigger: state
+  - entity_id:
+      - sensor.akku_target_soc_intelligent
+    id: Target SoC erreicht
+    trigger: state
+  - trigger: numeric_state
+    entity_id:
+      - sensor.sn_301XXXXXXX_battery_soc_total
+    above: 99
+    id: Akku ist voll
+conditions:
+  - condition: state
+    entity_id: input_boolean.akku_opti_automatik
+    state: "on"
+actions:
+  - alias: Counter auf 0 setzen bei 100% SoC
+    choose:
+      - conditions:
+          - condition: trigger
+            id:
+              - Akku ist voll
+        sequence:
+          - target:
+              entity_id: counter.tage_seit_akku100
+            action: counter.reset
+  - alias: Zwischen Speicherszenarien wählen
+    choose:
+      - conditions:
+          - condition: trigger
+            id:
+              - AC-Überschuss-Aus
+              - AC-Überschuss
+              - Akku Opti-Automatik AN/AUS
+              - PV-70%-Überschuss
+              - PV-70%-Überschuss-Aus
+              - BYD Änderung
+          - condition: state
+            entity_id: input_boolean.akku_opti_automatik
+            state: "on"
+          - condition: state
+            entity_id: input_boolean.hausakku_aus_netz_laden
+            state: "off"
+          - condition: sun
+            before: sunset
+            after: sunrise
+        sequence:
+          - alias: Bei AC Überschuss diesen in den Akku Laden
+            if:
+              - condition: numeric_state
+                entity_id: sensor.sn_301XXXXXXX_pv_power
+                above: input_number.akkusteuerung_wr_ac_ueberschuss_grenze
+              - condition: numeric_state
+                entity_id: sensor.sn_301XXXXXXX_battery_soc_total
+                below: "100"
+            then:
+              - metadata: {}
+                data:
+                  option: Akku Dynamisch
+                target:
+                  entity_id: input_select.akkusteuerung_sma_wr
+                action: input_select.select_option
+              - stop: fertig
+          - alias: Bei 70% Überschuss diesen in den Akku Laden
+            if:
+              - condition: numeric_state
+                entity_id: sensor.ueberschuss_pv_watt
+                above: input_number.akkusteuerung_wr_70proz_ueberschuss_grenze
+              - condition: numeric_state
+                entity_id: sensor.sn_301XXXXXXX_battery_soc_total
+                below: "100"
+            then:
+              - metadata: {}
+                data:
+                  option: Akku Dynamisch
+                target:
+                  entity_id: input_select.akkusteuerung_sma_wr
+                action: input_select.select_option
+              - stop: fertig
+          - alias: Bei vollem Akku im Zweifel auf Dynamisch schalten
+            if:
+              - condition: numeric_state
+                entity_id: sensor.sn_301XXXXXXX_battery_soc_total
+                above: 99
+            then:
+              - metadata: {}
+                data:
+                  option: Akku Dynamisch
+                target:
+                  entity_id: input_select.akkusteuerung_sma_wr
+                action: input_select.select_option
+              - stop: fertig
+          - alias: Akku Laden wenn SOC ist unter DynZielSoC und über MinSoC
+            if:
+              - condition: numeric_state
+                entity_id: sensor.sn_301XXXXXXX_battery_soc_total
+                above: input_number.minsoc
+                below: sensor.akku_target_soc_intelligent
+              - condition: sun
+                before: sunset
+                after: sunrise
+            then:
+              - metadata: {}
+                data:
+                  option: Akku Dynamisch
+                target:
+                  entity_id: input_select.akkusteuerung_sma_wr
+                action: input_select.select_option
+              - stop: fertig
+          - alias: Akku nur Entladen wenn SOC ist über DynZielSoC und über MinSoC
+            if:
+              - condition: numeric_state
+                entity_id: sensor.sn_301XXXXXXX_battery_soc_total
+                above: sensor.akku_target_soc_intelligent
+              - condition: state
+                entity_id: sensor.pv_forecast_bewertung_morgen
+                state: Hervorragend
+                enabled: false
+            then:
+              - metadata: {}
+                data:
+                  option: Akku nur Entladen
+                target:
+                  entity_id: input_select.akkusteuerung_sma_wr
+                action: input_select.select_option
+              - stop: fertig
+      - conditions:
+          - condition: trigger
+            id:
+              - Speicher ist voll
+          - condition: state
+            entity_id: input_boolean.hausakku_aus_netz_laden
+            state: "on"
+            enabled: true
+        sequence:
+          - metadata: {}
+            data: {}
+            target:
+              entity_id: input_boolean.hausakku_aus_netz_laden
+            action: input_boolean.turn_off
+          - data:
+              value: >-
+                {{ states('sensor.electricity_price_musterstrasse_123')| float(0)
+                }}
+            target:
+              entity_id: input_number.ladepreis
+            alias: Ladepreis Helfer nach aktuellem Strompreis
+            action: input_number.set_value
+          - metadata: {}
+            data:
+              option: Akku Pause
+            target:
+              entity_id: input_select.akkusteuerung_sma_wr
+            action: input_select.select_option
+      - conditions:
+          - condition: trigger
+            id:
+              - sehr günstig
+              - günstig
+          - condition: numeric_state
+            entity_id: sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+            below: 20
+          - condition: numeric_state
+            entity_id: sensor.sn_301XXXXXXX_battery_soc_total
+            below: 60
+          - condition: sun
+            before: sunrise
+            after: sunset
+        sequence:
+          - metadata: {}
+            data:
+              option: Akku Pause
+            target:
+              entity_id: input_select.akkusteuerung_sma_wr
+            action: input_select.select_option
+        alias: Akku Pause wenn Prognose schlecht und aufsparen
+    default:
+      - metadata: {}
+        data:
+          option: Akku Dynamisch
+        target:
+          entity_id: input_select.akkusteuerung_sma_wr
+        action: input_select.select_option
+  - alias: Zwischen Tibber Aktionen wählen
+    choose:
+      - conditions:
+          - condition: trigger
+            id:
+              - Tibber Preislevel Änderung
+          - condition: trigger
+            id:
+              - sehr günstig
+              - günstig
+              - normal
+          - condition: trigger
+            id:
+              - sehr günstig
+              - günstig
+          - condition: trigger
+            id:
+              - sehr günstig
+              - günstig
+          - condition: trigger
+            id:
+              - teuer
+              - sehr teuer
+              - normal
+        sequence:
+          - choose:
+              - conditions:
+                  - condition: numeric_state
+                    entity_id: sensor.sn_301XXXXXXX_battery_soc_total
+                    below: 50
+                  - condition: numeric_state
+                    entity_id: >-
+                      sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+                    below: 10
+                  - condition: numeric_state
+                    entity_id: sensor.tibber_preisspanne_heute
+                    above: 8
+                  - condition: numeric_state
+                    entity_id: sensor.tibber_aktueller_preis_ist_tageshochstpreis
+                    below: 20
+                  - condition: state
+                    entity_id: input_boolean.akku_nach_preis_laden
+                    state: "on"
+                sequence:
+                  - target:
+                      entity_id: input_boolean.speicher_eco_netzladen
+                    data: {}
+                    action: input_boolean.turn_on
+                  - target:
+                      entity_id:
+                        - input_boolean.hausakku_aus_netz_laden
+                    data: {}
+                    action: input_boolean.turn_on
+                  - target:
+                      entity_id:
+                        - input_boolean.hausakku_aus_netz_laden
+                        - input_boolean.hausakku_wurde_netzgeladen
+                    data: {}
+                    action: input_boolean.turn_on
+                  - metadata: {}
+                    data:
+                      option: Akku Dynamisch
+                    target:
+                      entity_id: input_select.akkusteuerung_sma_wr
+                    action: input_select.select_option
+                alias: Akku tatsächlich Laden wenn es sich lohnt und aktiviert
+              - conditions:
+                  - condition: numeric_state
+                    entity_id: >-
+                      sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+                    above: 25
+                  - condition: numeric_state
+                    entity_id: sensor.sn_301XXXXXXX_battery_soc_total
+                    above: 60
+                  - condition: sun
+                    before: sunrise
+                    after: sunset
+                  - condition: numeric_state
+                    entity_id: sensor.maximaler_ueberschuss_fuer_akkuladung_watt
+                    below: 1
+                sequence:
+                  - metadata: {}
+                    data:
+                      option: Akku Automatisch
+                    target:
+                      entity_id: input_select.akkusteuerung_sma_wr
+                    action: input_select.select_option
+                  - target:
+                      entity_id:
+                        - input_boolean.hausakku_aus_netz_laden
+                        - input_boolean.hausakku_wurde_netzgeladen
+                    data: {}
+                    action: input_boolean.turn_off
+                alias: >-
+                  Wenn der PV-Ertrag gut wird Akku Automatisch und Ladung
+                  freigeben (ohne PV)
+              - conditions:
+                  - condition: numeric_state
+                    entity_id: >-
+                      sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+                    above: 10
+                  - condition: sun
+                    before: sunset
+                    after: sunrise
+                sequence:
+                  - metadata: {}
+                    data:
+                      option: Akku Automatisch
+                    target:
+                      entity_id: input_select.akkusteuerung_sma_wr
+                    enabled: false
+                    action: input_select.select_option
+                  - target:
+                      entity_id:
+                        - input_boolean.hausakku_aus_netz_laden
+                        - input_boolean.hausakku_wurde_netzgeladen
+                    data: {}
+                    enabled: false
+                    action: input_boolean.turn_off
+              - conditions:
+                  - condition: or
+                    conditions:
+                      - condition: numeric_state
+                        entity_id: sensor.solcast_pv_forecast_prognose_morgen
+                        above: 25
+                      - condition: numeric_state
+                        entity_id: >-
+                          sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute
+                        above: 25
+                sequence:
+                  - target:
+                      entity_id: input_boolean.speicher_eco_netzladen
+                    data: {}
+                    action: input_boolean.turn_off
+                  - data:
+                      value: >-
+                        {{ states('sensor.electricity_price_musterstrasse_123')|
+                        float(0) }}
+                    target:
+                      entity_id: input_number.ladepreis
+                    alias: Ladepreis Helfer nach aktuellem Strompreis
+                    action: input_number.set_value
+                  - metadata: {}
+                    data:
+                      option: Akku Automatisch
+                    target:
+                      entity_id: input_select.akkusteuerung_sma_wr
+                    action: input_select.select_option
+    enabled: false
+mode: single

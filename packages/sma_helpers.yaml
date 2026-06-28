@@ -181,9 +181,9 @@ input_boolean:
 
   # --- Opti Canonical-Layer Gates (Paket 3) ---
   opti_prognose_netzladen:
-    name: "Opti Prognose-Netzladen erlauben"
-    # Gate für die prognosebasierten SOC-Ladeblöcke (lädt bei schlechter
-    # Prognose + günstigem Preis aus dem Netz). Default an.
+    name: "Opti Reserve-halten bei schlechter Prognose"
+    # Gate für die prognosebasierten "Akku nur Laden"-Blöcke (Entladesperre +
+    # nur PV-Überschuss bei schlechter Prognose; KEIN Netzladen). Default an.
     icon: mdi:transmission-tower
     initial: "on"
 

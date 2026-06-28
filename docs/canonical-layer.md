@@ -230,13 +230,13 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 | `sensor.opti_price_level` | Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE) |
 | `sensor.opti_mindestentladepreis_ct_kwh` | Mindestentladepreis = Ladepreis + Preisdifferenz (ct/kWh) |
 | `sensor.opti_runtime_h` | Geschätzte Akku-Restlaufzeit (Stunden) |
-| `binary_sensor.opti_winter_charging_allowed` | Netzladefreigabe-Gate (Standard: `true`, fail-open) |
+| `binary_sensor.opti_winter_charging_allowed` | Saisonales Lade-Gate (Standard: `true`, fail-open) |
 
 > **Warnung — `opti_winter_charging_allowed`:** Dieses Gate ist **fail-open** (`{{ true }}`).
 > Solange kein realer Saisonal-Sensor gemappt ist, ist es immer `on`.
 > Wenn du einen echten Winter-/Sommer-Sensor anschließt, beachte:
 > Das Gate ist **ausschließlich** für die SOC<20- und SOC<80-Ladeblöcke vorgesehen.
-> **Keinesfalls** darf es den SOC<15-Notfall-Netzladeblock gaten — dieser muss auch
+> **Keinesfalls** darf es den SOC<15-Notfall-Ladeblock (Entladesperre) gaten — dieser muss auch
 > im Sommer jederzeit eingreifen können (tiefe Entladung vermeiden).
 > Die SOC<75- und SOC<45-Blöcke werden ebenfalls nicht gegated (opportunistische Blöcke,
 > sollen ganzjährig greifen).
@@ -250,7 +250,7 @@ du beeinflusst sie ausschließlich über dein Mapping und die Helfer-Werte.
 
 | Szenario | Relevante Eingaben | Erwarteter Modus | Hinweise |
 |---|---|---|---|
-| **Nacht / Netzladen** | `opti_forecast_score` ≤ 2, SoC < 30 %, `opti_price_level` CHEAP | **Akku nur Laden** | Gate `input_boolean.opti_prognose_netzladen` muss `on` sein |
+| **Nacht / Reserve halten (Entladesperre)** | `opti_forecast_score` ≤ 2, SoC < 30 %, `opti_price_level` CHEAP | **Akku nur Laden** | Gate `input_boolean.opti_prognose_netzladen` muss `on` sein |
 | **Nacht / kein Ladegrund** | Score ≤ 2, SoC > 60 %, Preis EXPENSIVE | **Akku Dynamisch** (Default) | Kein Ladeblock greift → Default-Pfad |
 | **Sonne / PV-Überschuss** | `opti_grid_export_w` > 70%-Grenze, SoC < 100 % | **Akku Dynamisch** | Gate `input_boolean.opti_pv_ueberschuss_ladung` muss `on` sein |
 | **Tagsüber unter Ziel-SoC** | SoC < `opti_target_soc`, nach Sonnenaufgang | **Akku Dynamisch** | Option „Dynamisch laden wenn SOC < ZielSoC" |
@@ -258,7 +258,7 @@ du beeinflusst sie ausschließlich über dein Mapping und die Helfer-Werte.
 | **MinSOC-Schutz** | SoC < `input_number.minsoc` | **Akku nur Laden** | Höchste Priorität, überstimmt alle anderen Blöcke |
 | **Preis-morgen fehlt** | `opti_price_series`-Attribut `tomorrow` leer / < 4 Gesamtwerte | Preisniveau bleibt **NORMAL** | Fail-safe: `< 4 Preise gesamt → NORMAL` |
 | **Forecast fehlt** | `opti_forecast_remaining_today_kwh` → `unavailable` | Prognose-Blöcke inaktiv; MinSOC-Schutz und Cleanup laufen weiter | Default → **Akku Dynamisch** (nur wenn `opti_soc` + `opti_battery_capacity_kwh` verfügbar) |
-| **Voller Akku** | SoC > 99 % | **Akku Dynamisch**; Netzlade-Booster wird automatisch deaktiviert | Option „Bei vollem Akku auf Dynamisch" + Cleanup-Block |
+| **Voller Akku** | SoC > 99 % | **Akku Dynamisch**; Lade-Booster (Legacy) wird deaktiviert | Option „Bei vollem Akku auf Dynamisch" + Cleanup-Block |
 
 **Fail-safe-Verhalten:** Sind `sensor.opti_soc` oder `sensor.opti_battery_capacity_kwh`
 `unavailable`, setzt die Strategie keinen Modus — der bisherige Modus bleibt aktiv.

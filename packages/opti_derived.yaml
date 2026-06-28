@@ -1,0 +1,386 @@
+# =============================================================================
+# opti_derived.yaml — Abgeleitete Opti-Entscheidungs-Sensoren (Paket 2)
+# =============================================================================
+# Diese Sensoren konsumieren AUSSCHLIESSLICH die Canonical-Mapping-Sensoren
+# (sensor.opti_*) aus Paket 1, die input_number-Helfer und sun.sun.
+# KEINE rohen Hardware-Refs (WR-Seriennummern, Preis-/Prognose-Rohsensoren etc.).
+#
+# Einheiten (verbindlich): Preise ct/kWh, Leistung W, Energie kWh.
+# Vorzeichen: opti_grid_export_w >= 0 (Einspeisung); opti_battery_power_w += laden.
+#
+# Übersetzte Sensoren (target_soc / charge_power / price_level / runtime) bilden
+# die Logik der SMA-Template-Quellsensoren 1:1 nach —
+# nur die Quell-Entitäten wurden gegen die opti_*-Aliase getauscht. Schwellen
+# und Stufen sind unverändert. Bewusste Ausnahme: opti_charge_power_w ersetzt die
+# Forecast-Label-Verzweigung der Quelle durch opti_forecast_score-Bänder.
+# =============================================================================
+
+template:
+  - sensor:
+
+      # -----------------------------------------------------------------------
+      # 1. Forecast Score heute (0-10) — PV-Fit-Bewertung des Resttages
+      # -----------------------------------------------------------------------
+      - unique_id: opti_forecast_score
+        name: "Opti Forecast Score"
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.opti_forecast_remaining_today_kwh')
+             and has_value('sensor.opti_forecast_today_kwh')
+             and has_value('sensor.opti_battery_capacity_kwh')
+             and has_value('sensor.opti_soc') }}
+        state: >
+          {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+          {% set p10 = state_attr('sensor.opti_forecast_today_kwh','estimate10') | float(median) %}
+          {% set remaining = [median, p10] | min %}
+          {% set cap = states('sensor.opti_battery_capacity_kwh') | float(0) %}
+          {% set needed = cap * (1 - (states('sensor.opti_soc') | float(0))/100) %}
+          {% set sunset = state_attr('sun.sun','next_setting') %}
+          {% set h = ((sunset | as_datetime - now()).total_seconds()/3600) if sunset else 0 %}
+          {% set verbrauch = states('sensor.opti_house_consumption_w') | float(400) / 1000 * ([h,0]|max) %}
+          {% set surplus = [remaining - verbrauch, 0] | max %}
+          {% if h <= 0 %}0{% elif needed <= 0 %}10
+          {% else %}{{ (([surplus / needed, 1]|min) * 10) | round(0) | int }}{% endif %}
+        attributes:
+          remaining_kwh: "{{ [states('sensor.opti_forecast_remaining_today_kwh')|float(0), state_attr('sensor.opti_forecast_today_kwh','estimate10')|float(states('sensor.opti_forecast_remaining_today_kwh')|float(0))]|min|round(2) }}"
+          needed_full_kwh: "{{ (states('sensor.opti_battery_capacity_kwh')|float(0) * (1-(states('sensor.opti_soc')|float(0))/100))|round(2) }}"
+          hours_to_sunset: "{{ (((state_attr('sun.sun','next_setting')|as_datetime - now()).total_seconds()/3600) if state_attr('sun.sun','next_setting') else 0)|round(1) }}"
+          pv_surplus_kwh: >
+            {% set median = states('sensor.opti_forecast_remaining_today_kwh')|float(0) %}
+            {% set rem = [median, state_attr('sensor.opti_forecast_today_kwh','estimate10')|float(median)]|min %}
+            {% set sunset = state_attr('sun.sun','next_setting') %}
+            {% set h = ((sunset|as_datetime - now()).total_seconds()/3600) if sunset else 0 %}
+            {{ [rem - (states('sensor.opti_house_consumption_w')|float(400)/1000*([h,0]|max)), 0]|max|round(2) }}
+          ueberschuss_ueber_voll_kwh: >
+            {% set median = states('sensor.opti_forecast_remaining_today_kwh')|float(0) %}
+            {% set rem = [median, state_attr('sensor.opti_forecast_today_kwh','estimate10')|float(median)]|min %}
+            {% set sunset = state_attr('sun.sun','next_setting') %}
+            {% set h = ((sunset|as_datetime - now()).total_seconds()/3600) if sunset else 0 %}
+            {% set surplus = [rem - (states('sensor.opti_house_consumption_w')|float(400)/1000*([h,0]|max)),0]|max %}
+            {% set needed = states('sensor.opti_battery_capacity_kwh')|float(0)*(1-(states('sensor.opti_soc')|float(0))/100) %}
+            {{ [surplus - needed, 0]|max|round(2) }}
+          reason: >
+            {{ 'Nacht' if (state_attr('sun.sun','next_setting') is none) else ('Akku voll' if (states('sensor.opti_battery_capacity_kwh')|float(0)*(1-(states('sensor.opti_soc')|float(0))/100)) <= 0 else 'PV-Fit') }}
+
+      # -----------------------------------------------------------------------
+      # 2. Forecast Score morgen (0-10) — PV-Fit der Morgen-Prognose
+      # -----------------------------------------------------------------------
+      - unique_id: opti_forecast_score_tomorrow
+        name: "Opti Forecast Score Tomorrow"
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.opti_forecast_tomorrow_kwh') and has_value('sensor.opti_house_consumption_w') }}
+        state: >
+          {{ ((([ [states('sensor.opti_forecast_tomorrow_kwh')|float(0), state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(states('sensor.opti_forecast_tomorrow_kwh')|float(0))]|min / ((states('sensor.opti_house_consumption_w')|float(400)*24/1000)), 1]|min), 0]|max) * 10)|round(0)|int }}
+
+      # -----------------------------------------------------------------------
+      # 3. Ziel-SoC (%) — übersetzt aus akku_target_soc_intelligent
+      #    (SMA-Templates Z.206-305). Logik/Schwellen unverändert,
+      #    nur Quell-Entitäten getauscht. Trace-Attribute beibehalten.
+      #    Kapazität: opti_battery_capacity_kwh ist BEREITS kWh (Quelle war Wh/1000).
+      # -----------------------------------------------------------------------
+      - unique_id: opti_target_soc
+        name: "Opti Target SoC"
+        unit_of_measurement: "%"
+        state_class: measurement
+        # Ratio auf 0.25-Schritte gerundet → verhindert Flattern an Stufengrenzen (Hysterese)
+        availability: >
+          {{ has_value('sensor.opti_battery_capacity_kwh') and
+             has_value('sensor.opti_forecast_remaining_today_kwh') }}
+        state: >
+          {% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %}
+          {% set restproduktion = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+          {% set hausverbrauch  = states('sensor.opti_house_consumption_w') | float(1500) %}
+          {% set max_soc        = states('input_number.maxsoc') | float(95) %}
+          {% set min_soc        = states('input_number.minsoc') | float(10) %}
+          {% set netzladen      = states('input_boolean.hausakku_aus_netz_laden') %}
+
+          {% if netzladen == 'on' %}
+            {{ max_soc | round(0) }}
+          {% else %}
+            {% set sunset_time = state_attr('sun.sun', 'next_setting') %}
+            {% if sunset_time %}
+              {% set remaining_hours = (sunset_time | as_datetime - now()).total_seconds() / 3600 %}
+              {% set remaining_hours = [0.5, [12, remaining_hours] | min] | max %}
+            {% else %}
+              {% set remaining_hours = 6 %}
+            {% endif %}
+
+            {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
+            {# Auf 0.25-Schritte runden → verhindert Flattern an Stufengrenzen #}
+            {% set ratio = (((net_available / cap_kwh) * 4) | round(0)) / 4 %}
+
+            {% if   ratio >= 3.0 %} {% set target = 50 %}
+            {% elif ratio >= 2.0 %} {% set target = 60 %}
+            {% elif ratio >= 1.5 %} {% set target = 70 %}
+            {% elif ratio >= 1.0 %} {% set target = 80 %}
+            {% elif ratio >= 0.5 %} {% set target = 90 %}
+            {% else %}              {% set target = max_soc %}
+            {% endif %}
+
+            {{ [min_soc, [max_soc, target] | min] | max | round(0) }}
+          {% endif %}
+        attributes:
+          branch: >
+            {% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %}
+            {% set restproduktion = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+            {% set hausverbrauch  = states('sensor.opti_house_consumption_w') | float(1500) %}
+            {% set max_soc        = states('input_number.maxsoc') | float(95) %}
+            {% set netzladen      = states('input_boolean.hausakku_aus_netz_laden') %}
+            {% if netzladen == 'on' %}
+              netzladen → maxsoc
+            {% else %}
+              {% set sunset_time = state_attr('sun.sun', 'next_setting') %}
+              {% if sunset_time %}
+                {% set remaining_hours = (sunset_time | as_datetime - now()).total_seconds() / 3600 %}
+                {% set remaining_hours = [0.5, [12, remaining_hours] | min] | max %}
+              {% else %}
+                {% set remaining_hours = 6 %}
+              {% endif %}
+              {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
+              {% set ratio = (((net_available / cap_kwh) * 4) | round(0)) / 4 %}
+              {% if   ratio >= 3.0 %}ratio>=3.0 → 50%
+              {% elif ratio >= 2.0 %}ratio>=2.0 → 60%
+              {% elif ratio >= 1.5 %}ratio>=1.5 → 70%
+              {% elif ratio >= 1.0 %}ratio>=1.0 → 80%
+              {% elif ratio >= 0.5 %}ratio>=0.5 → 90%
+              {% else %}ratio<0.5 → maxsoc
+              {% endif %}
+            {% endif %}
+          ratio: >
+            {% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %}
+            {% set restproduktion = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+            {% set hausverbrauch  = states('sensor.opti_house_consumption_w') | float(1500) %}
+            {% set sunset_time = state_attr('sun.sun', 'next_setting') %}
+            {% if sunset_time %}
+              {% set remaining_hours = (sunset_time | as_datetime - now()).total_seconds() / 3600 %}
+              {% set remaining_hours = [0.5, [12, remaining_hours] | min] | max %}
+            {% else %}
+              {% set remaining_hours = 6 %}
+            {% endif %}
+            {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
+            {{ (((net_available / cap_kwh) * 4) | round(0)) / 4 }}
+          net_available_kwh: >
+            {% set restproduktion = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+            {% set hausverbrauch  = states('sensor.opti_house_consumption_w') | float(1500) %}
+            {% set sunset_time = state_attr('sun.sun', 'next_setting') %}
+            {% if sunset_time %}
+              {% set remaining_hours = (sunset_time | as_datetime - now()).total_seconds() / 3600 %}
+              {% set remaining_hours = [0.5, [12, remaining_hours] | min] | max %}
+            {% else %}
+              {% set remaining_hours = 6 %}
+            {% endif %}
+            {{ [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max | round(2) }}
+          remaining_hours: >
+            {% set sunset_time = state_attr('sun.sun', 'next_setting') %}
+            {% if sunset_time %}
+              {% set h = (sunset_time | as_datetime - now()).total_seconds() / 3600 %}
+              {{ ([0.5, [12, h] | min] | max) | round(1) }}
+            {% else %}
+              6.0
+            {% endif %}
+
+      # -----------------------------------------------------------------------
+      # 4. Dynamische Ladestärke (W) — übersetzt aus
+      #    akku_dynamische_ladestaerke_akku (SMA-Templates Z.82-136).
+      #    SoC-Taper, Temp-Schutz und Deckel UNVERÄNDERT übernommen.
+      #    BEWUSSTE ÄNDERUNG: Forecast-Label-Verzweigung der Quelle → opti_forecast_score-Bänder
+      #      score <=1 → aggressiv (vormals Kritisch/Mangelhaft)
+      #      score 2-4 → moderat   (vormals Ausreichend)
+      #      score >=5 → schonend  (vormals Gut/Optimal/Hervorragend)
+      #    Kapazität: opti_battery_capacity_kwh ist kWh → *1000 für Watt-Ausgabe
+      #      (Quelle nutzte Wh direkt: C-Rate * Wh = W).
+      # -----------------------------------------------------------------------
+      - unique_id: opti_charge_power_w
+        name: "Opti Charge Power W"
+        unit_of_measurement: W
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.opti_soc') and
+             has_value('sensor.opti_battery_temp') and
+             has_value('sensor.opti_battery_capacity_kwh') }}
+        state: >
+          {% set soc       = states('sensor.opti_soc') | float(50) %}
+          {% set temp      = states('sensor.opti_battery_temp') | float(25) %}
+          {% set cap       = states('sensor.opti_battery_capacity_kwh') | float(12.8) * 1000 %}
+          {% set max_helper = states('input_number.akkusteuerung_max_ladestaerke') | float(3000) %}
+          {% set score     = states('sensor.opti_forecast_score') | int(0) %}
+
+          {% if temp >= 50 or temp <= -5 %}
+            0
+          {% else %}
+            {# Temperaturdrosselung bei Extremen #}
+            {% if   temp >= 45 %} {% set temp_faktor = 0.5 %}
+            {% elif temp <=  0 %} {% set temp_faktor = 0.25 %}
+            {% else %}            {% set temp_faktor = 1.0 %}
+            {% endif %}
+
+            {# SOC-Stufen: prognoseabhängig verschoben (Score-Bänder) #}
+            {% if score <= 1 %}
+              {# Schlechter Tag: aggressiv laden, Grenzen hoch #}
+              {% if   soc < 40 %} {% set c = cap * 0.40 %}
+              {% elif soc < 70 %} {% set c = cap * 0.30 %}
+              {% elif soc < 90 %} {% set c = cap * 0.20 %}
+              {% elif soc < 97 %} {% set c = cap * 0.10 %}
+              {% else %}          {% set c = cap * 0.05 %}
+              {% endif %}
+            {% elif score <= 4 %}
+              {# Mittelmäßiger Tag: moderat #}
+              {% if   soc < 35 %} {% set c = cap * 0.35 %}
+              {% elif soc < 65 %} {% set c = cap * 0.25 %}
+              {% elif soc < 87 %} {% set c = cap * 0.15 %}
+              {% elif soc < 97 %} {% set c = cap * 0.08 %}
+              {% else %}          {% set c = cap * 0.05 %}
+              {% endif %}
+            {% else %}
+              {# Guter Tag: schonend, viel Zeit #}
+              {% if   soc < 30 %} {% set c = cap * 0.30 %}
+              {% elif soc < 60 %} {% set c = cap * 0.20 %}
+              {% elif soc < 85 %} {% set c = cap * 0.15 %}
+              {% elif soc < 97 %} {% set c = cap * 0.08 %}
+              {% else %}          {% set c = cap * 0.05 %}
+              {% endif %}
+            {% endif %}
+
+            {{ ([c * temp_faktor, max_helper] | min) | round(0) }}
+          {% endif %}
+
+      # -----------------------------------------------------------------------
+      # 5. Preisniveau (Enum) — übersetzt aus strompreis_niveau
+      #    (SMA-Templates Z.362-423). Perzentil-Bänder unverändert.
+      #    current → opti_price_current_ct_kwh; Reihe → opti_price_series today/tomorrow
+      #    (bereits ct/kWh-Listen). <4 Werte → NORMAL.
+      # -----------------------------------------------------------------------
+      - unique_id: opti_price_level
+        name: "Opti Price Level"
+        icon: mdi:cash-clock
+        availability: >
+          {{ has_value('sensor.opti_price_current_ct_kwh') }}
+        state: >
+          {% set current = states('sensor.opti_price_current_ct_kwh') | float(0) %}
+          {% set ns = namespace(prices=[]) %}
+          {% for key in ['today', 'tomorrow'] %}
+            {% set arr = state_attr('sensor.opti_price_series', key) %}
+            {% if arr is iterable and arr is not string %}
+              {% for it in arr %}
+                {% if it is mapping %}
+                  {% set p = it.get('total', it.get('price', it.get('value'))) %}
+                {% else %}
+                  {% set p = it %}
+                {% endif %}
+                {% set p = p | float(none) %}
+                {% if p is not none %}
+                  {% set ns.prices = ns.prices + [p] %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+          {% set prices = ns.prices %}
+          {% if prices | length >= 4 %}
+            {% set below = prices | select('le', current) | list | length %}
+            {% set pct = below / (prices | length) %}
+            {% if   pct < 0.20 %}{% set level = 'VERY_CHEAP' %}
+            {% elif pct < 0.40 %}{% set level = 'CHEAP' %}
+            {% elif pct < 0.60 %}{% set level = 'NORMAL' %}
+            {% elif pct < 0.80 %}{% set level = 'EXPENSIVE' %}
+            {% else %}{% set level = 'VERY_EXPENSIVE' %}
+            {% endif %}
+            {{ level }}
+          {% else %}
+            NORMAL
+          {% endif %}
+        attributes:
+          perzentil: >
+            {% set current = states('sensor.opti_price_current_ct_kwh') | float(0) %}
+            {% set ns = namespace(prices=[]) %}
+            {% for key in ['today', 'tomorrow'] %}
+              {% set arr = state_attr('sensor.opti_price_series', key) %}
+              {% if arr is iterable and arr is not string %}
+                {% for it in arr %}
+                  {% if it is mapping %}{% set p = it.get('total', it.get('price', it.get('value'))) %}{% else %}{% set p = it %}{% endif %}
+                  {% set p = p | float(none) %}
+                  {% if p is not none %}{% set ns.prices = ns.prices + [p] %}{% endif %}
+                {% endfor %}
+              {% endif %}
+            {% endfor %}
+            {% set prices = ns.prices %}
+            {% if prices | length >= 4 %}{{ ((prices | select('le', current) | list | length) / (prices | length) * 100) | round(1) }}{% else %}none{% endif %}
+          aktueller_preis: "{{ states('sensor.opti_price_current_ct_kwh') | float(0) }}"
+          anzahl_preise: >
+            {% set ns = namespace(c=0) %}
+            {% for key in ['today', 'tomorrow'] %}
+              {% set arr = state_attr('sensor.opti_price_series', key) %}
+              {% if arr is iterable and arr is not string %}{% set ns.c = ns.c + (arr | list | length) %}{% endif %}
+            {% endfor %}
+            {{ ns.c }}
+
+      # -----------------------------------------------------------------------
+      # 6. Mindestentladepreis (ct/kWh) — VERBATIM, BEWUSST KEIN float(0):
+      #    fehlende Helfer dürfen nicht zu 0 € werden (Fail-safe).
+      #    ladepreis ist EUR → *100 = ct.
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mindestentladepreis_ct_kwh
+        name: "Opti Mindestentladepreis"
+        unit_of_measurement: ct/kWh
+        availability: "{{ has_value('input_number.ladepreis') and has_value('input_number.mindestpreisdifferenz_lade_entladepreis') }}"
+        state: "{{ (states('input_number.ladepreis')|float * 100 + states('input_number.mindestpreisdifferenz_lade_entladepreis')|float)|round(2) }}"
+        attributes: { ladepreis_ct: "{{ (states('input_number.ladepreis')|float*100)|round(2) }}", differenz_ct: "{{ states('input_number.mindestpreisdifferenz_lade_entladepreis')|float|round(2) }}" }
+
+      # -----------------------------------------------------------------------
+      # 7. Akku-Restlaufzeit (h) — übersetzt aus house_battery_runtime_raw
+      #    (SMA-Templates Z.25-80). Logik/Schwellen unverändert, nur Quellen:
+      #      Kapazität (Wh/1000) → opti_battery_capacity_kwh (bereits kWh, kein /1000)
+      #      SoC → opti_soc; PV-Gate → opti_pv_power_w; Entladelast → opti_house_consumption_w
+      #      MinSOC/MaxSOC → input_number.minsoc / input_number.maxsoc
+      # -----------------------------------------------------------------------
+      - unique_id: opti_runtime_h
+        name: "Opti Runtime H"
+        unit_of_measurement: "hours"
+        state_class: measurement
+        availability: >
+          {{ has_value('sensor.opti_soc') and
+             has_value('sensor.opti_battery_capacity_kwh') and
+             has_value('sensor.opti_house_consumption_w') }}
+        state: >
+          {% set soc = states('sensor.opti_soc') %}
+          {% set capacity_kwh_raw = states('sensor.opti_battery_capacity_kwh') %}
+          {% set house_w = states('sensor.opti_house_consumption_w') %}
+          {% set pv_power = states('sensor.opti_pv_power_w') %}
+          {% set min_soc_helper = states('input_number.minsoc') %}
+          {% set max_soc_helper = states('input_number.maxsoc') %}
+
+          {% if soc not in ['unavailable', 'unknown', None] and
+                capacity_kwh_raw not in ['unavailable', 'unknown', None] and
+                house_w not in ['unavailable', 'unknown', None] and
+                pv_power not in ['unavailable', 'unknown', None] %}
+
+            {% set soc_value = soc|float(0) %}
+            {% set capacity_kwh = capacity_kwh_raw|float(0) %}
+            {% set pv_power_value = pv_power|float(0) %}
+
+            {% set min_soc = min_soc_helper|float(10) if min_soc_helper not in ['unavailable', 'unknown', None] else 10 %}
+            {% set max_soc = max_soc_helper|float(95) if max_soc_helper not in ['unavailable', 'unknown', None] else 95 %}
+            {% set min_soc_safe = max(0, min(100, min_soc)) %}
+            {% set max_soc_safe = max(min_soc_safe, min(100, max_soc)) %}
+
+            {% if pv_power_value < 100 %}
+              {% set discharge_power_kw = house_w|float(0) / 1000 %}
+
+              {% set current_soc_in_range = max(min_soc_safe, min(max_soc_safe, soc_value)) %}
+              {% set available_soc_percentage = (current_soc_in_range - min_soc_safe) / (max_soc_safe - min_soc_safe) * 100 if max_soc_safe > min_soc_safe else 0 %}
+              {% set available_energy_kwh = (available_soc_percentage / 100) * capacity_kwh %}
+
+              {% if discharge_power_kw > 0 and available_energy_kwh > 0 %}
+                {% set runtime_hours = available_energy_kwh / discharge_power_kw %}
+                {{ [runtime_hours, 24]|min|round(2) }}
+              {% elif discharge_power_kw == 0 %}
+                999
+              {% else %}
+                0
+              {% endif %}
+            {% else %}
+              0
+            {% endif %}
+          {% else %}
+            unavailable
+          {% endif %}

@@ -4,51 +4,50 @@
 # Gleitende Mittelwerte für Batterielast und Hausverbrauch.
 # Diese Sensoren werden von den Template-Sensoren in sma_templates.yaml genutzt.
 #
-# ⚙️  ANPASSEN:
-#   entity_id bei jedem sensor auf deinen tatsächlichen Sensor setzen:
-#
-#   Batterielast:    Typisch sensor.sn_SERIENNUMMER_battery_power
-#                   (negativer Wert = Entladung, positiver = Ladung)
-#   Haus-Verbrauch:  Dein Gesamt-Verbrauchssensor (W)
+# Eingänge kommen vom Canonical-Layer (opti_mapping.yaml):
+#   Batterielast:    sensor.opti_battery_power_w
+#                   (positiver Wert = Laden, negativer = Entladung)
+#   Haus-Verbrauch:  sensor.opti_house_consumption_w
+# Kein manuelles Mapping hier nötig.
 # =============================================================================
 
 sensor:
   - platform: statistics
     name: "House Battery Load 30 mins"
     unique_id: house_battery_load_30_mins
-    entity_id: sensor.DEINE_BATTERIE_LAST     # ⚙️  anpassen
+    entity_id: sensor.opti_battery_power_w
     state_characteristic: mean
     max_age:
-      hours: 24
+      minutes: 30
     sampling_size: 180
     precision: 0
 
   - platform: statistics
     name: "House Stromverbrauch 30 min"
     unique_id: haus_stromverbrauch_30_min
-    entity_id: sensor.DEIN_STROMVERBRAUCH     # ⚙️  anpassen
+    entity_id: sensor.opti_house_consumption_w
     state_characteristic: mean
     max_age:
-      hours: 24
+      minutes: 30
     sampling_size: 180
     precision: 0
 
   - platform: statistics
     name: "Haus Battery Load 60 mins"
     unique_id: haus_battery_load_60_mins
-    entity_id: sensor.DEINE_BATTERIE_LAST     # ⚙️  anpassen
+    entity_id: sensor.opti_battery_power_w
     state_characteristic: mean
     max_age:
-      hours: 24
+      minutes: 60
     sampling_size: 360
     precision: 0
 
   - platform: statistics
     name: "Haus Stromverbrauch 60 min"
     unique_id: haus_stromverbrauch_60_min
-    entity_id: sensor.DEIN_STROMVERBRAUCH     # ⚙️  anpassen
+    entity_id: sensor.opti_house_consumption_w
     state_characteristic: mean
     max_age:
-      hours: 24
+      minutes: 60
     sampling_size: 360
     precision: 0

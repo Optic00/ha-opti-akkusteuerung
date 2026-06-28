@@ -22,7 +22,7 @@ Liest den Modus aus `input_select.akkusteuerung_modus` und steuert den WR via Mo
 Läuft als eigenständiger Blueprint-Adapter — Strategie und Hardware-Ansteuerung sind
 bewusst getrennt. Single-Writer-Regel: immer nur ein Adapter aktiv.
 
-**Canonical-Layer** (`opti_mapping.example.yaml` → `packages/opti_mapping.yaml`)  
+**Canonical-Layer** (`opti_mapping.example.yaml` → `packages/opti_mapping.yaml`)
 Bildet hardware-spezifische Entitäten (SMA, Huawei oder andere WR) auf 13 kanonische
 `sensor.opti_*`-Sensoren ab. Strategie und abgeleitete Sensoren konsumieren nur diese
 kanonischen Namen — keine Seriennummern im Code. → **[docs/canonical-layer.md](docs/canonical-layer.md)**

@@ -135,7 +135,7 @@ input_number:
   ladepreis:
     name: "Akku Ladepreis (Referenz)"
     # Wird automatisch vom aktuellen Strompreis befüllt wenn Netzladen aktiv ist.
-    # Stellt den Preis dar, zu dem der Akku zuletzt netzgeladen wurde.
+    # Stellt den Preis dar, zu dem der Akku zuletzt netzgeladen wurde (ct/kWh).
     min: 0
     max: 100
     step: 0.01

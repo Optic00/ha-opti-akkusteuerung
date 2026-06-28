@@ -158,18 +158,17 @@ desto teureren Strom darf die Automatik akzeptieren.
 
 ---
 
-#### Option 4 — Laden wenn heute + morgen schlecht, PV-Rest < 15 kWh, Wintermodus, SoC < 80 % (Tag und Nacht)
+#### Option 4 — Laden wenn heute + morgen schlecht, Wintermodus, SoC < 80 % (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | SoC < 80 %, PV-Restproduktion heute < 15 kWh, `opti_forecast_score` ≤ 2 + `opti_forecast_score_tomorrow` ≤ 2, `binary_sensor.opti_winter_charging_allowed` = on |
+| Bedingung | SoC < 80 %, `opti_forecast_score` ≤ 2 + `opti_forecast_score_tomorrow` ≤ 2, `binary_sensor.opti_winter_charging_allowed` = on |
 | Preis | bis EXPENSIVE (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE) |
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Laden** |
 
-**Warum:** Dieser Block ist der „Wintermodus-Booster". Er greift wenn die PV fast
-nichts mehr liefert (< 15 kWh verbleibend), beide Tage schlecht sind und die Winterladefreigabe
-aktiv ist — dann wird aggressiver bis 80 % geladen, auch bei EXPENSIVE-Preisen.
+**Warum:** Dieser Block ist der „Wintermodus-Booster". Er greift wenn beide Tage schlecht sind
+und die Winterladefreigabe aktiv ist — dann wird aggressiver bis 80 % geladen, auch bei EXPENSIVE-Preisen.
 
 **Hinweis:** `binary_sensor.opti_winter_charging_allowed` ist in `opti_derived.yaml`
 als fail-open Gate definiert (Standard: immer `true`). Es kann mit einem eigenen
@@ -177,26 +176,26 @@ Sommermodus-Schalter überschrieben werden, wenn ein saisonales Gate gewünscht 
 
 ---
 
-#### Option 5 — Laden wenn heute schlecht, wenig PV-Rest, SoC < 15 % (Tag und Nacht)
+#### Option 5 — Laden wenn heute schlecht, SoC < 15 % (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | SoC < 15 %, PV-Rest heute < 20 kWh, `opti_forecast_score` ≤ 2 |
+| Bedingung | SoC < 15 %, `opti_forecast_score` ≤ 2 |
 | Preis | bis EXPENSIVE (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE) |
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Laden** |
 
 **Warum:** Ähnlich wie Option 2, aber unabhängig von der Morgen-Prognose. Wenn der Akku
-fast leer ist (< 15 %), heute nichts mehr kommt (< 20 kWh Rest) und die heutige Bewertung
-schlecht ist, wird notgeladen — ohne Rücksicht auf morgen. Kurzfrist-Schutz.
+fast leer ist (< 15 %) und die heutige Bewertung schlecht ist, wird notgeladen — ohne
+Rücksicht auf morgen. Kurzfrist-Schutz.
 
 ---
 
-#### Option 6 — Laden wenn heute schlecht, wenig PV-Rest, SoC < 45 %, Strom sehr günstig (Tag und Nacht)
+#### Option 6 — Laden wenn heute schlecht, SoC < 45 %, Strom sehr günstig (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | SoC < 45 %, PV-Rest heute < 20 kWh, `opti_forecast_score` ≤ 2 |
+| Bedingung | SoC < 45 %, `opti_forecast_score` ≤ 2 |
 | Preis | nur VERY_CHEAP / CHEAP |
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Laden** |

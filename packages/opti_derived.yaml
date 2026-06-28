@@ -83,7 +83,10 @@ template:
         availability: >
           {{ has_value('sensor.opti_forecast_tomorrow_kwh') and has_value('sensor.opti_house_consumption_w') }}
         state: >
-          {{ ((([ [states('sensor.opti_forecast_tomorrow_kwh')|float(0), state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(states('sensor.opti_forecast_tomorrow_kwh')|float(0))]|min / ((states('sensor.opti_house_consumption_w')|float(400)*24/1000)), 1]|min), 0]|max) * 10)|round(0)|int }}
+          {% set verbrauch_w = [states('sensor.opti_house_consumption_w')|float(400), 1]|max %}
+          {% set denom_kwh = verbrauch_w * 24 / 1000 %}
+          {% set tomorrow = [states('sensor.opti_forecast_tomorrow_kwh')|float(0), state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(states('sensor.opti_forecast_tomorrow_kwh')|float(0))]|min %}
+          {{ ((([ tomorrow / denom_kwh, 1]|min), 0]|max) * 10)|round(0)|int }}
 
       # -----------------------------------------------------------------------
       # 3. Ziel-SoC (%) — übersetzt aus akku_target_soc_intelligent
@@ -216,7 +219,7 @@ template:
           {% set temp      = states('sensor.opti_battery_temp') | float(25) %}
           {% set cap       = states('sensor.opti_battery_capacity_kwh') | float(12.8) * 1000 %}
           {% set max_helper = states('input_number.akkusteuerung_max_ladestaerke') | float(3000) %}
-          {% set score     = states('sensor.opti_forecast_score') | int(0) %}
+          {% set score     = states('sensor.opti_forecast_score') | int(10) %} {# fehlender Forecast → konservativ/schonend (Score≥5 = GENTLE) #}
 
           {% if temp >= 50 or temp <= -5 %}
             0
@@ -328,15 +331,15 @@ template:
 
       # -----------------------------------------------------------------------
       # 6. Mindestentladepreis (ct/kWh) — VERBATIM, BEWUSST KEIN float(0):
-      #    fehlende Helfer dürfen nicht zu 0 € werden (Fail-safe).
-      #    ladepreis ist EUR → *100 = ct.
+      #    fehlende Helfer dürfen nicht zu 0 ct werden (Fail-safe).
+      #    ladepreis ist ct/kWh → direkt addieren (kein ×100).
       # -----------------------------------------------------------------------
       - unique_id: opti_mindestentladepreis_ct_kwh
         name: "Opti Mindestentladepreis ct kWh"
         unit_of_measurement: ct/kWh
         availability: "{{ has_value('input_number.ladepreis') and has_value('input_number.mindestpreisdifferenz_lade_entladepreis') }}"
-        state: "{{ (states('input_number.ladepreis')|float * 100 + states('input_number.mindestpreisdifferenz_lade_entladepreis')|float)|round(2) }}"
-        attributes: { ladepreis_ct: "{{ (states('input_number.ladepreis')|float*100)|round(2) }}", differenz_ct: "{{ states('input_number.mindestpreisdifferenz_lade_entladepreis')|float|round(2) }}" }
+        state: "{{ (states('input_number.ladepreis')|float + states('input_number.mindestpreisdifferenz_lade_entladepreis')|float)|round(2) }}"
+        attributes: { ladepreis_ct: "{{ (states('input_number.ladepreis')|float)|round(2) }}", differenz_ct: "{{ states('input_number.mindestpreisdifferenz_lade_entladepreis')|float|round(2) }}" }
 
       # -----------------------------------------------------------------------
       # 7. Akku-Restlaufzeit (h) — übersetzt aus house_battery_runtime_raw

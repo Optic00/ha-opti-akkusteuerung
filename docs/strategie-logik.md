@@ -54,9 +54,9 @@ den Modus auf „Akku nur Laden" setzen:
 |------------------------------------------------------|-------------|-------------------|-----------------------------|
 | Laden wenn morgen+heute schlecht, SOC < 20 %         | < 20 %      | bis EXPENSIVE     | heute UND morgen schlecht   |
 | Laden wenn morgen+heute schlecht, SOC < 75 %         | < 75 %      | bis NORMAL        | heute UND morgen schlecht   |
-| Laden wenn heute+morgen schlecht, PV-Rest, Winter, < 80 % | < 80 %  | bis EXPENSIVE     | heute UND morgen schlecht, PV-Rest < 15 kWh, `opti_winter_charging_allowed` = on |
-| Laden wenn heute schlecht, PV-Rest, SOC < 15 %       | < 15 %      | bis EXPENSIVE     | heute schlecht, PV-Rest < 20 kWh |
-| Laden wenn heute schlecht, PV-Rest, SOC < 45 %, günstig | < 45 %   | nur CHEAP/VERY_CHEAP | heute schlecht, PV-Rest < 20 kWh |
+| Laden wenn heute+morgen schlecht, Winter, < 80 % | < 80 %  | bis EXPENSIVE     | heute UND morgen schlecht, `opti_winter_charging_allowed` = on |
+| Laden wenn heute schlecht, SOC < 15 %       | < 15 %      | bis EXPENSIVE     | heute schlecht |
+| Laden wenn heute schlecht, SOC < 45 %, günstig | < 45 %   | nur CHEAP/VERY_CHEAP | heute schlecht |
 
 ### Warum diese Struktur funktioniert
 

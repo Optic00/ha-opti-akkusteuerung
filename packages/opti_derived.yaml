@@ -86,7 +86,7 @@ template:
           {% set verbrauch_w = [states('sensor.opti_house_consumption_w')|float(400), 1]|max %}
           {% set denom_kwh = verbrauch_w * 24 / 1000 %}
           {% set tomorrow = [states('sensor.opti_forecast_tomorrow_kwh')|float(0), state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(states('sensor.opti_forecast_tomorrow_kwh')|float(0))]|min %}
-          {{ ((([ tomorrow / denom_kwh, 1]|min), 0]|max) * 10)|round(0)|int }}
+          {{ (([ [tomorrow / denom_kwh, 1]|min, 0]|max) * 10)|round(0)|int }}
 
       # -----------------------------------------------------------------------
       # 3. Ziel-SoC (%) — übersetzt aus akku_target_soc_intelligent

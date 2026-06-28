@@ -16,6 +16,18 @@
 # =============================================================================
 
 template:
+  - binary_sensor:
+
+      # -----------------------------------------------------------------------
+      # 0. Wintermodus-/Winterladefreigabe (Gate) — fail-open
+      #    Default ON. Solange kein optionaler Quell-Sensor (z. B. Sommermodus-
+      #    Gate) gemappt ist, gilt true (Laden erlaubt). Wird in den Winter-/
+      #    Prognose-Ladeblöcken der Strategie-Automation als Gate genutzt.
+      # -----------------------------------------------------------------------
+      - unique_id: opti_winter_charging_allowed
+        name: "Opti Winter Charging Allowed"
+        state: "{{ true }}"
+
   - sensor:
 
       # -----------------------------------------------------------------------

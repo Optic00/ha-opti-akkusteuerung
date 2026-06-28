@@ -177,6 +177,20 @@ input_boolean:
     name: "Speicher Eco Netzladen"
     icon: mdi:leaf
 
+  # --- Opti Canonical-Layer Gates (Paket 3) ---
+  opti_prognose_netzladen:
+    name: "Opti Prognose-Netzladen erlauben"
+    # Gate für die prognosebasierten SOC-Ladeblöcke (lädt bei schlechter
+    # Prognose + günstigem Preis aus dem Netz). Default an.
+    icon: mdi:transmission-tower
+    initial: "on"
+
+  opti_pv_ueberschuss_ladung:
+    name: "Opti PV-Überschussladung erlauben"
+    # Gate für die PV-/AC-Überschussblöcke (Akku Dynamisch). Default an.
+    icon: mdi:solar-power
+    initial: "on"
+
 counter:
   tage_seit_akku100:
     name: "Tage seit Akku 100%"

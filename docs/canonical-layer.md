@@ -262,3 +262,28 @@ du beeinflusst sie ausschließlich über dein Mapping und die Helfer-Werte.
 
 **Fail-safe-Verhalten:** Sind `sensor.opti_soc` oder `sensor.opti_battery_capacity_kwh`
 `unavailable`, setzt die Strategie keinen Modus — der bisherige Modus bleibt aktiv.
+
+---
+
+## Deployment als HA-Package & der „Migrieren"-Hinweis
+
+Sensoren, Helfer und die Strategie-Automation werden als **HA-Packages** geladen
+(`packages: !include_dir_named packages/` unter `homeassistant:`). Das hält alles
+versioniert und an einem Ort.
+
+Eine als Package geladene Automation zeigt im UI-Automationseditor die Warnung:
+
+> ⚠️ *„Diese Automation kann nicht über die Benutzeroberfläche bearbeitet werden,
+> da sie nicht in der Datei automations.yaml gespeichert ist oder keine ID hat."*
+> — mit einem **„Migrieren"**-Button.
+
+**Das ist normal und harmlos.** Die Automation läuft einwandfrei (sie *hat* eine
+`id`; die Meldung heißt nur „liegt nicht in `automations.yaml`"). **Ansehen und
+`Traces` funktionieren** — nur der *visuelle* Editor ist für Package-Automationen
+schreibgeschützt.
+
+**NICHT auf „Migrieren" klicken** — außer du willst die Automation **bewusst** aus
+dem Package herauslösen und vom Git-/Package-Stand entkoppeln, um sie künftig nur
+noch in der UI zu pflegen. „Migrieren" kopiert sie nach `.storage`; solange das
+Package sie weiter lädt, entsteht ein **Duplikat (zwei Automationen mit derselben
+`id`)**. Vorgesehener Weg: **Package-Datei bearbeiten** + HA neu laden/neu starten.

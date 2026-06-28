@@ -332,7 +332,7 @@ template:
       #    ladepreis ist EUR → *100 = ct.
       # -----------------------------------------------------------------------
       - unique_id: opti_mindestentladepreis_ct_kwh
-        name: "Opti Mindestentladepreis"
+        name: "Opti Mindestentladepreis ct kWh"
         unit_of_measurement: ct/kWh
         availability: "{{ has_value('input_number.ladepreis') and has_value('input_number.mindestpreisdifferenz_lade_entladepreis') }}"
         state: "{{ (states('input_number.ladepreis')|float * 100 + states('input_number.mindestpreisdifferenz_lade_entladepreis')|float)|round(2) }}"

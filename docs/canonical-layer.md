@@ -232,6 +232,15 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 | `sensor.opti_runtime_h` | Geschätzte Akku-Restlaufzeit (Stunden) |
 | `binary_sensor.opti_winter_charging_allowed` | Netzladefreigabe-Gate (Standard: `true`, fail-open) |
 
+> **Warnung — `opti_winter_charging_allowed`:** Dieses Gate ist **fail-open** (`{{ true }}`).
+> Solange kein realer Saisonal-Sensor gemappt ist, ist es immer `on`.
+> Wenn du einen echten Winter-/Sommer-Sensor anschließt, beachte:
+> Das Gate ist **ausschließlich** für die SOC<20- und SOC<80-Ladeblöcke vorgesehen.
+> **Keinesfalls** darf es den SOC<15-Notfall-Netzladeblock gaten — dieser muss auch
+> im Sommer jederzeit eingreifen können (tiefe Entladung vermeiden).
+> Die SOC<75- und SOC<45-Blöcke werden ebenfalls nicht gegated (opportunistische Blöcke,
+> sollen ganzjährig greifen).
+
 Diese Sensoren werden von `automations/opti_strategie.yaml` direkt konsumiert —
 du beeinflusst sie ausschließlich über dein Mapping und die Helfer-Werte.
 

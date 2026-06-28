@@ -192,13 +192,11 @@
             - stop: "fertig"
 
         # Winter-/Prognose-Ladeblock (SOC < 75 %). Preis nur bis NORMAL.
+        # opti_winter_charging_allowed hier NICHT — opportunistischer Block, soll ganzjährig greifen.
         - alias: "Laden wenn morgen und heute schlecht und SOC unter 75% (tag+nacht)"
           conditions:
             - condition: state
               entity_id: input_boolean.opti_prognose_netzladen
-              state: "on"
-            - condition: state
-              entity_id: binary_sensor.opti_winter_charging_allowed
               state: "on"
             - condition: template
               value_template: >-
@@ -280,13 +278,12 @@
             - stop: "fertig"
 
         # Winter-/Prognose-Ladeblock (SOC < 15 %, Notfall). Nur heute-Score.
+        # KEIN opti_winter_charging_allowed-Gate — Notfall-Netzladen DARF NIE durch das
+        # Saisonal-Gate blockiert werden. Dieser Block muss ganzjährig und im Sommer greifen.
         - alias: "Laden wenn heute schlecht, SOC unter 15% (tag+nacht)"
           conditions:
             - condition: state
               entity_id: input_boolean.opti_prognose_netzladen
-              state: "on"
-            - condition: state
-              entity_id: binary_sensor.opti_winter_charging_allowed
               state: "on"
             - condition: template
               value_template: "{{ has_value('sensor.opti_forecast_score') }}"
@@ -320,13 +317,11 @@
             - stop: "fertig"
 
         # Winter-/Prognose-Ladeblock (SOC < 45 %, nur sehr günstig). Nur heute-Score.
+        # opti_winter_charging_allowed hier NICHT — Opportunistik-Block, soll ganzjährig greifen.
         - alias: "Laden wenn heute schlecht, SOC unter 45% und Strom sehr günstig (tag+nacht)"
           conditions:
             - condition: state
               entity_id: input_boolean.opti_prognose_netzladen
-              state: "on"
-            - condition: state
-              entity_id: binary_sensor.opti_winter_charging_allowed
               state: "on"
             - condition: template
               value_template: "{{ has_value('sensor.opti_forecast_score') }}"

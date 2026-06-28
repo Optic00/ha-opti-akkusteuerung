@@ -400,3 +400,91 @@ template:
           {% else %}
             unavailable
           {% endif %}
+
+      # -----------------------------------------------------------------------
+      # 8. Strategie-Vorschau (Soll-Modus, READ-ONLY) — spiegelt die Entscheidungs-
+      #    kette aus automations/opti_strategie.yaml, OHNE zu steuern. Vergleich
+      #    Soll (state) vs Ist (input_select.akkusteuerung_modus, Attribut ist_modus).
+      #    ANNAHME: Toggles opti_prognose_netzladen / opti_pv_ueberschuss_ladung = on
+      #    (existieren noch nicht → hier als aktiviert angenommen). Bei Änderung der
+      #    Strategie-Zweige MUSS dieser Sensor mitgespiegelt werden.
+      # -----------------------------------------------------------------------
+      - unique_id: opti_strategie_vorschau
+        name: "Opti Strategie Vorschau"
+        icon: mdi:eye-check
+        availability: "{{ has_value('sensor.opti_soc') and has_value('sensor.opti_battery_capacity_kwh') }}"
+        state: >
+          {% set soc = states('sensor.opti_soc')|float(-1) %}
+          {% set s = states('sensor.opti_forecast_score')|float(-1) %}
+          {% set st = states('sensor.opti_forecast_score_tomorrow')|float(-1) %}
+          {% set price = states('sensor.opti_price_level') %}
+          {% set target = states('sensor.opti_target_soc')|float(100) %}
+          {% set minsoc = states('input_number.minsoc')|float(10) %}
+          {% set day = is_state('sun.sun','above_horizon') %}
+          {% set prog = states('input_boolean.opti_prognose_netzladen') != 'off' %}
+          {% set ueb = states('input_boolean.opti_pv_ueberschuss_ladung') != 'off' %}
+          {% set win = states('binary_sensor.opti_winter_charging_allowed') != 'off' %}
+          {% set hv_s = has_value('sensor.opti_forecast_score') %}
+          {% set hv_st = has_value('sensor.opti_forecast_score_tomorrow') %}
+          {% set grid = states('sensor.opti_grid_export_w')|float(0) %}
+          {% set pv = states('sensor.opti_pv_power_w')|float(0) %}
+          {% set g70 = states('input_number.akkusteuerung_wr_70proz_ueberschuss_grenze')|float(999999) %}
+          {% set gac = states('input_number.akkusteuerung_wr_ac_ueberschuss_grenze')|float(999999) %}
+          {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %}
+          {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %}
+          {% set p_c = price in ['VERY_CHEAP','CHEAP'] %}
+          {% if soc >= 0 and soc < minsoc %}Akku nur Laden
+          {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden
+          {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden
+          {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden
+          {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}Akku nur Laden
+          {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}Akku nur Laden
+          {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}Akku Dynamisch
+          {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}Akku Dynamisch
+          {%- elif soc > 99 %}Akku Dynamisch
+          {%- elif soc > minsoc and soc < target and day %}Akku Dynamisch
+          {%- elif soc > target %}Akku nur Entladen
+          {%- elif soc >= 0 %}Akku Dynamisch
+          {%- else %}unbekannt{% endif %}
+        attributes:
+          grund: >
+            {% set soc = states('sensor.opti_soc')|float(-1) %}
+            {% set s = states('sensor.opti_forecast_score')|float(-1) %}
+            {% set st = states('sensor.opti_forecast_score_tomorrow')|float(-1) %}
+            {% set price = states('sensor.opti_price_level') %}
+            {% set target = states('sensor.opti_target_soc')|float(100) %}
+            {% set minsoc = states('input_number.minsoc')|float(10) %}
+            {% set day = is_state('sun.sun','above_horizon') %}
+            {% set prog = states('input_boolean.opti_prognose_netzladen') != 'off' %}
+            {% set ueb = states('input_boolean.opti_pv_ueberschuss_ladung') != 'off' %}
+            {% set win = states('binary_sensor.opti_winter_charging_allowed') != 'off' %}
+            {% set hv_s = has_value('sensor.opti_forecast_score') %}
+            {% set hv_st = has_value('sensor.opti_forecast_score_tomorrow') %}
+            {% set grid = states('sensor.opti_grid_export_w')|float(0) %}
+            {% set pv = states('sensor.opti_pv_power_w')|float(0) %}
+            {% set g70 = states('input_number.akkusteuerung_wr_70proz_ueberschuss_grenze')|float(999999) %}
+            {% set gac = states('input_number.akkusteuerung_wr_ac_ueberschuss_grenze')|float(999999) %}
+            {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %}
+            {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %}
+            {% set p_c = price in ['VERY_CHEAP','CHEAP'] %}
+            {% if soc >= 0 and soc < minsoc %}MinSOC-Schutz (SoC<{{minsoc}})
+            {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht)
+            {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL)
+            {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus
+            {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}SOC<15 Notfall
+            {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}SOC<45 sehr guenstig
+            {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}70% Ueberschuss (tag)
+            {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}AC Ueberschuss (tag)
+            {%- elif soc > 99 %}Akku voll
+            {%- elif soc > minsoc and soc < target and day %}dyn bis Ziel (tag)
+            {%- elif soc > target %}ueber Ziel-SoC
+            {%- elif soc >= 0 %}Default (Nacht/keine Aktion)
+            {%- else %}opti_soc fehlt{% endif %}
+          ist_modus: "{{ states('input_select.akkusteuerung_modus') }}"
+          soc: "{{ states('sensor.opti_soc') }}"
+          ziel_soc: "{{ states('sensor.opti_target_soc') }}"
+          score_heute: "{{ states('sensor.opti_forecast_score') }}"
+          score_morgen: "{{ states('sensor.opti_forecast_score_tomorrow') }}"
+          price_level: "{{ states('sensor.opti_price_level') }}"
+          tag: "{{ is_state('sun.sun','above_horizon') }}"
+          annahme: "Toggles opti_prognose_netzladen/opti_pv_ueberschuss_ladung als 'on' angenommen (existieren noch nicht)"

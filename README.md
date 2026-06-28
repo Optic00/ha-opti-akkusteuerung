@@ -13,18 +13,23 @@ separaten Modbus-Adapter, komplett als HA-Packages paketiert.
 
 **Strategie** (`automations/opti_strategie.yaml`)  
 Entscheidet prognosebasiert, welcher Modus wann gilt: Lädt bei schlechter PV-Prognose aus
-dem Netz (gestaffelt nach SoC und Preisniveau), nutzt PV-Überschuss tagsüber, schützt
-MinSOC-Grenzen und leitet drohende Abregelung in den Akku um. Schreibt ausschließlich
-`input_select.akkusteuerung_modus` — keine direkte Hardware-Ansteuerung.
+dem Netz (gestaffelt nach SoC und Preisniveau), nutzt PV-Überschuss tagsüber und schützt
+MinSOC-Grenzen. Schreibt primär `input_select.akkusteuerung_modus` — keine direkte
+Hardware-Ansteuerung.
 
 **Hardware-Adapter** (separates Repo: [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter))  
 Liest den Modus aus `input_select.akkusteuerung_modus` und steuert den WR via Modbus TCP.
 Läuft als eigenständiger Blueprint-Adapter — Strategie und Hardware-Ansteuerung sind
 bewusst getrennt. Single-Writer-Regel: immer nur ein Adapter aktiv.
 
+**Canonical-Layer** (`opti_mapping.example.yaml` → `packages/opti_mapping.yaml`)  
+Bildet hardware-spezifische Entitäten (SMA, Huawei oder andere WR) auf 13 kanonische
+`sensor.opti_*`-Sensoren ab. Strategie und abgeleitete Sensoren konsumieren nur diese
+kanonischen Namen — keine Seriennummern im Code. → **[docs/canonical-layer.md](docs/canonical-layer.md)**
+
 **Packages** (`packages/`) — per `!include_dir_named packages/` in `configuration.yaml`:  
-Liefert alle Helfer, Template-Sensoren, Statistik-Sensoren und die Modbus-Konfiguration
-gebündelt mit.
+Liefert alle Helfer, Template-Sensoren, abgeleitete Opti-Sensoren, Statistik-Sensoren und
+die Modbus-Konfiguration gebündelt mit.
 
 > **Legacy-Flachdateien** (`old/`): Die alten Einzeldateien im Repo-Root wurden nach `old/`
 > verschoben und werden nicht mehr gepflegt. Der empfohlene Weg ist die Package-Struktur.
@@ -48,6 +53,9 @@ gebündelt mit.
 
 | Pfad | Beschreibung |
 |---|---|
+| `opti_mapping.example.yaml` | Vorlage für das Hardware-Mapping (→ nach `packages/opti_mapping.yaml` kopieren, Platzhalter ersetzen) |
+| `packages/opti_mapping.yaml` | **Dein** Hardware-Mapping (gitignored — enthält echte Entitäts-IDs) |
+| `packages/opti_derived.yaml` | Abgeleitete Entscheidungs-Sensoren (Score, Ziel-SoC, Preisniveau, …) |
 | `packages/sma_modbus.yaml` | Modbus-TCP-Verbindung zum WR |
 | `packages/sma_helpers.yaml` | Alle Helfer (input_select, input_number, input_boolean, counter) |
 | `packages/sma_templates.yaml` | Template-Sensoren (dyn. Ladestärke, Ziel-SoC, Prognose-Bewertung) |
@@ -74,10 +82,10 @@ Die Strategie-Automation entscheidet ausschließlich den **Modus** via
 am Wechselrichter auslöst, übernimmt der Hardware-Adapter (Single-Writer-Regel). Das macht
 die Strategie unabhängig vom konkreten Speicherfabrikat.
 
-Eine vollständige laienverständliche Block-für-Block-Erklärung aller 12 Entscheidungsoptionen,
-der Preisstufenlogik (`sensor.strompreis_niveau`, anbieter-agnostisches Perzentil-Enum),
-des MinSOC-Schutzes, der Wintermodus-Blöcke und der neuen Bausteine (P10-Sicherheitsnetz,
-Decision-Trace, Abregelungs-Umleitung) findet sich unter:
+Eine vollständige laienverständliche Block-für-Block-Erklärung aller Entscheidungsoptionen,
+der Preisstufenlogik (`sensor.opti_price_level`, anbieter-agnostisches Perzentil-Enum),
+des MinSOC-Schutzes, der Wintermodus-Blöcke und der Bausteine (P10-Sicherheitsnetz,
+Decision-Trace) findet sich unter:
 **[docs/strategie-logik.md](docs/strategie-logik.md)**
 
 > **Adapter-Repo:** Die Modbus-/Hardware-Ansteuerung lebt in einem separaten Repository
@@ -89,9 +97,10 @@ Decision-Trace, Abregelungs-Umleitung) findet sich unter:
 ## Schnell-Nachbau über Packages (empfohlen)
 
 > 🆕 Neue, paketbasierte Installation – liefert **alle Helfer, Templates, Statistik-
-> Sensoren und die Modbus-Konfiguration mit** (kein manuelles Anlegen mehr). Die
-> hardwareseitige Modbus-Ansteuerung läuft als separater Blueprint-Adapter, sodass die
-> Strategie sauber von der WR-Ansteuerung getrennt ist.
+> Sensoren und die Modbus-Konfiguration mit** (kein manuelles Anlegen nötig). Der
+> Canonical-Layer (`opti_mapping.yaml`) macht die Strategie hardware-agnostisch —
+> funktioniert mit SMA, Huawei und anderen Wechselrichtern. Die hardwareseitige
+> Modbus-Ansteuerung läuft als separater Blueprint-Adapter.
 
 **1. Packages aktivieren** (einmalig) in deiner `configuration.yaml`:
 ```yaml
@@ -99,29 +108,34 @@ homeassistant:
   packages: !include_dir_named packages/
 ```
 
-**2. Package-Dateien** aus dem Ordner [`packages/`](packages/) in dein HA-`packages/`-
+**2. Hardware-Mapping anlegen:** `opti_mapping.example.yaml` nach `packages/opti_mapping.yaml`
+kopieren und alle `DEIN_*`-Platzhalter durch echte Entitäts-IDs ersetzen.
+→ Ausführliche Anleitung: **[docs/canonical-layer.md](docs/canonical-layer.md)**
+
+**3. Package-Dateien** aus dem Ordner [`packages/`](packages/) in dein HA-`packages/`-
 Verzeichnis kopieren:
 
 | Datei | Inhalt |
 |---|---|
+| `opti_derived.yaml` | Abgeleitete Entscheidungs-Sensoren (Score, Ziel-SoC, Preisniveau, …) |
 | `sma_modbus.yaml` | Modbus-TCP-Verbindung zum WR (nur **IP** anpassen) |
 | `sma_helpers.yaml` | alle `input_select`/`input_number`/`input_boolean`/`counter` (Modus, Sollwerte, SoC-Grenzen …) |
-| `sma_templates.yaml` | Template-Sensoren (dyn. Ladestärke, Ziel-SoC, Prognose-Bewertung, Laufzeit) – ⚙️-Platzhalter auf eigene Entitäten anpassen |
+| `sma_templates.yaml` | Template-Sensoren (dyn. Ladestärke, Ziel-SoC, Prognose-Bewertung, Laufzeit) |
 | `sma_statistik.yaml` | gleitende Mittelwerte (Verbrauch, Batterielast) |
 
-**3. Home Assistant neu starten** → Helfer, Templates, Statistik & Modbus sind da.
+**4. Home Assistant neu starten** → Helfer, Templates, Statistik & Modbus sind da.
 
-**4. Hardware-Adapter importieren:** Blueprint aus
+**5. Hardware-Adapter importieren:** Blueprint aus
 [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter) per Raw-URL
 importieren (*Einstellungen → Automatisierungen & Szenen → Blueprints → importieren*) und
 beim Anlegen der Automation die Eingaben auf deine Entitäten mappen
 (Modbus-Hub, WR-Status-Sensor, Modus-Select `input_select.akkusteuerung_modus`, dyn. Ladestärke).
 
-**5. Strategie einspielen:** die Opti-Automatik (steuert *welcher Modus wann*) – siehe
+**6. Strategie einspielen:** die Opti-Automatik (steuert *welcher Modus wann*) – siehe
 `automations/opti_strategie.yaml`. Sie ist bewusst **editierbar** (kein Blueprint), damit
 du sie an deine Anlage/Strategie anpassen kannst.
 
-**6. Feinjustieren:** SoC-Grenzen, Lade-/Entladegrenzen, Prognose-Schwellen über die
+**7. Feinjustieren:** SoC-Grenzen, Lade-/Entladegrenzen, Prognose-Schwellen über die
 HA-Oberfläche (alle als Helfer vorhanden).
 
 > ⚠️ **Single-Writer-Regel:** Nur **eine** Automation darf den WR via Modbus schreiben.

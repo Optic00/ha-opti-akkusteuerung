@@ -12,12 +12,16 @@ Die Automation läuft im Modus `single`: nur eine Instanz gleichzeitig, keine Pa
 Trigger sind Preisniveau-Änderungen, BYD/SOC-Änderungen, PV-Prognose-Bewertungsänderungen
 und weitere Zustandswechsel relevanter Helfer.
 
-Zentrales Entitäts-Modell (Platzhalternamen, an das eigene System anpassen):
+Zentrales Entitäts-Modell (Canonical-`opti_*`-Layer):
 
-- `sensor.sn_SERIENNUMMER_battery_soc_total` — aktueller Speicher-SoC
-- `sensor.pv_forecast_bewertung_heute` / `_morgen` — Prognose-Bewertung (Kritisch/Mangelhaft/Normal/…)
-- `sensor.strompreis_niveau` — aktuelles Preislevel (VERY_CHEAP/CHEAP/NORMAL/EXPENSIVE/VERY_EXPENSIVE), anbieter-agnostisch (optional: Tibber o. ä. als Datenquelle dahinter)
-- `input_number.minsoc` / `input_number.maxsoc` — konfigurierbare Grenzen
+- `sensor.opti_soc` — aktueller Speicher-SoC (aus `opti_mapping.yaml` abgeleitet)
+- `sensor.opti_forecast_score` / `sensor.opti_forecast_score_tomorrow` — PV-Fit heute/morgen (0–10)
+- `sensor.opti_price_level` — aktuelles Preisniveau (VERY_CHEAP/CHEAP/NORMAL/EXPENSIVE/VERY_EXPENSIVE), anbieter-agnostisch
+- `sensor.opti_target_soc` — intelligenter Ziel-SoC (aus Restprognose + Hausverbrauch)
+- `input_number.minsoc` / `input_number.maxsoc` — konfigurierbare SoC-Grenzen
+- `input_boolean.opti_prognose_netzladen` — Gate für prognosebasiertes Netzladen
+- `input_boolean.opti_pv_ueberschuss_ladung` — Gate für PV-Überschuss-Laden
+- `binary_sensor.opti_winter_charging_allowed` — Winterladefreigabe (Standard: `true`)
 - `input_select.akkusteuerung_modus` — Ziel-Ausgang dieser Automation
 
 ---
@@ -27,7 +31,7 @@ Zentrales Entitäts-Modell (Platzhalternamen, an das eigene System anpassen):
 Die **erste** `choose`-Option im Block „Zwischen Speicherszenarien wählen" ist die Entladesperre:
 
 ```
-Bedingung: sensor.sn_SERIENNUMMER_battery_soc_total below input_number.minsoc
+Bedingung: sensor.opti_soc below input_number.minsoc
 Aktion:    input_select.akkusteuerung_modus → "Akku nur Laden"
            stop: "MinSOC Schutz aktiv – Entladen gesperrt"
 ```
@@ -50,13 +54,9 @@ den Modus auf „Akku nur Laden" setzen:
 |------------------------------------------------------|-------------|-------------------|-----------------------------|
 | Laden wenn morgen+heute schlecht, SOC < 20 %         | < 20 %      | bis EXPENSIVE     | heute UND morgen schlecht   |
 | Laden wenn morgen+heute schlecht, SOC < 75 %         | < 75 %      | bis NORMAL        | heute UND morgen schlecht   |
-| Laden wenn heute+morgen schlecht, PV-Rest, Winter, < 80 % | < 80 %  | bis EXPENSIVE     | heute UND morgen schlecht, PV-Rest < 15 kWh, kein Sommermodus |
+| Laden wenn heute+morgen schlecht, PV-Rest, Winter, < 80 % | < 80 %  | bis EXPENSIVE     | heute UND morgen schlecht, PV-Rest < 15 kWh, `opti_winter_charging_allowed` = on |
 | Laden wenn heute schlecht, PV-Rest, SOC < 15 %       | < 15 %      | bis EXPENSIVE     | heute schlecht, PV-Rest < 20 kWh |
 | Laden wenn heute schlecht, PV-Rest, SOC < 45 %, günstig | < 45 %   | nur CHEAP/VERY_CHEAP | heute schlecht, PV-Rest < 20 kWh |
-
-Nachgelagert gibt es außerdem den eigenständigen Aktionsblock:
-**„Akku Nur Laden wenn Prognose schlecht und aufsparen bei CHEAP & VERY_CHEAP & NORMAL"**
-— dieser greift auch dann, wenn die `choose`-Blöcke oben keinen `stop` ausgelöst haben.
 
 ### Warum diese Struktur funktioniert
 
@@ -88,7 +88,7 @@ Das ist bewusst als zukünftiger Task (nicht Teil dieser Portierung) zurückgest
 ## Block-für-Block-Übersicht
 
 Die Automation besteht aus mehreren Aktionsblöcken, die **sequenziell** ausgeführt werden.
-Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 12 Optionen und einem Default-Pfad.
+Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 11 Optionen und einem Default-Pfad.
 
 ---
 
@@ -129,7 +129,7 @@ Diese Option steht bewusst ganz oben und kann von keinem anderen Block überstim
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | SoC < 20 %, heute Kritisch/Mangelhaft, morgen Kritisch/Mangelhaft |
+| Bedingung | SoC < 20 %, `opti_forecast_score` ≤ 2, `opti_forecast_score_tomorrow` ≤ 2 |
 | Preis | bis EXPENSIVE (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE) |
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Laden** |
@@ -145,7 +145,7 @@ noch besser als kein Puffer. Diese Ausnahmeregelung gilt nur für diese kritisch
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | SoC < 75 %, heute Kritisch/Mangelhaft, morgen Kritisch/Mangelhaft |
+| Bedingung | SoC < 75 %, `opti_forecast_score` ≤ 2, `opti_forecast_score_tomorrow` ≤ 2 |
 | Preis | bis NORMAL (VERY_CHEAP / CHEAP / NORMAL — kein EXPENSIVE) |
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Laden** |
@@ -162,20 +162,18 @@ desto teureren Strom darf die Automatik akzeptieren.
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | SoC < 80 %, PV-Restproduktion heute < 15 kWh, beide Tage Kritisch/Mangelhaft, `binary_sensor.DEIN_SOMMERMODUS_GATE` = off |
+| Bedingung | SoC < 80 %, PV-Restproduktion heute < 15 kWh, `opti_forecast_score` ≤ 2 + `opti_forecast_score_tomorrow` ≤ 2, `binary_sensor.opti_winter_charging_allowed` = on |
 | Preis | bis EXPENSIVE (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE) |
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Laden** |
 
 **Warum:** Dieser Block ist der „Wintermodus-Booster". Er greift wenn die PV fast
-nichts mehr liefert (< 15 kWh verbleibend), beide Tage schlecht sind, und der Sommermodus
-deaktiviert ist — dann wird aggressiver bis 80 % geladen, auch bei EXPENSIVE-Preisen.
+nichts mehr liefert (< 15 kWh verbleibend), beide Tage schlecht sind und die Winterladefreigabe
+aktiv ist — dann wird aggressiver bis 80 % geladen, auch bei EXPENSIVE-Preisen.
 
-**Wichtiger Hinweis für Nachbauer:** Das Gate `binary_sensor.DEIN_SOMMERMODUS_GATE` muss
-als tatsächliche Entität in deinem HA existieren (z. B. ein `input_boolean`). Fehlt diese
-Entität, wertet HA die Bedingung als `false` — der Block **greift dann nie**, auch nicht
-im Winter. Entweder die Bedingung durch eine eigene Entität ersetzen oder den Gate-Check
-aus der YAML entfernen, wenn kein Sommermodus-Schalter vorhanden ist.
+**Hinweis:** `binary_sensor.opti_winter_charging_allowed` ist in `opti_derived.yaml`
+als fail-open Gate definiert (Standard: immer `true`). Es kann mit einem eigenen
+Sommermodus-Schalter überschrieben werden, wenn ein saisonales Gate gewünscht ist.
 
 ---
 
@@ -183,7 +181,7 @@ aus der YAML entfernen, wenn kein Sommermodus-Schalter vorhanden ist.
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | SoC < 15 %, PV-Rest heute < 20 kWh, heute Kritisch/Mangelhaft |
+| Bedingung | SoC < 15 %, PV-Rest heute < 20 kWh, `opti_forecast_score` ≤ 2 |
 | Preis | bis EXPENSIVE (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE) |
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Laden** |
@@ -198,7 +196,7 @@ schlecht ist, wird notgeladen — ohne Rücksicht auf morgen. Kurzfrist-Schutz.
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | SoC < 45 %, PV-Rest heute < 20 kWh, heute Kritisch/Mangelhaft |
+| Bedingung | SoC < 45 %, PV-Rest heute < 20 kWh, `opti_forecast_score` ≤ 2 |
 | Preis | nur VERY_CHEAP / CHEAP |
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Laden** |
@@ -210,52 +208,38 @@ Stunden rechtfertigen das Netzladen bei diesem SoC-Niveau.
 
 ---
 
-#### Option 7 — Drohende Abregelung in Akku umleiten (nur tagsüber)
+#### Option 7 — Bei 70%-Überschuss laden (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | Abregelungsleistung (`sensor.akku_abregelungsleistung`) > 100 W, SoC < 100 %, tagsüber |
+| Bedingung | `sensor.opti_grid_export_w` über der konfigurierten 70%-Grenze, SoC < 100 %, tagsüber |
 | Preis | irrelevant |
 | Tageszeit | nach Sonnenaufgang bis Sonnenuntergang |
 | Gesetzter Modus | **Akku Dynamisch** |
+| Gate | `input_boolean.opti_pv_ueberschuss_ladung` muss `on` sein |
 
-**Warum:** Wenn die PV-Anlage kurz vor der 70%-Einspeisekappung steht und Leistung
-verloren gehen würde, wird der Akku auf Dynamisch gesetzt — er nimmt dann den Überschuss
-auf, statt ihn am Dach-Limit zu verlieren. „Dynamisch" bedeutet hier: der Hardware-Adapter
-kann je nach Situation laden oder entladen, optimiert auf den aktuellen Bedarf.
-
----
-
-#### Option 8 — Bei 70%-Überschuss laden (nur tagsüber)
-
-| Eigenschaft | Wert |
-|---|---|
-| Bedingung | `sensor.ueberschuss_pv_watt` über der konfigurierten 70%-Grenze, SoC < 100 %, tagsüber |
-| Preis | irrelevant |
-| Tageszeit | nach Sonnenaufgang bis Sonnenuntergang |
-| Gesetzter Modus | **Akku Dynamisch** |
-
-**Warum:** Sobald die PV mehr produziert als ins Netz eingespeist werden darf (70%-Kappung),
+**Warum:** Sobald die PV mehr ins Netz einspeist als die konfigurierte 70%-Grenze erlaubt,
 soll dieser Überschuss in den Akku. „Dynamisch" gibt dem Adapter die Freiheit, genau die
 richtige Ladeleistung zu wählen.
 
 ---
 
-#### Option 9 — Bei AC-Überschuss laden (nur tagsüber)
+#### Option 8 — Bei AC-Überschuss laden (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | WR-AC-Ausgangsleistung über der konfigurierten WR-Nennleistungsgrenze, SoC < 100 %, tagsüber |
+| Bedingung | `sensor.opti_pv_power_w` über der konfigurierten WR-Nennleistungsgrenze, SoC < 100 %, tagsüber |
 | Preis | irrelevant |
 | Tageszeit | nach Sonnenaufgang bis Sonnenuntergang |
 | Gesetzter Modus | **Akku Dynamisch** |
+| Gate | `input_boolean.opti_pv_ueberschuss_ladung` muss `on` sein |
 
-**Warum:** Ähnlich wie Option 8, aber die Messgröße ist die WR-Ausgangsleistung statt
-der 70%-Schwelle. Nutzt verfügbare PV-Energie aktiv, bevor sie verschwendet oder gekappt wird.
+**Warum:** Ähnlich wie Option 7, aber die Messgröße ist die WR-AC-Ausgangsleistung statt
+der Netzeinspeisung. Nutzt verfügbare PV-Energie aktiv, bevor sie verschwendet wird.
 
 ---
 
-#### Option 10 — Bei vollem Akku auf Dynamisch schalten
+#### Option 9 — Bei vollem Akku auf Dynamisch schalten
 
 | Eigenschaft | Wert |
 |---|---|
@@ -270,96 +254,58 @@ einspeisen, bei Verbrauch den Akku nutzen — je nach aktuellem Systemzustand.
 
 ---
 
-#### Option 11 — Dynamisch laden wenn SoC zwischen MinSOC und Ziel-SoC (nur tagsüber)
+#### Option 10 — Dynamisch laden wenn SoC zwischen MinSOC und Ziel-SoC (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | SoC > MinSOC UND SoC < `sensor.akku_target_soc_intelligent`, tagsüber |
+| Bedingung | SoC > MinSOC UND SoC < `sensor.opti_target_soc`, tagsüber |
 | Preis | irrelevant |
 | Tageszeit | nach Sonnenaufgang bis Sonnenuntergang |
 | Gesetzter Modus | **Akku Dynamisch** |
 
 **Warum:** Tagsüber soll der Akku progressiv auf den intelligenten Ziel-SoC geladen werden.
-`sensor.akku_target_soc_intelligent` berechnet diesen Zielwert aus der Solcast-Restprognose
+`sensor.opti_target_soc` berechnet diesen Zielwert aus der Solcast-Restprognose
 und dem geschätzten Hausverbrauch bis Sonnenuntergang. Je weniger PV noch erwartet wird,
-desto höher der Ziel-SoC. Neue Bausteine darin: P10-Sicherheitsnetz (10. Perzentil der
-Prognose als konservativer Referenzwert) und ein P-Regler für sanfte Übergänge zwischen
-den Stufen. An `akku_target_soc_intelligent` hängen Decision-Trace-Attribute, die den
-aktuellen Berechnungspfad für Debugging nachvollziehbar machen.
+desto höher der Ziel-SoC. Bausteine: P10-Sicherheitsnetz (10. Perzentil der Prognose als
+konservativer Referenzwert) und Decision-Trace-Attribute für Debugging.
 
 ---
 
-#### Option 12 — Nur Entladen wenn SoC über Ziel-SoC
+#### Option 11 — Nur Entladen wenn SoC über Ziel-SoC
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | SoC > `sensor.akku_target_soc_intelligent` |
+| Bedingung | SoC > `sensor.opti_target_soc` |
 | Preis | irrelevant |
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Entladen** |
 
 **Warum:** Ist der Akku bereits über dem intelligenten Ziel-SoC, hat er genug Reserve
 für die Nacht. Weiteres Laden aus dem Netz wäre Verschwendung — stattdessen wird der
-Überschuss verbraucht bzw. eingespeist. (Hinweis: Eine zusätzliche Bedingung
-„morgen Hervorragend" ist in der YAML vorhanden, aber derzeit deaktiviert.)
+Überschuss verbraucht bzw. eingespeist.
 
 ---
 
 #### Default — Akku Dynamisch
 
-Trifft keine der 12 Optionen zu (z. B. nachts, kein Überschuss, kein Ladegrund),
+Trifft keine der 11 Optionen zu (z. B. nachts ohne Ladegrund, Preis zu hoch),
 wird der Modus auf **Akku Dynamisch** gesetzt. Der Adapter entscheidet dann
 situationsabhängig, ob leicht geladen oder entladen wird — ein sicherer Mittelweg.
 
----
-
-### Aktionsblock 3 — Netzladen-Booster deaktivieren bei vollem Akku
-
-**Was passiert:** Wenn der Trigger „Akku ist voll" (SoC > 99 %) feuert und der
-manuelle Netzlade-Booster (`input_boolean.hausakku_aus_netz_laden`) aktiv ist,
-wird dieser automatisch deaktiviert. Außerdem wird der Ladepreis-Helfer
-(`input_number.ladepreis`) auf den aktuellen Strompreis gesetzt und der Modus
-auf „Akku nur Laden" geschaltet.
-
-**Warum:** Ein aktivierter Netzladen-Booster bei vollem Akku wäre sinnlos und
-würde weiter Strom ziehen. Dieser Block putzt das automatisch auf.
+Der Default-Pfad greift nur wenn `sensor.opti_soc` und `sensor.opti_battery_capacity_kwh`
+verfügbar sind — Fail-safe bei unavailable Quellen.
 
 ---
 
-### Aktionsblock 4 — „Akku Nur Laden wenn Prognose schlecht und aufsparen" (nachgelagert)
+### Aktionsblock 3 — Cleanup: Netzladen-Booster deaktivieren bei vollem Akku
 
-Dieser Block läuft **nach** dem großen `choose`-Block und greift auch dann,
-wenn oben kein `stop` ausgelöst wurde. Er hat drei interne Unterbedingungen (OR):
+**Was passiert:** Wenn SoC > 99 % und der manuelle Netzlade-Booster
+(`input_boolean.hausakku_aus_netz_laden`) aktiv ist, wird dieser automatisch deaktiviert.
+Außerdem wird der Ladepreis-Helfer (`input_number.ladepreis`) auf den aktuellen Strompreis
+gesetzt (Einheit: EUR, `ct/kWh ÷ 100`) und der Modus auf „Akku nur Laden" geschaltet.
 
-1. **Wintermodus-Abend:** SoC < 80 %, PV-Rest < 15 kWh, morgen schlecht, kein Sommermodus
-2. **Nachmittags-Puffer (13:00–23:59):** SoC < 30 %, PV-Rest < 20 kWh, morgen schlecht
-3. **Nachts/Früh (00:00–12:59):** SoC < 30 %, heute schlecht
-
-Dazu muss das Preisniveau CHEAP / VERY_CHEAP / NORMAL sein.
-
-**Warum:** Dieser Block ist eine zweite Sicherheitsebene für prognosebasiertes Laden.
-Er stellt sicher, dass der Akku auch dann nachgeladen wird, wenn der Haupt-`choose`-Block
-keinen `stop` gesetzt hat (z. B. weil kein passender Trigger dabei war). Tageszeit-Logik
-(13:00-Schwelle) berücksichtigt, dass morgen-Prognosen am Nachmittag relevanter werden
-als am frühen Morgen.
-
----
-
-### Aktionsblock 5 — Legacy Tibber-Preis-Ladesteuerung (deaktiviert)
-
-Dieser Block ist in der YAML vorhanden, aber mit `enabled: false` vollständig deaktiviert.
-Er enthält drei Optionen:
-
-- **Netz-Laden wenn Preisspanne lohnt:** Zieht Tibber-spezifische Sensoren heran
-  (`sensor.tibber_preisspanne_heute`, `sensor.tibber_aktueller_preis_ist_tageshochstpreis`),
-  die in der neuen anbieter-agnostischen Strategie nicht mehr verwendet werden.
-- **Akku Automatisch wenn PV gut und Akku hoch (ohne Netzladen)**
-- **Akku Automatisch wenn morgen oder heute ausreichend PV**
-
-**Warum deaktiviert:** Im Winter ist diese Logik kaum wirtschaftlich (Kommentar in der YAML).
-Sie ist zur Referenz erhalten, wird aber nicht mehr gepflegt. Die neue Preisniveauquelle
-`sensor.strompreis_niveau` (anbieter-agnostisches Perzentil-Enum) macht Tibber-spezifische
-Sensoren in der Strategie obsolet.
+**Warum:** Ein aktivierter Netzladen-Booster bei vollem Akku wäre sinnlos. Dieser Block
+putzt den Zustand automatisch auf — er läuft immer (kein Toggle-Gate).
 
 ---
 
@@ -369,23 +315,24 @@ Sensoren in der Strategie obsolet.
 |---|---|
 | **Akku nur Laden** | SoC unter MinSOC (Notfall); schlechte Prognose + günstiger Strom; Wintermodus aktiv; Akku fast leer bei Schlechtwetter |
 | **Akku Dynamisch** | PV-Überschuss tagsüber; Akku zwischen MinSOC und Ziel-SoC; voller Akku; kein klarer Lade-/Entladegrund (Default) |
-| **Akku nur Entladen** | SoC über intelligentem Ziel-SoC (Akku hat genug Reserve für die Nacht) |
-| **Akku Automatisch** | Nur im deaktivierten Legacy-Tibber-Block — in der aktiven Strategie derzeit nicht vergeben |
+| **Akku nur Entladen** | SoC über intelligentem Ziel-SoC (`sensor.opti_target_soc`) — Akku hat genug Reserve für die Nacht |
 
 **Modus-Contract (Single-Writer-Regel):**
-Die Strategie-Automation schreibt ausschließlich in `input_select.akkusteuerung_modus`.
-Was dieser Modus am Wechselrichter/Speicher auslöst, entscheidet allein der Hardware-Adapter
-(Blueprint im Repo `ha-modbus-akku-adapter`). Nur eine Automation darf gleichzeitig
-via Modbus schreiben — keine zweite Steuer-Automation parallel aktiv lassen.
+Die Strategie-Automation schreibt primär `input_select.akkusteuerung_modus`. Im
+Cleanup-Block (Aktionsblock 3) werden zusätzlich `input_boolean.hausakku_aus_netz_laden`
+und `input_number.ladepreis` gesetzt. Was der Modus am Wechselrichter/Speicher auslöst,
+entscheidet allein der Hardware-Adapter (Blueprint im Repo `ha-modbus-akku-adapter`).
+Nur eine Automation darf gleichzeitig via Modbus schreiben — keine zweite
+Steuer-Automation parallel aktiv lassen.
 
 ---
 
-## Neue Bausteine (seit Task 5–6)
+## Bausteine des Canonical-Layers
 
 | Baustein | Beschreibung |
 |---|---|
-| **P10-Sicherheitsnetz** | `sensor.pv_forecast_bewertung_heute` / `_morgen` verwenden das 10. Perzentil der Solcast-Prognose als konservativen Referenzwert — schützt vor Überoptimismus bei unsicheren Prognosen |
-| **Decision-Trace-Attribute** | `akku_target_soc_intelligent` hängt Debugging-Attribute an (`branch`, `ratio`, `net_available_kwh`, `remaining_hours`), lesbar über HA-Entwicklerwerkzeuge |
-| **Sollkurve + P-Regler** | `sensor.akkusteuerung_dynamische_ladestaerke_p` ist ein eigenständiger Sensor (P-Regler), der die Basis-Ladestärke proportional zur Abweichung Ist-SOC vs. Sollkurve moduliert — sanfter Übergang statt abrupter Sprünge |
-| **Abregelungs-Umleitung** | Trigger + Option 7 erkennen drohende 70%-Kappung und leiten Überschuss aktiv in den Akku (statt Verlust am Dach-Limit) |
-| **`sensor.strompreis_niveau`** | Anbieter-agnostisches Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE) auf Basis eines gleitenden Perzentils — ersetzt Tibber-spezifische Direktabfragen in der Strategie |
+| **P10-Sicherheitsnetz** | `sensor.opti_forecast_score` / `_tomorrow` verwenden das 10. Perzentil der Solcast-Prognose (`estimate10`) als konservativen Referenzwert — schützt vor Überoptimismus bei unsicheren Prognosen |
+| **Decision-Trace-Attribute** | `sensor.opti_target_soc` hängt Debugging-Attribute an (`branch`, `ratio`, `net_available_kwh`, `remaining_hours`), lesbar über HA-Entwicklerwerkzeuge |
+| **Forecast-Score-Bänder** | `sensor.opti_charge_power_w` variiert die C-Rate in drei Bändern (score ≤ 1: aggressiv; 2–4: moderat; ≥ 5: schonend) statt starrer Prognose-Labels |
+| **`sensor.opti_price_level`** | Anbieter-agnostisches Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE) auf Basis eines gleitenden Perzentils über `today`/`tomorrow`-Preislisten |
+| **`binary_sensor.opti_winter_charging_allowed`** | Fail-open Gate für Winterladeblöcke (Standard: `true`); kann mit eigenem Sommermodus-Sensor überschrieben werden |

@@ -1,0 +1,230 @@
+# =============================================================================
+# opti_mapping.example.yaml — Canonical-Mapping: Beispiel-Datei (öffentlich)
+# =============================================================================
+# Diese Datei als Vorlage kopieren nach: packages/opti_mapping.yaml
+# Dann alle DEIN_*-Platzhalter durch echte Entitäts-IDs ersetzen.
+#
+# Einheiten-Konventionen (verbindlich für Paket-2+-Komponenten):
+#   Preise:   ct/kWh  (EUR→ct wird NUR HIER ×100 normalisiert — nicht downstream)
+#   Leistung: W       (Watt, im Sensor-Namen als _w)
+#   Energie:  kWh     (im Sensor-Namen als _kwh)
+#
+# Vorzeichen-Konventionen:
+#   opti_grid_export_w    >= 0  (positiv = Einspeisung ins Netz)
+#   opti_battery_power_w  += laden  (positiv = Batterie lädt)
+#
+# Jeder Sensor hat:
+#   unique_id: opti_mapping_<name>
+#   name: "Opti …" → HA leitet daraus sensor.opti_<name> ab
+#   availability: prüft ob die Pflicht-Quelle verfügbar ist
+# =============================================================================
+
+template:
+  - sensor:
+
+      # -----------------------------------------------------------------------
+      # 1. Batterie SoC (%)
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_soc
+        name: "Opti SoC"
+        unit_of_measurement: "%"
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEIN_SOC') }}"
+        state: "{{ states('sensor.DEIN_SOC') | float(0) }}"
+
+      # -----------------------------------------------------------------------
+      # 2. Batterie-Temperatur (°C) — optional
+      # availability immer true; falls kein Sensor vorhanden, gilt 20 °C als
+      # neutraler Default (keine Abregelung wegen fehlender Temperatur).
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_battery_temp
+        name: "Opti Battery Temp"
+        unit_of_measurement: "°C"
+        state_class: measurement
+        availability: "{{ true }}"
+        state: "{{ states('sensor.DEIN_BATTERIE_TEMP') | float(20) }}"
+
+      # -----------------------------------------------------------------------
+      # 3. Batterie-Nennkapazität (kWh)
+      # Quelle liefert kWh → direkt übernehmen:
+      #   state: "{{ states('sensor.DEIN_BATTERIE_KAPAZITAET') | float(0) }}"
+      # Quelle liefert Wh → durch 1000 teilen (z.B. SMA batterie_nennkapazitaet
+      # in Wh — typisch 12800 Wh = 12,8 kWh):
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_battery_capacity_kwh
+        name: "Opti Battery Capacity kWh"
+        unit_of_measurement: "kWh"
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEIN_BATTERIE_KAPAZITAET') }}"
+        # Quelle in Wh → /1000 (SMA-Standard):
+        state: "{{ states('sensor.DEIN_BATTERIE_KAPAZITAET') | float(0) / 1000 }}"
+        # Quelle direkt in kWh (auskommentieren und obige Zeile entfernen):
+        # state: "{{ states('sensor.DEIN_BATTERIE_KAPAZITAET') | float(0) }}"
+
+      # -----------------------------------------------------------------------
+      # 4. PV-Leistung (W) — Wechselrichter AC-Ausgangsleistung
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_pv_power_w
+        name: "Opti PV Power W"
+        unit_of_measurement: "W"
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEIN_PV_POWER') }}"
+        state: "{{ states('sensor.DEIN_PV_POWER') | float(0) }}"
+
+      # -----------------------------------------------------------------------
+      # 5. PV-Erzeugung (W) — DC-Eingangsleistung / Gesamterzeugung
+      # Bei manchen Anlagen identisch mit opti_pv_power_w (gleiche Quelle möglich).
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_pv_generation_w
+        name: "Opti PV Generation W"
+        unit_of_measurement: "W"
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEIN_PV_GENERATION') }}"
+        state: "{{ states('sensor.DEIN_PV_GENERATION') | float(0) }}"
+
+      # -----------------------------------------------------------------------
+      # 6. Netz-Einspeisung (W) — IMMER >= 0 (positiv = Einspeisung ins Netz)
+      #
+      # Vorzeichen-Rezept:
+      #   Quelle positiv = Einspeisung (SMA, Fronius etc.):
+      #     state: "{{ [0, states('sensor.DEIN_GRID_EXPORT') | float(0)] | max }}"
+      #   Quelle positiv = Netzbezug (Einspeisung ist negativ):
+      #     state: "{{ [0, states('sensor.DEIN_GRID_EXPORT') | float(0) * -1] | max }}"
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_grid_export_w
+        name: "Opti Grid Export W"
+        unit_of_measurement: "W"
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEIN_GRID_EXPORT') }}"
+        # Standard: Quelle positiv = Einspeisung → auf >= 0 clippen
+        state: "{{ [0, states('sensor.DEIN_GRID_EXPORT') | float(0)] | max }}"
+        # Alternative: Quelle positiv = Netzbezug (Einspeisung negativ) → Vorzeichen drehen:
+        # state: "{{ [0, states('sensor.DEIN_GRID_EXPORT') | float(0) * -1] | max }}"
+
+      # -----------------------------------------------------------------------
+      # 7. Hausverbrauch (W)
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_house_consumption_w
+        name: "Opti House Consumption W"
+        unit_of_measurement: "W"
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEIN_HAUSVERBRAUCH') }}"
+        state: "{{ states('sensor.DEIN_HAUSVERBRAUCH') | float(0) }}"
+
+      # -----------------------------------------------------------------------
+      # 8. Aktueller Strompreis (ct/kWh)
+      # Quelle liefert EUR/kWh → ×100 = ct/kWh (Normalisierung NUR HIER)
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_price_current_ct_kwh
+        name: "Opti Price Current ct kWh"
+        unit_of_measurement: "ct/kWh"
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEIN_STROMPREIS') }}"
+        state: "{{ states('sensor.DEIN_STROMPREIS') | float(0) * 100 }}"
+
+      # -----------------------------------------------------------------------
+      # 9. Preis-Reihe (state = aktueller Preis in ct/kWh;
+      #    Attribute today/tomorrow = Listen in ct/kWh)
+      # Quelle: sensor.DEIN_PREIS_REIHE mit Attributen 'today'/'tomorrow'.
+      # Items dürfen Zahlen ODER Dicts mit Schlüssel 'total'/'price'/'value' sein.
+      # 'tomorrow' fehlt/leer → leere Liste [], kein Fehler.
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_price_series
+        name: "Opti Price Series"
+        unit_of_measurement: "ct/kWh"
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEIN_PREIS_REIHE') }}"
+        state: "{{ states('sensor.DEIN_PREIS_REIHE') | float(0) * 100 }}"
+        attributes:
+          today: >
+            {% set arr = state_attr('sensor.DEIN_PREIS_REIHE', 'today') %}
+            {% set ns = namespace(o=[]) %}
+            {% if arr is iterable and arr is not string %}
+              {% for it in arr %}
+                {% set p = it.get('total', it.get('price', it.get('value'))) if it is mapping else it %}
+                {% set p = p | float(none) %}
+                {% if p is not none %}{% set ns.o = ns.o + [p * 100] %}{% endif %}
+              {% endfor %}
+            {% endif %}
+            {{ ns.o }}
+          tomorrow: >
+            {% set arr = state_attr('sensor.DEIN_PREIS_REIHE', 'tomorrow') %}
+            {% set ns = namespace(o=[]) %}
+            {% if arr is iterable and arr is not string %}
+              {% for it in arr %}
+                {% set p = it.get('total', it.get('price', it.get('value'))) if it is mapping else it %}
+                {% set p = p | float(none) %}
+                {% if p is not none %}{% set ns.o = ns.o + [p * 100] %}{% endif %}
+              {% endfor %}
+            {% endif %}
+            {{ ns.o }}
+
+      # -----------------------------------------------------------------------
+      # 10. PV-Prognose heute (kWh)
+      # Attribut estimate10: P10-Schätzung (pessimistischer Wert für Worst-Case-Planung)
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_forecast_today_kwh
+        name: "Opti Forecast Today kWh"
+        unit_of_measurement: "kWh"
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEIN_SOLCAST_HEUTE') }}"
+        state: "{{ states('sensor.DEIN_SOLCAST_HEUTE') | float(0) }}"
+        attributes:
+          estimate10: "{{ state_attr('sensor.DEIN_SOLCAST_HEUTE', 'estimate10') | float(0) }}"
+
+      # -----------------------------------------------------------------------
+      # 11. PV-Prognose morgen (kWh)
+      # Attribut estimate10: P10-Schätzung (pessimistischer Wert für Worst-Case-Planung)
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_forecast_tomorrow_kwh
+        name: "Opti Forecast Tomorrow kWh"
+        unit_of_measurement: "kWh"
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEIN_SOLCAST_MORGEN') }}"
+        state: "{{ states('sensor.DEIN_SOLCAST_MORGEN') | float(0) }}"
+        attributes:
+          estimate10: "{{ state_attr('sensor.DEIN_SOLCAST_MORGEN', 'estimate10') | float(0) }}"
+
+      # -----------------------------------------------------------------------
+      # 12. PV-Prognose verbleibend heute (kWh) — einfacher Skalar-Alias
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_forecast_remaining_today_kwh
+        name: "Opti Forecast Remaining Today kWh"
+        unit_of_measurement: "kWh"
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEIN_SOLCAST_VERBLEIBEND') }}"
+        state: "{{ states('sensor.DEIN_SOLCAST_VERBLEIBEND') | float(0) }}"
+
+      # -----------------------------------------------------------------------
+      # 13. Batterie-Leistung (W) — += laden (positiv = Batterie lädt)
+      #
+      # AKTIVER DEFAULT: SMA (2 separate Sensoren für Laden/Entladen, beide >= 0)
+      #   battery_power = charge - discharge  →  positiv = laden
+      #   Debug-Attribut zeigt an, ob gleichzeitig geladen und entladen wird.
+      #
+      # ALTERNATIVE (Huawei / Einzel-Sensor, auskommentiert):
+      #   Manche WR liefern einen einzigen signierten Sensor.
+      #   Konvention muss +=laden sein:
+      #     Quelle positiv = laden  → direkt übernehmen
+      #     Quelle positiv = entladen → * -1 (Vorzeichen drehen)
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_battery_power_w
+        name: "Opti Battery Power W"
+        unit_of_measurement: "W"
+        state_class: measurement
+        # SMA: beide Quellen müssen verfügbar sein
+        availability: >
+          {{ has_value('sensor.DEIN_CHARGE_W') and has_value('sensor.DEIN_DISCHARGE_W') }}
+        # SMA: Netto-Ladeleistung = Laden minus Entladen (positiv = laden)
+        state: >
+          {{ states('sensor.DEIN_CHARGE_W') | float(0) - states('sensor.DEIN_DISCHARGE_W') | float(0) }}
+        attributes:
+          simultaneous_charge_discharge: >
+            {{ states('sensor.DEIN_CHARGE_W') | float(0) > 0 and
+               states('sensor.DEIN_DISCHARGE_W') | float(0) > 0 }}
+        # --- ALTERNATIVE: Huawei / Einzel-Sensor ---
+        # (diese 3 Zeilen einkommentieren und den SMA-Block oben auskommentieren)
+        # availability: "{{ has_value('sensor.DEIN_BATT_POWER') }}"
+        # state: "{{ states('sensor.DEIN_BATT_POWER') | float(0) }}"
+        # Falls Quelle positiv = entladen (Laden ist negativ) → Vorzeichen drehen:
+        # state: "{{ states('sensor.DEIN_BATT_POWER') | float(0) * -1 }}"

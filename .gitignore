@@ -4,3 +4,6 @@ SESSION-HANDOVER.md
 # Superpowers-Planungs-/Arbeitsartefakte — nicht versionieren
 .superpowers/
 docs/superpowers/
+
+# Privates Canonical-Mapping mit echten Entitäts-IDs — nicht committen
+packages/opti_mapping.yaml

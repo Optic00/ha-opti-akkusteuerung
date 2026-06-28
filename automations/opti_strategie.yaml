@@ -131,7 +131,7 @@
         # OBERSTE PRIORITÄT: Entladesperre <minsoc — vor allen anderen geprüft.
         # Läuft IMMER (kein has_value-Gate); fehlt opti_soc, greift die
         # numeric_state-Bedingung schlicht nicht (fail-safe).
-        - alias: "MinSOC Schutz – Entladen sperren wenn SOC unter MinSOC (gilt tag und nacht)"
+        - alias: "Modus 'nur Laden' (Entladesperre): MinSOC-Schutz, SOC unter MinSOC (tag+nacht)"
           conditions:
             - condition: numeric_state
               entity_id: sensor.opti_soc
@@ -147,7 +147,7 @@
         # Winter-/Prognose-Ladeblock (SOC < 20 %).
         # Quelle: heute+morgen schlecht → Score<3 (beide); Preis VERY_CHEAP..EXPENSIVE.
         # Gates: opti_prognose_netzladen on + opti_winter_charging_allowed on.
-        - alias: "Laden wenn morgen und heute schlecht und SOC unter 20% (tag+nacht)"
+        - alias: "Modus 'nur Laden' (PV halten): Prognose heute+morgen schlecht, SOC unter 20% (tag+nacht)"
           conditions:
             - condition: state
               entity_id: input_boolean.opti_prognose_netzladen
@@ -193,7 +193,7 @@
 
         # Winter-/Prognose-Ladeblock (SOC < 75 %). Preis nur bis NORMAL.
         # opti_winter_charging_allowed hier NICHT — opportunistischer Block, soll ganzjährig greifen.
-        - alias: "Laden wenn morgen und heute schlecht und SOC unter 75% (tag+nacht)"
+        - alias: "Modus 'nur Laden' (PV halten): Prognose heute+morgen schlecht, SOC unter 75%, Preis bis NORMAL (tag+nacht)"
           conditions:
             - condition: state
               entity_id: input_boolean.opti_prognose_netzladen
@@ -233,7 +233,7 @@
 
         # Winter-/Prognose-Ladeblock (SOC < 80 %, Wintermodus-Gate).
         # Sommermodus-Gate der Quelle → binary_sensor.opti_winter_charging_allowed.
-        - alias: "Laden wenn heute+morgen schlecht, Wintermodus, SOC unter 80% (tag+nacht)"
+        - alias: "Modus 'nur Laden' (PV halten): Prognose schlecht, Wintermodus, SOC unter 80% (tag+nacht)"
           conditions:
             - condition: state
               entity_id: input_boolean.opti_prognose_netzladen
@@ -280,7 +280,7 @@
         # Winter-/Prognose-Ladeblock (SOC < 15 %, Notfall). Nur heute-Score.
         # KEIN opti_winter_charging_allowed-Gate — Notfall-Netzladen DARF NIE durch das
         # Saisonal-Gate blockiert werden. Dieser Block muss ganzjährig und im Sommer greifen.
-        - alias: "Laden wenn heute schlecht, SOC unter 15% (tag+nacht)"
+        - alias: "Modus 'nur Laden' (Reserve halten): heute schlecht, SOC unter 15% (tag+nacht)"
           conditions:
             - condition: state
               entity_id: input_boolean.opti_prognose_netzladen
@@ -318,7 +318,7 @@
 
         # Winter-/Prognose-Ladeblock (SOC < 45 %, nur sehr günstig). Nur heute-Score.
         # opti_winter_charging_allowed hier NICHT — Opportunistik-Block, soll ganzjährig greifen.
-        - alias: "Laden wenn heute schlecht, SOC unter 45% und Strom sehr günstig (tag+nacht)"
+        - alias: "Modus 'nur Laden' (PV halten): heute schlecht, SOC unter 45%, Strom sehr günstig (tag+nacht)"
           conditions:
             - condition: state
               entity_id: input_boolean.opti_prognose_netzladen
@@ -351,7 +351,7 @@
         # ENTFERNT: Zweig zur Umleitung bei drohender Erzeugungskappung (aufgeschoben, Paket >3).
 
         # Überschuss-Block: 70%-Einspeise-Überschuss in den Akku (nur tagsüber).
-        - alias: "Bei 70% Überschuss diesen in den Akku Laden (nur tagsüber)"
+        - alias: "Modus 'Dynamisch': 70% PV-Überschuss in den Akku (nur tagsüber)"
           conditions:
             - condition: state
               entity_id: input_boolean.opti_pv_ueberschuss_ladung
@@ -376,7 +376,7 @@
             - stop: "fertig"
 
         # Überschuss-Block: AC-Überschuss (PV-Leistung über Grenze) in den Akku (nur tagsüber).
-        - alias: "Bei AC Überschuss diesen in den Akku Laden (nur tagsüber)"
+        - alias: "Modus 'Dynamisch': AC-PV-Überschuss in den Akku (nur tagsüber)"
           conditions:
             - condition: state
               entity_id: input_boolean.opti_pv_ueberschuss_ladung
@@ -401,7 +401,7 @@
             - stop: "fertig"
 
         # Modus-Set-Zweig: voller Akku → Dynamisch.
-        - alias: "Bei vollem Akku auf Dynamisch schalten"
+        - alias: "Modus 'Dynamisch': Akku voll (SOC über 99%)"
           conditions:
             - condition: template
               value_template: >-
@@ -419,7 +419,7 @@
             - stop: "fertig"
 
         # Modus-Set-Zweig: dynamisch laden zwischen MinSoC und Ziel-SoC (nur tagsüber).
-        - alias: "Dynamisch laden wenn SOC zwischen MinSoC und DynZielSoC (nur tagsüber)"
+        - alias: "Modus 'Dynamisch': SOC zwischen MinSoC und Ziel-SoC (nur tagsüber)"
           conditions:
             - condition: template
               value_template: >-
@@ -441,7 +441,7 @@
             - stop: "fertig"
 
         # Modus-Set-Zweig: nur Entladen wenn SOC über Ziel-SoC.
-        - alias: "Nur Entladen wenn SOC über DynZielSoC"
+        - alias: "Modus 'nur Entladen': SOC über Ziel-SoC"
           conditions:
             - condition: template
               value_template: >-

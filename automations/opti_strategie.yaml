@@ -490,9 +490,9 @@
               target:
                 entity_id: input_boolean.hausakku_aus_netz_laden
             - action: input_number.set_value
-              alias: "Ladepreis Helfer nach aktuellem Strompreis (ct/kWh)"
+              alias: "Ladepreis Helfer nach aktuellem Strompreis (EUR/kWh)"
               data:
-                value: "{{ states('sensor.opti_price_current_ct_kwh') | float(0) }}"
+                value: "{{ states('sensor.opti_price_current_ct_kwh') | float(0) / 100 }}"
               target:
                 entity_id: input_number.ladepreis
             - action: input_select.select_option

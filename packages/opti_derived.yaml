@@ -330,16 +330,17 @@ template:
             {{ ns.c }}
 
       # -----------------------------------------------------------------------
-      # 6. Mindestentladepreis (ct/kWh) — VERBATIM, BEWUSST KEIN float(0):
+      # 6. Mindestentladepreis (ct/kWh) — BEWUSST KEIN float(0):
       #    fehlende Helfer dürfen nicht zu 0 ct werden (Fail-safe).
-      #    ladepreis ist ct/kWh → direkt addieren (kein ×100).
+      #    ladepreis UND mindestpreisdifferenz sind in EUR/kWh (Live-Konvention,
+      #    z.B. 0.306 / 0.08) → beide ×100 nach ct. (Live-validiert: 38.6 ct.)
       # -----------------------------------------------------------------------
       - unique_id: opti_mindestentladepreis_ct_kwh
         name: "Opti Mindestentladepreis ct kWh"
         unit_of_measurement: ct/kWh
         availability: "{{ has_value('input_number.ladepreis') and has_value('input_number.mindestpreisdifferenz_lade_entladepreis') }}"
-        state: "{{ (states('input_number.ladepreis')|float + states('input_number.mindestpreisdifferenz_lade_entladepreis')|float)|round(2) }}"
-        attributes: { ladepreis_ct: "{{ (states('input_number.ladepreis')|float)|round(2) }}", differenz_ct: "{{ states('input_number.mindestpreisdifferenz_lade_entladepreis')|float|round(2) }}" }
+        state: "{{ ((states('input_number.ladepreis')|float + states('input_number.mindestpreisdifferenz_lade_entladepreis')|float) * 100)|round(2) }}"
+        attributes: { ladepreis_ct: "{{ (states('input_number.ladepreis')|float * 100)|round(2) }}", differenz_ct: "{{ (states('input_number.mindestpreisdifferenz_lade_entladepreis')|float * 100)|round(2) }}" }
 
       # -----------------------------------------------------------------------
       # 7. Akku-Restlaufzeit (h) — übersetzt aus house_battery_runtime_raw

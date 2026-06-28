@@ -135,24 +135,26 @@ input_number:
   ladepreis:
     name: "Akku Ladepreis (Referenz)"
     # Wird automatisch vom aktuellen Strompreis befüllt wenn Netzladen aktiv ist.
-    # Stellt den Preis dar, zu dem der Akku zuletzt netzgeladen wurde (ct/kWh).
+    # Stellt den Preis dar, zu dem der Akku zuletzt netzgeladen wurde (EUR/kWh).
+    # EINHEIT EUR/kWh (z.B. 0.306). opti_mindestentladepreis_ct_kwh rechnet ×100 nach ct.
     min: 0
-    max: 100
-    step: 0.01
-    unit_of_measurement: ct/kWh
+    max: 1
+    step: 0.001
+    unit_of_measurement: EUR/kWh
     mode: box
     icon: mdi:currency-eur
 
   mindestpreisdifferenz_lade_entladepreis:
     name: "Mindestpreisdifferenz Laden/Entladen"
     # Mindest-Marge zwischen Ladepreis und aktuellem Preis, ab der Entladen wirtschaftlich ist.
-    # Beispiel: Ladepreis 20 ct + Differenz 5 ct → Entladen erst ab 25 ct/kWh sinnvoll.
-    # Empfehlung: 3–8 ct/kWh (deckt Verluste + Akkuverschleiß ab)
+    # Beispiel: Ladepreis 0.20 € + Differenz 0.05 € → Entladen erst ab 0.25 €/kWh sinnvoll.
+    # Empfehlung: 0.03–0.08 EUR/kWh (deckt Verluste + Akkuverschleiß ab)
+    # EINHEIT EUR/kWh (z.B. 0.08). opti_mindestentladepreis_ct_kwh rechnet ×100 nach ct.
     min: 0
-    max: 30
-    step: 0.5
-    initial: 5
-    unit_of_measurement: ct/kWh
+    max: 0.3
+    step: 0.005
+    initial: 0.05
+    unit_of_measurement: EUR/kWh
     mode: box
     icon: mdi:cash-plus
 

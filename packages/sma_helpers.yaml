@@ -35,14 +35,9 @@ input_number:
     mode: box
     icon: mdi:battery-arrow-up
 
-  akkusteuerung_02c_ladestaerke:
-    name: "Akkusteuerung 0.2C Ladestärke"
-    min: 100
-    max: 10000
-    step: 100
-    unit_of_measurement: W
-    mode: box
-    icon: mdi:battery-arrow-up-outline
+  # Hinweis: Für den Modus "Akku 0.2C Laden" ist kein Ladestärke-Helfer mehr nötig.
+  # Der Hardware-Adapter (ha-modbus-akku-adapter) berechnet die 0.2C-Ladeleistung
+  # automatisch aus der Batterie-Nennkapazität (0,2 × Kapazität, Register 40187).
 
   akkusteuerung_min_ladestaerke:
     name: "Akkusteuerung Min Ladestärke"

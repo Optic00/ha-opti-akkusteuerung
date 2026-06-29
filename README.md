@@ -257,7 +257,6 @@ Entweder manuell über die HA-Oberfläche oder per YAML. Alle Helfer auf einen B
 | `akku_opti_automatik` | input_boolean | – | Opti-Automatik Ein/Aus |
 | `akkusteuerung_ladestaerke_soll` | input_number | 100–10000 W | Ladestärke (manuell) |
 | `akkusteuerung_entladestaerke_soll` | input_number | 100–10000 W | Entladestärke (manuell) |
-| `akkusteuerung_02c_ladestaerke` | input_number | 100–10000 W | 0.2C Ladestärke |
 | `akkusteuerung_min_ladestaerke` | input_number | 0–2000 W | Minimale Ladestärke |
 | `akkusteuerung_max_ladestaerke` | input_number | 0–10000 W | Maximale Ladestärke |
 | `akkusteuerung_min_entladestaerke` | input_number | 0–2000 W | Minimale Entladestärke |
@@ -346,8 +345,6 @@ cards:
       - entity: input_number.akkusteuerung_ladestaerke_soll
       - entity: input_number.akkusteuerung_entladestaerke_soll
         name: Entladestärke
-      - entity: input_number.akkusteuerung_02c_ladestaerke
-        name: Ladestärke 0.2C
       - entity: input_number.akkusteuerung_wr_ac_ueberschuss_grenze
         name: WR AC-Grenze
       - entity: input_number.akkusteuerung_wr_70proz_ueberschuss_grenze
@@ -416,7 +413,8 @@ Berechnet anhand der **verbleibenden Solcast-Prognose** und dem geschätzten **H
 
 | Helfer | Wann aktiv | Beschreibung |
 |---|---|---|
-| `akkusteuerung_ladestaerke_soll` | Modi "Schnell Laden" / "0.2C Laden" | Feste Ziel-Ladestärke für manuelle Modi |
+| `akkusteuerung_ladestaerke_soll` | Modus "Schnell Laden" | Feste Ziel-Ladestärke für den manuellen Modus |
+| _0.2C Laden_ (kein Helfer) | Modus "0.2C Laden" | Ladeleistung wird vom Hardware-Adapter automatisch aus der Batteriekapazität berechnet (0,2 × Kapazität) |
 | `akkusteuerung_min_ladestaerke` | Immer (Dynamisch-Betrieb) | Untere Grenze, die der WR nie unterschreiten soll |
 | `akkusteuerung_max_ladestaerke` | Immer (Dynamisch-Betrieb) | Obere Grenze – wird durch dynamische Ladestärke weiter begrenzt |
 | `sensor.akkusteuerung_dynamische_ladestaerke` | Immer (Dynamisch-Betrieb) | Automatisch berechneter Sollwert (SoC + Temperatur) |

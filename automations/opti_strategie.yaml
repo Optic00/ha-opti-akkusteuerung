@@ -421,14 +421,15 @@
         # Modus-Set-Zweig: dynamisch laden zwischen MinSoC und Ziel-SoC (nur tagsüber).
         - alias: "Modus 'Dynamisch': SOC zwischen MinSoC und Ziel-SoC (nur tagsüber)"
           conditions:
+            # Band H=3 %: native numeric_state kann 'entity - offset' nicht ausdruecken,
+            # daher Template-Bedingung (soc > minsoc UND soc < target - H).
             - condition: template
               value_template: >-
                 {{ has_value('sensor.opti_soc')
-                   and has_value('sensor.opti_battery_capacity_kwh') }}
-            - condition: numeric_state
-              entity_id: sensor.opti_soc
-              above: input_number.minsoc
-              below: sensor.opti_target_soc
+                   and has_value('sensor.opti_battery_capacity_kwh')
+                   and has_value('sensor.opti_target_soc')
+                   and (states('sensor.opti_soc') | float) > (states('input_number.minsoc') | float(10))
+                   and (states('sensor.opti_soc') | float) < (states('sensor.opti_target_soc') | float - 3) }}
             - condition: sun
               after: sunrise
               before: sunset
@@ -443,13 +444,13 @@
         # Modus-Set-Zweig: nur Entladen wenn SOC über Ziel-SoC.
         - alias: "Modus 'nur Entladen': SOC über Ziel-SoC"
           conditions:
+            # Band H=3 %: nur Entladen erst wenn soc > target + H (Template, da Offset).
             - condition: template
               value_template: >-
                 {{ has_value('sensor.opti_soc')
-                   and has_value('sensor.opti_battery_capacity_kwh') }}
-            - condition: numeric_state
-              entity_id: sensor.opti_soc
-              above: sensor.opti_target_soc
+                   and has_value('sensor.opti_battery_capacity_kwh')
+                   and has_value('sensor.opti_target_soc')
+                   and (states('sensor.opti_soc') | float) > (states('sensor.opti_target_soc') | float + 3) }}
           sequence:
             - action: input_select.select_option
               data:

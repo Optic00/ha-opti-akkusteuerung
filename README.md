@@ -11,6 +11,13 @@ Prognosebasierte & manuelle Akku-Ladesteuerung für den **SMA STP SE Hybrid-Wech
 Prognosebasierte Akku-Ladesteuerung für Home Assistant — **hardware-agnostisch** über einen
 separaten Modbus-Adapter, komplett als HA-Packages paketiert.
 
+**Prognosebasierter Ziel-SoC** (Kernfeature, `sensor.opti_target_soc`)  
+Lädt den Akku morgens **nicht** stumpf auf 100 %, sondern nur so weit, dass die erwartete
+Rest-PV des Tages ihn bis zum Abend von selbst voll macht — schont die Zellen und maximiert
+den PV-Eigenverbrauch. Der Zielwert ergibt sich aus Solcast-Restprognose, Hausverbrauch und
+Restzeit bis Sonnenuntergang, als Stufenkennlinie mit echter Hysterese (kein Flattern).
+→ **[Herleitung in docs/strategie-logik.md](docs/strategie-logik.md#der-intelligente-ziel-soc--herzstück-der-akkuschonung)**
+
 **Strategie** (`automations/opti_strategie.yaml`)  
 Entscheidet prognosebasiert, welcher Modus wann gilt: Lädt bei schlechter PV-Prognose aus
 dem Netz (gestaffelt nach SoC und Preisniveau), nutzt PV-Überschuss tagsüber und schützt

@@ -89,16 +89,17 @@ template:
           {{ (([ [tomorrow / denom_kwh, 1]|min, 0]|max) * 10)|round(0)|int }}
 
       # -----------------------------------------------------------------------
-      # 3. Ziel-SoC (%) — übersetzt aus akku_target_soc_intelligent
-      #    (SMA-Templates Z.206-305). Logik/Schwellen unverändert,
-      #    nur Quell-Entitäten getauscht. Trace-Attribute beibehalten.
+      # 3. Ziel-SoC (%) — abgeleitet aus akku_target_soc_intelligent (SMA-Templates
+      #    Z.206-305): Quell-Entitäten auf opti_*-Layer getauscht. Stufen-Kennlinie 1:1,
+      #    aber Flatter-Fix: 0.25-Quantisierung → echte Schmitt-Hysterese (siehe state).
       #    Kapazität: opti_battery_capacity_kwh ist BEREITS kWh (Quelle war Wh/1000).
       # -----------------------------------------------------------------------
       - unique_id: opti_target_soc
         name: "Opti Target SoC"
         unit_of_measurement: "%"
         state_class: measurement
-        # Ratio auf 0.25-Schritte gerundet → verhindert Flattern an Stufengrenzen (Hysterese)
+        # Ziel-SoC mit echter Schmitt-Hysterese auf den Ratio-Stufen: Attribut 'level'
+        # haelt die vorige Stufe, bis ratio die Grenze um die Marge m ueber-/unterschreitet.
         availability: >
           {{ has_value('sensor.opti_battery_capacity_kwh') and
              has_value('sensor.opti_forecast_remaining_today_kwh') }}
@@ -122,16 +123,25 @@ template:
             {% endif %}
 
             {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
-            {# Auf 0.25-Schritte runden → verhindert Flattern an Stufengrenzen #}
-            {% set ratio = (((net_available / cap_kwh) * 4) | round(0)) / 4 %}
-
-            {% if   ratio >= 3.0 %} {% set target = 50 %}
-            {% elif ratio >= 2.0 %} {% set target = 60 %}
-            {% elif ratio >= 1.5 %} {% set target = 70 %}
-            {% elif ratio >= 1.0 %} {% set target = 80 %}
-            {% elif ratio >= 0.5 %} {% set target = 90 %}
-            {% else %}              {% set target = max_soc %}
-            {% endif %}
+            {% set ratio = net_available / cap_kwh %}
+            {# Schmitt-Hysterese: vorige Stufe (Attribut 'level') halten, bis ratio die
+               naechste Grenze um die Marge m ueber-/unterschreitet. Ersetzt die alte
+               0.25-Quantisierung (= nur Kink-Verschiebung, kein Halteband).
+               bounds = die alten effektiven 0.25-Rundungsgrenzen (akkuschonende Kennlinie
+               1:1 wiederhergestellt), jetzt als Hysterese-Zentren mit Marge m. #}
+            {% set m = 0.10 %}
+            {% set bounds  = [0.375, 0.875, 1.375, 1.875, 2.875] %}
+            {% set targets = [max_soc, 90, 80, 70, 60, 50] %}
+            {% set plain = bounds | select('le', ratio) | list | count %}
+            {% set prev = this.attributes.get('level', plain) | int(plain) %}
+            {% set ns = namespace(l = prev) %}
+            {% for _ in bounds %}
+              {% if ns.l < 5 and ratio >= bounds[ns.l] + m %}{% set ns.l = ns.l + 1 %}{% endif %}
+            {% endfor %}
+            {% for _ in bounds %}
+              {% if ns.l > 0 and ratio < bounds[ns.l - 1] - m %}{% set ns.l = ns.l - 1 %}{% endif %}
+            {% endfor %}
+            {% set target = targets[ns.l] %}
 
             {{ [min_soc, [max_soc, target] | min] | max | round(0) }}
           {% endif %}
@@ -153,14 +163,53 @@ template:
                 {% set remaining_hours = 6 %}
               {% endif %}
               {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
-              {% set ratio = (((net_available / cap_kwh) * 4) | round(0)) / 4 %}
-              {% if   ratio >= 3.0 %}ratio>=3.0 → 50%
-              {% elif ratio >= 2.0 %}ratio>=2.0 → 60%
-              {% elif ratio >= 1.5 %}ratio>=1.5 → 70%
-              {% elif ratio >= 1.0 %}ratio>=1.0 → 80%
-              {% elif ratio >= 0.5 %}ratio>=0.5 → 90%
-              {% else %}ratio<0.5 → maxsoc
+              {% set ratio = net_available / cap_kwh %}
+              {% set m = 0.10 %}
+              {% set bounds  = [0.375, 0.875, 1.375, 1.875, 2.875] %}
+              {% set targets = [max_soc, 90, 80, 70, 60, 50] %}
+              {% set plain = bounds | select('le', ratio) | list | count %}
+              {% set prev = this.attributes.get('level', plain) | int(plain) %}
+              {% set ns = namespace(l = prev) %}
+              {% for _ in bounds %}
+                {% if ns.l < 5 and ratio >= bounds[ns.l] + m %}{% set ns.l = ns.l + 1 %}{% endif %}
+              {% endfor %}
+              {% for _ in bounds %}
+                {% if ns.l > 0 and ratio < bounds[ns.l - 1] - m %}{% set ns.l = ns.l - 1 %}{% endif %}
+              {% endfor %}
+              ratio={{ ratio | round(2) }} plain={{ plain }} → level {{ ns.l }} → {{ targets[ns.l] | round(0) }}%{{ ' (gehalten)' if ns.l != plain else '' }}
+            {% endif %}
+          # Hysterese-Speicher: aktuelle Stufe (0=maxsoc … 5=50%). Wird via this.attributes
+          # zurueckgelesen; state + branch berechnen dieselbe Schmitt-Logik unabhaengig.
+          level: >
+            {% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %}
+            {% set restproduktion = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+            {% set hausverbrauch  = states('sensor.opti_house_consumption_w') | float(1500) %}
+            {% set max_soc        = states('input_number.maxsoc') | float(95) %}
+            {% set netzladen      = states('input_boolean.hausakku_aus_netz_laden') %}
+            {% if netzladen == 'on' %}
+              0
+            {% else %}
+              {% set sunset_time = state_attr('sun.sun', 'next_setting') %}
+              {% if sunset_time %}
+                {% set remaining_hours = (sunset_time | as_datetime - now()).total_seconds() / 3600 %}
+                {% set remaining_hours = [0.5, [12, remaining_hours] | min] | max %}
+              {% else %}
+                {% set remaining_hours = 6 %}
               {% endif %}
+              {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
+              {% set ratio = net_available / cap_kwh %}
+              {% set m = 0.10 %}
+              {% set bounds = [0.375, 0.875, 1.375, 1.875, 2.875] %}
+              {% set plain = bounds | select('le', ratio) | list | count %}
+              {% set prev = this.attributes.get('level', plain) | int(plain) %}
+              {% set ns = namespace(l = prev) %}
+              {% for _ in bounds %}
+                {% if ns.l < 5 and ratio >= bounds[ns.l] + m %}{% set ns.l = ns.l + 1 %}{% endif %}
+              {% endfor %}
+              {% for _ in bounds %}
+                {% if ns.l > 0 and ratio < bounds[ns.l - 1] - m %}{% set ns.l = ns.l - 1 %}{% endif %}
+              {% endfor %}
+              {{ ns.l }}
             {% endif %}
           ratio: >
             {% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %}
@@ -174,7 +223,7 @@ template:
               {% set remaining_hours = 6 %}
             {% endif %}
             {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
-            {{ (((net_available / cap_kwh) * 4) | round(0)) / 4 }}
+            {{ (net_available / cap_kwh) | round(3) }}
           net_available_kwh: >
             {% set restproduktion = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
             {% set hausverbrauch  = states('sensor.opti_house_consumption_w') | float(1500) %}
@@ -433,6 +482,7 @@ template:
           {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %}
           {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %}
           {% set p_c = price in ['VERY_CHEAP','CHEAP'] %}
+          {% set H = 3 %}
           {% if soc >= 0 and soc < minsoc %}Akku nur Laden
           {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden
@@ -442,8 +492,8 @@ template:
           {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}Akku Dynamisch
           {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}Akku Dynamisch
           {%- elif soc > 99 %}Akku Dynamisch
-          {%- elif soc > minsoc and soc < target and day %}Akku Dynamisch
-          {%- elif soc > target %}Akku nur Entladen
+          {%- elif soc > minsoc and soc < target - H and day %}Akku Dynamisch
+          {%- elif soc > target + H %}Akku nur Entladen
           {%- elif soc >= 0 %}Akku Dynamisch
           {%- else %}unbekannt{% endif %}
         attributes:
@@ -467,6 +517,7 @@ template:
             {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %}
             {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %}
             {% set p_c = price in ['VERY_CHEAP','CHEAP'] %}
+            {% set H = 3 %}
             {% if soc >= 0 and soc < minsoc %}MinSOC-Schutz (SoC<{{minsoc}})
             {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht)
             {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL)
@@ -476,8 +527,8 @@ template:
             {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}70% Ueberschuss (tag)
             {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}AC Ueberschuss (tag)
             {%- elif soc > 99 %}Akku voll
-            {%- elif soc > minsoc and soc < target and day %}dyn bis Ziel (tag)
-            {%- elif soc > target %}ueber Ziel-SoC
+            {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag)
+            {%- elif soc > target + H %}ueber Ziel-SoC
             {%- elif soc >= 0 %}Default (Nacht/keine Aktion)
             {%- else %}opti_soc fehlt{% endif %}
           ist_modus: "{{ states('input_select.akkusteuerung_modus') }}"

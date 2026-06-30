@@ -85,6 +85,104 @@ Das ist bewusst als zukünftiger Task (nicht Teil dieser Portierung) zurückgest
 
 ---
 
+## Der intelligente Ziel-SoC — Herzstück der Akkuschonung
+
+Das **Kernfeature** dieser Steuerung steckt nicht in der Strategie-Automation, sondern im
+abgeleiteten Sensor `sensor.opti_target_soc` (definiert in `packages/opti_derived.yaml`).
+Er beantwortet die Frage: *„Wie voll soll der Akku jetzt geladen werden?"* — **prognosebasiert**.
+
+### Warum überhaupt ein dynamischer Ziel-SoC?
+
+Ein Akku, der morgens schon auf 100 % steht, hat zwei Nachteile:
+
+1. **Zellalterung:** Lithium-Zellen altern kalendarisch schneller, je höher der SoC. Dauerhaft
+   bei 100 % zu stehen kostet Lebensdauer.
+2. **Verschenkte PV:** Ein voller Akku kann den PV-Überschuss des Tages nicht mehr aufnehmen —
+   der Strom wird (oft schlecht vergütet) eingespeist statt selbst genutzt.
+
+**Ziel:** Morgens nur so weit laden, dass die **erwartete Rest-PV des Tages** den Akku bis zum
+Abend von selbst voll macht. Gute Prognose → niedriger Ziel-SoC (Platz für PV lassen).
+Schlechte Prognose → hoher Ziel-SoC (mehr laden, notfalls aus dem Netz über die Ladeblöcke oben).
+
+### Wie der Zielwert berechnet wird
+
+Pro Aktualisierung rechnet der Sensor:
+
+```
+remaining_hours = Stunden bis Sonnenuntergang        (begrenzt auf 0.5…12 h; Fallback 6 h)
+net_available   = max(0, restproduktion_kWh − hausverbrauch_kW × remaining_hours)
+ratio           = net_available / akku_kapazität_kWh
+```
+
+- `restproduktion_kWh` = `sensor.opti_forecast_remaining_today_kwh` (Solcast-Restprognose, über
+  das **P10-Perzentil** konservativ gerechnet).
+- `hausverbrauch_kW` = `sensor.opti_house_consumption_w` / 1000.
+- `ratio` ist also der erwartete **PV-Überschuss bis Sonnenuntergang, ausgedrückt in
+  „Akku-Kapazitäten"** — wie viele Akkufüllungen an Überschuss noch kommen.
+
+Daraus eine **Stufenkennlinie** `ratio → Ziel-SoC`:
+
+| `ratio` (Überschuss / Kapazität) | Ziel-SoC | Bedeutung |
+|---|---|---|
+| < 0.375        | **maxsoc** | kaum Überschuss erwartet → voll laden |
+| 0.375 – 0.875  | **90 %** | |
+| 0.875 – 1.375  | **80 %** | |
+| 1.375 – 1.875  | **70 %** | |
+| 1.875 – 2.875  | **60 %** | |
+| ≥ 2.875        | **50 %** | viel Überschuss → niedrig halten, PV füllt auf |
+
+Abschließend auf `[minsoc, maxsoc]` begrenzt. Sonderfall: ist der manuelle Netzlade-Booster
+(`input_boolean.hausakku_aus_netz_laden`) aktiv, gilt direkt `maxsoc`.
+
+### Hysterese statt Flattern (Schmitt-Trigger)
+
+`ratio` driftet kontinuierlich (Sonnenuntergang rückt näher, Leistungssensoren zappeln). Sitzt
+der Wert auf einer Stufengrenze, würde der Ziel-SoC zwischen zwei Nachbarstufen oszillieren
+(z. B. 80 ↔ 90). Weil der reale SoC dann *zwischen* beiden Zielwerten liegt, kippte früher der
+**Modus** dutzendfach pro Tag zwischen „Dynamisch" und „nur Entladen".
+
+**Lösung:** ein echter **Schmitt-Trigger**. Die aktuelle Stufe wird im Attribut `level` des
+Sensors gehalten (Selbstbezug über `this.attributes`) und erst gewechselt, wenn `ratio` die
+nächste Grenze um eine Marge **m = 0.10** über- bzw. unterschreitet:
+
+- **Hochschalten** (höhere `ratio` → niedrigerer Ziel-SoC) erst ab `Grenze + 0.10`
+- **Runterschalten** erst unter `Grenze − 0.10`
+
+Das ergibt ein Totband um jede Grenze und beseitigt das Flattern an der Wurzel. Die
+Grenzwerte `[0.375, 0.875, …]` sind bewusst die **ursprünglichen effektiven Schwellen** — es
+ändert sich nur das Halteverhalten, **nicht** die Lade-Kennlinie.
+
+> **Hinweis:** Eine reine Rundung von `ratio` (z. B. auf 0.25-Schritte) ist **keine** Hysterese
+> — sie verschiebt nur den Kipppunkt, schafft aber kein Halteband. Genau das war der ursprüngliche
+> Bug. Hysterese braucht zwingend ein Gedächtnis des Vorzustands (hier das `level`-Attribut).
+
+**Debug-Trace:** Das Attribut `branch` zeigt die Live-Entscheidung, z. B.
+`ratio=0.47 plain=1 → level 1 → 90%` — mit Zusatz `(gehalten)`, wenn die Hysterese gerade eine
+Stufe gegen die Roh-`ratio` festhält.
+
+### Wie die Strategie den Ziel-SoC nutzt (mit Band H)
+
+Die Modus-Automation vergleicht den realen SoC mit `sensor.opti_target_soc` — mit einem
+zusätzlichen **Band H = 3 %** als zweiter Schutzschicht gegen Pendeln direkt an der Ziel-Kante:
+
+- **SoC < Ziel − 3** → *Akku Dynamisch* (lädt Richtung Ziel, Option 10)
+- **SoC > Ziel + 3** → *Akku nur Entladen* (genug Reserve, Option 11)
+- **innerhalb ±3 % um das Ziel** → neutrale Zone → Default *Akku Dynamisch*
+
+### Nachbauen über die zwei Repos
+
+Dieses Feature lebt in **`ha-opti-akkusteuerung`** (Strategie + abgeleitete Sensoren); die
+eigentliche Hardware-Ansteuerung in **`ha-modbus-akku-adapter`**. Zum Nachbauen genügen:
+
+1. Wechselrichter über den [Canonical-Layer](canonical-layer.md) auf `sensor.opti_*` abbilden.
+2. Eine **Solcast-Restprognose** (`opti_forecast_remaining_today_kwh`) und einen
+   **Hausverbrauchs-Sensor** (`opti_house_consumption_w`) bereitstellen.
+3. Helfer `input_number.minsoc` / `input_number.maxsoc` setzen (maxsoc = oberer Deckel; z. B.
+   95 % schont die Zellen, 100 % gibt volle Kapazität).
+4. Den Modus-Ausgang `input_select.akkusteuerung_modus` vom Adapter im anderen Repo umsetzen lassen.
+
+---
+
 ## Block-für-Block-Übersicht
 
 Die Automation besteht aus mehreren Aktionsblöcken, die **sequenziell** ausgeführt werden.
@@ -257,16 +355,16 @@ einspeisen, bei Verbrauch den Akku nutzen — je nach aktuellem Systemzustand.
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | SoC > MinSOC UND SoC < `sensor.opti_target_soc`, tagsüber |
+| Bedingung | SoC > MinSOC UND SoC < `sensor.opti_target_soc` **− 3 %**, tagsüber |
 | Preis | irrelevant |
 | Tageszeit | nach Sonnenaufgang bis Sonnenuntergang |
 | Gesetzter Modus | **Akku Dynamisch** |
 
 **Warum:** Tagsüber soll der Akku progressiv auf den intelligenten Ziel-SoC geladen werden.
-`sensor.opti_target_soc` berechnet diesen Zielwert aus der Solcast-Restprognose
-und dem geschätzten Hausverbrauch bis Sonnenuntergang. Je weniger PV noch erwartet wird,
-desto höher der Ziel-SoC. Bausteine: P10-Sicherheitsnetz (10. Perzentil der Prognose als
-konservativer Referenzwert) und Decision-Trace-Attribute für Debugging.
+Wie `sensor.opti_target_soc` diesen Zielwert herleitet (Restprognose, `ratio`-Stufen, Hysterese),
+ist im Abschnitt **[Der intelligente Ziel-SoC](#der-intelligente-ziel-soc--herzstück-der-akkuschonung)**
+erklärt. Das **−3 %-Band** (H) verhindert Modus-Pendeln direkt an der Ziel-Kante; innerhalb
+±3 % um das Ziel greift der Default (Dynamisch).
 
 ---
 
@@ -274,14 +372,15 @@ konservativer Referenzwert) und Decision-Trace-Attribute für Debugging.
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | SoC > `sensor.opti_target_soc` |
+| Bedingung | SoC > `sensor.opti_target_soc` **+ 3 %** |
 | Preis | irrelevant |
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Entladen** |
 
 **Warum:** Ist der Akku bereits über dem intelligenten Ziel-SoC, hat er genug Reserve
 für die Nacht. Weiteres Laden aus dem Netz wäre Verschwendung — stattdessen wird der
-Überschuss verbraucht bzw. eingespeist.
+Überschuss verbraucht bzw. eingespeist. Das **+3 %-Band** (H) sorgt zusammen mit der
+Ziel-SoC-Hysterese dafür, dass der Modus an der Grenze nicht flattert.
 
 ---
 
@@ -331,7 +430,8 @@ Steuer-Automation parallel aktiv lassen.
 | Baustein | Beschreibung |
 |---|---|
 | **P10-Sicherheitsnetz** | `sensor.opti_forecast_score` / `_tomorrow` verwenden das 10. Perzentil der Solcast-Prognose (`estimate10`) als konservativen Referenzwert — schützt vor Überoptimismus bei unsicheren Prognosen |
-| **Decision-Trace-Attribute** | `sensor.opti_target_soc` hängt Debugging-Attribute an (`branch`, `ratio`, `net_available_kwh`, `remaining_hours`), lesbar über HA-Entwicklerwerkzeuge |
+| **Ziel-SoC-Hysterese** | `sensor.opti_target_soc` hält die aktuelle `ratio`-Stufe im Attribut `level` (Schmitt-Trigger, Marge 0.10) → kein Flattern der Zielstufe. Siehe [Der intelligente Ziel-SoC](#der-intelligente-ziel-soc--herzstück-der-akkuschonung) |
+| **Decision-Trace-Attribute** | `sensor.opti_target_soc` hängt Debugging-Attribute an (`branch`, `level`, `ratio`, `net_available_kwh`, `remaining_hours`), lesbar über HA-Entwicklerwerkzeuge |
 | **Forecast-Score-Bänder** | `sensor.opti_charge_power_w` variiert die C-Rate in drei Bändern (score ≤ 1: aggressiv; 2–4: moderat; ≥ 5: schonend) statt starrer Prognose-Labels |
 | **`sensor.opti_price_level`** | Anbieter-agnostisches Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE) auf Basis eines gleitenden Perzentils über `today`/`tomorrow`-Preislisten |
 | **`binary_sensor.opti_winter_charging_allowed`** | Fail-open Gate für Winterladeblöcke (Standard: `true`); kann mit eigenem Sommermodus-Sensor überschrieben werden |

@@ -388,8 +388,8 @@ template:
         name: "Opti Mindestentladepreis ct kWh"
         unit_of_measurement: ct/kWh
         availability: "{{ has_value('input_number.ladepreis') and has_value('input_number.mindestpreisdifferenz_lade_entladepreis') }}"
-        state: "{{ ((states('input_number.ladepreis')|float + states('input_number.mindestpreisdifferenz_lade_entladepreis')|float) * 100)|round(2) }}"
-        attributes: { ladepreis_ct: "{{ (states('input_number.ladepreis')|float * 100)|round(2) }}", differenz_ct: "{{ (states('input_number.mindestpreisdifferenz_lade_entladepreis')|float * 100)|round(2) }}" }
+        state: "{{ ((states('input_number.ladepreis')|float(0) + states('input_number.mindestpreisdifferenz_lade_entladepreis')|float(0)) * 100)|round(2) }}"
+        attributes: { ladepreis_ct: "{{ (states('input_number.ladepreis')|float(0) * 100)|round(2) }}", differenz_ct: "{{ (states('input_number.mindestpreisdifferenz_lade_entladepreis')|float(0) * 100)|round(2) }}" }
 
       # -----------------------------------------------------------------------
       # 7. Akku-Restlaufzeit (h) — übersetzt aus house_battery_runtime_raw

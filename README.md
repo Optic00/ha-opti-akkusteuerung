@@ -64,7 +64,7 @@ die Modbus-Konfiguration gebündelt mit.
 | `packages/opti_mapping.yaml` | **Dein** Hardware-Mapping (gitignored — enthält echte Entitäts-IDs) |
 | `packages/opti_derived.yaml` | Abgeleitete Entscheidungs-Sensoren (Score, Ziel-SoC, Preisniveau, …) |
 | `packages/sma_modbus.yaml` | Modbus-TCP-Verbindung zum WR |
-| `packages/sma_helpers.yaml` | Alle Helfer (input_select, input_number, input_boolean, counter) |
+| `packages/sma_helpers.yaml` | Alle Helfer (input_select, input_number, input_boolean, counter, input_text/input_datetime für Adapter-Write-on-Change ab v1.2.0) |
 | `packages/sma_templates.yaml` | Legacy-Template-Sensoren — teils durch `opti_derived.yaml` abgelöst (Ziel-SoC, Ladestärke, Prognose-Score, Preisniveau, Laufzeit), teils noch ohne Canonical-Äquivalent (Sollkurve/P-Regler, Abregelung) |
 | `packages/sma_statistik.yaml` | Gleitende Mittelwert-Sensoren für Verbrauch & Batterielast |
 | `automations/opti_strategie.yaml` | Strategie-Automation (editierbar, kein Blueprint) |

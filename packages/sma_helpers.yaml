@@ -195,6 +195,19 @@ counter:
     step: 1
     icon: mdi:counter
 
+# --- Write-on-Change-Helfer für ha-modbus-akku-adapter (ab v1.2.0) ---
+# Werden vom Adapter automatisch gepflegt, nicht manuell befüllen.
+input_text:
+  akkusteuerung_modbus_letzter_schreibwert:
+    name: "Akkusteuerung Modbus Letzter Schreibwert"
+    max: 255
+
+input_datetime:
+  akkusteuerung_modbus_letzter_schreibzeitpunkt:
+    name: "Akkusteuerung Modbus Letzter Schreibzeitpunkt"
+    has_date: true
+    has_time: true
+
 # =============================================================================
 # MANUELL ÜBER DIE HA-OBERFLÄCHE ANLEGEN (nicht per YAML möglich)
 # =============================================================================

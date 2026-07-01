@@ -305,6 +305,35 @@ Shadefix zieht periodisch die Steuerung zurück. In den WR-Einstellungen auf 30 
 **Register-Adressen in HA vs. SMA-Dokumentation:**  
 SMA nummeriert Register ab 40001 (1-indexed). HA Modbus verwendet die Adresse direkt – die HA-Konfiguration nutzt dieselben Zahlen wie die SMA-Dokumentation.
 
+**Ladeleistungs-Spike (~10,7 kW) nach Moduswechsel „nur Entladen" → „Dynamisch":**  
+Live beobachtet und 2x reproduziert (2026-07-01, STP SE 10.0 + BYD HVS 12.8): Nach
+längerer Verweildauer (>~15 Min) in einem erzwungenen Modus (`CmpBMS.OpMod` = 2290,
+„nur Entladen") lädt der WR beim Rücksprung auf „Dynamisch" für ca. 2:20–2:50 Min mit
+nahezu Nennleistung, obwohl der Ziel-Sollwert (`CmpBMS.BatChaMaxW` / 40795) unverändert
+und kurz zuvor frisch geschrieben war. Der Spike endet abrupt beim nächsten *echten*
+Schreibzyklus der BMS-Leistungsgrenzen (40793–40801) – nicht beim ersten danach, sondern
+erst beim übernächsten. Kurze Verweildauer (Sekunden) im Forced-Modus löst den Effekt
+nicht aus. Vermutete Ursache: der WR verwirft/driftet die intern gültige Ladeleistungs-
+grenze, solange Laden im aktuellen Modus irrelevant ist, und übernimmt den korrekten Wert
+erst wieder mit dem nächsten tatsächlichen Schreibvorgang nach Rückkehr in „Dynamisch".
+Trat ausschließlich nach Umstellung auf einen Adapter/Strategie-Aufbau auf, der die
+BMS-Leistungsgrenzen-Registerfamilie (40793–40801/41259) überhaupt erstmals nutzt – vorher
+(reiner 40149/40151-Sollwertpfad) nie beobachtet.
+
+Verifizierter Fix (Adapter-Blueprint, lebt im separaten Repo
+[`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter)):
+1. Moduswechsel erzwingt einen sofortigen Rewrite der BMS-Leistungsgrenzen (statt bis
+   zum nächsten Write-on-Change/Keepalive-Zyklus zu warten).
+2. Defensiver Sicherheits-Deckel (500 W) auf die Ladeleistungsgrenze für die ersten
+   ~5:30 Min nach jedem Eintritt in „Dynamisch", danach automatischer Rücksprung auf den
+   echten Sollwert.
+3. Hygiene: `CmpBMS.OpMod` für „Dynamisch" konsistent über 41259 (Sunspec, wie die
+   anderen 3 Modi und wie in der offiziellen SMA-Support-Antwort oben) statt über die
+   alternative Adresse 40236 geschrieben.
+Live verifiziert: mit Fix blieb die Ladeleistung im kritischen Fenster durchgehend
+≤ 625 W (vorher bis 10.748 W), sauberer Übergang auf den echten Sollwert nach
+Fensterablauf, kein Spike mehr.
+
 ---
 
 ## Quellen

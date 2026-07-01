@@ -65,7 +65,7 @@ die Modbus-Konfiguration gebündelt mit.
 | `packages/opti_derived.yaml` | Abgeleitete Entscheidungs-Sensoren (Score, Ziel-SoC, Preisniveau, …) |
 | `packages/sma_modbus.yaml` | Modbus-TCP-Verbindung zum WR |
 | `packages/sma_helpers.yaml` | Alle Helfer (input_select, input_number, input_boolean, counter) |
-| `packages/sma_templates.yaml` | Template-Sensoren (dyn. Ladestärke, Ziel-SoC, Prognose-Bewertung) |
+| `packages/sma_templates.yaml` | Legacy-Template-Sensoren — teils durch `opti_derived.yaml` abgelöst (Ziel-SoC, Ladestärke, Prognose-Score, Preisniveau, Laufzeit), teils noch ohne Canonical-Äquivalent (Sollkurve/P-Regler, Abregelung) |
 | `packages/sma_statistik.yaml` | Gleitende Mittelwert-Sensoren für Verbrauch & Batterielast |
 | `automations/opti_strategie.yaml` | Strategie-Automation (editierbar, kein Blueprint) |
 
@@ -127,7 +127,7 @@ Verzeichnis kopieren:
 | `opti_derived.yaml` | Abgeleitete Entscheidungs-Sensoren (Score, Ziel-SoC, Preisniveau, …) |
 | `sma_modbus.yaml` | Modbus-TCP-Verbindung zum WR (nur **IP** anpassen) |
 | `sma_helpers.yaml` | alle `input_select`/`input_number`/`input_boolean`/`counter` (Modus, Sollwerte, SoC-Grenzen …) |
-| `sma_templates.yaml` | Template-Sensoren (dyn. Ladestärke, Ziel-SoC, Prognose-Bewertung, Laufzeit) |
+| `sma_templates.yaml` | Legacy-Template-Sensoren (nur noch teilweise gebraucht — siehe Hinweis oben in der Dateitabelle) |
 | `sma_statistik.yaml` | gleitende Mittelwerte (Verbrauch, Batterielast) |
 
 **4. Home Assistant neu starten** → Helfer, Templates, Statistik & Modbus sind da.
@@ -136,7 +136,8 @@ Verzeichnis kopieren:
 [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter) per Raw-URL
 importieren (*Einstellungen → Automatisierungen & Szenen → Blueprints → importieren*) und
 beim Anlegen der Automation die Eingaben auf deine Entitäten mappen
-(Modbus-Hub, WR-Status-Sensor, Modus-Select `input_select.akkusteuerung_modus`, dyn. Ladestärke).
+(Modbus-Hub, WR-Status-Sensor, Modus-Select `input_select.akkusteuerung_modus`,
+dyn. Ladestärke `sensor.opti_charge_power_w`).
 
 **6. Strategie einspielen:** die Opti-Automatik (steuert *welcher Modus wann*) – siehe
 `automations/opti_strategie.yaml`. Sie ist bewusst **editierbar** (kein Blueprint), damit

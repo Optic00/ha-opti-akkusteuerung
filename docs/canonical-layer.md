@@ -253,8 +253,8 @@ du beeinflusst sie ausschließlich über dein Mapping und die Helfer-Werte.
 | **Nacht / Reserve halten (Entladesperre)** | `opti_forecast_score` ≤ 2, SoC < 30 %, `opti_price_level` CHEAP | **Akku nur Laden** | Gate `input_boolean.opti_prognose_netzladen` muss `on` sein |
 | **Nacht / kein Ladegrund** | Score ≤ 2, SoC > 60 %, Preis EXPENSIVE | **Akku Dynamisch** (Default) | Kein Ladeblock greift → Default-Pfad |
 | **Sonne / PV-Überschuss** | `opti_grid_export_w` > 70%-Grenze, SoC < 100 % | **Akku Dynamisch** | Gate `input_boolean.opti_pv_ueberschuss_ladung` muss `on` sein |
-| **Tagsüber unter Ziel-SoC** | SoC < `opti_target_soc`, nach Sonnenaufgang | **Akku Dynamisch** | Option „Dynamisch laden wenn SOC < ZielSoC" |
-| **Entladen über Ziel-SoC** | SoC > `opti_target_soc` | **Akku nur Entladen** | Option „Nur Entladen wenn SOC > DynZielSoC" |
+| **Tagsüber unter Ziel-SoC** | SoC < `opti_target_soc` **− 3 %**, nach Sonnenaufgang | **Akku Dynamisch** | Option „Dynamisch laden wenn SOC < ZielSoC"; das ±3 %-Band verhindert Modus-Pendeln direkt an der Ziel-Kante — siehe [strategie-logik.md](strategie-logik.md#der-intelligente-ziel-soc--herzstück-der-akkuschonung) |
+| **Entladen über Ziel-SoC** | SoC > `opti_target_soc` **+ 3 %** | **Akku nur Entladen** | Option „Nur Entladen wenn SOC > DynZielSoC" |
 | **MinSOC-Schutz** | SoC < `input_number.minsoc` | **Akku nur Laden** | Höchste Priorität, überstimmt alle anderen Blöcke |
 | **Preis-morgen fehlt** | `opti_price_series`-Attribut `tomorrow` leer / < 4 Gesamtwerte | Preisniveau bleibt **NORMAL** | Fail-safe: `< 4 Preise gesamt → NORMAL` |
 | **Forecast fehlt** | `opti_forecast_remaining_today_kwh` → `unavailable` | Prognose-Blöcke inaktiv; MinSOC-Schutz und Cleanup laufen weiter | Default → **Akku Dynamisch** (nur wenn `opti_soc` + `opti_battery_capacity_kwh` verfügbar) |
@@ -262,6 +262,57 @@ du beeinflusst sie ausschließlich über dein Mapping und die Helfer-Werte.
 
 **Fail-safe-Verhalten:** Sind `sensor.opti_soc` oder `sensor.opti_battery_capacity_kwh`
 `unavailable`, setzt die Strategie keinen Modus — der bisherige Modus bleibt aktiv.
+
+---
+
+## Bekannte Lücken: Legacy-Sensoren (`sma_templates.yaml`) vs. Canonical-Layer
+
+`packages/sma_templates.yaml` ist der Vorläufer von `packages/opti_derived.yaml` (vor dem
+Canonical-Layer-Umbau) und läuft auf produktiven Installationen teils **parallel** zu den neuen
+`opti_*`-Sensoren weiter — er wurde nie aufgeräumt. Beim Abgleich von Dashboards gegen den neuen
+Stand (2026-07) hat sich gezeigt, dass nicht jeder alte Sensor ein sauberes `opti_*`-Äquivalent
+hat. Bereits durchgeführte Dashboard-Swaps (sicher, geprüft):
+
+| Alt (`sma_templates.yaml`) | Neu (`opti_derived.yaml`) | Status |
+|---|---|---|
+| `sensor.akkusteuerung_dynamische_ladestaerke` | `sensor.opti_charge_power_w` | Swap OK — SoC-/Temp-Staffelung 1:1 übernommen, nur die Tages-Güte-Klassifikation wurde bewusst von 5 Text-Kategorien auf 3 Score-Bänder umgebaut (nicht byte-identisch bei jedem Prognosewert, aber gleiche Kennlinie) |
+| `sensor.ueberschuss_pv_watt` | `sensor.opti_grid_export_w` | Swap OK — strukturell identische Formel (`max(0, Netzeinspeisung)`) |
+| `sensor.pv_forecast_bewertung_heute` | `sensor.opti_forecast_score` | Swap vertretbar — andere Formel (PV-Fit statt Kapazitäts-Multiples), aber `opti_forecast_score` ist der Sensor, den die Strategie tatsächlich konsumiert |
+| `sensor.akku_net_verfugbare_energie` | Attribut `net_available_kwh` von `sensor.opti_target_soc` | Swap OK — Formel äquivalent |
+
+**Noch offen (bewusst NICHT geswapt, brauchen eine Entscheidung):**
+
+- **`sensor.house_battery_runtime_raw` → `sensor.opti_runtime_h`:** unterschiedlicher Nenner —
+  Alt teilt durch `sensor.house_battery_load_30_mins` (gemessene Akku-Entladeleistung), Neu durch
+  `sensor.opti_house_consumption_w` (Hausverbrauch). Bei Netzbezug oder wenn Hausverbrauch ≠
+  Akku-Entladeleistung (z. B. gleichzeitige PV-Einspeisung) weichen beide Werte ab. Noch nicht an
+  einem Zeitpunkt mit tatsächlicher Akku-Entladung gegengecheckt.
+- **`sensor.akku_remaining_sun_hours` (Live-Name `sensor.verbleibende_sonnenstunden`) → Attribut
+  `remaining_hours` von `sensor.opti_target_soc`:** **nicht äquivalent** — Alt clampt auf
+  `[0, 12]` mit Fallback `0` (nachts also `0`), Neu clampt auf `[0.5, 12]` mit Fallback `6.0`
+  (nachts also `6.0`). Ein blinder Swap hätte nachts eine sichtbar falsche Anzeige erzeugt.
+- **`sensor.pv_forecast_bewertung_morgen` → `sensor.opti_forecast_score_tomorrow`:** siehe
+  eigener Abschnitt unten — unterschiedliche Formel UND steuerungsrelevant, keine reine
+  Anzeigefrage.
+
+## Inkonsistenz: `opti_forecast_score` vs. `opti_forecast_score_tomorrow`
+
+`opti_forecast_score` (heute, `packages/opti_derived.yaml` Sensor 1) nutzt einen "PV-Fit"-Ansatz:
+PV-Überschuss (Restprognose minus Hausverbrauch bis Sonnenuntergang) wird gegen die tatsächlich
+fehlende Energie bis Akku voll (`cap * (1 - soc/100)`) verglichen — SoC- und Sonnenstunden-bewusst.
+
+`opti_forecast_score_tomorrow` (Sensor 2) nutzt eine deutlich simplere Formel: Verhältnis
+morgiger Gesamtprognose zu einem geschätzten vollen Verbrauchstag
+(`hausverbrauch_w * 24h`) — ohne SoC-Bezug, ohne Sonnenstunden. Beide liefern zwar denselben
+Wertebereich (0–10), sind aber konzeptuell unterschiedliche Metriken (nicht nur unterschiedlich
+skaliert). Grund: die PV-Fit-Formel von "heute" braucht aktuellen SoC und Rest-Sonnenstunden,
+die für "morgen" schlicht noch nicht feststehen.
+
+**Praktische Auswirkung:** `opti_forecast_score_tomorrow` fließt live in Strategie-Bedingungen
+ein (`st < 3` in mehreren choose-Optionen, `automations/opti_strategie.yaml` bzw. der
+Sollmodus-Vorschau in `packages/opti_derived.yaml`). Eine Formel-Angleichung an "heute" wäre
+also eine **Steuerungsänderung**, keine reine Aufräumarbeit — braucht eine bewusste, separate
+Entscheidung (nicht nebenbei mitziehen).
 
 ---
 

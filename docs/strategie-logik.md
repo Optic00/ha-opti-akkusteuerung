@@ -1,8 +1,8 @@
-# Strategie-Logik: Akku Lade- und Entladesteuerung Opti 2.0
+# Strategie-Logik: Akku Opti Strategie
 
 ## Überblick
 
-Die Automation `Akku Lade- Entladesteuerung Opti 2.0` trifft **ausschließlich Modus-Entscheidungen**.
+Die Automation `Akku Opti Strategie` trifft **ausschließlich Modus-Entscheidungen**.
 Sie schreibt einen Wert in `input_select.akkusteuerung_modus` — und nur das.
 Welche Hardware-Befehle dieser Modus am Wechselrichter/Speicher auslöst, steuert ein separater
 Hardware-Adapter (ein eigener Automatisierungszweig). Diese Trennung macht die Strategie-Logik

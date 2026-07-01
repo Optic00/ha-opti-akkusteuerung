@@ -454,9 +454,9 @@ template:
       # 8. Strategie-Vorschau (Soll-Modus, READ-ONLY) — spiegelt die Entscheidungs-
       #    kette aus automations/opti_strategie.yaml, OHNE zu steuern. Vergleich
       #    Soll (state) vs Ist (input_select.akkusteuerung_modus, Attribut ist_modus).
-      #    ANNAHME: Toggles opti_prognose_netzladen / opti_pv_ueberschuss_ladung = on
-      #    (existieren noch nicht → hier als aktiviert angenommen). Bei Änderung der
-      #    Strategie-Zweige MUSS dieser Sensor mitgespiegelt werden.
+      #    Toggles opti_prognose_netzladen / opti_pv_ueberschuss_ladung existieren live
+      #    und werden hier wie in der echten Strategie gelesen (siehe unten). Bei
+      #    Änderung der Strategie-Zweige MUSS dieser Sensor mitgespiegelt werden.
       # -----------------------------------------------------------------------
       - unique_id: opti_strategie_vorschau
         name: "Opti Strategie Vorschau"
@@ -538,4 +538,4 @@ template:
           score_morgen: "{{ states('sensor.opti_forecast_score_tomorrow') }}"
           price_level: "{{ states('sensor.opti_price_level') }}"
           tag: "{{ is_state('sun.sun','above_horizon') }}"
-          annahme: "Toggles opti_prognose_netzladen/opti_pv_ueberschuss_ladung als 'on' angenommen (existieren noch nicht)"
+          annahme: "Toggles opti_prognose_netzladen/opti_pv_ueberschuss_ladung existieren live, aktueller Zustand: prognose={{ states('input_boolean.opti_prognose_netzladen') }}, ueberschuss={{ states('input_boolean.opti_pv_ueberschuss_ladung') }}"

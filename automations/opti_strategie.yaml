@@ -1,10 +1,13 @@
-- id: "1757405050598"
-  alias: "Akku Lade- Entladesteuerung Opti 2.0"
+- id: "opti_canonical_strategie"
+  alias: "Akku Opti Strategie"
   description: >-
     Strategie auf dem Canonical-opti_*-Layer (Paket 3). Setzt ausschliesslich
     input_select.akkusteuerung_modus. Prognosebasierte SOC-Ladeblöcke
     (Score+Preis), PV-/AC-Überschussblöcke, MinSOC-Schutz und Cleanup.
     Quellen/Gates getauscht; aufgeschobene und arbitrage-basierte Zweige entfernt.
+    id/Alias sind der Live-Realität angeglichen (2026-07-01): id war zuvor eine
+    HA-generierte Zahl ohne Bedeutung, Alias hieß zuvor "Akku Lade-
+    Entladesteuerung Opti 2.0" bzw. live "Akku Opti Canonical (opti_*-Layer)".
   mode: single
   triggers:
     # Preisniveau (Enum) statt Tibber-Rohsensor

@@ -11,20 +11,66 @@ Prognosebasierte & manuelle Akku-Ladesteuerung für den **SMA STP SE Hybrid-Wech
 Prognosebasierte Akku-Ladesteuerung für Home Assistant — **hardware-agnostisch** über einen
 separaten Modbus-Adapter, komplett als HA-Packages paketiert.
 
+**Prognosebasierter Ziel-SoC** (Kernfeature, `sensor.opti_target_soc`)  
+Lädt den Akku morgens **nicht** stumpf auf 100 %, sondern nur so weit, dass die erwartete
+Rest-PV des Tages ihn bis zum Abend von selbst voll macht — schont die Zellen und maximiert
+den PV-Eigenverbrauch. Der Zielwert ergibt sich aus Solcast-Restprognose, Hausverbrauch und
+Restzeit bis Sonnenuntergang, als Stufenkennlinie mit echter Hysterese (kein Flattern).
+→ **[Herleitung in docs/strategie-logik.md](docs/strategie-logik.md#der-intelligente-ziel-soc--herzstück-der-akkuschonung)**
+
 **Strategie** (`automations/opti_strategie.yaml`)  
 Entscheidet prognosebasiert, welcher Modus wann gilt: Lädt bei schlechter PV-Prognose aus
-dem Netz (gestaffelt nach SoC und Preisniveau), nutzt PV-Überschuss tagsüber, schützt
-MinSOC-Grenzen und leitet drohende Abregelung in den Akku um. Schreibt ausschließlich
-`input_select.akkusteuerung_modus` — keine direkte Hardware-Ansteuerung.
+dem Netz (gestaffelt nach SoC und Preisniveau), nutzt PV-Überschuss tagsüber und schützt
+MinSOC-Grenzen. Schreibt primär `input_select.akkusteuerung_modus` — keine direkte
+Hardware-Ansteuerung.
 
 **Hardware-Adapter** (separates Repo: [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter))  
 Liest den Modus aus `input_select.akkusteuerung_modus` und steuert den WR via Modbus TCP.
 Läuft als eigenständiger Blueprint-Adapter — Strategie und Hardware-Ansteuerung sind
 bewusst getrennt. Single-Writer-Regel: immer nur ein Adapter aktiv.
 
+**Canonical-Layer** (`opti_mapping.example.yaml` → `packages/opti_mapping.yaml`)
+Bildet hardware-spezifische Entitäten (SMA, Huawei oder andere WR) auf 13 kanonische
+`sensor.opti_*`-Sensoren ab. Strategie und abgeleitete Sensoren konsumieren nur diese
+kanonischen Namen — keine Seriennummern im Code. → **[docs/canonical-layer.md](docs/canonical-layer.md)**
+
 **Packages** (`packages/`) — per `!include_dir_named packages/` in `configuration.yaml`:  
-Liefert alle Helfer, Template-Sensoren, Statistik-Sensoren und die Modbus-Konfiguration
-gebündelt mit.
+Liefert alle Helfer, Template-Sensoren, abgeleitete Opti-Sensoren, Statistik-Sensoren und
+die Modbus-Konfiguration gebündelt mit.
+
+### Wer liefert was — und in welcher Reihenfolge?
+
+| Kommt aus | Was | GUI oder YAML |
+|---|---|---|
+| Adapter-Repo | Modbus-Hub zum WR | YAML (`configuration.yaml`/Package) |
+| Adapter-Repo (**oder** Opti-Repo, siehe unten) | Modus-Dropdown + 6 Leistungs-Helfer | GUI oder YAML (Package) |
+| Adapter-Repo (**oder** Opti-Repo, siehe unten) | 2 Write-on-Change-Helfer (`input_text`/`input_datetime`) | GUI oder YAML (Package) |
+| Adapter-Repo | Blueprint (übersetzt Modus → Modbus) | Blueprint-Import |
+| Opti-Repo | `opti_mapping.yaml` (Hardware → kanonische Sensoren) | YAML, von dir ausgefüllt |
+| Opti-Repo | `opti_derived.yaml` (Score, Ziel-SoC, Preisniveau) | YAML (Package) |
+| Opti-Repo | Strategie-Automation (setzt den Modus) | YAML (editierbar, kein Blueprint) |
+
+**Verbindliche Reihenfolge, wenn du beide Repos zusammen nutzt:**
+
+1. Modbus-Verbindung anlegen (Adapter-Repo, Schritt 1). Helfer NICHT hier anlegen, wenn du Schritt 2 nutzt — siehe Hinweis unten.
+2. Opti-Packages aktivieren + `opti_mapping.yaml` ausfüllen (Opti-Repo)
+3. Home Assistant neu starten — `sensor.opti_*` prüfen
+4. Adapter-Blueprint importieren, Inputs auf `sensor.opti_charge_power_w` /
+   `sensor.opti_target_soc` setzen (nicht ungeprüft die Blueprint-Vorschlagswerte
+   übernehmen, falls sie abweichen)
+5. Strategie-Automation (`automations/opti_strategie.yaml`) aktivieren
+
+> ⚠️ **Helfer nur aus einer Quelle:** Bei kombinierter Nutzung liefert
+> `ha-opti-akkusteuerung/packages/sma_helpers.yaml` bereits alle Helfer (Modus-Dropdown,
+> 6 Leistungs-Helfer, 2 Write-on-Change-Helfer). Die Adapter-GUI-Anleitung bzw. das
+> Adapter-Package dann NICHT zusätzlich verwenden — zwei Packages mit denselben
+> Entity-IDs führen zu einem Duplicate-Key-Fehler im HA-Log. Nutzt du den Adapter
+> **ohne** das Opti-Repo (eigene Strategie), gilt die Adapter-Anleitung normal.
+
+```
+Strategie  →  input_select.akkusteuerung_modus  →  [ ADAPTER-BLUEPRINT ]  →  Modbus-Register  →  WR
+(setzt Modus)        (+ input_number.* in W)              übersetzt
+```
 
 > **Legacy-Flachdateien** (`old/`): Die alten Einzeldateien im Repo-Root wurden nach `old/`
 > verschoben und werden nicht mehr gepflegt. Der empfohlene Weg ist die Package-Struktur.
@@ -48,9 +94,12 @@ gebündelt mit.
 
 | Pfad | Beschreibung |
 |---|---|
+| `opti_mapping.example.yaml` | Vorlage für das Hardware-Mapping (→ nach `packages/opti_mapping.yaml` kopieren, Platzhalter ersetzen) |
+| `packages/opti_mapping.yaml` | **Dein** Hardware-Mapping (gitignored — enthält echte Entitäts-IDs) |
+| `packages/opti_derived.yaml` | Abgeleitete Entscheidungs-Sensoren (Score, Ziel-SoC, Preisniveau, …) |
 | `packages/sma_modbus.yaml` | Modbus-TCP-Verbindung zum WR |
-| `packages/sma_helpers.yaml` | Alle Helfer (input_select, input_number, input_boolean, counter) |
-| `packages/sma_templates.yaml` | Template-Sensoren (dyn. Ladestärke, Ziel-SoC, Prognose-Bewertung) |
+| `packages/sma_helpers.yaml` | Alle Helfer (input_select, input_number, input_boolean, counter, input_text/input_datetime für Adapter-Write-on-Change ab v1.2.0) |
+| `packages/sma_templates.yaml` | Legacy-Template-Sensoren — teils durch `opti_derived.yaml` abgelöst (Ziel-SoC, Ladestärke, Prognose-Score, Preisniveau, Laufzeit), teils noch ohne Canonical-Äquivalent (Sollkurve/P-Regler, Abregelung) |
 | `packages/sma_statistik.yaml` | Gleitende Mittelwert-Sensoren für Verbrauch & Batterielast |
 | `automations/opti_strategie.yaml` | Strategie-Automation (editierbar, kein Blueprint) |
 
@@ -74,10 +123,10 @@ Die Strategie-Automation entscheidet ausschließlich den **Modus** via
 am Wechselrichter auslöst, übernimmt der Hardware-Adapter (Single-Writer-Regel). Das macht
 die Strategie unabhängig vom konkreten Speicherfabrikat.
 
-Eine vollständige laienverständliche Block-für-Block-Erklärung aller 12 Entscheidungsoptionen,
-der Preisstufenlogik (`sensor.strompreis_niveau`, anbieter-agnostisches Perzentil-Enum),
-des MinSOC-Schutzes, der Wintermodus-Blöcke und der neuen Bausteine (P10-Sicherheitsnetz,
-Decision-Trace, Abregelungs-Umleitung) findet sich unter:
+Eine vollständige laienverständliche Block-für-Block-Erklärung aller Entscheidungsoptionen,
+der Preisstufenlogik (`sensor.opti_price_level`, anbieter-agnostisches Perzentil-Enum),
+des MinSOC-Schutzes, der Wintermodus-Blöcke und der Bausteine (P10-Sicherheitsnetz,
+Decision-Trace) findet sich unter:
 **[docs/strategie-logik.md](docs/strategie-logik.md)**
 
 > **Adapter-Repo:** Die Modbus-/Hardware-Ansteuerung lebt in einem separaten Repository
@@ -89,9 +138,10 @@ Decision-Trace, Abregelungs-Umleitung) findet sich unter:
 ## Schnell-Nachbau über Packages (empfohlen)
 
 > 🆕 Neue, paketbasierte Installation – liefert **alle Helfer, Templates, Statistik-
-> Sensoren und die Modbus-Konfiguration mit** (kein manuelles Anlegen mehr). Die
-> hardwareseitige Modbus-Ansteuerung läuft als separater Blueprint-Adapter, sodass die
-> Strategie sauber von der WR-Ansteuerung getrennt ist.
+> Sensoren und die Modbus-Konfiguration mit** (kein manuelles Anlegen nötig). Der
+> Canonical-Layer (`opti_mapping.yaml`) macht die Strategie hardware-agnostisch —
+> funktioniert mit SMA, Huawei und anderen Wechselrichtern. Die hardwareseitige
+> Modbus-Ansteuerung läuft als separater Blueprint-Adapter.
 
 **1. Packages aktivieren** (einmalig) in deiner `configuration.yaml`:
 ```yaml
@@ -99,29 +149,35 @@ homeassistant:
   packages: !include_dir_named packages/
 ```
 
-**2. Package-Dateien** aus dem Ordner [`packages/`](packages/) in dein HA-`packages/`-
+**2. Hardware-Mapping anlegen:** `opti_mapping.example.yaml` nach `packages/opti_mapping.yaml`
+kopieren und alle `DEIN_*`-Platzhalter durch echte Entitäts-IDs ersetzen.
+→ Ausführliche Anleitung: **[docs/canonical-layer.md](docs/canonical-layer.md)**
+
+**3. Package-Dateien** aus dem Ordner [`packages/`](packages/) in dein HA-`packages/`-
 Verzeichnis kopieren:
 
 | Datei | Inhalt |
 |---|---|
+| `opti_derived.yaml` | Abgeleitete Entscheidungs-Sensoren (Score, Ziel-SoC, Preisniveau, …) |
 | `sma_modbus.yaml` | Modbus-TCP-Verbindung zum WR (nur **IP** anpassen) |
 | `sma_helpers.yaml` | alle `input_select`/`input_number`/`input_boolean`/`counter` (Modus, Sollwerte, SoC-Grenzen …) |
-| `sma_templates.yaml` | Template-Sensoren (dyn. Ladestärke, Ziel-SoC, Prognose-Bewertung, Laufzeit) – ⚙️-Platzhalter auf eigene Entitäten anpassen |
+| `sma_templates.yaml` | Legacy-Template-Sensoren (nur noch teilweise gebraucht — siehe Hinweis oben in der Dateitabelle) |
 | `sma_statistik.yaml` | gleitende Mittelwerte (Verbrauch, Batterielast) |
 
-**3. Home Assistant neu starten** → Helfer, Templates, Statistik & Modbus sind da.
+**4. Home Assistant neu starten** → Helfer, Templates, Statistik & Modbus sind da.
 
-**4. Hardware-Adapter importieren:** Blueprint aus
+**5. Hardware-Adapter importieren:** Blueprint aus
 [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter) per Raw-URL
 importieren (*Einstellungen → Automatisierungen & Szenen → Blueprints → importieren*) und
 beim Anlegen der Automation die Eingaben auf deine Entitäten mappen
-(Modbus-Hub, WR-Status-Sensor, Modus-Select `input_select.akkusteuerung_modus`, dyn. Ladestärke).
+(Modbus-Hub, WR-Status-Sensor, Modus-Select `input_select.akkusteuerung_modus`,
+dyn. Ladestärke `sensor.opti_charge_power_w`).
 
-**5. Strategie einspielen:** die Opti-Automatik (steuert *welcher Modus wann*) – siehe
+**6. Strategie einspielen:** die Opti-Automatik (steuert *welcher Modus wann*) – siehe
 `automations/opti_strategie.yaml`. Sie ist bewusst **editierbar** (kein Blueprint), damit
 du sie an deine Anlage/Strategie anpassen kannst.
 
-**6. Feinjustieren:** SoC-Grenzen, Lade-/Entladegrenzen, Prognose-Schwellen über die
+**7. Feinjustieren:** SoC-Grenzen, Lade-/Entladegrenzen, Prognose-Schwellen über die
 HA-Oberfläche (alle als Helfer vorhanden).
 
 > ⚠️ **Single-Writer-Regel:** Nur **eine** Automation darf den WR via Modbus schreiben.
@@ -243,7 +299,6 @@ Entweder manuell über die HA-Oberfläche oder per YAML. Alle Helfer auf einen B
 | `akku_opti_automatik` | input_boolean | – | Opti-Automatik Ein/Aus |
 | `akkusteuerung_ladestaerke_soll` | input_number | 100–10000 W | Ladestärke (manuell) |
 | `akkusteuerung_entladestaerke_soll` | input_number | 100–10000 W | Entladestärke (manuell) |
-| `akkusteuerung_02c_ladestaerke` | input_number | 100–10000 W | 0.2C Ladestärke |
 | `akkusteuerung_min_ladestaerke` | input_number | 0–2000 W | Minimale Ladestärke |
 | `akkusteuerung_max_ladestaerke` | input_number | 0–10000 W | Maximale Ladestärke |
 | `akkusteuerung_min_entladestaerke` | input_number | 0–2000 W | Minimale Entladestärke |
@@ -332,8 +387,6 @@ cards:
       - entity: input_number.akkusteuerung_ladestaerke_soll
       - entity: input_number.akkusteuerung_entladestaerke_soll
         name: Entladestärke
-      - entity: input_number.akkusteuerung_02c_ladestaerke
-        name: Ladestärke 0.2C
       - entity: input_number.akkusteuerung_wr_ac_ueberschuss_grenze
         name: WR AC-Grenze
       - entity: input_number.akkusteuerung_wr_70proz_ueberschuss_grenze
@@ -360,56 +413,9 @@ cards:
 
 ---
 
-## Konzepte erklärt
-
-### Welcher Sensor ist `sensor.betriebsstatus_sma_stp_se_10_0`?
-
-Das ist der Betriebsstatus-Sensor aus der Modbus-Konfiguration. In der mitgelieferten `configuration.yaml` heißt er `sensor.sma_stp_se_33003_betriebsstatus` (Adresse 33003). Ältere Versionen dieses Repos nutzten noch den anderen Namen – bitte in der Automation entsprechend anpassen.
-
----
-
-### Woher kommt `sensor.akkusteuerung_dynamische_ladestaerke`?
-
-Dieser Template-Sensor ist in `templates.yaml` definiert und berechnet die optimale Ladestärke anhand von **Akku-SoC** und **Temperatur** – abgestimmt auf BYD LiFePO4-Chemie:
-
-| SoC | C-Rate | Begründung |
-|---|---|---|
-| < 30 % | 0.5C | Schnell laden bei kritisch niedrigem SoC |
-| 30–60 % | 0.3C | Optimale Langlebigkeit |
-| 60–85 % | 0.2C | Ausgewogen |
-| 85–MaxSoC | 0.1C | Schonend bei hohem SoC |
-| > MaxSoC | 0.05C | Minimal |
-| > 45 °C oder < 0 °C | reduziert/0 | Temperaturschutz |
-
----
-
-### Was ist `sensor.akku_target_soc_intelligent`?
-
-Berechnet anhand der **verbleibenden Solcast-Prognose** und dem geschätzten **Hausverbrauch bis Sonnenuntergang**, wie weit der Akku *jetzt* geladen werden sollte. Je weniger PV-Produktion noch zu erwarten ist, desto höher der Ziel-SoC:
-
-| Verh. Restproduktion / Akkukapazität | Ziel-SoC |
-|---|---|
-| > 3× | 50 % |
-| 2–3× | 60 % |
-| 1.5–2× | 70 % |
-| 1–1.5× | 80 % |
-| 0.5–1× | 90 % |
-| < 0.5× | MaxSoC |
-
----
-
-### Was ist der Unterschied zwischen Ladestärke, min/max Ladestärke?
-
-| Helfer | Wann aktiv | Beschreibung |
-|---|---|---|
-| `akkusteuerung_ladestaerke_soll` | Modi "Schnell Laden" / "0.2C Laden" | Feste Ziel-Ladestärke für manuelle Modi |
-| `akkusteuerung_min_ladestaerke` | Immer (Dynamisch-Betrieb) | Untere Grenze, die der WR nie unterschreiten soll |
-| `akkusteuerung_max_ladestaerke` | Immer (Dynamisch-Betrieb) | Obere Grenze – wird durch dynamische Ladestärke weiter begrenzt |
-| `sensor.akkusteuerung_dynamische_ladestaerke` | Immer (Dynamisch-Betrieb) | Automatisch berechneter Sollwert (SoC + Temperatur) |
-
-Empfehlung: Min auf `0`, Max auf z.B. `5000`, dann übernimmt die dynamische Berechnung die Feinsteuerung.
-
----
+> 💡 Nutzt du noch die alten Sensor-Namen (`akkusteuerung_dynamische_ladestaerke`,
+> `akku_target_soc_intelligent`)? Erklärung und Alt↔Neu-Mapping:
+> **[old/README.md#konzepte-legacy-namen](old/README.md#konzepte-legacy-namen-oldtemplatesyaml)**
 
 ### Modbus-Register Referenz
 

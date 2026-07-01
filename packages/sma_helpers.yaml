@@ -35,14 +35,9 @@ input_number:
     mode: box
     icon: mdi:battery-arrow-up
 
-  akkusteuerung_02c_ladestaerke:
-    name: "Akkusteuerung 0.2C Ladestärke"
-    min: 100
-    max: 10000
-    step: 100
-    unit_of_measurement: W
-    mode: box
-    icon: mdi:battery-arrow-up-outline
+  # Hinweis: Für den Modus "Akku 0.2C Laden" ist kein Ladestärke-Helfer mehr nötig.
+  # Der Hardware-Adapter (ha-modbus-akku-adapter) berechnet die 0.2C-Ladeleistung
+  # automatisch aus der Batterie-Nennkapazität (0,2 × Kapazität, Register 40187).
 
   akkusteuerung_min_ladestaerke:
     name: "Akkusteuerung Min Ladestärke"
@@ -135,24 +130,26 @@ input_number:
   ladepreis:
     name: "Akku Ladepreis (Referenz)"
     # Wird automatisch vom aktuellen Strompreis befüllt wenn Netzladen aktiv ist.
-    # Stellt den Preis dar, zu dem der Akku zuletzt netzgeladen wurde.
+    # Stellt den Preis dar, zu dem der Akku zuletzt netzgeladen wurde (EUR/kWh).
+    # EINHEIT EUR/kWh (z.B. 0.306). opti_mindestentladepreis_ct_kwh rechnet ×100 nach ct.
     min: 0
-    max: 100
-    step: 0.01
-    unit_of_measurement: ct/kWh
+    max: 1
+    step: 0.001
+    unit_of_measurement: EUR/kWh
     mode: box
     icon: mdi:currency-eur
 
   mindestpreisdifferenz_lade_entladepreis:
     name: "Mindestpreisdifferenz Laden/Entladen"
     # Mindest-Marge zwischen Ladepreis und aktuellem Preis, ab der Entladen wirtschaftlich ist.
-    # Beispiel: Ladepreis 20 ct + Differenz 5 ct → Entladen erst ab 25 ct/kWh sinnvoll.
-    # Empfehlung: 3–8 ct/kWh (deckt Verluste + Akkuverschleiß ab)
+    # Beispiel: Ladepreis 0.20 € + Differenz 0.05 € → Entladen erst ab 0.25 €/kWh sinnvoll.
+    # Empfehlung: 0.03–0.08 EUR/kWh (deckt Verluste + Akkuverschleiß ab)
+    # EINHEIT EUR/kWh (z.B. 0.08). opti_mindestentladepreis_ct_kwh rechnet ×100 nach ct.
     min: 0
-    max: 30
-    step: 0.5
-    initial: 5
-    unit_of_measurement: ct/kWh
+    max: 0.3
+    step: 0.005
+    initial: 0.05
+    unit_of_measurement: EUR/kWh
     mode: box
     icon: mdi:cash-plus
 
@@ -177,12 +174,39 @@ input_boolean:
     name: "Speicher Eco Netzladen"
     icon: mdi:leaf
 
+  # --- Opti Canonical-Layer Gates (Paket 3) ---
+  opti_prognose_netzladen:
+    name: "Opti Reserve-halten bei schlechter Prognose"
+    # Gate für die prognosebasierten "Akku nur Laden"-Blöcke (Entladesperre +
+    # nur PV-Überschuss bei schlechter Prognose; KEIN Netzladen). Default an.
+    icon: mdi:transmission-tower
+    initial: "on"
+
+  opti_pv_ueberschuss_ladung:
+    name: "Opti PV-Überschussladung erlauben"
+    # Gate für die PV-/AC-Überschussblöcke (Akku Dynamisch). Default an.
+    icon: mdi:solar-power
+    initial: "on"
+
 counter:
   tage_seit_akku100:
     name: "Tage seit Akku 100%"
     initial: 0
     step: 1
     icon: mdi:counter
+
+# --- Write-on-Change-Helfer für ha-modbus-akku-adapter (ab v1.2.0) ---
+# Werden vom Adapter automatisch gepflegt, nicht manuell befüllen.
+input_text:
+  akkusteuerung_modbus_letzter_schreibwert:
+    name: "Akkusteuerung Modbus Letzter Schreibwert"
+    max: 255
+
+input_datetime:
+  akkusteuerung_modbus_letzter_schreibzeitpunkt:
+    name: "Akkusteuerung Modbus Letzter Schreibzeitpunkt"
+    has_date: true
+    has_time: true
 
 # =============================================================================
 # MANUELL ÜBER DIE HA-OBERFLÄCHE ANLEGEN (nicht per YAML möglich)

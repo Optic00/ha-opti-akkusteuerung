@@ -38,6 +38,33 @@ kanonischen Namen — keine Seriennummern im Code. → **[docs/canonical-layer.m
 Liefert alle Helfer, Template-Sensoren, abgeleitete Opti-Sensoren, Statistik-Sensoren und
 die Modbus-Konfiguration gebündelt mit.
 
+### Wer liefert was — und in welcher Reihenfolge?
+
+| Kommt aus | Was | GUI oder YAML |
+|---|---|---|
+| Adapter-Repo | Modbus-Hub zum WR | YAML (`configuration.yaml`/Package) |
+| Adapter-Repo | Modus-Dropdown + 6 Leistungs-Helfer | GUI oder YAML (Package) |
+| Adapter-Repo | 2 Write-on-Change-Helfer (`input_text`/`input_datetime`) | GUI oder YAML (Package) |
+| Adapter-Repo | Blueprint (übersetzt Modus → Modbus) | Blueprint-Import |
+| Opti-Repo | `opti_mapping.yaml` (Hardware → kanonische Sensoren) | YAML, von dir ausgefüllt |
+| Opti-Repo | `opti_derived.yaml` (Score, Ziel-SoC, Preisniveau) | YAML (Package) |
+| Opti-Repo | Strategie-Automation (setzt den Modus) | YAML (editierbar, kein Blueprint) |
+
+**Verbindliche Reihenfolge, wenn du beide Repos zusammen nutzt:**
+
+1. Modbus-Verbindung + Helfer anlegen (Adapter-Repo, Schritt 1–2)
+2. Opti-Packages aktivieren + `opti_mapping.yaml` ausfüllen (Opti-Repo)
+3. Home Assistant neu starten — `sensor.opti_*` prüfen
+4. Adapter-Blueprint importieren, Inputs auf `sensor.opti_charge_power_w` /
+   `sensor.opti_target_soc` setzen (nicht ungeprüft die Blueprint-Vorschlagswerte
+   übernehmen, falls sie abweichen)
+5. Strategie-Automation (`automations/opti_strategie.yaml`) aktivieren
+
+```
+Strategie  →  input_select.akkusteuerung_modus  →  [ ADAPTER-BLUEPRINT ]  →  Modbus-Register  →  WR
+(setzt Modus)        (+ input_number.* in W)              übersetzt
+```
+
 > **Legacy-Flachdateien** (`old/`): Die alten Einzeldateien im Repo-Root wurden nach `old/`
 > verschoben und werden nicht mehr gepflegt. Der empfohlene Weg ist die Package-Struktur.
 

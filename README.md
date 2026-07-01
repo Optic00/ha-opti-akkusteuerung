@@ -43,8 +43,8 @@ die Modbus-Konfiguration gebündelt mit.
 | Kommt aus | Was | GUI oder YAML |
 |---|---|---|
 | Adapter-Repo | Modbus-Hub zum WR | YAML (`configuration.yaml`/Package) |
-| Adapter-Repo | Modus-Dropdown + 6 Leistungs-Helfer | GUI oder YAML (Package) |
-| Adapter-Repo | 2 Write-on-Change-Helfer (`input_text`/`input_datetime`) | GUI oder YAML (Package) |
+| Adapter-Repo (**oder** Opti-Repo, siehe unten) | Modus-Dropdown + 6 Leistungs-Helfer | GUI oder YAML (Package) |
+| Adapter-Repo (**oder** Opti-Repo, siehe unten) | 2 Write-on-Change-Helfer (`input_text`/`input_datetime`) | GUI oder YAML (Package) |
 | Adapter-Repo | Blueprint (übersetzt Modus → Modbus) | Blueprint-Import |
 | Opti-Repo | `opti_mapping.yaml` (Hardware → kanonische Sensoren) | YAML, von dir ausgefüllt |
 | Opti-Repo | `opti_derived.yaml` (Score, Ziel-SoC, Preisniveau) | YAML (Package) |
@@ -52,13 +52,20 @@ die Modbus-Konfiguration gebündelt mit.
 
 **Verbindliche Reihenfolge, wenn du beide Repos zusammen nutzt:**
 
-1. Modbus-Verbindung + Helfer anlegen (Adapter-Repo, Schritt 1–2)
+1. Modbus-Verbindung anlegen (Adapter-Repo, Schritt 1). Helfer NICHT hier anlegen, wenn du Schritt 2 nutzt — siehe Hinweis unten.
 2. Opti-Packages aktivieren + `opti_mapping.yaml` ausfüllen (Opti-Repo)
 3. Home Assistant neu starten — `sensor.opti_*` prüfen
 4. Adapter-Blueprint importieren, Inputs auf `sensor.opti_charge_power_w` /
    `sensor.opti_target_soc` setzen (nicht ungeprüft die Blueprint-Vorschlagswerte
    übernehmen, falls sie abweichen)
 5. Strategie-Automation (`automations/opti_strategie.yaml`) aktivieren
+
+> ⚠️ **Helfer nur aus einer Quelle:** Bei kombinierter Nutzung liefert
+> `ha-opti-akkusteuerung/packages/sma_helpers.yaml` bereits alle Helfer (Modus-Dropdown,
+> 6 Leistungs-Helfer, 2 Write-on-Change-Helfer). Die Adapter-GUI-Anleitung bzw. das
+> Adapter-Package dann NICHT zusätzlich verwenden — zwei Packages mit denselben
+> Entity-IDs führen zu einem Duplicate-Key-Fehler im HA-Log. Nutzt du den Adapter
+> **ohne** das Opti-Repo (eigene Strategie), gilt die Adapter-Anleitung normal.
 
 ```
 Strategie  →  input_select.akkusteuerung_modus  →  [ ADAPTER-BLUEPRINT ]  →  Modbus-Register  →  WR

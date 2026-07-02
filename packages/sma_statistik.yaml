@@ -51,3 +51,16 @@ sensor:
       minutes: 60
     sampling_size: 360
     precision: 0
+
+  # Canonical-Layer-Pendant zu "Haus Stromverbrauch 60 min" (Legacy, s.o.):
+  # gleiche Quelle/Fenster, aber unter dem opti_-Namensschema, damit
+  # opti_derived.yaml nicht auf einen Legacy-Sensor verweisen muss.
+  - platform: statistics
+    name: "Opti House Consumption 60min W"
+    unique_id: opti_house_consumption_60min_w
+    entity_id: sensor.opti_house_consumption_w
+    state_characteristic: mean
+    max_age:
+      minutes: 60
+    sampling_size: 1500
+    precision: 0

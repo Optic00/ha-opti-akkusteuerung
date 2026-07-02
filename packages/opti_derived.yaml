@@ -311,7 +311,7 @@ template:
 
       # -----------------------------------------------------------------------
       # 5. Preisniveau (Enum) — übersetzt aus strompreis_niveau
-      #    (SMA-Templates Z.362-423). Perzentil-Bänder unverändert.
+      #    (SMA-Templates Z.362-423). Perzentil-Bänder unverändert, aber Midrank-Zählung (Gleichstände halb) statt select('le') - Fix für flache Preistage.
       #    current → opti_price_current_ct_kwh; Reihe → opti_price_series today/tomorrow
       #    (bereits ct/kWh-Listen). <4 Werte → NORMAL.
       # -----------------------------------------------------------------------
@@ -341,8 +341,11 @@ template:
           {% endfor %}
           {% set prices = ns.prices %}
           {% if prices | length >= 4 %}
-            {% set below = prices | select('le', current) | list | length %}
-            {% set pct = below / (prices | length) %}
+            {# Midrank-Perzentil: Gleichstaende zaehlen halb. Fix fuer den Tie-Bug
+               (select('le') machte bei flachen Preisen alles zu VERY_EXPENSIVE). #}
+            {% set kleiner = prices | select('lt', current) | list | length %}
+            {% set gleich  = prices | select('eq', current) | list | length %}
+            {% set pct = (kleiner + 0.5 * gleich) / (prices | length) %}
             {% if   pct < 0.20 %}{% set level = 'VERY_CHEAP' %}
             {% elif pct < 0.40 %}{% set level = 'CHEAP' %}
             {% elif pct < 0.60 %}{% set level = 'NORMAL' %}
@@ -368,7 +371,7 @@ template:
               {% endif %}
             {% endfor %}
             {% set prices = ns.prices %}
-            {% if prices | length >= 4 %}{{ ((prices | select('le', current) | list | length) / (prices | length) * 100) | round(1) }}{% else %}none{% endif %}
+            {% if prices | length >= 4 %}{{ (((prices | select('lt', current) | list | length) + 0.5 * (prices | select('eq', current) | list | length)) / (prices | length) * 100) | round(1) }}{% else %}none{% endif %}
           aktueller_preis: "{{ states('sensor.opti_price_current_ct_kwh') | float(0) }}"
           anzahl_preise: >
             {% set ns = namespace(c=0) %}

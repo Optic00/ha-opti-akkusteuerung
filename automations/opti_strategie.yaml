@@ -189,6 +189,38 @@
                 entity_id: input_select.akkusteuerung_modus
             - stop: "fertig"
 
+        # Peak-Vorladeregel (spread-basiert): kommende Spitzen sind deutlich teurer
+        # als jetzt -> gezielt bis reserve_gesamt_soc nachladen (nicht bis maxsoc).
+        # Stoppt selbsttaetig, sobald SoC die Reserve erreicht (Bedingung entfaellt).
+        # Ladefenster-Wahl wie bei der Negativpreis-Regel (selbstkorrigierend).
+        - alias: "Modus 'nur Laden' (Peak-Vorladen): Spread zur kommenden Spitze gross genug (tag+nacht)"
+          conditions:
+            - condition: state
+              entity_id: input_boolean.opti_prognose_netzladen
+              state: "on"
+            - condition: state
+              entity_id: binary_sensor.opti_peak_reserve_aktiv
+              state: "on"
+            - condition: template
+              value_template: >-
+                {% set cur = states('sensor.opti_price_current_ct_kwh') | float(none) %}
+                {% set soc = states('sensor.opti_soc') | float(none) %}
+                {% set ges = states('sensor.opti_peak_reserve_soc') | float(none) %}
+                {% set avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_avg_ct') | float(none) %}
+                {% set spread_min = states('input_number.opti_netzlade_spread_ct') | float(10) %}
+                {% set minv = state_attr('sensor.opti_peak_reserve_soc', 'min_preis_vor_peak_ct') %}
+                {{ cur is not none and soc is not none and ges is not none and avg is not none
+                   and soc < ges
+                   and (avg - cur) >= spread_min
+                   and (minv is none or cur <= (minv | float(cur)) + 0.5) }}
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
         # Winter-/Prognose-Ladeblock (SOC < 20 %).
         # Quelle: heute+morgen schlecht → Score<3 (beide); Preis VERY_CHEAP..EXPENSIVE.
         # Gates: opti_prognose_netzladen on + opti_winter_charging_allowed on.

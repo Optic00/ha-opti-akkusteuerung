@@ -101,3 +101,54 @@ def test_negativpreis_gate_aus():
 def test_minsoc_schutz_hat_vorrang():
     assert vorschau(**{"sensor.opti_soc": "5",
                        "sensor.opti_price_current_ct_kwh": "3"}) == "Akku nur Laden"
+
+
+# --- Task 5: Peak-Vorladeregel ---
+
+VORLADEN = {
+    "sensor.opti_price_current_ct_kwh": "50",
+    "sensor.opti_forecast_score": "1",
+    "sensor.opti_forecast_score_tomorrow": "1",
+    "sensor.opti_peak_reserve_soc": "35",
+    "binary_sensor.opti_peak_reserve_aktiv": "on",
+    "sensor.opti_soc": "15",
+}
+
+
+def test_vorladen_bei_grossem_spread():
+    # Peak avg 200 ct - aktuell 50 ct = 150 >= 10 -> laden bis Reserve.
+    out = vorschau(**VORLADEN, _attrs=reserve_attrs(ve=25.0, min_vor=50.0, avg=200.0))
+    assert out == "Akku nur Laden"
+    assert "Peak-Vorladen" in grund(**VORLADEN,
+                                    _attrs=reserve_attrs(ve=25.0, min_vor=50.0, avg=200.0))
+
+
+def test_vorladen_stoppt_bei_reserve():
+    out = grund(**{**VORLADEN, "sensor.opti_soc": "36"},
+                _attrs=reserve_attrs(ve=25.0, min_vor=50.0, avg=200.0))
+    assert "Peak-Vorladen" not in out
+
+
+def test_vorladen_nicht_bei_kleinem_spread():
+    # Peak avg 32 ct - aktuell 25 ct = 7 < 10 -> nicht vorladen.
+    out = grund(**{**VORLADEN, "sensor.opti_price_current_ct_kwh": "25"},
+                _attrs=reserve_attrs(ve=25.0, min_vor=25.0, avg=32.0))
+    assert "Peak-Vorladen" not in out
+
+
+def test_vorladen_wartet_auf_guenstigstes_fenster():
+    # Dip auf 45 ct kommt noch vor der Spitze -> jetzt (50 ct) nicht laden.
+    out = grund(**VORLADEN, _attrs=reserve_attrs(ve=25.0, min_vor=45.0, avg=200.0))
+    assert "Peak-Vorladen" not in out
+
+
+def test_vorladen_nicht_ohne_gate():
+    out = grund(**{**VORLADEN, "binary_sensor.opti_peak_reserve_aktiv": "off"},
+                _attrs=reserve_attrs(ve=25.0, min_vor=50.0, avg=200.0))
+    assert "Peak-Vorladen" not in out
+
+
+def test_vorladen_nicht_ohne_netzladen_schalter():
+    out = grund(**{**VORLADEN, "input_boolean.opti_prognose_netzladen": "off"},
+                _attrs=reserve_attrs(ve=25.0, min_vor=50.0, avg=200.0))
+    assert "Peak-Vorladen" not in out

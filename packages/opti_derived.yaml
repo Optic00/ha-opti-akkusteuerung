@@ -501,6 +501,7 @@ template:
           {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
           {% if soc >= 0 and soc < minsoc %}Akku nur Laden
           {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) and cur < eeg and fenster %}Akku nur Laden
+          {%- elif prog and aktiv and soc >= 0 and soc < ges_res and avg is not none and (avg - cur) >= spread and fenster %}Akku nur Laden
           {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden
           {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden
@@ -549,6 +550,7 @@ template:
             {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
             {% if soc >= 0 and soc < minsoc %}MinSOC-Schutz (SoC<{{minsoc}})
             {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct)
+            {%- elif prog and aktiv and soc >= 0 and soc < ges_res and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%)
             {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht)
             {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL)
             {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus

@@ -194,6 +194,7 @@ input_number:
     # Empfohlener Startwert aus dem Winter-Backtest-Sweep (2026-07-02): 5.
     # (Sweep 0/5/10/15: 5 ist der guenstigste Wert, der die VE-Abdeckungs-
     # Vorgabe >= 31.2% haelt; ab 10 faellt die Abdeckung unter die Vorgabe.)
+    # Solange der Helfer nicht manuell gesetzt ist, gilt der Template-Fallback von 10 ct, nicht der empfohlene Startwert 5.
     min: 0
     max: 100
     step: 0.5
@@ -210,6 +211,7 @@ input_number:
     # Empfohlener Startwert aus dem Winter-Backtest-Sweep (2026-07-02): 5.
     # (Sweep 0/3/5 bei aufschlag 5: 5 war die guenstigste Variante bei
     # praktisch gleicher VE-Abdeckung.)
+    # Solange der Helfer nicht manuell gesetzt ist, gilt der Template-Fallback von 3 ct, nicht der empfohlene Startwert 5.
     min: 0
     max: 50
     step: 0.5

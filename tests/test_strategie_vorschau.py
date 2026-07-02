@@ -306,3 +306,14 @@ def test_l3_halte_spread_ausreichend_haelt():
     attrs = reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0, ve_avg=55.0)
     assert vorschau(**L3_HALTE_FALL, _attrs=attrs) == "Akku nur Laden"
     assert "Peak-Leiter L3" in grund(**L3_HALTE_FALL, _attrs=attrs)
+
+
+def test_l3_kein_halten_bei_unavailable_preissensor():
+    # hv_cur guard: preis_current_ct_kwh unavailable -> L3 greift nicht.
+    # Szenario: Fixture EXPENSIVE, SoC < VE-Reserve, halte_spread erfuellt waere,
+    # ABER Sensor fehlt -> keine L3-Aktion, faellt durch zur Default-Kette.
+    attrs = reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0, ve_avg=55.0)
+    # price_current_ct_kwh ist unavailable (nicht gesetzt in overrides)
+    out = grund(**{**L3_HALTE_FALL, "sensor.opti_price_current_ct_kwh": "unavailable"},
+                _attrs=attrs)
+    assert "Peak-Leiter L3" not in out

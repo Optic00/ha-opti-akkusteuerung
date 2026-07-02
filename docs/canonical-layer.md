@@ -120,18 +120,24 @@ template:
           today: >-
             {% set tag = now().strftime('%Y-%m-%d') %}
             {% set ns = namespace(preise=[]) %}
-            {% for p in preise.values() | first if p.startsAt.startswith(tag) %}
-              {% set ns.preise = ns.preise + [ (p.total | float(0)) * 100 ] %}
+            {% for p in preise.prices.values() | first if p.start_time.startswith(tag) %}
+              {% set ns.preise = ns.preise + [ (p.price | float(0)) * 100 ] %}
             {% endfor %}
             {{ ns.preise }}
           tomorrow: >-
             {% set morgen = (now() + timedelta(days=1)).strftime('%Y-%m-%d') %}
             {% set ns = namespace(preise=[]) %}
-            {% for p in preise.values() | first if p.startsAt.startswith(morgen) %}
-              {% set ns.preise = ns.preise + [ (p.total | float(0)) * 100 ] %}
+            {% for p in preise.prices.values() | first if p.start_time.startswith(morgen) %}
+              {% set ns.preise = ns.preise + [ (p.price | float(0)) * 100 ] %}
             {% endfor %}
             {{ ns.preise }}
 ```
+
+`preise` ist die `response_variable` des `tibber.get_prices`-Service-Aufrufs. Laut
+aktueller Service-Doku liefert er `prices: {<home_id>: [{start_time, price}, ...]}` -
+das Rezept oben geht von genau dieser Struktur aus (`start_time`, nicht `startsAt`;
+`price`, nicht `total` - anders als die Attribut-Struktur des normalen Preis-Sensors
+weiter oben).
 
 > ⚠️ **Ungetestet gegen alle Tibber-Versionen** — die Struktur der `tibber.get_prices`-Antwort
 > kann sich zwischen Integrations-Versionen unterscheiden. Nach dem Einrichten in den

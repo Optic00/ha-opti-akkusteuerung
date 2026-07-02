@@ -153,6 +153,45 @@ input_number:
     mode: box
     icon: mdi:cash-plus
 
+  # --- Entlade-Peak-Allokation (Reserve fuer teure Stunden) ---
+  opti_peak_verbrauch_kw:
+    name: "Opti Peak-Verbrauch"
+    # Erwarteter Hausverbrauch waehrend Peak-Stunden (kW). Geht in die
+    # Reserve-Rechnung von sensor.opti_peak_reserve_soc ein.
+    min: 0.1
+    max: 5
+    step: 0.1
+    initial: 0.8
+    unit_of_measurement: kW
+    mode: box
+    icon: mdi:home-lightning-bolt
+
+  opti_einspeiseverguetung_ct:
+    name: "Opti Einspeiseverguetung"
+    # Eigene Einspeiseverguetung in ct/kWh. Preis darunter -> Netzladen lohnt immer
+    # (Negativpreis-Laderegel). Default 0 = Regel greift nur bei negativen Preisen,
+    # bis der echte EEG-Satz eingetragen ist.
+    min: 0
+    max: 30
+    step: 0.1
+    initial: 0
+    unit_of_measurement: ct/kWh
+    mode: box
+    icon: mdi:solar-power-variant
+
+  opti_netzlade_spread_ct:
+    name: "Opti Netzlade-Spread"
+    # Wirtschaftliche Mindest-Differenz zwischen Peak-Durchschnittspreis und
+    # aktuellem Ladepreis (ct/kWh), ab der Peak-Vorladen aus dem Netz lohnt.
+    # Deckt Round-Trip-Verluste des Akkus ab.
+    min: 0
+    max: 100
+    step: 0.5
+    initial: 10
+    unit_of_measurement: ct/kWh
+    mode: box
+    icon: mdi:swap-vertical-bold
+
 input_boolean:
   akku_opti_automatik:
     name: "Akku Opti-Automatik"

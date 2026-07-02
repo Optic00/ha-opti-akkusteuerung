@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import datetime as dt
 import pathlib
+from ast import literal_eval
 from zoneinfo import ZoneInfo
 
 import jinja2
 import yaml
-from jinja2.nativetypes import NativeEnvironment
 
 TZ = ZoneInfo("Europe/Berlin")
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -89,8 +89,14 @@ def render(hass, template_str):
 
 
 def render_native(hass, template_str):
-    env = _setup(NativeEnvironment(), hass)
-    return env.from_string(template_str).render()
+    """Nachbau von HAs Template.async_render(parse_result=True): render zu String,
+    stripped (echtes HA macht render_result.strip()), dann literal_eval-Versuch."""
+    env = _setup(jinja2.Environment(), hass)
+    render_result = env.from_string(template_str).render().strip()
+    try:
+        return literal_eval(render_result)
+    except (ValueError, TypeError, SyntaxError, MemoryError):
+        return render_result
 
 
 def load_yaml(path):

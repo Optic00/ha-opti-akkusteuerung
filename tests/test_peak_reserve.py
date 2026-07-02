@@ -107,3 +107,23 @@ def test_exp_stunden_gehen_in_gesamt_nicht_ve():
     assert peak["ve_stunden"] > 0
     assert peak["exp_stunden"] > 0
     assert peak["ges_soc"] >= peak["ve_soc"]
+
+
+def test_viertelstunden_raster_ungueltig():
+    # 96 Werte (15-min-Raster statt Stunden-Raster): Stundenzuordnung per Index
+    # waere falsch -> gesamte Preisbasis wird verworfen.
+    today = [50.0] * 96
+    peak = _peak(_hass(today, [50.0] * 24))
+    assert peak["gueltig"] is False
+
+
+def test_laufende_peak_stunde_zaehlt():
+    # now = 20:30, mitten in der 19-22-Uhr-Spitze. Das Fenster beginnt jetzt an
+    # der AKTUELLEN vollen Stunde (20:00), nicht erst ab 21:00 - die laufende
+    # Peak-Stunde (20 Uhr) zaehlt mit, damit das Gate waehrend der Spitze nicht
+    # abfaellt.
+    mitten_spitze = dt.datetime(2026, 1, 15, 20, 30, tzinfo=TZ)
+    today = [50.0] * 19 + [200.0, 200.0, 200.0, 50.0, 50.0]
+    peak = _peak(_hass(today, [50.0] * 24, now=mitten_spitze))
+    assert peak["ve_stunden"] == 2  # Stunden 20 + 21
+    assert peak["benoetigt_kwh"] > 0

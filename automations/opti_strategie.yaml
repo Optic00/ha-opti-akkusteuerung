@@ -169,11 +169,12 @@
               state: "on"
             - condition: template
               value_template: >-
+                {% set stopband = 0 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 3 %}
                 {{ has_value('sensor.opti_price_current_ct_kwh')
                    and has_value('sensor.opti_forecast_score')
                    and has_value('sensor.opti_soc')
                    and (states('sensor.opti_forecast_score') | float) < 3
-                   and (states('sensor.opti_soc') | float) < (states('input_number.maxsoc') | float(95))
+                   and (states('sensor.opti_soc') | float) < (states('input_number.maxsoc') | float(95) - stopband)
                    and (states('sensor.opti_price_current_ct_kwh') | float) < (states('input_number.opti_einspeiseverguetung_ct') | float(0)) }}
             - alias: "Ladefenster: kein guenstigeres Fenster vor der naechsten Spitze"
               condition: template
@@ -209,14 +210,63 @@
                 {% set avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_avg_ct') | float(none) %}
                 {% set spread_min = states('input_number.opti_netzlade_spread_ct') | float(10) %}
                 {% set minv = state_attr('sensor.opti_peak_reserve_soc', 'min_preis_vor_peak_ct') %}
+                {% set stopband = 0 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 3 %}
                 {{ cur is not none and soc is not none and ges is not none and avg is not none
-                   and soc < ges
+                   and soc < ges - stopband
                    and (avg - cur) >= spread_min
                    and (minv is none or cur <= (minv | float(cur)) + 0.5) }}
           sequence:
             - action: input_select.select_option
               data:
                 option: "Akku Netzladen"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        # ---------------------------------------------------------------------
+        # Peak-Leiter L1/L2 (Entlade-Stufen der Entlade-Allokation): nur aktiv
+        # wenn das Gate an ist (= Peaks im Wiederauflade-Horizont, Reserve-
+        # Sensor gueltig). Die Entlade-Stufen der Leiter stehen VOR den alten
+        # Ladebloecken (Ben-Entscheidung 2026-07-02): Peak-Entladen schlaegt
+        # Winterladen; die Halte-Stufen L3/L4 bleiben hinter den Ladebloecken
+        # (guenstiges Laden schlaegt Halten).
+        # ---------------------------------------------------------------------
+        - alias: "Peak-Leiter L1 'nur Entladen': Preisspitze VERY_EXPENSIVE"
+          conditions:
+            - condition: state
+              entity_id: binary_sensor.opti_peak_reserve_aktiv
+              state: "on"
+            - condition: template
+              value_template: "{{ has_value('sensor.opti_soc') }}"
+            - condition: state
+              entity_id: sensor.opti_price_level
+              state: "VERY_EXPENSIVE"
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Entladen"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        - alias: "Peak-Leiter L2 'nur Entladen': EXPENSIVE, SoC ueber VE-Reserve"
+          conditions:
+            - condition: state
+              entity_id: binary_sensor.opti_peak_reserve_aktiv
+              state: "on"
+            - condition: state
+              entity_id: sensor.opti_price_level
+              state: "EXPENSIVE"
+            - condition: template
+              value_template: >-
+                {% set soc = states('sensor.opti_soc') | float(none) %}
+                {% set ve = state_attr('sensor.opti_peak_reserve_soc', 'reserve_ve_soc') | float(none) %}
+                {% set band = 5 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden') else 3 %}
+                {{ soc is not none and ve is not none and soc > ve + band }}
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Entladen"
               target:
                 entity_id: input_select.akkusteuerung_modus
             - stop: "fertig"
@@ -496,53 +546,17 @@
             - stop: "fertig"
 
         # ---------------------------------------------------------------------
-        # Peak-Leiter (Entlade-Allokation): nur aktiv wenn das Gate an ist
-        # (= Peaks im Wiederauflade-Horizont, Reserve-Sensor gueltig).
-        # MUSS vor den Ziel-SoC-Optionen stehen, sonst verheizt "nur Entladen
-        # ueber Ziel-SoC" die Reserve bei NORMAL-Preis.
+        # Peak-Leiter L3/L4 (Halte-Stufen der Entlade-Allokation): nur aktiv
+        # wenn das Gate an ist (= Peaks im Wiederauflade-Horizont, Reserve-
+        # Sensor gueltig). MUSS vor den Ziel-SoC-Optionen stehen, sonst
+        # verheizt "nur Entladen ueber Ziel-SoC" die Reserve bei NORMAL-Preis.
+        # Die Entlade-Stufen der Leiter stehen VOR den alten Ladebloecken
+        # (Ben-Entscheidung 2026-07-02): Peak-Entladen schlaegt Winterladen;
+        # die Halte-Stufen L3/L4 bleiben hinter den Ladebloecken (guenstiges
+        # Laden schlaegt Halten).
         # Freigabeband asymmetrisch: aus dem Halten erst bei Reserve+5 wieder
         # freigeben, beim Entladen bis Reserve+3 runter (Modus = Gedaechtnis).
         # ---------------------------------------------------------------------
-        - alias: "Peak-Leiter L1 'nur Entladen': Preisspitze VERY_EXPENSIVE"
-          conditions:
-            - condition: state
-              entity_id: binary_sensor.opti_peak_reserve_aktiv
-              state: "on"
-            - condition: template
-              value_template: "{{ has_value('sensor.opti_soc') }}"
-            - condition: state
-              entity_id: sensor.opti_price_level
-              state: "VERY_EXPENSIVE"
-          sequence:
-            - action: input_select.select_option
-              data:
-                option: "Akku nur Entladen"
-              target:
-                entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
-
-        - alias: "Peak-Leiter L2 'nur Entladen': EXPENSIVE, SoC ueber VE-Reserve"
-          conditions:
-            - condition: state
-              entity_id: binary_sensor.opti_peak_reserve_aktiv
-              state: "on"
-            - condition: state
-              entity_id: sensor.opti_price_level
-              state: "EXPENSIVE"
-            - condition: template
-              value_template: >-
-                {% set soc = states('sensor.opti_soc') | float(none) %}
-                {% set ve = state_attr('sensor.opti_peak_reserve_soc', 'reserve_ve_soc') | float(none) %}
-                {% set band = 5 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden') else 3 %}
-                {{ soc is not none and ve is not none and soc > ve + band }}
-          sequence:
-            - action: input_select.select_option
-              data:
-                option: "Akku nur Entladen"
-              target:
-                entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
-
         - alias: "Peak-Leiter L3 'nur Laden' (halten): EXPENSIVE, Reserve fuer VERY_EXPENSIVE"
           conditions:
             - condition: state

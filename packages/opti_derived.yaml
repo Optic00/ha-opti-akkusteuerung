@@ -498,10 +498,13 @@ template:
           {% set minv = minv_raw|float(none) if minv_raw is not none else none %}
           {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %}
           {% set band = 5 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 3 %}
+          {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %}
           {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
           {% if soc >= 0 and soc < minsoc %}Akku nur Laden
-          {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) and cur < eeg and fenster %}Akku Netzladen
-          {%- elif prog and aktiv and soc >= 0 and soc < ges_res and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen
+          {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Akku Netzladen
+          {%- elif prog and aktiv and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen
+          {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Akku nur Entladen
+          {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Akku nur Entladen
           {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden
           {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden
@@ -510,8 +513,6 @@ template:
           {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}Akku Dynamisch
           {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}Akku Dynamisch
           {%- elif soc > 99 %}Akku Dynamisch
-          {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Akku nur Entladen
-          {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Akku nur Entladen
           {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' %}Akku nur Laden
           {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Akku nur Laden
           {%- elif soc > minsoc and soc < target - H and day %}Akku Dynamisch
@@ -551,10 +552,13 @@ template:
             {% set minv = minv_raw|float(none) if minv_raw is not none else none %}
             {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %}
             {% set band = 5 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 3 %}
+            {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %}
             {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
             {% if soc >= 0 and soc < minsoc %}MinSOC-Schutz (SoC<{{minsoc}})
-            {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct)
-            {%- elif prog and aktiv and soc >= 0 and soc < ges_res and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%)
+            {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct)
+            {%- elif prog and aktiv and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%)
+            {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Peak-Leiter L1 (VE entladen)
+            {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%)
             {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht)
             {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL)
             {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus
@@ -563,8 +567,6 @@ template:
             {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}70% Ueberschuss (tag)
             {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}AC Ueberschuss (tag)
             {%- elif soc > 99 %}Akku voll
-            {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Peak-Leiter L1 (VE entladen)
-            {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%)
             {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%)
             {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%)
             {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag)
@@ -603,6 +605,7 @@ template:
           - sensor.opti_price_series
           - sensor.opti_forecast_score
           - sensor.opti_forecast_score_tomorrow
+          - sensor.opti_battery_capacity_kwh
           - input_number.opti_peak_verbrauch_kw
           - input_number.minsoc
           - input_number.maxsoc
@@ -613,12 +616,15 @@ template:
         {% set min_soc = states('input_number.minsoc') | float(10) %}
         {% set max_soc = states('input_number.maxsoc') | float(95) %}
         {% set eta = 0.9 %}
-        {# 1. Preisbasis + Zukunftsstunden einsammeln (Stundenindex -> Zeitpunkt) #}
-        {% set ns = namespace(prices=[], future=[]) %}
+        {# 1. Preisbasis + Zukunftsstunden einsammeln (Stundenindex -> Zeitpunkt).
+           Raster-Guard: Listen > 25 Eintraege (15-min-Raster o.ae.) -> ungueltig;
+           die Stundenzuordnung via Index setzt Stundenraster voraus. #}
+        {% set ns = namespace(prices=[], future=[], raster_ok=true) %}
         {% set heute = today_at('00:00') %}
         {% for key in ['today', 'tomorrow'] %}
           {% set arr = state_attr('sensor.opti_price_series', key) %}
           {% if arr is iterable and arr is not string %}
+            {% if arr | length > 25 %}{% set ns.raster_ok = false %}{% endif %}
             {% set base = heute if key == 'today' else heute + timedelta(days=1) %}
             {% for it in arr %}
               {% if it is mapping %}{% set p = it.get('total', it.get('price', it.get('value'))) %}{% else %}{% set p = it %}{% endif %}
@@ -630,7 +636,7 @@ template:
             {% endfor %}
           {% endif %}
         {% endfor %}
-        {% set n = ns.prices | length %}
+        {% set n = ns.prices | length if ns.raster_ok else 0 %}
         {# 2. Wiederauflade-Horizont: bis naechster Sonnenaufgang + 3 h mit gutem
            Tages-Score (> 2), sonst 36 h. Tagsueber + guter Heute-Score -> leer. #}
         {% set s_heute = states('sensor.opti_forecast_score') | float(-1) %}
@@ -652,8 +658,11 @@ template:
             {% set horizont_ende = horizont_max %}
           {% endif %}
         {% endif %}
-        {# 3. Zukunftsstunden im Horizont klassifizieren (Midrank-Perzentil) #}
-        {% set start = now().replace(minute=0, second=0, microsecond=0) + timedelta(hours=1) %}
+        {# 3. Zukunftsstunden im Horizont klassifizieren (Midrank-Perzentil).
+           Fenster ab der aktuellen vollen Stunde: die laufende Peak-Stunde
+           zaehlt mit, damit das Gate waehrend der Spitze nicht abfaellt
+           (laufende Stunde konservativ voll gerechnet). #}
+        {% set start = now().replace(minute=0, second=0, microsecond=0) %}
         {% set f = namespace(ve=0, exp=0, minpre=none, summe=0.0, anz=0, peak_gesehen=false) %}
         {% if n >= 4 %}
           {% for eintrag in ns.future %}

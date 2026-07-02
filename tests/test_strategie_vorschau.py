@@ -182,8 +182,10 @@ def test_l2_expensive_ueber_ve_reserve_entlaedt():
 
 
 def test_l3_expensive_unter_ve_reserve_haelt():
-    # prognose_netzladen off, sonst greift der alte SOC<80-Winterblock VOR der
-    # Leiter (gleicher Modus, aber falscher Zweig) - grund pinnt den Zweig fest.
+    # L3/L4 stehen weiterhin HINTER den alten Ladebloecken (nur L1/L2 wurden
+    # vor sie gezogen, Ben-Entscheidung 2026-07-02). Bei soc 31 wuerde ohne
+    # prognose_netzladen=off der alte SOC<80-Winterblock VOR L3 greifen
+    # (gleicher Modus, aber falscher Zweig) - grund pinnt den Zweig fest.
     fall = {**LEITER, "sensor.opti_price_level": "EXPENSIVE",
             "sensor.opti_soc": "31",
             "input_boolean.opti_prognose_netzladen": "off"}
@@ -191,12 +193,26 @@ def test_l3_expensive_unter_ve_reserve_haelt():
     assert "Peak-Leiter L3" in grund(**fall, _attrs=LEITER_ATTRS)
 
 
-def test_freigabeband_asymmetrisch():
-    # prognose_netzladen off (siehe test_l3). soc 34, ve_res 30:
-    # beim Entladen (Band 3) -> 34 > 33 -> weiter entladen.
+def test_l2_schlaegt_alten_winterblock():
+    # L2 steht jetzt VOR dem alten SOC<80-Winterblock: bei EXPENSIVE-Preis und
+    # soc 55 > ve_res 30 + 3 gewinnt die Leiter, obwohl der alte Block (prog on,
+    # winter on, soc<80, beide Scores <3, p_e) ebenfalls zutreffen wuerde.
     fall = {**LEITER, "sensor.opti_price_level": "EXPENSIVE",
-            "sensor.opti_soc": "34",
-            "input_boolean.opti_prognose_netzladen": "off"}
+            "sensor.opti_soc": "55",
+            "sensor.opti_peak_reserve_soc": "45"}
+    out = vorschau(**fall, _attrs=reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0))
+    assert out == "Akku nur Entladen"
+    assert "Peak-Leiter L2" in grund(**fall, _attrs=reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0))
+
+
+def test_freigabeband_asymmetrisch():
+    # L2 steht jetzt vor den alten Ladebloecken, daher gewinnt die Leiter auch
+    # bei prog=on (kein Workaround mehr noetig). ges_res auf 34 gesetzt (statt
+    # LEITER-Default 45), sonst wuerde die noch frueher stehende Peak-Vorlade-
+    # regel greifen (soc 34 < ges_res waere sonst erfuellt und prog-gated).
+    # soc 34, ve_res 30: beim Entladen (Band 3) -> 34 > 33 -> weiter entladen.
+    fall = {**LEITER, "sensor.opti_price_level": "EXPENSIVE",
+            "sensor.opti_soc": "34", "sensor.opti_peak_reserve_soc": "34"}
     out = vorschau(**{**fall, "input_select.akkusteuerung_modus": "Akku nur Entladen"},
                    _attrs=LEITER_ATTRS)
     assert out == "Akku nur Entladen"

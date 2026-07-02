@@ -91,13 +91,14 @@ def _price_level(prices, current):
 def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
                  start_soc, cap_kwh, neu, modus_start="Akku Dynamisch",
                  aufschlag_ct=None, halte_spread_ct=None, netzlade_spread_ct=None):
-    # Tuning-Hebel (Winter-Sweep): neu=True -> Gewinner-Defaults (aufschlag 10,
-    # halte 3, netzlade_spread 10), neu=False -> Gate stillgelegt, Parameter
-    # egal (aufschlag/halte 0 zur Klarheit). Ueberschreibbar fuer den Sweep.
+    # Tuning-Hebel: neu=True -> Gewinner-Defaults aus dem Winter-Backtest-Sweep
+    # 2026-07-02 (aufschlag 5, halte 5, netzlade_spread 10), neu=False -> Gate
+    # stillgelegt, Parameter egal (aufschlag/halte 0 zur Klarheit).
+    # Ueberschreibbar fuer Sweeps.
     if aufschlag_ct is None:
-        aufschlag_ct = 10 if neu else 0
+        aufschlag_ct = 5 if neu else 0
     if halte_spread_ct is None:
-        halte_spread_ct = 3 if neu else 0
+        halte_spread_ct = 5 if neu else 0
     if netzlade_spread_ct is None:
         netzlade_spread_ct = 10
     soc = start_soc

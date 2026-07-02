@@ -175,6 +175,8 @@ input_number:
     # Wirtschaftliche Mindest-Differenz zwischen Peak-Durchschnittspreis und
     # aktuellem Ladepreis (ct/kWh), ab der Peak-Vorladen aus dem Netz lohnt.
     # Deckt Round-Trip-Verluste des Akkus ab.
+    # Winter-Backtest-Sweep (2026-07-02): 10 bestaetigt (15 drueckt die
+    # VE-Abdeckung unter die Vorgabe >= 31.2%).
     min: 0
     max: 100
     step: 0.5
@@ -189,7 +191,9 @@ input_number:
     # uebersteigt - filtert die Perzentil-Zwangs-Peaks flacher Tage raus
     # (z.B. 30.0 vs 30.5 ct waeren sonst schon ein "Peak"). UND-Bedingung
     # zusaetzlich zu den unveraenderten Perzentil-Grenzen.
-    # Empfehlung aus dem Winter-Backtest-Sweep (Tuning-Runde 2026-07-02): 10.
+    # Empfohlener Startwert aus dem Winter-Backtest-Sweep (2026-07-02): 5.
+    # (Sweep 0/5/10/15: 5 ist der guenstigste Wert, der die VE-Abdeckungs-
+    # Vorgabe >= 31.2% haelt; ab 10 faellt die Abdeckung unter die Vorgabe.)
     min: 0
     max: 100
     step: 0.5
@@ -203,7 +207,9 @@ input_number:
     # kommenden VERY_EXPENSIVE-Stunden (peak_preis_ve_avg_ct) mindestens
     # diesen Aufschlag ueber dem aktuellen Preis liegt - Halten ohne echten
     # VE-Vorteil kostet nur Netzbezug ohne Gegenwert.
-    # Empfehlung aus dem Winter-Backtest-Sweep (Tuning-Runde 2026-07-02): 3.
+    # Empfohlener Startwert aus dem Winter-Backtest-Sweep (2026-07-02): 5.
+    # (Sweep 0/3/5 bei aufschlag 5: 5 war die guenstigste Variante bei
+    # praktisch gleicher VE-Abdeckung.)
     min: 0
     max: 50
     step: 0.5

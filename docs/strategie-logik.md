@@ -24,7 +24,7 @@ Zentrales Entitäts-Modell (Canonical-`opti_*`-Layer):
 - `binary_sensor.opti_winter_charging_allowed` — Winterladefreigabe (Standard: `true`)
 - `sensor.opti_peak_reserve_soc` - berechneter Reserve-SoC für kommende Preisspitzen (36h-Horizont)
 - `binary_sensor.opti_peak_reserve_aktiv` - Gate: Peaks im Wiederauflade-Horizont vorhanden
-- `input_number.opti_peak_verbrauch_kw` / `opti_einspeiseverguetung_ct` / `opti_netzlade_spread_ct` - Konfiguration der Peak-Allokation
+- `input_number.opti_peak_verbrauch_kw` / `opti_einspeiseverguetung_ct` / `opti_netzlade_spread_ct` / `opti_peak_min_aufschlag_ct` / `opti_halte_spread_ct` - Konfiguration der Peak-Allokation
 - `input_select.akkusteuerung_modus` — Ziel-Ausgang dieser Automation
 
 ---
@@ -212,6 +212,12 @@ Ein sonniger Tag von morgen schließt die heutige Abendspitze also nicht aus dem
 **Klassifikation.**
 Jede Stunde im Horizont wird mit demselben **Midrank-Perzentil** wie `sensor.opti_price_level` eingestuft (gleiche Grenzen: ≥ 80 % → VERY_EXPENSIVE, ≥ 60 % → EXPENSIVE) - ein konsistentes Preisniveau-Konzept für die ganze Strategie.
 
+**Ökonomische Peak-Filterung (Tuning-Hebel 1).**
+Zusätzlich zur Perzentil-Einstufung zählt eine Stunde nur dann als Peak, wenn ihr Preis das Horizont-Tief (`fenster_min_ct`, günstigster Preis im Horizont) um mindestens `input_number.opti_peak_min_aufschlag_ct` übersteigt (UND-Bedingung, Grenzfall `>=` zählt).
+Das filtert die Perzentil-Zwangs-Peaks flacher Tage heraus: bei 30.0 vs 30.5 ct gibt es nichts zu reservieren, auch wenn die 30.5-ct-Stunden formal im obersten Quintil liegen.
+`min_preis_vor_peak_ct` bezieht sich weiterhin auf die erste **gezählte** Peak-Stunde.
+Empfohlener Startwert aus dem Winter-Backtest-Sweep (Nov 25 - Feb 26, siehe unten): **5 ct**.
+
 **Formel.**
 Für jede VERY_EXPENSIVE- bzw. VERY_EXPENSIVE+EXPENSIVE-Stunde im Horizont:
 
@@ -232,10 +238,22 @@ Sie steht in der Optionsliste **vor** den normalen Ziel-SoC-Optionen, sonst wür
 |---|---|---|---|
 | **L1** | VERY_EXPENSIVE | - | Akku nur Entladen |
 | **L2** | EXPENSIVE | SoC > `reserve_ve_soc` + Band | Akku nur Entladen |
-| **L3** | EXPENSIVE | SoC ≤ `reserve_ve_soc` + Band | Akku nur Laden (halten) |
+| **L3** | EXPENSIVE | SoC ≤ `reserve_ve_soc` + Band **und** `peak_preis_ve_avg_ct` - aktueller Preis ≥ `opti_halte_spread_ct` | Akku nur Laden (halten) |
 | **L4** | NORMAL oder billiger | SoC ≤ `reserve_gesamt_soc` + Band | Akku nur Laden (halten) |
 
 Ist keine Stufe einschlägig (z. B. NORMAL-Preis mit ausreichend SoC über der Reserve), fällt die Prüfung durch zu den normalen Ziel-SoC-Optionen.
+
+**L3-Halte-Spread (Tuning-Hebel 2).**
+L3 hält bei EXPENSIVE nur noch, wenn der Preisdurchschnitt der kommenden gezählten VERY_EXPENSIVE-Stunden (neues Attribut `peak_preis_ve_avg_ct` am Reserve-Sensor, `none` ohne VE-Stunden) mindestens `input_number.opti_halte_spread_ct` über dem aktuellen Preis liegt.
+Halten bei dünnem VE/EXP-Spread (3-6 ct) kostet mehr Netzbezug, als das spätere VE-Entladen zurückbringt.
+Greift die Bedingung nicht, fällt EXPENSIVE ohne Halten zur restlichen Kette durch (L2 hat oberhalb der VE-Reserve bereits entladen, unterhalb geht es zu den Ziel-SoC-Optionen bzw. dem Default).
+Empfohlener Startwert aus dem Winter-Backtest-Sweep: **5 ct**.
+
+**Tuning-Runde Winter-Backtest (2026-07-02).**
+Beide Hebel wurden per gestuftem Parameter-Sweep gegen einen 120-Tage-Winter-Backtest (Nov 2025 - Feb 2026, echte Preise/Last/PV) kalibriert; `opti_netzlade_spread_ct` = 10 wurde dabei bestätigt (15 drückt die VE-Abdeckung unter die Vorgabe).
+Gewinner-Kombination: `opti_peak_min_aufschlag_ct` = 5, `opti_halte_spread_ct` = 5, `opti_netzlade_spread_ct` = 10.
+Ergebnis: VE-Stunden-Abdeckung aus dem Akku steigt von 26.2 % (alt) auf 32.9 %, die Mehrkosten der Peak-Allokation sinken von 17.07 EUR auf 3.61 EUR pro Winter (inkl. Rest-SoC-Korrektur), die PV-Verdrängung von 131 kWh auf 53 kWh.
+Das ursprüngliche Ziel "billiger als alt bei mehr VE-Abdeckung" wurde damit **nicht** erreicht - die Peak-Allokation kostet im Backtest-Winter noch ~3.6 EUR Aufpreis für +6.7 Prozentpunkte VE-Abdeckung.
 
 **Asymmetrisches Freigabeband.**
 Damit der Modus nicht direkt an der Reserve-Kante flattert, ist das Band abhängig vom *aktuellen* Modus - der Modus dient als Gedächtnis des Vorzustands:
@@ -539,13 +557,16 @@ einspeisen, bei Verbrauch den Akku nutzen — je nach aktuellem Systemzustand.
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | `binary_sensor.opti_peak_reserve_aktiv` = on, SoC ≤ `reserve_ve_soc` + Freigabeband |
+| Bedingung | `binary_sensor.opti_peak_reserve_aktiv` = on, SoC ≤ `reserve_ve_soc` + Freigabeband, `peak_preis_ve_avg_ct` - aktueller Preis ≥ `opti_halte_spread_ct` |
 | Preis | EXPENSIVE |
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Laden** (Entladesperre, hält die VE-Reserve) |
 
 **Warum:** Reicht der SoC nicht mehr deutlich über der VERY_EXPENSIVE-Reserve, wird das
 Entladen gesperrt, damit die kommende VERY_EXPENSIVE-Stunde nicht leerläuft.
+Der Halte-Spread verhindert Halten ohne echten VE-Vorteil: liegen die kommenden VE-Stunden
+preislich kaum über der aktuellen EXPENSIVE-Stunde, kostet die Entladesperre nur Netzbezug
+(siehe [L3-Halte-Spread](#die-leiter-l1-l4)).
 
 ---
 

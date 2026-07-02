@@ -40,3 +40,27 @@ def test_unterscheidbare_preise_wie_bisher():
 
 def test_weniger_als_4_preise_normal():
     assert _level(_hass(99.0, [99.0, 99.0])) == "NORMAL"
+
+
+# ---------------------------------------------------------------------------
+# Legacy-Pendant sma_templates.yaml::strompreis_niveau (Backport des Tie-Fixes,
+# Commit 3): gleicher Midrank-Fix, andere Quell-Entity (sensor.DEIN_STROMPREIS).
+# ---------------------------------------------------------------------------
+
+def _legacy_hass(current, today, tomorrow=None):
+    return FakeHass(
+        states={"sensor.DEIN_STROMPREIS": str(current)},
+        attrs={"sensor.DEIN_STROMPREIS": {"today": today, "tomorrow": tomorrow or []}},
+    )
+
+
+def _legacy_level(hass):
+    cfg = load_yaml(REPO / "packages" / "sma_templates.yaml")
+    entity = find_template_entity(cfg, "sensor", "strompreis_niveau")
+    return render(hass, entity["state"])
+
+
+def test_legacy_flache_preise_sind_normal():
+    # Tie-Bug wie im Canonical-Sensor: mit select('le') war pct=1.0 -> VERY_EXPENSIVE.
+    # Midrank: pct=0.5 -> NORMAL.
+    assert _legacy_level(_legacy_hass(30.0, [30.0] * 24)) == "NORMAL"

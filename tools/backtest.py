@@ -118,7 +118,6 @@ def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
         hass.states_map["sensor.opti_price_level"] = _price_level(alle_preise, preis)
         hass.states_map["input_select.akkusteuerung_modus"] = modus
         modus = render(hass, _vorschau["state"])
-        grund = render(hass, _vorschau["attributes"]["grund"])
         # 3. Energiefluss der Stunde
         pv = pv_kwh_per_hour[hour]
         last = load_kw

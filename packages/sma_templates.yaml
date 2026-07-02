@@ -315,8 +315,11 @@ template:
         unit_of_measurement: W
         state_class: measurement
         icon: mdi:solar-power-variant
+        # Availability prueft dieselbe Quelle wie state (Netzleistung, nicht PV) -
+        # sonst zeigt der Sensor faelschlich "verfuegbar", waehrend die eigentliche
+        # Quelle fehlt (und umgekehrt).
         availability: >
-          {{ has_value('sensor.DEIN_PV_POWER') }}
+          {{ has_value('sensor.DEIN_NETZLEISTUNG_SENSOR') }}
         state: >
           {# ⚙️  Anpassen: Netzeinspeise-Leistung in Watt (positiv = Einspeisung) #}
           {% set einspeisung = states('sensor.DEIN_NETZLEISTUNG_SENSOR') | float(0) %}
@@ -385,8 +388,11 @@ template:
           {% endfor %}
           {% set prices = ns.prices %}
           {% if prices | length >= 4 %}
-            {% set below = prices | select('le', current) | list | length %}
-            {% set pct = below / (prices | length) %}
+            {# Midrank-Perzentil: Gleichstaende zaehlen halb (Backport des Tie-Fixes aus
+               opti_derived.yaml). select('le') machte bei flachen Preisen alles VERY_EXPENSIVE. #}
+            {% set kleiner = prices | select('lt', current) | list | length %}
+            {% set gleich  = prices | select('eq', current) | list | length %}
+            {% set pct = (kleiner + 0.5 * gleich) / (prices | length) %}
             {% if   pct < 0.20 %}{% set level = 'VERY_CHEAP' %}
             {% elif pct < 0.40 %}{% set level = 'CHEAP' %}
             {% elif pct < 0.60 %}{% set level = 'NORMAL' %}
@@ -412,7 +418,7 @@ template:
               {% endif %}
             {% endfor %}
             {% set prices = ns.prices %}
-            {% if prices | length >= 4 %}{{ ((prices | select('le', current) | list | length) / (prices | length) * 100) | round(1) }}{% else %}none{% endif %}
+            {% if prices | length >= 4 %}{{ (((prices | select('lt', current) | list | length) + 0.5 * (prices | select('eq', current) | list | length)) / (prices | length) * 100) | round(1) }}{% else %}none{% endif %}
           aktueller_preis: "{{ states('sensor.DEIN_STROMPREIS') | float(0) }}"
           anzahl_preise: >
             {% set ns = namespace(c=0) %}

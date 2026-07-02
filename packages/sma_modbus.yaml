@@ -20,7 +20,9 @@ modbus:
     timeout: 5
     sensors:
       - name: SMA-STP-SE_Temperatur
-        data_type: uint32
+        # S32 laut docs/modbus-register-referenz.md (Coolsys.Cab.TmpVal) - uint32
+        # lieferte bei Minusgraden ~429 Mio statt eines negativen Werts.
+        data_type: int32
         device_class: temperature
         unit_of_measurement: "°C"
         slave: 3

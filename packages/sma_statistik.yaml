@@ -12,6 +12,8 @@
 # =============================================================================
 
 sensor:
+  # sampling_size 360 statt der Fenstergroesse 30 min: bei 5-s-Update-Zyklen der
+  # Quelle wuerde ein zu kleiner Puffer das 30-min-Fenster nicht mehr abdecken.
   - platform: statistics
     name: "House Battery Load 30 mins"
     unique_id: house_battery_load_30_mins
@@ -19,7 +21,7 @@ sensor:
     state_characteristic: mean
     max_age:
       minutes: 30
-    sampling_size: 180
+    sampling_size: 360
     precision: 0
 
   - platform: statistics
@@ -29,7 +31,7 @@ sensor:
     state_characteristic: mean
     max_age:
       minutes: 30
-    sampling_size: 180
+    sampling_size: 360
     precision: 0
 
   - platform: statistics

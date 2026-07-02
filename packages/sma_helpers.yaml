@@ -7,6 +7,8 @@
 #
 # ⚙️  Nichts anpassen – die Standardwerte sind ein guter Ausgangspunkt.
 #     Werte später über die HA-Oberfläche feinjustieren.
+# Hinweis: `initial` greift NUR beim allerersten Anlegen eines Helfers.
+#     Danach restauriert HA bei jedem Neustart den zuletzt gespeicherten Wert.
 # =============================================================================
 
 input_select:
@@ -22,7 +24,6 @@ input_select:
       - "Akku nur Entladen"
       - "Akku Dynamisch"
       - "Akku 0.2C Laden"
-    initial: "Akku Automatisch"
     icon: mdi:battery-charging
 
 input_number:
@@ -45,7 +46,6 @@ input_number:
     min: 0
     max: 2000
     step: 50
-    initial: 0
     unit_of_measurement: W
     mode: box
 
@@ -54,7 +54,6 @@ input_number:
     min: 0
     max: 10000
     step: 100
-    initial: 5000
     unit_of_measurement: W
     mode: box
 
@@ -73,7 +72,6 @@ input_number:
     min: 0
     max: 2000
     step: 50
-    initial: 0
     unit_of_measurement: W
     mode: box
 
@@ -82,7 +80,6 @@ input_number:
     min: 0
     max: 10000
     step: 100
-    initial: 5000
     unit_of_measurement: W
     mode: box
 
@@ -92,7 +89,6 @@ input_number:
     min: 0
     max: 15000
     step: 100
-    initial: 4500
     unit_of_measurement: W
     mode: box
     icon: mdi:transmission-tower-export
@@ -102,7 +98,6 @@ input_number:
     min: 0
     max: 15000
     step: 100
-    initial: 500
     unit_of_measurement: W
     mode: box
 
@@ -112,7 +107,6 @@ input_number:
     min: 0
     max: 100
     step: 1
-    initial: 10
     unit_of_measurement: "%"
     mode: slider
     icon: mdi:battery-low
@@ -122,7 +116,6 @@ input_number:
     min: 0
     max: 100
     step: 1
-    initial: 95
     unit_of_measurement: "%"
     mode: slider
     icon: mdi:battery-high
@@ -149,7 +142,6 @@ input_number:
     min: 0
     max: 0.3
     step: 0.005
-    initial: 0.05
     unit_of_measurement: EUR/kWh
     mode: box
     icon: mdi:cash-plus
@@ -162,7 +154,6 @@ input_number:
     min: 0.1
     max: 5
     step: 0.1
-    initial: 0.8
     unit_of_measurement: kW
     mode: box
     icon: mdi:home-lightning-bolt
@@ -175,7 +166,6 @@ input_number:
     min: 0
     max: 30
     step: 0.1
-    initial: 0
     unit_of_measurement: ct/kWh
     mode: box
     icon: mdi:solar-power-variant
@@ -188,7 +178,6 @@ input_number:
     min: 0
     max: 100
     step: 0.5
-    initial: 10
     unit_of_measurement: ct/kWh
     mode: box
     icon: mdi:swap-vertical-bold
@@ -220,13 +209,11 @@ input_boolean:
     # Gate für die prognosebasierten "Akku nur Laden"-Blöcke (Entladesperre +
     # nur PV-Überschuss bei schlechter Prognose; KEIN Netzladen). Default an.
     icon: mdi:transmission-tower
-    initial: "on"
 
   opti_pv_ueberschuss_ladung:
     name: "Opti PV-Überschussladung erlauben"
     # Gate für die PV-/AC-Überschussblöcke (Akku Dynamisch). Default an.
     icon: mdi:solar-power
-    initial: "on"
 
 counter:
   tage_seit_akku100:
@@ -247,25 +234,3 @@ input_datetime:
     name: "Akkusteuerung Modbus Letzter Schreibzeitpunkt"
     has_date: true
     has_time: true
-
-# =============================================================================
-# MANUELL ÜBER DIE HA-OBERFLÄCHE ANLEGEN (nicht per YAML möglich)
-# =============================================================================
-#
-# sensor.mindestentladepreis  –  Min/Max-Sensor (Summe)
-# -------------------------------------------------------
-# Dieser Sensor berechnet den Mindestpreis, ab dem das Entladen wirtschaftlich ist:
-#
-#   Mindestentladepreis = Ladepreis + Mindestpreisdifferenz
-#
-# Anlegen unter: Einstellungen → Geräte & Dienste → Helfer → + Helfer hinzufügen
-#                → Min/Max
-#
-#   Name:        Mindestentladepreis
-#   Typ:         Summe
-#   Entitäten:   input_number.ladepreis
-#                input_number.mindestpreisdifferenz_lade_entladepreis
-#
-# Ergebnis: sensor.mindestentladepreis  (wird in der Opti-Automatik als
-# Entladeschwelle verwendet: Entladen nur wenn aktueller Strompreis ≥ diesem Wert)
-# =============================================================================

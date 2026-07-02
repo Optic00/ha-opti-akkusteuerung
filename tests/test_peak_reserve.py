@@ -8,7 +8,10 @@ WINTER_ABEND = dt.datetime(2026, 1, 15, 17, 30, tzinfo=TZ)  # nach Sonnenunterga
 
 def _hass(today, tomorrow, *, now=WINTER_ABEND, score_heute="1", score_morgen="1",
           cap="12.8", verbrauch="0.9", minsoc="10", maxsoc="95",
-          sun_state="below_horizon", next_rising="2026-01-16T08:15:00+01:00"):
+          sun_state="below_horizon", next_rising="2026-01-16T08:15:00+01:00",
+          aufschlag="0"):
+    # aufschlag default "0" = alte Tests bleiben semantisch unveraendert (keine
+    # oekonomische Filterung); neue Tests setzen aufschlag explizit aktiv.
     return FakeHass(
         now=now,
         states={
@@ -18,6 +21,7 @@ def _hass(today, tomorrow, *, now=WINTER_ABEND, score_heute="1", score_morgen="1
             "input_number.opti_peak_verbrauch_kw": verbrauch,
             "input_number.minsoc": minsoc,
             "input_number.maxsoc": maxsoc,
+            "input_number.opti_peak_min_aufschlag_ct": aufschlag,
             "sun.sun": sun_state,
         },
         attrs={
@@ -127,3 +131,64 @@ def test_laufende_peak_stunde_zaehlt():
     peak = _peak(_hass(today, [50.0] * 24, now=mitten_spitze))
     assert peak["ve_stunden"] == 2  # Stunden 20 + 21
     assert peak["benoetigt_kwh"] > 0
+
+
+# --- Tuning-Runde: Hebel 1 (oekonomische Peak-Filterung) ---
+
+def test_oekonomische_filterung_flacher_tag_gate_off():
+    # 24x 30.0 (heute) + 24x 30.5 (morgen): ohne Filterung waeren die 30.5-
+    # Stunden EXP (Perzentil 0.75), obwohl der Spread zum Horizont-Tief nur
+    # 0.5 ct betraegt - ein Zwangs-Peak eines flachen Tages.
+    today = [30.0] * 24
+    tomorrow = [30.5] * 24
+    gefiltert = _peak(_hass(today, tomorrow, aufschlag="10"))
+    assert gefiltert["benoetigt_kwh"] == 0.0
+    assert gefiltert["ve_stunden"] == 0
+    assert gefiltert["exp_stunden"] == 0
+
+    ungefiltert = _peak(_hass(today, tomorrow, aufschlag="0"))
+    assert ungefiltert["exp_stunden"] == 24
+    assert ungefiltert["benoetigt_kwh"] > 0
+
+
+def test_oekonomische_filterung_spike_tag_unveraendert():
+    # Spread 200-50=150 ct >> aufschlag 10 -> Filterung aendert nichts.
+    today = [50.0] * 19 + [200.0, 200.0, 200.0, 50.0, 50.0]
+    peak = _peak(_hass(today, [50.0] * 24, aufschlag="10"))
+    assert peak["ve_stunden"] == 3
+    assert peak["benoetigt_kwh"] == 3.0
+
+
+def test_oekonomische_filterung_grenzfall_gleich_zaehlt():
+    # Peak exakt fenster_min (50) + aufschlag (10) = 60 -> zaehlt (>=).
+    today = [50.0] * 20 + [60.0, 60.0, 60.0, 60.0]
+    tomorrow = [50.0] * 24
+    genau = _peak(_hass(today, tomorrow, aufschlag="10"))
+    assert genau["ve_stunden"] == 4
+    assert genau["fenster_min_ct"] == 50.0
+    # Knapp drueber am Schwellwert (10.5) -> faellt raus.
+    knapp_drueber = _peak(_hass(today, tomorrow, aufschlag="10.5"))
+    assert knapp_drueber["ve_stunden"] == 0
+
+
+# --- Tuning-Runde: Hebel 2 (peak_preis_ve_avg_ct) ---
+
+def test_peak_preis_ve_avg_nur_ve_stunden():
+    # Aufsteigende Preisreihe: ve_stunden und exp_stunden beide > 0, der
+    # VE-Durchschnitt muss sich vom Gesamt-Peak-Durchschnitt unterscheiden.
+    today = [20.0 + i for i in range(24)]
+    tomorrow = [20.0 + i for i in range(24)]
+    peak = _peak(_hass(today, tomorrow, aufschlag="0"))
+    assert peak["ve_stunden"] > 0
+    assert peak["exp_stunden"] > 0
+    assert peak["ve_preis_avg_ct"] == 41.0
+    assert peak["ve_preis_avg_ct"] != peak["peak_preis_avg_ct"]
+
+
+def test_peak_preis_ve_avg_none_ohne_peaks():
+    mittag = dt.datetime(2026, 6, 20, 12, 0, tzinfo=TZ)
+    today = [20.0] * 18 + [80.0, 80.0, 80.0, 20.0, 20.0, 20.0]
+    peak = _peak(_hass(today, [20.0] * 24, now=mittag, score_heute="9",
+                       sun_state="above_horizon"))
+    assert peak["ve_stunden"] == 0
+    assert peak["ve_preis_avg_ct"] is None

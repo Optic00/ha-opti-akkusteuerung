@@ -17,6 +17,9 @@ BASIS = {
     "input_number.maxsoc": "95",
     "input_number.opti_einspeiseverguetung_ct": "8",
     "input_number.opti_netzlade_spread_ct": "10",
+    # halte_spread "0" = alte Tests bleiben semantisch unveraendert (L3 haelt
+    # sobald ve_avg gesetzt ist); neue Tests setzen halte_spread aktiv.
+    "input_number.opti_halte_spread_ct": "0",
     "input_number.akkusteuerung_wr_70proz_ueberschuss_grenze": "500",
     "input_number.akkusteuerung_wr_ac_ueberschuss_grenze": "4500",
     "input_boolean.opti_prognose_netzladen": "on",
@@ -46,10 +49,15 @@ def grund(**overrides):
     return _render_vorschau("grund", overrides)
 
 
-def reserve_attrs(ve=30.0, min_vor=None, avg=None):
+def reserve_attrs(ve=30.0, min_vor=None, avg=None, ve_avg=None):
+    # ve_avg default = avg: alte Fixturen (nur avg gesetzt) nehmen an, dass die
+    # Reserve rein aus VE-Stunden besteht, damit L3-Alt-Tests mit halte_spread
+    # "0" unveraendert bleiben (ve_avg is not none noetig, Wert selbst ist bei
+    # halte_spread 0 irrelevant, solange ve_avg >= cur).
     return {"sensor.opti_peak_reserve_soc": {
         "reserve_ve_soc": ve, "min_preis_vor_peak_ct": min_vor,
-        "peak_preis_avg_ct": avg}}
+        "peak_preis_avg_ct": avg,
+        "peak_preis_ve_avg_ct": ve_avg if ve_avg is not None else avg}}
 
 
 # --- Task 4: Negativpreis-Laderegel ---
@@ -273,3 +281,28 @@ def test_leiter_inaktiv_ohne_gate():
                    "binary_sensor.opti_peak_reserve_aktiv": "off"},
                 _attrs=LEITER_ATTRS)
     assert "Peak-Leiter" not in out
+
+
+# --- Tuning-Runde: Hebel 2 (L3-Halte-Spread) ---
+
+L3_HALTE_FALL = {
+    **LEITER, "sensor.opti_price_level": "EXPENSIVE",
+    "sensor.opti_soc": "31",  # unter VE-Reserve (30 + Band)
+    "input_boolean.opti_prognose_netzladen": "off",
+    "input_number.opti_halte_spread_ct": "3",
+}
+
+
+def test_l3_halte_spread_zu_klein_faellt_durch():
+    # cur=50 (LEITER), ve_avg=52 -> Spread 2 < halte_spread 3 -> KEIN Halten,
+    # faellt zur restlichen Kette durch (hier: Default, da Nacht).
+    attrs = reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0, ve_avg=52.0)
+    assert vorschau(**L3_HALTE_FALL, _attrs=attrs) == "Akku Dynamisch"
+    assert "Peak-Leiter L3" not in grund(**L3_HALTE_FALL, _attrs=attrs)
+
+
+def test_l3_halte_spread_ausreichend_haelt():
+    # cur=50, ve_avg=55 -> Spread 5 >= halte_spread 3 -> Halten wie bisher.
+    attrs = reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0, ve_avg=55.0)
+    assert vorschau(**L3_HALTE_FALL, _attrs=attrs) == "Akku nur Laden"
+    assert "Peak-Leiter L3" in grund(**L3_HALTE_FALL, _attrs=attrs)

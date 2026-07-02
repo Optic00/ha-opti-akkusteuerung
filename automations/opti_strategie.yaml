@@ -556,6 +556,12 @@
         # Laden schlaegt Halten).
         # Freigabeband asymmetrisch: aus dem Halten erst bei Reserve+5 wieder
         # freigeben, beim Entladen bis Reserve+3 runter (Modus = Gedaechtnis).
+        # L3-Halte-Spread (Tuning-Hebel 2): zusaetzlich muss der VE-Preis-
+        # durchschnitt der kommenden Peak-Stunden mindestens
+        # opti_halte_spread_ct ueber dem aktuellen Preis liegen - Halten ohne
+        # echten VE-Vorteil kostet nur Netzbezug. Greift die Bedingung nicht,
+        # faellt EXPENSIVE ohne Halten durch (L2 hat oberhalb der VE-Reserve
+        # bereits entladen; unterhalb geht es zu den Ziel-SoC-Optionen/Default).
         # ---------------------------------------------------------------------
         - alias: "Peak-Leiter L3 'nur Laden' (halten): EXPENSIVE, Reserve fuer VERY_EXPENSIVE"
           conditions:
@@ -571,6 +577,12 @@
                 {% set ve = state_attr('sensor.opti_peak_reserve_soc', 'reserve_ve_soc') | float(none) %}
                 {% set band = 5 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden') else 3 %}
                 {{ soc is not none and ve is not none and soc <= ve + band }}
+            - condition: template
+              value_template: >-
+                {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_ve_avg_ct') | float(none) %}
+                {% set cur = states('sensor.opti_price_current_ct_kwh') | float(none) %}
+                {% set halte_spread = states('input_number.opti_halte_spread_ct') | float(3) %}
+                {{ ve_avg is not none and cur is not none and (ve_avg - cur) >= halte_spread }}
           sequence:
             - action: input_select.select_option
               data:

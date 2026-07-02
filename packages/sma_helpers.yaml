@@ -182,6 +182,35 @@ input_number:
     mode: box
     icon: mdi:swap-vertical-bold
 
+  opti_peak_min_aufschlag_ct:
+    name: "Opti Peak Mindestaufschlag"
+    # Eine Stunde zaehlt nur als Peak (VE/EXP) fuer die Reserve, wenn ihr Preis
+    # das Horizont-Tief (fenster_min_ct) um mindestens diesen Aufschlag
+    # uebersteigt - filtert die Perzentil-Zwangs-Peaks flacher Tage raus
+    # (z.B. 30.0 vs 30.5 ct waeren sonst schon ein "Peak"). UND-Bedingung
+    # zusaetzlich zu den unveraenderten Perzentil-Grenzen.
+    # Empfehlung aus dem Winter-Backtest-Sweep (Tuning-Runde 2026-07-02): 10.
+    min: 0
+    max: 100
+    step: 0.5
+    unit_of_measurement: ct/kWh
+    mode: box
+    icon: mdi:filter-outline
+
+  opti_halte_spread_ct:
+    name: "Opti Halte-Spread"
+    # L3 haelt bei EXPENSIVE nur noch, wenn der Preisdurchschnitt der
+    # kommenden VERY_EXPENSIVE-Stunden (peak_preis_ve_avg_ct) mindestens
+    # diesen Aufschlag ueber dem aktuellen Preis liegt - Halten ohne echten
+    # VE-Vorteil kostet nur Netzbezug ohne Gegenwert.
+    # Empfehlung aus dem Winter-Backtest-Sweep (Tuning-Runde 2026-07-02): 3.
+    min: 0
+    max: 50
+    step: 0.5
+    unit_of_measurement: ct/kWh
+    mode: box
+    icon: mdi:hand-back-right-outline
+
 input_boolean:
   akku_opti_automatik:
     name: "Akku Opti-Automatik"

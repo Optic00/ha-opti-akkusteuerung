@@ -62,22 +62,82 @@ Abregelung wegen fehlender Temperatur.
 
 ### Tibber
 
-Tibber liefert zwei relevante Sensoren:
-- **Aktueller Preis (Skalar):** `sensor.tibber_electricity_price` — Einheit EUR/kWh
-- **Preis-Reihe:** derselbe Sensor mit Attributen `today`/`tomorrow` als Listen von Dicts
+**Vorsicht, Entity-Name kann abweichen:** Die Core-Tibber-Integration benennt ihren
+Preis-Sensor nach dem Namen deiner Zählstelle/Wohnung
+(`sensor.electricity_price_<dein_home_name>`), nicht garantiert
+`sensor.tibber_electricity_price`. Prüfe den tatsächlichen Namen in den
+**Entwicklerwerkzeugen → Zustände** (nach `tibber` filtern), bevor du das Mapping ausfüllst.
+
+Tibber liefert dort typischerweise zwei relevante Dinge:
+- **Aktueller Preis (Skalar):** der Sensor-Zustand selbst — Einheit EUR/kWh
+- **Preis-Reihe:** Attribute `today`/`tomorrow` als Listen von Dicts
   `{total: …, startsAt: …}` (Schlüssel `total` = EUR/kWh-Wert)
 
+**Vor dem Mapping prüfen, ob `today`/`tomorrow` überhaupt vorhanden sind:**
+Entwicklerwerkzeuge → Vorlage, dann:
+
+```jinja
+{{ state_attr('sensor.DEIN_TIBBER_SENSOR', 'today') }}
+{{ state_attr('sensor.DEIN_TIBBER_SENSOR', 'tomorrow') }}
+```
+
+Liefert das `none` oder eine leere Liste, fehlt die Preis-Reihe auf dem Sensor - dann hilft
+nur der Weg über den Service unten.
+
 ```yaml
-# opti_mapping.yaml — Tibber-Beispiel
+# opti_mapping.yaml — Tibber-Beispiel (Sensor liefert today/tomorrow direkt)
 # Sensor 8 (aktueller Preis, EUR → ct):
-state: "{{ states('sensor.tibber_electricity_price') | float(0) * 100 }}"
+state: "{{ states('sensor.DEIN_TIBBER_SENSOR') | float(0) * 100 }}"
 
 # Sensor 9 (Preis-Reihe, gleiche Quelle):
-availability: "{{ has_value('sensor.tibber_electricity_price') }}"
-state: "{{ states('sensor.tibber_electricity_price') | float(0) * 100 }}"
+availability: "{{ has_value('sensor.DEIN_TIBBER_SENSOR') }}"
+state: "{{ states('sensor.DEIN_TIBBER_SENSOR') | float(0) * 100 }}"
 # Attribute today/tomorrow werden automatisch normalisiert (Dict-Schlüssel
 # 'total', 'price' oder 'value' sowie skalare Einträge werden erkannt).
 ```
+
+**Alternative: trigger-basiertes Rezept über den Service `tibber.get_prices`.**
+Liefert dein Preis-Sensor kein `today`/`tomorrow`-Attribut, kannst du die Preis-Reihe
+stattdessen stündlich per Service abrufen und in einen eigenen Template-Sensor schreiben:
+
+```yaml
+# packages/opti_mapping.yaml — Tibber-Preisreihe per Service (Alternativ-Rezept)
+template:
+  - trigger:
+      - trigger: time_pattern
+        minutes: 5
+    action:
+      - action: tibber.get_prices
+        data:
+          start: "{{ now().replace(hour=0, minute=0, second=0).isoformat() }}"
+          end: "{{ (now() + timedelta(days=1)).replace(hour=23, minute=59).isoformat() }}"
+        response_variable: preise
+    sensor:
+      - name: "Opti Preis-Reihe Tibber"
+        unique_id: opti_price_series_tibber_service
+        state: "{{ states('sensor.DEIN_TIBBER_SENSOR') | float(0) * 100 }}"
+        attributes:
+          today: >-
+            {% set tag = now().strftime('%Y-%m-%d') %}
+            {% set ns = namespace(preise=[]) %}
+            {% for p in preise.values() | first if p.startsAt.startswith(tag) %}
+              {% set ns.preise = ns.preise + [ (p.total | float(0)) * 100 ] %}
+            {% endfor %}
+            {{ ns.preise }}
+          tomorrow: >-
+            {% set morgen = (now() + timedelta(days=1)).strftime('%Y-%m-%d') %}
+            {% set ns = namespace(preise=[]) %}
+            {% for p in preise.values() | first if p.startsAt.startswith(morgen) %}
+              {% set ns.preise = ns.preise + [ (p.total | float(0)) * 100 ] %}
+            {% endfor %}
+            {{ ns.preise }}
+```
+
+> ⚠️ **Ungetestet gegen alle Tibber-Versionen** — die Struktur der `tibber.get_prices`-Antwort
+> kann sich zwischen Integrations-Versionen unterscheiden. Nach dem Einrichten in den
+> Entwicklerwerkzeugen → Vorlage die `response_variable`-Struktur prüfen (`{{ preise }}`)
+> und die `today`/`tomorrow`-Attribute des neuen Sensors gegen die erwarteten
+> ct/kWh-Listen abgleichen, bevor du dich darauf verlässt.
 
 ### Nordpool
 
@@ -104,6 +164,27 @@ state: "{{ states('sensor.awattar_current_price') | float(0) * 100 }}"
 > den Availability-Check entsprechend anpassen.
 
 > **Stundenraster-Kontrakt:** `today`/`tomorrow` müssen Stundenlisten sein (max. 25 Einträge je Liste) — die Peak-Reserve (`sensor.opti_peak_reserve_soc`) ordnet Stunden über den Listenindex zu und deaktiviert sich bei 15-Minuten-Listen oder anderen Rastern über 25 Einträgen automatisch (`gueltig: false`).
+
+---
+
+## SMA-Rezept: Hausverbrauch (`opti_house_consumption_w`)
+
+Die SMA-Integration liefert keinen direkten Hausverbrauchs-Sensor - er muss aus den
+Metering- und Netz-Sensoren berechnet werden. Copy-Paste-Rezept für `opti_mapping.yaml`:
+
+```yaml
+# opti_mapping.yaml — Hausverbrauch aus SMA-Sensoren
+state: >
+  {{ (states('sensor.sn_XXXX_metering_power_absorbed') | float(0))
+     + (states('sensor.sn_XXXX_grid_power') | float(0))
+     - (states('sensor.sn_XXXX_metering_power_supplied') | float(0)) }}
+```
+
+`sn_XXXX` ist die Seriennummer deines SMA-Geräts, wie sie die Integration in die
+Entity-IDs einbaut. Eigene Seriennummer ermitteln: Entwicklerwerkzeuge → Zustände →
+nach `sn_` filtern, oder Einstellungen → Geräte & Dienste → SMA-Integration → Gerät
+öffnen (Seriennummer steht dort im Geräte-Info-Block). Alle drei `sn_XXXX`-Platzhalter
+oben mit derselben Seriennummer ersetzen.
 
 ---
 
@@ -135,14 +216,18 @@ Fehlt `estimate10` komplett, greift derselbe Median-Fallback - der Score läuft 
 
 ## Mindest-HA-Version
 
-Der Canonical-Layer verwendet das Template-Keyword `has_value()`, das ab
-**Home Assistant 2022.9** verfügbar ist. Mit älteren Versionen werden
-Availability-Checks als `false` ausgewertet, und alle `opti_*`-Sensoren erscheinen
-als `unavailable`.
+Der Canonical-Layer verwendet das Template-Keyword `has_value()`, das bereits ab
+**Home Assistant 2022.9** verfügbar ist. Das reicht für sich genommen aber nicht:
+`packages/opti_derived.yaml` nutzt für die Peak-Reserve zusätzlich trigger-basierte
+Template-Sensoren mit `variables:`, wofür **Home Assistant >= 2024.10** vorausgesetzt wird.
+Mit älteren Versionen werden Availability-Checks als `false` ausgewertet bzw. die
+trigger-basierten Sensoren laden gar nicht, und die betroffenen `opti_*`-Sensoren
+erscheinen als `unavailable`.
 
-**Empfehlung:** Aktuelle HA-Release-Version verwenden. Falls `sensor.opti_soc` nach dem
-Einrichten auf `unavailable` bleibt, in den Entwicklerwerkzeugen → Template prüfen,
-ob `has_value('sensor.DEINE_QUELLE')` korrekt ausgewertet wird.
+**Empfehlung:** Aktuelle HA-Release-Version verwenden, mindestens 2024.10. Falls
+`sensor.opti_soc` nach dem Einrichten auf `unavailable` bleibt, in den
+Entwicklerwerkzeugen → Template prüfen, ob `has_value('sensor.DEINE_QUELLE')` korrekt
+ausgewertet wird.
 
 ---
 
@@ -331,9 +416,16 @@ Entscheidung (nicht nebenbei mitziehen).
 
 ## Deployment als HA-Package & der „Migrieren"-Hinweis
 
-Sensoren, Helfer und die Strategie-Automation werden als **HA-Packages** geladen
+Sensoren und Helfer werden als **HA-Packages** geladen
 (`packages: !include_dir_named packages/` unter `homeassistant:`). Das hält alles
 versioniert und an einem Ort.
+
+Die Strategie-Automation (`automations/opti_strategie.yaml`) liegt dagegen als
+Top-Level-Liste im Format von `automations.yaml` vor - sie ist **kein** fertiges Package.
+Zwei Wege, sie einzuspielen: an `automations.yaml` anhängen, oder nach `packages/`
+kopieren und mit dem Schlüssel `automation:` wrappen (Details in der README, Abschnitt
+„Schnell-Nachbau über Packages", Schritt 6). Nur im zweiten Fall - Package-Variante -
+gilt der folgende „Migrieren"-Hinweis.
 
 Eine als Package geladene Automation zeigt im UI-Automationseditor die Warnung:
 

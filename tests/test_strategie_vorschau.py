@@ -154,6 +154,28 @@ def test_vorladen_nicht_ohne_netzladen_schalter():
     assert "Peak-Vorladen" not in out
 
 
+def test_vorladen_nicht_ohne_preis():
+    # M1: hv_cur-Guard - fehlt der aktuelle Preis, darf Peak-Vorladen nicht greifen
+    # (cur faellt sonst per float(0) auf 0 zurueck und wuerde den Spread verfaelschen).
+    out = grund(**{**VORLADEN, "sensor.opti_price_current_ct_kwh": "unavailable"},
+                _attrs=reserve_attrs(ve=25.0, min_vor=50.0, avg=200.0))
+    assert "Peak-Vorladen" not in out
+
+
+def test_vorladen_haelt_bis_reserve_im_lademodus():
+    # Stop-Kanten-Band (I2): im Modus 'Akku Netzladen' ist stopband 0, sonst 3.
+    # soc 34, ges_res 35: im Lademodus laedt es weiter (34 < 35 - 0), im
+    # Dynamisch-Modus nicht mehr (34 >= 35 - 3 = 32).
+    fall = {**VORLADEN, "sensor.opti_soc": "34"}
+    attrs = reserve_attrs(ve=25.0, min_vor=50.0, avg=200.0)
+    out_lademodus = grund(**{**fall, "input_select.akkusteuerung_modus": "Akku Netzladen"},
+                          _attrs=attrs)
+    assert "Peak-Vorladen" in out_lademodus
+    out_dynamisch = grund(**{**fall, "input_select.akkusteuerung_modus": "Akku Dynamisch"},
+                          _attrs=attrs)
+    assert "Peak-Vorladen" not in out_dynamisch
+
+
 # --- Task 6: Peak-Leiter ---
 
 LEITER = {

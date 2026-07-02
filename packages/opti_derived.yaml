@@ -502,7 +502,7 @@ template:
           {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
           {% if soc >= 0 and soc < minsoc %}Akku nur Laden
           {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Akku Netzladen
-          {%- elif prog and aktiv and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen
+          {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen
           {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Akku nur Entladen
           {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Akku nur Entladen
           {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden
@@ -556,7 +556,7 @@ template:
             {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
             {% if soc >= 0 and soc < minsoc %}MinSOC-Schutz (SoC<{{minsoc}})
             {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct)
-            {%- elif prog and aktiv and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%)
+            {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%)
             {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Peak-Leiter L1 (VE entladen)
             {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%)
             {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht)

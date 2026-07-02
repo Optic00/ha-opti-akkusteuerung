@@ -103,6 +103,8 @@ state: "{{ states('sensor.awattar_current_price') | float(0) * 100 }}"
 > **Hinweis:** Falls die Quelle bereits ct/kWh liefert, `* 100` weglassen und
 > den Availability-Check entsprechend anpassen.
 
+> **Stundenraster-Kontrakt:** `today`/`tomorrow` müssen Stundenlisten sein (max. 25 Einträge je Liste) — die Peak-Reserve (`sensor.opti_peak_reserve_soc`) ordnet Stunden über den Listenindex zu und deaktiviert sich bei 15-Minuten-Listen oder anderen Rastern über 25 Einträgen automatisch (`gueltig: false`).
+
 ---
 
 ## Solcast-Anbindung
@@ -231,6 +233,8 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 | `sensor.opti_mindestentladepreis_ct_kwh` | Mindestentladepreis = Ladepreis + Preisdifferenz (ct/kWh) |
 | `sensor.opti_runtime_h` | Geschätzte Akku-Restlaufzeit (Stunden) |
 | `binary_sensor.opti_winter_charging_allowed` | Saisonales Lade-Gate (Standard: `true`, fail-open) |
+| `sensor.opti_peak_reserve_soc` | Reserve-SoC für kommende Preisspitzen (trigger-basiert, 36h-Horizont) |
+| `binary_sensor.opti_peak_reserve_aktiv` | Gate: Peaks im Wiederauflade-Horizont vorhanden |
 
 > **Warnung — `opti_winter_charging_allowed`:** Dieses Gate ist **fail-open** (`{{ true }}`).
 > Solange kein realer Saisonal-Sensor gemappt ist, ist es immer `on`.

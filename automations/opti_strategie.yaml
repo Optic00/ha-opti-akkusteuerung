@@ -112,6 +112,16 @@
       entity_id:
         - binary_sensor.opti_winter_charging_allowed
       id: "Winterladefreigabe geändert"
+    # Peak-Allokation: aktueller Preis (stuendlich) + Reserve-Sensor + Gate
+    - trigger: state
+      entity_id:
+        - sensor.opti_price_current_ct_kwh
+      id: "Preis geändert"
+    - trigger: state
+      entity_id:
+        - sensor.opti_peak_reserve_soc
+        - binary_sensor.opti_peak_reserve_aktiv
+      id: "Peak-Reserve geändert"
   conditions:
     - condition: state
       entity_id: input_boolean.akku_opti_automatik
@@ -146,6 +156,38 @@
               target:
                 entity_id: input_select.akkusteuerung_modus
             - stop: "MinSOC Schutz aktiv – Entladen gesperrt"
+
+        # Negativpreis-Laderegel mit Ladefenster-Wahl: Preis unter der eigenen
+        # Einspeiseverguetung (deckt negative Preise ab) + schlechte Prognose ->
+        # Netzladen lohnt immer. Fenster-Bedingung: nicht greedy laden, wenn vor
+        # der naechsten Preisspitze noch eine guenstigere Stunde kommt (Marge 0.5 ct).
+        # Fail-safe: Reserve-Sensor unavailable -> minv none -> einfacher EEG-Vergleich.
+        - alias: "Modus 'nur Laden' (Netzladen): Preis unter Einspeiseverguetung, Prognose schlecht (tag+nacht)"
+          conditions:
+            - condition: state
+              entity_id: input_boolean.opti_prognose_netzladen
+              state: "on"
+            - condition: template
+              value_template: >-
+                {{ has_value('sensor.opti_price_current_ct_kwh')
+                   and has_value('sensor.opti_forecast_score')
+                   and has_value('sensor.opti_soc')
+                   and (states('sensor.opti_forecast_score') | float) < 3
+                   and (states('sensor.opti_soc') | float) < (states('input_number.maxsoc') | float(95))
+                   and (states('sensor.opti_price_current_ct_kwh') | float) < (states('input_number.opti_einspeiseverguetung_ct') | float(0)) }}
+            - alias: "Ladefenster: kein guenstigeres Fenster vor der naechsten Spitze"
+              condition: template
+              value_template: >-
+                {% set cur = states('sensor.opti_price_current_ct_kwh') | float(0) %}
+                {% set minv = state_attr('sensor.opti_peak_reserve_soc', 'min_preis_vor_peak_ct') %}
+                {{ minv is none or cur <= (minv | float(cur)) + 0.5 }}
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
 
         # Winter-/Prognose-Ladeblock (SOC < 20 %).
         # Quelle: heute+morgen schlecht → Score<3 (beide); Preis VERY_CHEAP..EXPENSIVE.

@@ -460,6 +460,7 @@ template:
       #    Toggles opti_prognose_netzladen / opti_pv_ueberschuss_ladung existieren live
       #    und werden hier wie in der echten Strategie gelesen (siehe unten). Bei
       #    Änderung der Strategie-Zweige MUSS dieser Sensor mitgespiegelt werden.
+      #    Peak-Allokations-Zweige (Negativpreis/Vorladen/Leiter) sind mitgespiegelt.
       # -----------------------------------------------------------------------
       - unique_id: opti_strategie_vorschau
         name: "Opti Strategie Vorschau"
@@ -486,7 +487,20 @@ template:
           {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %}
           {% set p_c = price in ['VERY_CHEAP','CHEAP'] %}
           {% set H = 3 %}
+          {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %}
+          {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %}
+          {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %}
+          {% set spread = states('input_number.opti_netzlade_spread_ct')|float(10) %}
+          {% set aktiv = is_state('binary_sensor.opti_peak_reserve_aktiv','on') %}
+          {% set ges_res = states('sensor.opti_peak_reserve_soc')|float(101) %}
+          {% set ve_res = state_attr('sensor.opti_peak_reserve_soc','reserve_ve_soc')|float(101) %}
+          {% set minv_raw = state_attr('sensor.opti_peak_reserve_soc','min_preis_vor_peak_ct') %}
+          {% set minv = minv_raw|float(none) if minv_raw is not none else none %}
+          {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %}
+          {% set band = 5 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 3 %}
+          {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
           {% if soc >= 0 and soc < minsoc %}Akku nur Laden
+          {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) and cur < eeg and fenster %}Akku nur Laden
           {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden
           {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden
@@ -521,7 +535,20 @@ template:
             {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %}
             {% set p_c = price in ['VERY_CHEAP','CHEAP'] %}
             {% set H = 3 %}
+            {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %}
+            {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %}
+            {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %}
+            {% set spread = states('input_number.opti_netzlade_spread_ct')|float(10) %}
+            {% set aktiv = is_state('binary_sensor.opti_peak_reserve_aktiv','on') %}
+            {% set ges_res = states('sensor.opti_peak_reserve_soc')|float(101) %}
+            {% set ve_res = state_attr('sensor.opti_peak_reserve_soc','reserve_ve_soc')|float(101) %}
+            {% set minv_raw = state_attr('sensor.opti_peak_reserve_soc','min_preis_vor_peak_ct') %}
+            {% set minv = minv_raw|float(none) if minv_raw is not none else none %}
+            {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %}
+            {% set band = 5 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 3 %}
+            {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
             {% if soc >= 0 and soc < minsoc %}MinSOC-Schutz (SoC<{{minsoc}})
+            {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct)
             {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht)
             {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL)
             {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus

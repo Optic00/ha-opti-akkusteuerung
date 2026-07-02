@@ -22,6 +22,9 @@ Zentrales Entitäts-Modell (Canonical-`opti_*`-Layer):
 - `input_boolean.opti_prognose_netzladen` — Gate für prognosebasiertes Netzladen
 - `input_boolean.opti_pv_ueberschuss_ladung` — Gate für PV-Überschuss-Laden
 - `binary_sensor.opti_winter_charging_allowed` — Winterladefreigabe (Standard: `true`)
+- `sensor.opti_peak_reserve_soc` - berechneter Reserve-SoC für kommende Preisspitzen (36h-Horizont)
+- `binary_sensor.opti_peak_reserve_aktiv` - Gate: Peaks im Wiederauflade-Horizont vorhanden
+- `input_number.opti_peak_verbrauch_kw` / `opti_einspeiseverguetung_ct` / `opti_netzlade_spread_ct` - Konfiguration der Peak-Allokation
 - `input_select.akkusteuerung_modus` — Ziel-Ausgang dieser Automation
 
 ---
@@ -165,8 +168,8 @@ Stufe gegen die Roh-`ratio` festhält.
 Die Modus-Automation vergleicht den realen SoC mit `sensor.opti_target_soc` — mit einem
 zusätzlichen **Band H = 3 %** als zweiter Schutzschicht gegen Pendeln direkt an der Ziel-Kante:
 
-- **SoC < Ziel − 3** → *Akku Dynamisch* (lädt Richtung Ziel, Option 10)
-- **SoC > Ziel + 3** → *Akku nur Entladen* (genug Reserve, Option 11)
+- **SoC < Ziel − 3** → *Akku Dynamisch* (lädt Richtung Ziel, Option 16)
+- **SoC > Ziel + 3** → *Akku nur Entladen* (genug Reserve, Option 17)
 - **innerhalb ±3 % um das Ziel** → neutrale Zone → Default *Akku Dynamisch*
 
 ### Nachbauen über die zwei Repos
@@ -183,10 +186,119 @@ eigentliche Hardware-Ansteuerung in **`ha-modbus-akku-adapter`**. Zum Nachbauen 
 
 ---
 
+## Entlade-Peak-Allokation: Reserve für die teuersten Stunden
+
+### Das Problem
+
+Ein Winterakku, der nach dem intelligenten Ziel-SoC geladen wird, reicht oft nicht bis zum nächsten Morgen.
+Bisher entlädt die Strategie undifferenziert: sobald der Modus „Akku Dynamisch" oder „Akku nur Entladen" steht, fließt die gespeicherte Energie in der Reihenfolge ab, in der der Hausverbrauch sie abruft - unabhängig davon, ob gerade eine günstige oder eine sehr teure Stunde läuft.
+Die Entlade-Peak-Allokation löst das, indem sie einen Teil des SoC gezielt für die **kommenden teuersten Stunden** reserviert, statt ihn an eine x-beliebige NORMAL-Stunde davor zu verlieren.
+
+### Wie die Reserve berechnet wird
+
+Der trigger-basierte Block „Entlade-Peak-Allokation" in `packages/opti_derived.yaml` rechnet alle 15 Minuten (und bei relevanten State-Changes) eine gemeinsame `peak`-Variable, aus der zwei Entitäten abgeleitet werden: `sensor.opti_peak_reserve_soc` und `binary_sensor.opti_peak_reserve_aktiv`.
+
+**Wiederauflade-Horizont.**
+Die Reserve muss nur bis zum nächsten Zeitpunkt reichen, an dem der Akku voraussichtlich wieder auflädt.
+Das Fenster beginnt an der nächsten vollen Stunde und endet:
+
+- **leer**, wenn es gerade Tag ist (Sonne über dem Horizont) und der heutige Forecast-Score gut ist (> 2) - dann füllt die PV den Akku ohnehin gleich wieder auf, eine Reserve ist überflüssig.
+- sonst am **nächsten Sonnenaufgang + 3 h**, wenn der Score des Tages, an dem dieser Sonnenaufgang liegt, gut ist (> 2) - heute oder morgen, je nachdem, ob der nächste Sonnenaufgang schon heute war oder erst morgen kommt.
+- sonst **maximal 36 h** ab jetzt (kein guter Score in Sicht, oder Score fehlt).
+
+Wichtig: Ist der nächste Sonnenaufgang erst **morgen** (Score von morgen entscheidet), zählt die **heutige** Abendspitze trotzdem mit - sie liegt ja vor diesem Wiederaufladepunkt.
+Ein sonniger Tag von morgen schließt die heutige Abendspitze also nicht aus dem Horizont aus, er verkürzt ihn nur ab dem morgigen Sonnenaufgang + 3 h.
+
+**Klassifikation.**
+Jede Stunde im Horizont wird mit demselben **Midrank-Perzentil** wie `sensor.opti_price_level` eingestuft (gleiche Grenzen: ≥ 80 % → VERY_EXPENSIVE, ≥ 60 % → EXPENSIVE) - ein konsistentes Preisniveau-Konzept für die ganze Strategie.
+
+**Formel.**
+Für jede VERY_EXPENSIVE- bzw. VERY_EXPENSIVE+EXPENSIVE-Stunde im Horizont:
+
+```
+reserve_kwh = anzahl_stunden * opti_peak_verbrauch_kw / eta      (eta = 0.9 Entladewirkungsgrad)
+reserve_soc = min(minsoc + reserve_kwh / kapazität_kwh * 100, maxsoc)
+```
+
+`reserve_ve_soc` deckt nur die VERY_EXPENSIVE-Stunden, `reserve_gesamt_soc` (der State von `sensor.opti_peak_reserve_soc`) zusätzlich die EXPENSIVE-Stunden.
+Beide werden bei `maxsoc` gekappt - ein kleiner Akku kann nie mehr reservieren, als er fasst.
+
+### Die Leiter: L1-L4
+
+Ist `binary_sensor.opti_peak_reserve_aktiv` an (Reserve-Sensor gültig **und** mindestens eine Peak-Stunde im Horizont), steuert eine vierstufige „Leiter" die Entlade-Freigabe.
+Sie steht in der Optionsliste **vor** den normalen Ziel-SoC-Optionen, sonst würde „nur Entladen über Ziel-SoC" die Reserve bei NORMAL-Preis vorzeitig verheizen.
+
+| Stufe | Preisniveau | Zusatzbedingung | Modus |
+|---|---|---|---|
+| **L1** | VERY_EXPENSIVE | - | Akku nur Entladen |
+| **L2** | EXPENSIVE | SoC > `reserve_ve_soc` + Band | Akku nur Entladen |
+| **L3** | EXPENSIVE | SoC ≤ `reserve_ve_soc` + Band | Akku nur Laden (halten) |
+| **L4** | NORMAL oder billiger | SoC ≤ `reserve_gesamt_soc` + Band | Akku nur Laden (halten) |
+
+Ist keine Stufe einschlägig (z. B. NORMAL-Preis mit ausreichend SoC über der Reserve), fällt die Prüfung durch zu den normalen Ziel-SoC-Optionen.
+
+**Asymmetrisches Freigabeband.**
+Damit der Modus nicht direkt an der Reserve-Kante flattert, ist das Band abhängig vom *aktuellen* Modus - der Modus dient als Gedächtnis des Vorzustands:
+
+- **+5 %**, wenn der aktuelle Modus „Akku nur Laden" ist (aus dem Halten heraus erst bei deutlichem Überschuss wieder freigeben)
+- **+3 %**, wenn der aktuelle Modus etwas anderes ist (beim Entladen genügt ein kleineres Band, um nicht sofort wieder zu halten)
+
+### Negativpreis-Laderegel
+
+Steht **vor** den alten SOC-gestuften Ladeblöcken (Option 2 in der Übersicht unten) und lädt gezielt bis `maxsoc`, wenn Netzstrom günstiger ist als die eigene Einspeisung:
+
+| Eigenschaft | Wert |
+|---|---|
+| Bedingung | Preis < `input_number.opti_einspeiseverguetung_ct` (Default 0 ct, Regel greift dann nur bei negativen Preisen), `opti_forecast_score` < 3, SoC < maxsoc |
+| Ladefenster | keine günstigere Stunde vor der nächsten Preisspitze in Sicht (siehe unten) |
+| Gate | `input_boolean.opti_prognose_netzladen` = on |
+| Ziel-SoC | maxsoc |
+| Gesetzter Modus | Akku nur Laden |
+
+### Peak-Vorladeregel
+
+Direkt danach (Option 3): lädt gezielt bis zur Gesamt-Reserve nach, wenn sich das wirtschaftlich lohnt, auch ohne negative Preise.
+
+| Eigenschaft | Wert |
+|---|---|
+| Bedingung | `binary_sensor.opti_peak_reserve_aktiv` = on, SoC < `reserve_gesamt_soc`, (`peak_preis_avg_ct` minus aktueller Preis) ≥ `input_number.opti_netzlade_spread_ct` (Default 10 ct) |
+| Ladefenster | wie Negativpreis-Regel |
+| Gate | `input_boolean.opti_prognose_netzladen` = on |
+| Ziel-SoC | `reserve_gesamt_soc` (**nicht** maxsoc) |
+| Gesetzter Modus | Akku nur Laden |
+| Selbst-Stop | Bedingung entfällt automatisch, sobald SoC die Reserve erreicht - kein extra Abschalt-Trigger nötig |
+
+Der Spread-Schwellwert (Default 10 ct) ist bewusst so hoch gesetzt, dass er die Round-Trip-Verluste des Akkus (Lade- + Entladewirkungsgrad) deckt.
+Vorladen soll sich nach Verlusten noch lohnen, nicht nur brutto.
+
+### Ladefenster-Wahl
+
+Beide Laderegeln oben laden nicht einfach sofort los, sobald ihre Preisbedingung erfüllt ist.
+Sie prüfen zusätzlich `min_preis_vor_peak_ct` (Attribut von `sensor.opti_peak_reserve_soc`): den günstigsten Preis, der **vor** der nächsten Preisspitze noch kommt.
+Ist der aktuelle Preis mehr als **0.5 ct** teurer als dieses Minimum, wird gewartet, weil eine noch günstigere Stunde absehbar ist.
+
+Das ist **selbstkorrigierend**: `min_preis_vor_peak_ct` wird bei jeder Neuberechnung aus den aktuellen Preislisten ermittelt.
+Trifft die erwartete günstigere Stunde nicht ein (z. B. weil sich der Markt seit der letzten Preisaktualisierung geändert hat), wird der neue, jetzt aktuelle Minimalpreis zum Maßstab.
+Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
+
+### Fail-safes und bekannte Grenzen
+
+- **< 4 Preise gesamt** (`today` + `tomorrow`): `sensor.opti_peak_reserve_soc` wird `unavailable`, `binary_sensor.opti_peak_reserve_aktiv` fällt auf `off` - die komplette Leiter (L1-L4) ist inaktiv.
+  Das ist **bewusst anders** als der NORMAL-Fallback von `sensor.opti_price_level` bei derselben Datenlage: eine Reserve von 0 % sähe wie „keine Peaks in Sicht" aus und würde die Leiter fälschlich freigeben, statt sie einfach abzuschalten.
+- **DST-Limitation:** Die Preislisten liefern keine Zeitstempel, die Stundenzuordnung erfolgt über den Listenindex ab Mitternacht.
+  An Tagen mit Zeitumstellung kann diese Zuordnung um eine Stunde verrutschen - akzeptiertes, bekanntes Verhalten.
+
+### Wechselwirkung mit den alten Ladeblöcken
+
+Die bestehenden SOC-gestuften Ladeblöcke (Optionen 4-8 in der Übersicht unten, siehe [Winter-/Prognose-Ladelogik](#winter-prognose-ladelogik--intent)) bleiben unverändert vor der Peak-Allokation stehen und kennen die Ladefenster-Wahl **nicht** - sie laden sofort, sobald ihre eigenen SoC-/Preisbedingungen erfüllt sind.
+Das ist bewusst so belassen: Fällt die Peak-Allokation aus (z. B. wegen zu weniger Preise) oder ist ihre Reserve zu knapp bemessen, sorgen die alten Blöcke weiterhin als **Sicherheitsnetz** dafür, dass bei schlechter Prognose überhaupt geladen wird, unabhängig davon, ob gerade das optimale Fenster ist.
+
+---
+
 ## Block-für-Block-Übersicht
 
 Die Automation besteht aus mehreren Aktionsblöcken, die **sequenziell** ausgeführt werden.
-Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 11 Optionen und einem Default-Pfad.
+Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 17 Optionen und einem Default-Pfad.
 
 ---
 
@@ -201,7 +313,7 @@ spätere Automatisierungen, die einen Voll-Zyklus erzwingen können.
 
 ---
 
-### Aktionsblock 2 — „Zwischen Speicherszenarien wählen" (12 Optionen + Default)
+### Aktionsblock 2 — „Zwischen Speicherszenarien wählen" (17 Optionen + Default)
 
 Dies ist das Herzstück. Die Optionen werden **der Reihe nach** geprüft;
 die erste, deren Bedingungen alle erfüllt sind, wird ausgeführt und die weitere Prüfung
@@ -223,7 +335,40 @@ Diese Option steht bewusst ganz oben und kann von keinem anderen Block überstim
 
 ---
 
-#### Option 2 — Laden wenn heute + morgen schlecht, SoC < 20 % (Tag und Nacht)
+#### Option 2 - Negativpreis-Laden (Tag und Nacht)
+
+| Eigenschaft | Wert |
+|---|---|
+| Bedingung | Preis < `input_number.opti_einspeiseverguetung_ct`, `opti_forecast_score` < 3, SoC < maxsoc |
+| Preis | unter Einspeisevergütung (Default 0 ct, faktisch nur negative Preise) |
+| Tageszeit | jederzeit |
+| Zusatz | Ladefenster-Wahl (keine günstigere Stunde vor der nächsten Spitze in Sicht) |
+| Gesetzter Modus | **Akku nur Laden** (bis maxsoc) |
+
+**Warum:** Ist der Netzstrom günstiger als die eigene Einspeisevergütung, lohnt sich Laden aus
+dem Netz fast immer, unabhängig vom sonstigen SoC-Niveau.
+Details zur Reserve-Logik, der Ladefenster-Wahl und den Fail-safes stehen im Abschnitt
+**[Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden)**.
+
+---
+
+#### Option 3 - Peak-Vorladen (Tag und Nacht)
+
+| Eigenschaft | Wert |
+|---|---|
+| Bedingung | `binary_sensor.opti_peak_reserve_aktiv` = on, SoC < `reserve_gesamt_soc`, Spread zur kommenden Spitze ≥ `opti_netzlade_spread_ct` |
+| Preis | irrelevant (Spread-Vergleich statt Preisniveau) |
+| Tageszeit | jederzeit |
+| Zusatz | Ladefenster-Wahl wie Option 2; stoppt selbsttätig bei Erreichen der Reserve |
+| Gesetzter Modus | **Akku nur Laden** (bis `reserve_gesamt_soc`, nicht maxsoc) |
+
+**Warum:** Ist eine kommende Preisspitze absehbar deutlich teurer als der aktuelle Preis,
+lohnt sich gezieltes Vorladen bis zur Reserve, auch ohne dass der Preis gerade negativ ist.
+Details siehe **[Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden)**.
+
+---
+
+#### Option 4 — Laden wenn heute + morgen schlecht, SoC < 20 % (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -239,7 +384,7 @@ noch besser als kein Puffer. Diese Ausnahmeregelung gilt nur für diese kritisch
 
 ---
 
-#### Option 3 — Laden wenn heute + morgen schlecht, SoC < 75 % (Tag und Nacht)
+#### Option 5 — Laden wenn heute + morgen schlecht, SoC < 75 % (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -251,12 +396,12 @@ noch besser als kein Puffer. Diese Ausnahmeregelung gilt nur für diese kritisch
 **Warum (Nuance):** Bei moderatem SoC (20–75 %) und zwei schlechten Prognosetagen wird
 bis NORMAL-Preis nachgeladen. Der Grenze zu EXPENSIVE bleibt verschlossen, weil der Akku
 noch nicht kritisch leer ist — es lohnt sich, auf günstigere Stunden zu warten.
-Dieser Block bildet zusammen mit Option 2 eine bewusste Abstufung: je leerer der Akku,
+Dieser Block bildet zusammen mit Option 4 eine bewusste Abstufung: je leerer der Akku,
 desto teureren Strom darf die Automatik akzeptieren.
 
 ---
 
-#### Option 4 — Laden wenn heute + morgen schlecht, Wintermodus, SoC < 80 % (Tag und Nacht)
+#### Option 6 — Laden wenn heute + morgen schlecht, Wintermodus, SoC < 80 % (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -274,7 +419,7 @@ Sommermodus-Schalter überschrieben werden, wenn ein saisonales Gate gewünscht 
 
 ---
 
-#### Option 5 — Laden wenn heute schlecht, SoC < 15 % (Tag und Nacht)
+#### Option 7 — Laden wenn heute schlecht, SoC < 15 % (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -283,13 +428,13 @@ Sommermodus-Schalter überschrieben werden, wenn ein saisonales Gate gewünscht 
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Laden** |
 
-**Warum:** Ähnlich wie Option 2, aber unabhängig von der Morgen-Prognose. Wenn der Akku
+**Warum:** Ähnlich wie Option 4, aber unabhängig von der Morgen-Prognose. Wenn der Akku
 fast leer ist (< 15 %) und die heutige Bewertung schlecht ist, wird notgeladen — ohne
 Rücksicht auf morgen. Kurzfrist-Schutz.
 
 ---
 
-#### Option 6 — Laden wenn heute schlecht, SoC < 45 %, Strom sehr günstig (Tag und Nacht)
+#### Option 8 — Laden wenn heute schlecht, SoC < 45 %, Strom sehr günstig (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -305,7 +450,7 @@ Stunden rechtfertigen das Netzladen bei diesem SoC-Niveau.
 
 ---
 
-#### Option 7 — Bei 70%-Überschuss laden (nur tagsüber)
+#### Option 9 — Bei 70%-Überschuss laden (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -321,7 +466,7 @@ richtige Ladeleistung zu wählen.
 
 ---
 
-#### Option 8 — Bei AC-Überschuss laden (nur tagsüber)
+#### Option 10 — Bei AC-Überschuss laden (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -331,12 +476,12 @@ richtige Ladeleistung zu wählen.
 | Gesetzter Modus | **Akku Dynamisch** |
 | Gate | `input_boolean.opti_pv_ueberschuss_ladung` muss `on` sein |
 
-**Warum:** Ähnlich wie Option 7, aber die Messgröße ist die WR-AC-Ausgangsleistung statt
+**Warum:** Ähnlich wie Option 9, aber die Messgröße ist die WR-AC-Ausgangsleistung statt
 der Netzeinspeisung. Nutzt verfügbare PV-Energie aktiv, bevor sie verschwendet wird.
 
 ---
 
-#### Option 9 — Bei vollem Akku auf Dynamisch schalten
+#### Option 11 — Bei vollem Akku auf Dynamisch schalten
 
 | Eigenschaft | Wert |
 |---|---|
@@ -351,7 +496,66 @@ einspeisen, bei Verbrauch den Akku nutzen — je nach aktuellem Systemzustand.
 
 ---
 
-#### Option 10 — Dynamisch laden wenn SoC zwischen MinSOC und Ziel-SoC (nur tagsüber)
+#### Option 12 - Peak-Leiter L1: Entladen bei VERY_EXPENSIVE (Tag und Nacht)
+
+| Eigenschaft | Wert |
+|---|---|
+| Bedingung | `binary_sensor.opti_peak_reserve_aktiv` = on |
+| Preis | VERY_EXPENSIVE |
+| Tageszeit | jederzeit |
+| Gesetzter Modus | **Akku nur Entladen** |
+
+**Warum:** Die teuerste Preisklasse darf immer aus dem Akku bedient werden, dafür ist die
+Reserve ja da. Details zur Leiter (L1-L4) und zum Freigabeband stehen im Abschnitt
+**[Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden)**.
+
+---
+
+#### Option 13 - Peak-Leiter L2: Entladen bei EXPENSIVE über VE-Reserve (Tag und Nacht)
+
+| Eigenschaft | Wert |
+|---|---|
+| Bedingung | `binary_sensor.opti_peak_reserve_aktiv` = on, SoC > `reserve_ve_soc` + Freigabeband |
+| Preis | EXPENSIVE |
+| Tageszeit | jederzeit |
+| Gesetzter Modus | **Akku nur Entladen** |
+
+**Warum:** Bei EXPENSIVE darf entladen werden, solange noch genug SoC über der
+VERY_EXPENSIVE-Reserve liegt (Freigabeband +5 %/+3 %, siehe Hauptabschnitt).
+
+---
+
+#### Option 14 - Peak-Leiter L3: Halten bei EXPENSIVE unter VE-Reserve (Tag und Nacht)
+
+| Eigenschaft | Wert |
+|---|---|
+| Bedingung | `binary_sensor.opti_peak_reserve_aktiv` = on, SoC ≤ `reserve_ve_soc` + Freigabeband |
+| Preis | EXPENSIVE |
+| Tageszeit | jederzeit |
+| Gesetzter Modus | **Akku nur Laden** (Entladesperre, hält die VE-Reserve) |
+
+**Warum:** Reicht der SoC nicht mehr deutlich über der VERY_EXPENSIVE-Reserve, wird das
+Entladen gesperrt, damit die kommende VERY_EXPENSIVE-Stunde nicht leerläuft.
+
+---
+
+#### Option 15 - Peak-Leiter L4: Halten bei NORMAL oder billiger unter Gesamt-Reserve (Tag und Nacht)
+
+| Eigenschaft | Wert |
+|---|---|
+| Bedingung | `binary_sensor.opti_peak_reserve_aktiv` = on, SoC ≤ `reserve_gesamt_soc` + Freigabeband |
+| Preis | VERY_CHEAP / CHEAP / NORMAL |
+| Tageszeit | jederzeit |
+| Gesetzter Modus | **Akku nur Laden** (Entladesperre, hält die Gesamt-Reserve) |
+
+**Warum:** Auch bei günstigem Preis wird nicht in die für Peaks reservierte Energie
+entladen, solange der SoC die Gesamt-Reserve noch nicht deutlich übersteigt.
+Trifft keine der vier Leiter-Stufen zu, fällt die Prüfung durch zu den normalen
+Ziel-SoC-Optionen (Option 16/17).
+
+---
+
+#### Option 16 — Dynamisch laden wenn SoC zwischen MinSOC und Ziel-SoC (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -368,7 +572,7 @@ erklärt. Das **−3 %-Band** (H) verhindert Modus-Pendeln direkt an der Ziel-Ka
 
 ---
 
-#### Option 11 — Nur Entladen wenn SoC über Ziel-SoC
+#### Option 17 — Nur Entladen wenn SoC über Ziel-SoC
 
 | Eigenschaft | Wert |
 |---|---|
@@ -386,7 +590,7 @@ Ziel-SoC-Hysterese dafür, dass der Modus an der Grenze nicht flattert.
 
 #### Default — Akku Dynamisch
 
-Trifft keine der 11 Optionen zu (z. B. nachts ohne Ladegrund, Preis zu hoch),
+Trifft keine der 17 Optionen zu (z. B. nachts ohne Ladegrund, Preis zu hoch),
 wird der Modus auf **Akku Dynamisch** gesetzt. Der Adapter entscheidet dann
 situationsabhängig, ob leicht geladen oder entladen wird — ein sicherer Mittelweg.
 
@@ -434,4 +638,6 @@ Steuer-Automation parallel aktiv lassen.
 | **Decision-Trace-Attribute** | `sensor.opti_target_soc` hängt Debugging-Attribute an (`branch`, `level`, `ratio`, `net_available_kwh`, `remaining_hours`), lesbar über HA-Entwicklerwerkzeuge |
 | **Forecast-Score-Bänder** | `sensor.opti_charge_power_w` variiert die C-Rate in drei Bändern (score ≤ 1: aggressiv; 2–4: moderat; ≥ 5: schonend) statt starrer Prognose-Labels |
 | **`sensor.opti_price_level`** | Anbieter-agnostisches Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE) auf Basis eines gleitenden Perzentils über `today`/`tomorrow`-Preislisten |
+| **Midrank-Perzentil** | `sensor.opti_price_level` zählt Preis-Gleichstände seit dem Fix nur noch halb (statt sie wie ein `select('le')` komplett auf die teure Seite zu zählen) - flache Preistage landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE. Dieselbe Klassifikation nutzt auch `sensor.opti_peak_reserve_soc` |
+| **`sensor.opti_peak_reserve_soc`** | Reserve-SoC für kommende Preisspitzen im Wiederauflade-Horizont (36h); steuert die Peak-Leiter L1-L4. Siehe [Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden) |
 | **`binary_sensor.opti_winter_charging_allowed`** | Fail-open Gate für Winterladeblöcke (Standard: `true`); kann mit eigenem Sommermodus-Sensor überschrieben werden |

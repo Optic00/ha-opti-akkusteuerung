@@ -227,7 +227,7 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 | `sensor.opti_forecast_score_tomorrow` | PV-Fit morgen (0–10) |
 | `sensor.opti_target_soc` | Ziel-SoC (%) basierend auf Restprognose und Hausverbrauch |
 | `sensor.opti_charge_power_w` | Dynamische Ladestärke (W) nach SoC-Stufe und Forecast-Score |
-| `sensor.opti_price_level` | Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE) |
+| `sensor.opti_price_level` | Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE); Midrank-Perzentil (Gleichstände zählen halb) - flache Preistage (viele identische Werte) landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE |
 | `sensor.opti_mindestentladepreis_ct_kwh` | Mindestentladepreis = Ladepreis + Preisdifferenz (ct/kWh) |
 | `sensor.opti_runtime_h` | Geschätzte Akku-Restlaufzeit (Stunden) |
 | `binary_sensor.opti_winter_charging_allowed` | Saisonales Lade-Gate (Standard: `true`, fail-open) |
@@ -256,7 +256,7 @@ du beeinflusst sie ausschließlich über dein Mapping und die Helfer-Werte.
 | **Tagsüber unter Ziel-SoC** | SoC < `opti_target_soc` **− 3 %**, nach Sonnenaufgang | **Akku Dynamisch** | Option „Dynamisch laden wenn SOC < ZielSoC"; das ±3 %-Band verhindert Modus-Pendeln direkt an der Ziel-Kante — siehe [strategie-logik.md](strategie-logik.md#der-intelligente-ziel-soc--herzstück-der-akkuschonung) |
 | **Entladen über Ziel-SoC** | SoC > `opti_target_soc` **+ 3 %** | **Akku nur Entladen** | Option „Nur Entladen wenn SOC > DynZielSoC" |
 | **MinSOC-Schutz** | SoC < `input_number.minsoc` | **Akku nur Laden** | Höchste Priorität, überstimmt alle anderen Blöcke |
-| **Preis-morgen fehlt** | `opti_price_series`-Attribut `tomorrow` leer / < 4 Gesamtwerte | Preisniveau bleibt **NORMAL** | Fail-safe: `< 4 Preise gesamt → NORMAL` |
+| **Preis-morgen fehlt** | `opti_price_series`-Attribut `tomorrow` leer / < 4 Gesamtwerte | Preisniveau bleibt **NORMAL** | Fail-safe: `< 4 Preise gesamt → NORMAL`. `sensor.opti_peak_reserve_soc` wird bei < 4 Preisen `unavailable` (Peak-Leiter L1-L4 komplett inaktiv) - bewusst anders als der NORMAL-Fallback des Preisniveaus, siehe [strategie-logik.md](strategie-logik.md#fail-safes-und-bekannte-grenzen) |
 | **Forecast fehlt** | `opti_forecast_remaining_today_kwh` → `unavailable` | Prognose-Blöcke inaktiv; MinSOC-Schutz und Cleanup laufen weiter | Default → **Akku Dynamisch** (nur wenn `opti_soc` + `opti_battery_capacity_kwh` verfügbar) |
 | **Voller Akku** | SoC > 99 % | **Akku Dynamisch**; Lade-Booster (Legacy) wird deaktiviert | Option „Bei vollem Akku auf Dynamisch" + Cleanup-Block |
 

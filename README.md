@@ -18,6 +18,13 @@ den PV-Eigenverbrauch. Der Zielwert ergibt sich aus Solcast-Restprognose, Hausve
 Restzeit bis Sonnenuntergang, als Stufenkennlinie mit echter Hysterese (kein Flattern).
 → **[Herleitung in docs/strategie-logik.md](docs/strategie-logik.md#der-intelligente-ziel-soc--herzstück-der-akkuschonung)**
 
+**Entlade-Peak-Allokation** (`sensor.opti_peak_reserve_soc`, Peak-Leiter L1-L4)  
+Reserviert einen Teil des SoC gezielt für die kommenden teuersten Stunden, statt ihn
+undifferenziert an eine beliebige Stunde davor zu verlieren. Dazu kommen eine
+Negativpreis-Laderegel und eine spread-basierte Peak-Vorladeregel, beide mit
+selbstkorrigierender Ladefenster-Wahl.
+→ **[Details in docs/strategie-logik.md](docs/strategie-logik.md#entlade-peak-allokation-reserve-für-die-teuersten-stunden)**
+
 **Strategie** (`automations/opti_strategie.yaml`)  
 Entscheidet prognosebasiert, welcher Modus wann gilt: Lädt bei schlechter PV-Prognose aus
 dem Netz (gestaffelt nach SoC und Preisniveau), nutzt PV-Überschuss tagsüber und schützt

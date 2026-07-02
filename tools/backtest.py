@@ -3,8 +3,10 @@
 den SoC-Verlauf. Vergleich alt (neue Regeln stillgelegt) vs. neu.
 
 Modus-Wirkung im Simulator (vereinfachtes Adapter-Modell):
-  Akku nur Laden     -> Entladen gesperrt; laedt aus Netz nur wenn eine der
-                        beiden Netzladeregeln aktiv war (Grund-Text), sonst idle.
+  Akku nur Laden     -> reine Entladesperre (kein Netzbezug); Haus laeuft aus
+                        dem Netz, Akku bleibt idle.
+  Akku Netzladen     -> erzwungenes Netzladen (beide Laderegeln setzen diesen
+                        Modus); laedt aus dem Netz bis 95% SoC.
   Akku nur Entladen  -> deckt Hauslast aus dem Akku (bis minsoc).
   Akku Dynamisch     -> deckt Hauslast aus dem Akku (bis minsoc), laedt PV ein.
 Verluste: Laden und Entladen je mit eta=0.95 (Round-Trip ~0.9).
@@ -125,12 +127,13 @@ def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
             aus_akku = min(last, entnehmbar)
             soc -= aus_akku / ETA / cap_kwh * 100
             cost += (last - aus_akku) * preis / 100
-        else:  # Akku nur Laden: Entladen gesperrt, Haus aus dem Netz
+        elif modus == "Akku Netzladen":  # erzwungenes dynamisches Netzladen
             cost += last * preis / 100
-            if "Negativpreis" in grund or "Peak-Vorladen" in grund:
-                lade = min(LADE_KW, (95 - soc) / 100 * cap_kwh / ETA)
-                soc += lade * ETA / cap_kwh * 100
-                cost += lade * preis / 100
+            lade = min(LADE_KW, (95 - soc) / 100 * cap_kwh / ETA)
+            soc += lade * ETA / cap_kwh * 100
+            cost += lade * preis / 100
+        else:  # Akku nur Laden: reine Entladesperre (idle), Haus aus dem Netz
+            cost += last * preis / 100
         if pv > 0 and soc < 95:
             soc = min(95.0, soc + pv * ETA / cap_kwh * 100)
         soc = max(0.0, min(100.0, soc))

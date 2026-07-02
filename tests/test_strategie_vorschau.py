@@ -57,7 +57,7 @@ def reserve_attrs(ve=30.0, min_vor=None, avg=None):
 def test_negativpreis_laedt():
     # Preis 3 ct < EEG 8 ct, Prognose schlecht, kein guenstigeres Fenster bekannt.
     assert vorschau(**{"sensor.opti_price_current_ct_kwh": "3",
-                       "sensor.opti_forecast_score": "1"}) == "Akku nur Laden"
+                       "sensor.opti_forecast_score": "1"}) == "Akku Netzladen"
     assert "Negativpreis" in grund(**{"sensor.opti_price_current_ct_kwh": "3",
                                       "sensor.opti_forecast_score": "1"})
 
@@ -67,7 +67,7 @@ def test_negativpreis_wartet_auf_guenstigeres_fenster():
                       "sensor.opti_forecast_score": "1",
                       "sensor.opti_peak_reserve_soc": "35",
                       "_attrs": reserve_attrs(min_vor=-2.0, avg=40.0)})
-    assert out != "Akku nur Laden"  # -2 ct kommt noch -> warten
+    assert out != "Akku Netzladen"  # -2 ct kommt noch -> warten
 
 
 def test_negativpreis_marge_gleiche_preise():
@@ -75,12 +75,12 @@ def test_negativpreis_marge_gleiche_preise():
     assert vorschau(**{"sensor.opti_price_current_ct_kwh": "3",
                        "sensor.opti_forecast_score": "1",
                        "sensor.opti_peak_reserve_soc": "35",
-                       "_attrs": reserve_attrs(min_vor=2.6, avg=40.0)}) == "Akku nur Laden"
+                       "_attrs": reserve_attrs(min_vor=2.6, avg=40.0)}) == "Akku Netzladen"
 
 
 def test_negativpreis_nicht_bei_guter_prognose():
     assert vorschau(**{"sensor.opti_price_current_ct_kwh": "3",
-                       "sensor.opti_forecast_score": "7"}) != "Akku nur Laden"
+                       "sensor.opti_forecast_score": "7"}) != "Akku Netzladen"
 
 
 def test_negativpreis_nicht_ueber_eeg():
@@ -95,7 +95,7 @@ def test_negativpreis_nicht_ueber_eeg():
 def test_negativpreis_gate_aus():
     assert vorschau(**{"sensor.opti_price_current_ct_kwh": "3",
                        "sensor.opti_forecast_score": "1",
-                       "input_boolean.opti_prognose_netzladen": "off"}) != "Akku nur Laden"
+                       "input_boolean.opti_prognose_netzladen": "off"}) != "Akku Netzladen"
 
 
 def test_minsoc_schutz_hat_vorrang():
@@ -118,7 +118,7 @@ VORLADEN = {
 def test_vorladen_bei_grossem_spread():
     # Peak avg 200 ct - aktuell 50 ct = 150 >= 10 -> laden bis Reserve.
     out = vorschau(**VORLADEN, _attrs=reserve_attrs(ve=25.0, min_vor=50.0, avg=200.0))
-    assert out == "Akku nur Laden"
+    assert out == "Akku Netzladen"
     assert "Peak-Vorladen" in grund(**VORLADEN,
                                     _attrs=reserve_attrs(ve=25.0, min_vor=50.0, avg=200.0))
 

@@ -253,7 +253,7 @@ Steht **vor** den alten SOC-gestuften Ladeblöcken (Option 2 in der Übersicht u
 | Ladefenster | keine günstigere Stunde vor der nächsten Preisspitze in Sicht (siehe unten) |
 | Gate | `input_boolean.opti_prognose_netzladen` = on |
 | Ziel-SoC | maxsoc |
-| Gesetzter Modus | Akku nur Laden |
+| Gesetzter Modus | Akku Netzladen (braucht `ha-modbus-akku-adapter` >= v1.5.0) |
 
 ### Peak-Vorladeregel
 
@@ -265,7 +265,7 @@ Direkt danach (Option 3): lädt gezielt bis zur Gesamt-Reserve nach, wenn sich d
 | Ladefenster | wie Negativpreis-Regel |
 | Gate | `input_boolean.opti_prognose_netzladen` = on |
 | Ziel-SoC | `reserve_gesamt_soc` (**nicht** maxsoc) |
-| Gesetzter Modus | Akku nur Laden |
+| Gesetzter Modus | Akku Netzladen (braucht `ha-modbus-akku-adapter` >= v1.5.0) |
 | Selbst-Stop | Bedingung entfällt automatisch, sobald SoC die Reserve erreicht - kein extra Abschalt-Trigger nötig |
 
 Der Spread-Schwellwert (Default 10 ct) ist bewusst so hoch gesetzt, dass er die Round-Trip-Verluste des Akkus (Lade- + Entladewirkungsgrad) deckt.
@@ -343,12 +343,17 @@ Diese Option steht bewusst ganz oben und kann von keinem anderen Block überstim
 | Preis | unter Einspeisevergütung (Default 0 ct, faktisch nur negative Preise) |
 | Tageszeit | jederzeit |
 | Zusatz | Ladefenster-Wahl (keine günstigere Stunde vor der nächsten Spitze in Sicht) |
-| Gesetzter Modus | **Akku nur Laden** (bis maxsoc) |
+| Gesetzter Modus | **Akku Netzladen** (bis maxsoc; braucht `ha-modbus-akku-adapter` >= v1.5.0) |
 
 **Warum:** Ist der Netzstrom günstiger als die eigene Einspeisevergütung, lohnt sich Laden aus
 dem Netz fast immer, unabhängig vom sonstigen SoC-Niveau.
 Details zur Reserve-Logik, der Ladefenster-Wahl und den Fail-safes stehen im Abschnitt
 **[Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden)**.
+
+**Warum ein eigener Modus:** „Akku nur Laden" ist im Live-Setup eine reine Entladesperre
+(`min_ladestaerke = 0`, kein Netzbezug) — damit wäre diese Regel wirkungslos. „Akku Netzladen"
+setzt am Wechselrichter `BatChaMinW = opti_charge_power_w` (dynamisch, SMA-Register 2289) und
+erzwingt so tatsächliches Laden aus dem Netz.
 
 ---
 
@@ -360,7 +365,7 @@ Details zur Reserve-Logik, der Ladefenster-Wahl und den Fail-safes stehen im Abs
 | Preis | irrelevant (Spread-Vergleich statt Preisniveau) |
 | Tageszeit | jederzeit |
 | Zusatz | Ladefenster-Wahl wie Option 2; stoppt selbsttätig bei Erreichen der Reserve |
-| Gesetzter Modus | **Akku nur Laden** (bis `reserve_gesamt_soc`, nicht maxsoc) |
+| Gesetzter Modus | **Akku Netzladen** (bis `reserve_gesamt_soc`, nicht maxsoc; braucht `ha-modbus-akku-adapter` >= v1.5.0) |
 
 **Warum:** Ist eine kommende Preisspitze absehbar deutlich teurer als der aktuelle Preis,
 lohnt sich gezieltes Vorladen bis zur Reserve, auch ohne dass der Preis gerade negativ ist.
@@ -615,9 +620,10 @@ putzt den Zustand automatisch auf — er läuft immer (kein Toggle-Gate).
 
 | Modus | Typische Situation |
 |---|---|
-| **Akku nur Laden** | SoC unter MinSOC (Notfall); schlechte Prognose + günstiger Strom; Wintermodus aktiv; Akku fast leer bei Schlechtwetter |
+| **Akku nur Laden** | SoC unter MinSOC (Notfall); schlechte Prognose + günstiger Strom; Wintermodus aktiv; Akku fast leer bei Schlechtwetter; Peak-Leiter L3/L4 (halten) |
+| **Akku Netzladen** | Negativpreis-Laderegel oder Peak-Vorladeregel aktiv — erzwungenes dynamisches Netzladen (BatChaMinW = `opti_charge_power_w`); braucht `ha-modbus-akku-adapter` >= v1.5.0 |
 | **Akku Dynamisch** | PV-Überschuss tagsüber; Akku zwischen MinSOC und Ziel-SoC; voller Akku; kein klarer Lade-/Entladegrund (Default) |
-| **Akku nur Entladen** | SoC über intelligentem Ziel-SoC (`sensor.opti_target_soc`) — Akku hat genug Reserve für die Nacht |
+| **Akku nur Entladen** | SoC über intelligentem Ziel-SoC (`sensor.opti_target_soc`); Peak-Leiter L1/L2 (entladen) |
 
 **Modus-Contract (Single-Writer-Regel):**
 Die Strategie-Automation schreibt primär `input_select.akkusteuerung_modus`. Im

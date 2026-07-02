@@ -162,7 +162,7 @@
         # Netzladen lohnt immer. Fenster-Bedingung: nicht greedy laden, wenn vor
         # der naechsten Preisspitze noch eine guenstigere Stunde kommt (Marge 0.5 ct).
         # Fail-safe: Reserve-Sensor unavailable -> minv none -> einfacher EEG-Vergleich.
-        - alias: "Modus 'nur Laden' (Netzladen): Preis unter Einspeiseverguetung, Prognose schlecht (tag+nacht)"
+        - alias: "Modus 'Netzladen': Preis unter Einspeiseverguetung, Prognose schlecht (tag+nacht)"
           conditions:
             - condition: state
               entity_id: input_boolean.opti_prognose_netzladen
@@ -184,7 +184,7 @@
           sequence:
             - action: input_select.select_option
               data:
-                option: "Akku nur Laden"
+                option: "Akku Netzladen"
               target:
                 entity_id: input_select.akkusteuerung_modus
             - stop: "fertig"
@@ -193,7 +193,7 @@
         # als jetzt -> gezielt bis reserve_gesamt_soc nachladen (nicht bis maxsoc).
         # Stoppt selbsttaetig, sobald SoC die Reserve erreicht (Bedingung entfaellt).
         # Ladefenster-Wahl wie bei der Negativpreis-Regel (selbstkorrigierend).
-        - alias: "Modus 'nur Laden' (Peak-Vorladen): Spread zur kommenden Spitze gross genug (tag+nacht)"
+        - alias: "Modus 'Netzladen' (Peak-Vorladen): Spread zur kommenden Spitze gross genug (tag+nacht)"
           conditions:
             - condition: state
               entity_id: input_boolean.opti_prognose_netzladen
@@ -216,7 +216,7 @@
           sequence:
             - action: input_select.select_option
               data:
-                option: "Akku nur Laden"
+                option: "Akku Netzladen"
               target:
                 entity_id: input_select.akkusteuerung_modus
             - stop: "fertig"

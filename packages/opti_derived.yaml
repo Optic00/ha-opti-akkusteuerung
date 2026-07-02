@@ -500,8 +500,8 @@ template:
           {% set band = 5 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 3 %}
           {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
           {% if soc >= 0 and soc < minsoc %}Akku nur Laden
-          {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) and cur < eeg and fenster %}Akku nur Laden
-          {%- elif prog and aktiv and soc >= 0 and soc < ges_res and avg is not none and (avg - cur) >= spread and fenster %}Akku nur Laden
+          {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) and cur < eeg and fenster %}Akku Netzladen
+          {%- elif prog and aktiv and soc >= 0 and soc < ges_res and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen
           {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden
           {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden

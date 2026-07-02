@@ -18,6 +18,7 @@ input_select:
       - "Akku schnell Entladen"
       - "Akku Pause"
       - "Akku nur Laden"
+      - "Akku Netzladen" # Erzwungenes dynamisches Netzladen (BatChaMinW = opti_charge_power_w); braucht ha-modbus-akku-adapter >= v1.5.0
       - "Akku nur Entladen"
       - "Akku Dynamisch"
       - "Akku 0.2C Laden"

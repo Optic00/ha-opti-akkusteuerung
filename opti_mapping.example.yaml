@@ -170,7 +170,9 @@ template:
         availability: "{{ has_value('sensor.DEIN_SOLCAST_HEUTE') }}"
         state: "{{ states('sensor.DEIN_SOLCAST_HEUTE') | float(0) }}"
         attributes:
-          estimate10: "{{ state_attr('sensor.DEIN_SOLCAST_HEUTE', 'estimate10') | float(0) }}"
+          # Nur setzen, wenn die Quelle ein P10 hat - sonst none (fehlend), NICHT 0.
+          # opti_derived.yaml behandelt estimate10 <= 0 als "keine P10-Schaetzung".
+          estimate10: "{{ state_attr('sensor.DEIN_SOLCAST_HEUTE', 'estimate10') if state_attr('sensor.DEIN_SOLCAST_HEUTE', 'estimate10') is not none else none }}"
 
       # -----------------------------------------------------------------------
       # 11. PV-Prognose morgen (kWh)
@@ -183,7 +185,9 @@ template:
         availability: "{{ has_value('sensor.DEIN_SOLCAST_MORGEN') }}"
         state: "{{ states('sensor.DEIN_SOLCAST_MORGEN') | float(0) }}"
         attributes:
-          estimate10: "{{ state_attr('sensor.DEIN_SOLCAST_MORGEN', 'estimate10') | float(0) }}"
+          # Nur setzen, wenn die Quelle ein P10 hat - sonst none (fehlend), NICHT 0.
+          # opti_derived.yaml behandelt estimate10 <= 0 als "keine P10-Schaetzung".
+          estimate10: "{{ state_attr('sensor.DEIN_SOLCAST_MORGEN', 'estimate10') if state_attr('sensor.DEIN_SOLCAST_MORGEN', 'estimate10') is not none else none }}"
 
       # -----------------------------------------------------------------------
       # 12. PV-Prognose verbleibend heute (kWh) — einfacher Skalar-Alias

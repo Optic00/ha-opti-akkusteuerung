@@ -115,18 +115,21 @@ state: "{{ states('sensor.awattar_current_price') | float(0) * 100 }}"
 | `opti_forecast_tomorrow_kwh` | `sensor.solcast_pv_forecast_forecast_tomorrow` |
 | `opti_forecast_remaining_today_kwh` | `sensor.solcast_pv_forecast_forecast_remaining_today` |
 
-**`estimate10`-Attribut (P10-Sicherheitsnetz):** Die `opti_forecast_*_kwh`-Sensoren reichen das
-Attribut `estimate10` durch (10. Perzentil der Prognose — pessimistischer Worst-Case-Wert).
+**`estimate10`-Attribut (P10-Sicherheitsnetz):**
+Die `opti_forecast_*_kwh`-Sensoren reichen das Attribut `estimate10` durch (10. Perzentil der Prognose - pessimistischer Worst-Case-Wert).
 Der `opti_forecast_score` nutzt diesen Wert als konservative Untergrenze für die PV-Fit-Bewertung.
+
+**Kontrakt:** Das Attribut wird nur gesetzt, wenn die Quelle tatsächlich ein P10 liefert - fehlt es, bleibt `estimate10` weg (bzw. `none`), es wird NICHT auf `0` normalisiert.
+Grund: `0` ist von "keine Schätzung vorhanden" nicht unterscheidbar, würde aber als echter P10-Wert von 0 kWh interpretiert und die Restproduktion fälschlich auf 0 drücken.
 
 ```yaml
 # Im Mapping (Beispiel für heute):
 attributes:
-  estimate10: "{{ state_attr('sensor.solcast_pv_forecast_forecast_today', 'estimate10') | float(0) }}"
+  estimate10: "{{ state_attr('sensor.solcast_pv_forecast_forecast_today', 'estimate10') if state_attr('sensor.solcast_pv_forecast_forecast_today', 'estimate10') is not none else none }}"
 ```
 
-Fehlt `estimate10` im Quell-Sensor, greift `float(0)` als sicherer Fallback — der Score
-wird dann etwas konservativer, aber die Automation läuft fehlerfrei.
+Auf der Konsumenten-Seite (`opti_derived.yaml`) gilt: `estimate10 <= 0` wird als fehlend behandelt und fällt auf den Median (die normale Prognose) zurück, statt remaining auf 0 zu drücken.
+Fehlt `estimate10` komplett, greift derselbe Median-Fallback - der Score läuft in beiden Fällen fehlerfrei weiter.
 
 ---
 
@@ -225,9 +228,9 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 
 | Sensor | Beschreibung |
 |---|---|
-| `sensor.opti_forecast_score` | PV-Fit heute (0–10); nutzt `estimate10` als P10-Sicherheitsnetz |
+| `sensor.opti_forecast_score` | PV-Fit heute (0–10); nutzt `estimate10` als P10-Sicherheitsnetz; nach dem heutigen Sonnenuntergang Fallback auf `opti_forecast_score_tomorrow`, falls verfügbar (sonst alte Formel) |
 | `sensor.opti_forecast_score_tomorrow` | PV-Fit morgen (0–10) |
-| `sensor.opti_target_soc` | Ziel-SoC (%) basierend auf Restprognose und Hausverbrauch |
+| `sensor.opti_target_soc` | Ziel-SoC (%) basierend auf Restprognose und geglättetem Hausverbrauch |
 | `sensor.opti_charge_power_w` | Dynamische Ladestärke (W) nach SoC-Stufe und Forecast-Score |
 | `sensor.opti_price_level` | Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE); Midrank-Perzentil (Gleichstände zählen halb) - flache Preistage (viele identische Werte) landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE |
 | `sensor.opti_mindestentladepreis_ct_kwh` | Mindestentladepreis = Ladepreis + Preisdifferenz (ct/kWh) |
@@ -235,6 +238,12 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 | `binary_sensor.opti_winter_charging_allowed` | Saisonales Lade-Gate (Standard: `true`, fail-open) |
 | `sensor.opti_peak_reserve_soc` | Reserve-SoC für kommende Preisspitzen (trigger-basiert, 36h-Horizont) |
 | `binary_sensor.opti_peak_reserve_aktiv` | Gate: Peaks im Wiederauflade-Horizont vorhanden |
+
+**Baustein `sensor.opti_house_consumption_60min_w` (`packages/sma_statistik.yaml`):**
+Gleitender 60-Minuten-Mittelwert von `sensor.opti_house_consumption_w` (Legacy-Muster, `state_characteristic: mean`).
+`opti_forecast_score`, `opti_forecast_score_tomorrow` und `opti_target_soc` lesen bevorzugt diesen geglätteten Wert statt des Momentanverbrauchs, damit kurze Lastspitzen (z. B. ein Wasserkocher) den Score nicht minütlich kippen lassen.
+Fehlt der Statistik-Sensor noch (z. B. direkt nach einem HA-Neustart), fällt die Formel auf den Momentanwert zurück.
+`sensor.opti_runtime_h` bleibt bewusst beim Momentanwert - die Restlaufzeit soll den aktuellen Verbrauchszug zeigen, keinen Mittelwert.
 
 > **Warnung — `opti_winter_charging_allowed`:** Dieses Gate ist **fail-open** (`{{ true }}`).
 > Solange kein realer Saisonal-Sensor gemappt ist, ist es immer `on`.

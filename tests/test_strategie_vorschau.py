@@ -152,3 +152,86 @@ def test_vorladen_nicht_ohne_netzladen_schalter():
     out = grund(**{**VORLADEN, "input_boolean.opti_prognose_netzladen": "off"},
                 _attrs=reserve_attrs(ve=25.0, min_vor=50.0, avg=200.0))
     assert "Peak-Vorladen" not in out
+
+
+# --- Task 6: Peak-Leiter ---
+
+LEITER = {
+    "sensor.opti_forecast_score": "1",
+    "sensor.opti_forecast_score_tomorrow": "1",
+    "sensor.opti_peak_reserve_soc": "45",
+    "binary_sensor.opti_peak_reserve_aktiv": "on",
+    "sensor.opti_price_current_ct_kwh": "50",
+    # alte Ladebloecke ruhigstellen: SoC hoch genug, dass keiner greift
+    "sensor.opti_soc": "85",
+}
+LEITER_ATTRS = reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0)
+
+
+def test_l1_very_expensive_entlaedt():
+    out = vorschau(**{**LEITER, "sensor.opti_price_level": "VERY_EXPENSIVE"},
+                   _attrs=LEITER_ATTRS)
+    assert out == "Akku nur Entladen"
+
+
+def test_l2_expensive_ueber_ve_reserve_entlaedt():
+    # soc 85 > ve_res 30 + 3 -> entladen.
+    out = vorschau(**{**LEITER, "sensor.opti_price_level": "EXPENSIVE"},
+                   _attrs=LEITER_ATTRS)
+    assert out == "Akku nur Entladen"
+
+
+def test_l3_expensive_unter_ve_reserve_haelt():
+    # prognose_netzladen off, sonst greift der alte SOC<80-Winterblock VOR der
+    # Leiter (gleicher Modus, aber falscher Zweig) - grund pinnt den Zweig fest.
+    fall = {**LEITER, "sensor.opti_price_level": "EXPENSIVE",
+            "sensor.opti_soc": "31",
+            "input_boolean.opti_prognose_netzladen": "off"}
+    assert vorschau(**fall, _attrs=LEITER_ATTRS) == "Akku nur Laden"
+    assert "Peak-Leiter L3" in grund(**fall, _attrs=LEITER_ATTRS)
+
+
+def test_freigabeband_asymmetrisch():
+    # prognose_netzladen off (siehe test_l3). soc 34, ve_res 30:
+    # beim Entladen (Band 3) -> 34 > 33 -> weiter entladen.
+    fall = {**LEITER, "sensor.opti_price_level": "EXPENSIVE",
+            "sensor.opti_soc": "34",
+            "input_boolean.opti_prognose_netzladen": "off"}
+    out = vorschau(**{**fall, "input_select.akkusteuerung_modus": "Akku nur Entladen"},
+                   _attrs=LEITER_ATTRS)
+    assert out == "Akku nur Entladen"
+    # gleicher SoC, aber gerade am Halten (Band 5) -> 34 <= 35 -> halten bleibt.
+    out = vorschau(**{**fall, "input_select.akkusteuerung_modus": "Akku nur Laden"},
+                   _attrs=LEITER_ATTRS)
+    assert out == "Akku nur Laden"
+
+
+def test_l4_normal_unter_gesamtreserve_haelt():
+    # ges_res 45, soc 40 <= 45+3 -> halten. (SoC 40 statt 85, alte Bloecke:
+    # Preis NORMAL + score 1 + soc < 75 wuerde alten Block treffen -> Toggle aus.)
+    out = vorschau(**{**LEITER, "sensor.opti_price_level": "NORMAL",
+                      "sensor.opti_soc": "40",
+                      "input_boolean.opti_prognose_netzladen": "off"},
+                   _attrs=LEITER_ATTRS)
+    assert out == "Akku nur Laden"
+    assert "Peak-Leiter L4" in grund(**{**LEITER, "sensor.opti_price_level": "NORMAL",
+                                        "sensor.opti_soc": "40",
+                                        "input_boolean.opti_prognose_netzladen": "off"},
+                                     _attrs=LEITER_ATTRS)
+
+
+def test_l4_normal_mit_genug_reserve_normalbetrieb():
+    # soc 85 > 45+3 -> keine Leiter-Option, Ziel-SoC-Logik uebernimmt (85 > 60+3).
+    out = vorschau(**{**LEITER, "sensor.opti_price_level": "NORMAL"},
+                   _attrs=LEITER_ATTRS)
+    assert out == "Akku nur Entladen"
+    assert "ueber Ziel-SoC" in grund(**{**LEITER, "sensor.opti_price_level": "NORMAL"},
+                                     _attrs=LEITER_ATTRS)
+
+
+def test_leiter_inaktiv_ohne_gate():
+    out = grund(**{**LEITER, "sensor.opti_price_level": "EXPENSIVE",
+                   "sensor.opti_soc": "31",
+                   "binary_sensor.opti_peak_reserve_aktiv": "off"},
+                _attrs=LEITER_ATTRS)
+    assert "Peak-Leiter" not in out

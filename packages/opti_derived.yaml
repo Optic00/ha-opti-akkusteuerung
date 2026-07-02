@@ -510,6 +510,10 @@ template:
           {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}Akku Dynamisch
           {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}Akku Dynamisch
           {%- elif soc > 99 %}Akku Dynamisch
+          {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Akku nur Entladen
+          {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Akku nur Entladen
+          {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' %}Akku nur Laden
+          {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Akku nur Laden
           {%- elif soc > minsoc and soc < target - H and day %}Akku Dynamisch
           {%- elif soc > target + H %}Akku nur Entladen
           {%- elif soc >= 0 %}Akku Dynamisch
@@ -559,6 +563,10 @@ template:
             {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}70% Ueberschuss (tag)
             {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}AC Ueberschuss (tag)
             {%- elif soc > 99 %}Akku voll
+            {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Peak-Leiter L1 (VE entladen)
+            {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%)
+            {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%)
+            {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%)
             {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag)
             {%- elif soc > target + H %}ueber Ziel-SoC
             {%- elif soc >= 0 %}Default (Nacht/keine Aktion)

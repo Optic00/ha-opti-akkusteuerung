@@ -311,7 +311,7 @@ template:
 
       # -----------------------------------------------------------------------
       # 5. Preisniveau (Enum) — übersetzt aus strompreis_niveau
-      #    (SMA-Templates Z.362-423). Perzentil-Bänder unverändert.
+      #    (SMA-Templates Z.362-423). Perzentil-Bänder unverändert, aber Midrank-Zählung (Gleichstände halb) statt select('le') - Fix für flache Preistage.
       #    current → opti_price_current_ct_kwh; Reihe → opti_price_series today/tomorrow
       #    (bereits ct/kWh-Listen). <4 Werte → NORMAL.
       # -----------------------------------------------------------------------
@@ -341,8 +341,11 @@ template:
           {% endfor %}
           {% set prices = ns.prices %}
           {% if prices | length >= 4 %}
-            {% set below = prices | select('le', current) | list | length %}
-            {% set pct = below / (prices | length) %}
+            {# Midrank-Perzentil: Gleichstaende zaehlen halb. Fix fuer den Tie-Bug
+               (select('le') machte bei flachen Preisen alles zu VERY_EXPENSIVE). #}
+            {% set kleiner = prices | select('lt', current) | list | length %}
+            {% set gleich  = prices | select('eq', current) | list | length %}
+            {% set pct = (kleiner + 0.5 * gleich) / (prices | length) %}
             {% if   pct < 0.20 %}{% set level = 'VERY_CHEAP' %}
             {% elif pct < 0.40 %}{% set level = 'CHEAP' %}
             {% elif pct < 0.60 %}{% set level = 'NORMAL' %}
@@ -368,7 +371,7 @@ template:
               {% endif %}
             {% endfor %}
             {% set prices = ns.prices %}
-            {% if prices | length >= 4 %}{{ ((prices | select('le', current) | list | length) / (prices | length) * 100) | round(1) }}{% else %}none{% endif %}
+            {% if prices | length >= 4 %}{{ (((prices | select('lt', current) | list | length) + 0.5 * (prices | select('eq', current) | list | length)) / (prices | length) * 100) | round(1) }}{% else %}none{% endif %}
           aktueller_preis: "{{ states('sensor.opti_price_current_ct_kwh') | float(0) }}"
           anzahl_preise: >
             {% set ns = namespace(c=0) %}
@@ -457,6 +460,7 @@ template:
       #    Toggles opti_prognose_netzladen / opti_pv_ueberschuss_ladung existieren live
       #    und werden hier wie in der echten Strategie gelesen (siehe unten). Bei
       #    Änderung der Strategie-Zweige MUSS dieser Sensor mitgespiegelt werden.
+      #    Peak-Allokations-Zweige (Negativpreis/Vorladen/Leiter) sind mitgespiegelt.
       # -----------------------------------------------------------------------
       - unique_id: opti_strategie_vorschau
         name: "Opti Strategie Vorschau"
@@ -483,7 +487,24 @@ template:
           {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %}
           {% set p_c = price in ['VERY_CHEAP','CHEAP'] %}
           {% set H = 3 %}
+          {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %}
+          {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %}
+          {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %}
+          {% set spread = states('input_number.opti_netzlade_spread_ct')|float(10) %}
+          {% set aktiv = is_state('binary_sensor.opti_peak_reserve_aktiv','on') %}
+          {% set ges_res = states('sensor.opti_peak_reserve_soc')|float(101) %}
+          {% set ve_res = state_attr('sensor.opti_peak_reserve_soc','reserve_ve_soc')|float(101) %}
+          {% set minv_raw = state_attr('sensor.opti_peak_reserve_soc','min_preis_vor_peak_ct') %}
+          {% set minv = minv_raw|float(none) if minv_raw is not none else none %}
+          {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %}
+          {% set band = 5 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 3 %}
+          {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %}
+          {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
           {% if soc >= 0 and soc < minsoc %}Akku nur Laden
+          {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Akku Netzladen
+          {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen
+          {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Akku nur Entladen
+          {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Akku nur Entladen
           {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden
           {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden
@@ -492,6 +513,8 @@ template:
           {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}Akku Dynamisch
           {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}Akku Dynamisch
           {%- elif soc > 99 %}Akku Dynamisch
+          {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' %}Akku nur Laden
+          {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Akku nur Laden
           {%- elif soc > minsoc and soc < target - H and day %}Akku Dynamisch
           {%- elif soc > target + H %}Akku nur Entladen
           {%- elif soc >= 0 %}Akku Dynamisch
@@ -518,7 +541,24 @@ template:
             {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %}
             {% set p_c = price in ['VERY_CHEAP','CHEAP'] %}
             {% set H = 3 %}
+            {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %}
+            {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %}
+            {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %}
+            {% set spread = states('input_number.opti_netzlade_spread_ct')|float(10) %}
+            {% set aktiv = is_state('binary_sensor.opti_peak_reserve_aktiv','on') %}
+            {% set ges_res = states('sensor.opti_peak_reserve_soc')|float(101) %}
+            {% set ve_res = state_attr('sensor.opti_peak_reserve_soc','reserve_ve_soc')|float(101) %}
+            {% set minv_raw = state_attr('sensor.opti_peak_reserve_soc','min_preis_vor_peak_ct') %}
+            {% set minv = minv_raw|float(none) if minv_raw is not none else none %}
+            {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %}
+            {% set band = 5 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 3 %}
+            {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %}
+            {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
             {% if soc >= 0 and soc < minsoc %}MinSOC-Schutz (SoC<{{minsoc}})
+            {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct)
+            {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%)
+            {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Peak-Leiter L1 (VE entladen)
+            {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%)
             {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht)
             {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL)
             {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus
@@ -527,6 +567,8 @@ template:
             {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}70% Ueberschuss (tag)
             {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}AC Ueberschuss (tag)
             {%- elif soc > 99 %}Akku voll
+            {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%)
+            {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%)
             {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag)
             {%- elif soc > target + H %}ueber Ziel-SoC
             {%- elif soc >= 0 %}Default (Nacht/keine Aktion)
@@ -539,3 +581,148 @@ template:
           price_level: "{{ states('sensor.opti_price_level') }}"
           tag: "{{ is_state('sun.sun','above_horizon') }}"
           annahme: "Toggles opti_prognose_netzladen/opti_pv_ueberschuss_ladung existieren live, aktueller Zustand: prognose={{ states('input_boolean.opti_prognose_netzladen') }}, ueberschuss={{ states('input_boolean.opti_pv_ueberschuss_ladung') }}"
+
+  # ---------------------------------------------------------------------------
+  # 9. Entlade-Peak-Allokation: Reserve-SoC + Aktiv-Gate (trigger-basiert).
+  #    Rechnet aus opti_price_series (today/tomorrow) die Reserve fuer kommende
+  #    teure Stunden im Wiederauflade-Horizont. Trigger-basiert, damit der
+  #    Rechenkern EINMAL in 'variables' steht (kein 7x dupliziertes Template);
+  #    Bonus: RestoreEntity ueber HA-Neustarts. Braucht HA >= 2024.10.
+  #    Klassifikation: Midrank-Perzentil, identische Grenzen wie opti_price_level.
+  #    Fail-safe: < 4 Preise -> Sensor unavailable (BEWUSST anders als der
+  #    NORMAL-Fallback von opti_price_level: Reserve 0 saehe aus wie "keine
+  #    Peaks" und wuerde die Leiter falsch scharf schalten).
+  #    Bekannte Grenze: Preislisten ohne Zeitstempel, Stundenzuordnung per Index
+  #    (DST-Tage koennen 1 h verrutschen - akzeptiert).
+  # ---------------------------------------------------------------------------
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: "/15"
+      - trigger: state
+        entity_id:
+          - sensor.opti_price_series
+          - sensor.opti_forecast_score
+          - sensor.opti_forecast_score_tomorrow
+          - sensor.opti_battery_capacity_kwh
+          - input_number.opti_peak_verbrauch_kw
+          - input_number.minsoc
+          - input_number.maxsoc
+    variables:
+      peak: >
+        {% set cap_kwh = states('sensor.opti_battery_capacity_kwh') | float(0) %}
+        {% set verbrauch_kw = states('input_number.opti_peak_verbrauch_kw') | float(0.8) %}
+        {% set min_soc = states('input_number.minsoc') | float(10) %}
+        {% set max_soc = states('input_number.maxsoc') | float(95) %}
+        {% set eta = 0.9 %}
+        {# 1. Preisbasis + Zukunftsstunden einsammeln (Stundenindex -> Zeitpunkt).
+           Raster-Guard: Listen > 25 Eintraege (15-min-Raster o.ae.) -> ungueltig;
+           die Stundenzuordnung via Index setzt Stundenraster voraus. #}
+        {% set ns = namespace(prices=[], future=[], raster_ok=true) %}
+        {% set heute = today_at('00:00') %}
+        {% for key in ['today', 'tomorrow'] %}
+          {% set arr = state_attr('sensor.opti_price_series', key) %}
+          {% if arr is iterable and arr is not string %}
+            {% if arr | length > 25 %}{% set ns.raster_ok = false %}{% endif %}
+            {% set base = heute if key == 'today' else heute + timedelta(days=1) %}
+            {% for it in arr %}
+              {% if it is mapping %}{% set p = it.get('total', it.get('price', it.get('value'))) %}{% else %}{% set p = it %}{% endif %}
+              {% set p = p | float(none) %}
+              {% if p is not none %}
+                {% set ns.prices = ns.prices + [p] %}
+                {% set ns.future = ns.future + [[base + timedelta(hours=loop.index0), p]] %}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+        {% endfor %}
+        {% set n = ns.prices | length if ns.raster_ok else 0 %}
+        {# 2. Wiederauflade-Horizont: bis naechster Sonnenaufgang + 3 h mit gutem
+           Tages-Score (> 2), sonst 36 h. Tagsueber + guter Heute-Score -> leer. #}
+        {% set s_heute = states('sensor.opti_forecast_score') | float(-1) %}
+        {% set s_morgen = states('sensor.opti_forecast_score_tomorrow') | float(-1) %}
+        {% set horizont_max = now() + timedelta(hours=36) %}
+        {% if is_state('sun.sun', 'above_horizon') and s_heute > 2 %}
+          {% set horizont_ende = now() %}
+        {% else %}
+          {% set rising = state_attr('sun.sun', 'next_rising') %}
+          {% set rise = (rising | as_datetime | as_local) if rising else none %}
+          {% if rise is not none %}
+            {% set rise_score = s_heute if rise.date() == now().date() else s_morgen %}
+            {% if rise_score > 2 %}
+              {% set horizont_ende = [rise + timedelta(hours=3), horizont_max] | min %}
+            {% else %}
+              {% set horizont_ende = horizont_max %}
+            {% endif %}
+          {% else %}
+            {% set horizont_ende = horizont_max %}
+          {% endif %}
+        {% endif %}
+        {# 3. Zukunftsstunden im Horizont klassifizieren (Midrank-Perzentil).
+           Fenster ab der aktuellen vollen Stunde: die laufende Peak-Stunde
+           zaehlt mit, damit das Gate waehrend der Spitze nicht abfaellt
+           (laufende Stunde konservativ voll gerechnet). #}
+        {% set start = now().replace(minute=0, second=0, microsecond=0) %}
+        {% set f = namespace(ve=0, exp=0, minpre=none, summe=0.0, anz=0, peak_gesehen=false) %}
+        {% if n >= 4 %}
+          {% for eintrag in ns.future %}
+            {% set t = eintrag[0] %}
+            {% set p = eintrag[1] %}
+            {% if t >= start and t < horizont_ende %}
+              {% set kleiner = ns.prices | select('lt', p) | list | length %}
+              {% set gleich  = ns.prices | select('eq', p) | list | length %}
+              {% set pct = (kleiner + 0.5 * gleich) / n %}
+              {% if pct >= 0.80 %}
+                {% set f.ve = f.ve + 1 %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
+              {% elif pct >= 0.60 %}
+                {% set f.exp = f.exp + 1 %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
+              {% elif not f.peak_gesehen %}
+                {% set f.minpre = p if f.minpre is none else ([f.minpre, p] | min) %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {# 4. Reserve in kWh und SoC (mit Entladeverlusten), Kappung bei maxsoc #}
+        {% set ve_kwh = f.ve * verbrauch_kw / eta %}
+        {% set ges_kwh = (f.ve + f.exp) * verbrauch_kw / eta %}
+        {% if cap_kwh > 0 %}
+          {% set ve_soc = [min_soc + ve_kwh / cap_kwh * 100, max_soc] | min %}
+          {% set ges_soc = [min_soc + ges_kwh / cap_kwh * 100, max_soc] | min %}
+        {% else %}
+          {% set ve_soc = max_soc %}
+          {% set ges_soc = max_soc %}
+        {% endif %}
+        {{ {'gueltig': n >= 4,
+            've_soc': ve_soc | round(1),
+            'ges_soc': ges_soc | round(1),
+            've_stunden': f.ve,
+            'exp_stunden': f.exp,
+            'benoetigt_kwh': ges_kwh | round(2),
+            'min_preis_vor_peak_ct': (f.minpre | round(2)) if f.minpre is not none else none,
+            'peak_preis_avg_ct': ((f.summe / f.anz) | round(2)) if f.anz > 0 else none,
+            'horizont_ende': horizont_ende.isoformat(),
+            'branch': 've=' ~ f.ve ~ ' exp=' ~ f.exp ~ ' n=' ~ n ~ ' ende=' ~ horizont_ende.strftime('%d.%m %H:%M')} }}
+    sensor:
+      - unique_id: opti_peak_reserve_soc
+        name: "Opti Peak Reserve SoC"
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:battery-lock
+        availability: "{{ peak.gueltig and has_value('sensor.opti_battery_capacity_kwh') }}"
+        state: "{{ peak.ges_soc }}"
+        attributes:
+          reserve_ve_soc: "{{ peak.ve_soc }}"
+          peak_stunden_ve: "{{ peak.ve_stunden }}"
+          peak_stunden_exp: "{{ peak.exp_stunden }}"
+          benoetigt_kwh: "{{ peak.benoetigt_kwh }}"
+          min_preis_vor_peak_ct: "{{ peak.min_preis_vor_peak_ct }}"
+          peak_preis_avg_ct: "{{ peak.peak_preis_avg_ct }}"
+          horizont_ende: "{{ peak.horizont_ende }}"
+          branch: "{{ peak.branch }}"
+    binary_sensor:
+      - unique_id: opti_peak_reserve_aktiv
+        name: "Opti Peak Reserve Aktiv"
+        icon: mdi:shield-lock
+        state: >
+          {{ peak.gueltig and has_value('sensor.opti_battery_capacity_kwh')
+             and peak.benoetigt_kwh > 0 }}

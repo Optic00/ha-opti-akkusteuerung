@@ -103,7 +103,7 @@ state: "{{ states('sensor.awattar_current_price') | float(0) * 100 }}"
 > **Hinweis:** Falls die Quelle bereits ct/kWh liefert, `* 100` weglassen und
 > den Availability-Check entsprechend anpassen.
 
-> **Stundenraster-Kontrakt:** `today`/`tomorrow` müssen Stundenlisten sein (max. 25 Einträge je Liste) — die Peak-Reserve (`sensor.opti_peak_reserve_soc`) ordnet Stunden über den Listenindex zu und deaktiviert sich bei 15-Minuten-Listen oder anderen Rastern über 25 Einträgen automatisch (`gueltig: false`).
+> **Raster-Kontrakt:** `today`/`tomorrow` müssen Stundenlisten (Länge 20-27) oder Viertelstundenlisten (Länge 80-108) sein - die Peak-Reserve (`sensor.opti_peak_reserve_soc`) leitet die Slot-Länge je Liste aus der Listenlänge ab und deaktiviert sich bei anderen Listenlängen automatisch (`gueltig: false`).
 
 ---
 

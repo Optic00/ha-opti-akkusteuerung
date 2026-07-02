@@ -531,6 +531,8 @@ template:
           {% set minv_raw = state_attr('sensor.opti_peak_reserve_soc','min_preis_vor_peak_ct') %}
           {% set minv = minv_raw|float(none) if minv_raw is not none else none %}
           {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %}
+          {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_ve_avg_ct')|float(none) %}
+          {% set halte_spread = states('input_number.opti_halte_spread_ct')|float(3) %}
           {% set band = 5 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 3 %}
           {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %}
           {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
@@ -547,7 +549,7 @@ template:
           {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}Akku Dynamisch
           {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}Akku Dynamisch
           {%- elif soc > 99 %}Akku Dynamisch
-          {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' %}Akku nur Laden
+          {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Akku nur Laden
           {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Akku nur Laden
           {%- elif soc > minsoc and soc < target - H and day %}Akku Dynamisch
           {%- elif soc > target + H %}Akku nur Entladen
@@ -585,6 +587,8 @@ template:
             {% set minv_raw = state_attr('sensor.opti_peak_reserve_soc','min_preis_vor_peak_ct') %}
             {% set minv = minv_raw|float(none) if minv_raw is not none else none %}
             {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %}
+            {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_ve_avg_ct')|float(none) %}
+            {% set halte_spread = states('input_number.opti_halte_spread_ct')|float(3) %}
             {% set band = 5 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 3 %}
             {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %}
             {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
@@ -601,7 +605,7 @@ template:
             {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}70% Ueberschuss (tag)
             {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}AC Ueberschuss (tag)
             {%- elif soc > 99 %}Akku voll
-            {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%)
+            {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%, Spread {{(ve_avg - cur)|round(1)}}ct)
             {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%)
             {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag)
             {%- elif soc > target + H %}ueber Ziel-SoC
@@ -643,12 +647,14 @@ template:
           - input_number.opti_peak_verbrauch_kw
           - input_number.minsoc
           - input_number.maxsoc
+          - input_number.opti_peak_min_aufschlag_ct
     variables:
       peak: >
         {% set cap_kwh = states('sensor.opti_battery_capacity_kwh') | float(0) %}
         {% set verbrauch_kw = states('input_number.opti_peak_verbrauch_kw') | float(0.8) %}
         {% set min_soc = states('input_number.minsoc') | float(10) %}
         {% set max_soc = states('input_number.maxsoc') | float(95) %}
+        {% set aufschlag = states('input_number.opti_peak_min_aufschlag_ct') | float(10) %}
         {% set eta = 0.9 %}
         {# 1. Preisbasis + Zukunftsstunden einsammeln (Stundenindex -> Zeitpunkt).
            Raster-Guard: Listen > 25 Eintraege (15-min-Raster o.ae.) -> ungueltig;
@@ -692,12 +698,30 @@ template:
             {% set horizont_ende = horizont_max %}
           {% endif %}
         {% endif %}
-        {# 3. Zukunftsstunden im Horizont klassifizieren (Midrank-Perzentil).
-           Fenster ab der aktuellen vollen Stunde: die laufende Peak-Stunde
-           zaehlt mit, damit das Gate waehrend der Spitze nicht abfaellt
-           (laufende Stunde konservativ voll gerechnet). #}
+        {# 3a. Erster Durchlauf: Horizont-Tief (fenster_min) unter den
+           Zukunftsstunden im Horizont bestimmen - Basis fuer die oekonomische
+           Peak-Filterung (Hebel 1: nur Stunden, die den Aufschlag ueber dem
+           Horizont-Tief bringen, zaehlen als Peak). #}
         {% set start = now().replace(minute=0, second=0, microsecond=0) %}
-        {% set f = namespace(ve=0, exp=0, minpre=none, summe=0.0, anz=0, peak_gesehen=false) %}
+        {% set fw = namespace(min=none) %}
+        {% if n >= 4 %}
+          {% for eintrag in ns.future %}
+            {% set t = eintrag[0] %}
+            {% set p = eintrag[1] %}
+            {% if t >= start and t < horizont_ende %}
+              {% set fw.min = p if fw.min is none else ([fw.min, p] | min) %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+        {% set fenster_min = fw.min %}
+        {# 3b. Zweiter Durchlauf: Zukunftsstunden im Horizont klassifizieren
+           (Midrank-Perzentil, Grenzen unveraendert) UND zusaetzlich oekonomisch
+           filtern (p >= fenster_min + aufschlag). Fenster ab der aktuellen
+           vollen Stunde: die laufende Peak-Stunde zaehlt mit, damit das Gate
+           waehrend der Spitze nicht abfaellt (laufende Stunde konservativ voll
+           gerechnet). min_preis_vor_peak_ct bezieht sich weiterhin auf die
+           erste GEZAEHLTE (also gefilterte) Peak-Stunde. #}
+        {% set f = namespace(ve=0, exp=0, minpre=none, summe=0.0, anz=0, peak_gesehen=false, ve_summe=0.0, ve_anz=0) %}
         {% if n >= 4 %}
           {% for eintrag in ns.future %}
             {% set t = eintrag[0] %}
@@ -706,9 +730,11 @@ template:
               {% set kleiner = ns.prices | select('lt', p) | list | length %}
               {% set gleich  = ns.prices | select('eq', p) | list | length %}
               {% set pct = (kleiner + 0.5 * gleich) / n %}
-              {% if pct >= 0.80 %}
+              {% set ist_peak_preis = fenster_min is none or p >= fenster_min + aufschlag %}
+              {% if pct >= 0.80 and ist_peak_preis %}
                 {% set f.ve = f.ve + 1 %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
-              {% elif pct >= 0.60 %}
+                {% set f.ve_summe = f.ve_summe + p %}{% set f.ve_anz = f.ve_anz + 1 %}
+              {% elif pct >= 0.60 and ist_peak_preis %}
                 {% set f.exp = f.exp + 1 %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
               {% elif not f.peak_gesehen %}
                 {% set f.minpre = p if f.minpre is none else ([f.minpre, p] | min) %}
@@ -734,6 +760,8 @@ template:
             'benoetigt_kwh': ges_kwh | round(2),
             'min_preis_vor_peak_ct': (f.minpre | round(2)) if f.minpre is not none else none,
             'peak_preis_avg_ct': ((f.summe / f.anz) | round(2)) if f.anz > 0 else none,
+            've_preis_avg_ct': ((f.ve_summe / f.ve_anz) | round(2)) if f.ve_anz > 0 else none,
+            'fenster_min_ct': (fenster_min | round(2)) if fenster_min is not none else none,
             'horizont_ende': horizont_ende.isoformat(),
             'branch': 've=' ~ f.ve ~ ' exp=' ~ f.exp ~ ' n=' ~ n ~ ' ende=' ~ horizont_ende.strftime('%d.%m %H:%M')} }}
     sensor:
@@ -751,6 +779,8 @@ template:
           benoetigt_kwh: "{{ peak.benoetigt_kwh }}"
           min_preis_vor_peak_ct: "{{ peak.min_preis_vor_peak_ct }}"
           peak_preis_avg_ct: "{{ peak.peak_preis_avg_ct }}"
+          peak_preis_ve_avg_ct: "{{ peak.ve_preis_avg_ct }}"
+          fenster_min_ct: "{{ peak.fenster_min_ct }}"
           horizont_ende: "{{ peak.horizont_ende }}"
           branch: "{{ peak.branch }}"
     binary_sensor:

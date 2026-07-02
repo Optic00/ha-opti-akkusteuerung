@@ -31,9 +31,11 @@ _vorschau = find_template_entity(_derived, "sensor", "opti_strategie_vorschau")
 _peak_template = find_trigger_block_variables(_derived, "peak")
 
 
-def _states(hour_price, soc, load_kw, neu, cap_kwh, peak):
+def _states(hour_price, soc, load_kw, neu, cap_kwh, peak, *,
+            halte_spread_ct, netzlade_spread_ct):
     minv = peak["min_preis_vor_peak_ct"] if peak else None
     avg = peak["peak_preis_avg_ct"] if peak else None
+    ve_avg = peak["ve_preis_avg_ct"] if peak else None
     aktiv = bool(peak and peak["gueltig"] and peak["benoetigt_kwh"] > 0)
     return FakeHass(
         states={
@@ -54,7 +56,8 @@ def _states(hour_price, soc, load_kw, neu, cap_kwh, peak):
             "input_number.maxsoc": "95",
             "input_number.opti_peak_verbrauch_kw": str(load_kw),
             "input_number.opti_einspeiseverguetung_ct": "8" if neu else "0",
-            "input_number.opti_netzlade_spread_ct": "10" if neu else "999",
+            "input_number.opti_netzlade_spread_ct": str(netzlade_spread_ct) if neu else "999",
+            "input_number.opti_halte_spread_ct": str(halte_spread_ct),
             "input_number.akkusteuerung_wr_70proz_ueberschuss_grenze": "500",
             "input_number.akkusteuerung_wr_ac_ueberschuss_grenze": "4500",
             "input_boolean.opti_prognose_netzladen": "on",
@@ -65,7 +68,8 @@ def _states(hour_price, soc, load_kw, neu, cap_kwh, peak):
         attrs={"sensor.opti_peak_reserve_soc": {
             "reserve_ve_soc": peak["ve_soc"] if peak else None,
             "min_preis_vor_peak_ct": minv,
-            "peak_preis_avg_ct": avg}},
+            "peak_preis_avg_ct": avg,
+            "peak_preis_ve_avg_ct": ve_avg}},
     )
 
 
@@ -85,7 +89,18 @@ def _price_level(prices, current):
 
 
 def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
-                 start_soc, cap_kwh, neu, modus_start="Akku Dynamisch"):
+                 start_soc, cap_kwh, neu, modus_start="Akku Dynamisch",
+                 aufschlag_ct=None, halte_spread_ct=None, netzlade_spread_ct=None):
+    # Tuning-Hebel: neu=True -> Gewinner-Defaults aus dem Winter-Backtest-Sweep
+    # 2026-07-02 (aufschlag 5, halte 5, netzlade_spread 10), neu=False -> Gate
+    # stillgelegt, Parameter egal (aufschlag/halte 0 zur Klarheit).
+    # Ueberschreibbar fuer Sweeps.
+    if aufschlag_ct is None:
+        aufschlag_ct = 5 if neu else 0
+    if halte_spread_ct is None:
+        halte_spread_ct = 5 if neu else 0
+    if netzlade_spread_ct is None:
+        netzlade_spread_ct = 10
     soc = start_soc
     modus = modus_start
     cost = 0.0
@@ -104,6 +119,7 @@ def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
                 "input_number.opti_peak_verbrauch_kw": str(load_kw),
                 "input_number.minsoc": "10",
                 "input_number.maxsoc": "95",
+                "input_number.opti_peak_min_aufschlag_ct": str(aufschlag_ct),
                 "sun.sun": "below_horizon",
             },
             attrs={
@@ -113,7 +129,9 @@ def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
             })
         peak = render_native(peak_hass, _peak_template)
         # 2. Strategie-Entscheidung mit echtem Vorschau-Template
-        hass = _states(preis, soc, load_kw, neu, cap_kwh, peak)
+        hass = _states(preis, soc, load_kw, neu, cap_kwh, peak,
+                       halte_spread_ct=halte_spread_ct,
+                       netzlade_spread_ct=netzlade_spread_ct)
         hass.now_value = now
         hass.states_map["sensor.opti_price_level"] = _price_level(alle_preise, preis)
         hass.states_map["input_select.akkusteuerung_modus"] = modus

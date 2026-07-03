@@ -516,7 +516,7 @@ Stunden rechtfertigen das Netzladen bei diesem SoC-Niveau.
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | `sensor.opti_grid_export_w` über der konfigurierten 70%-Grenze, SoC < 100 %, tagsüber |
+| Bedingung | `binary_sensor.opti_ueberschuss_70_aktiv` = on (Export **plus Batterieleistung** über der 70%-Grenze, 30 s entprellt, 1 kW Hysterese), SoC < 100 %, tagsüber |
 | Preis | irrelevant |
 | Tageszeit | nach Sonnenaufgang bis Sonnenuntergang |
 | Gesetzter Modus | **Akku Dynamisch** |
@@ -525,6 +525,10 @@ Stunden rechtfertigen das Netzladen bei diesem SoC-Niveau.
 **Warum:** Sobald die PV mehr ins Netz einspeist als die konfigurierte 70%-Grenze erlaubt,
 soll dieser Überschuss in den Akku. „Dynamisch" gibt dem Adapter die Freiheit, genau die
 richtige Ladeleistung zu wählen.
+Das Signal rechnet die Batterieleistung mit ein (= Export ohne Akku-Eingriff): der rohe
+Export ist über den Akku rückgekoppelt (Laden drückt ihn unter die Grenze und würde die
+eigene Freigabe sofort wieder beenden - live beobachtetes Minutentakt-Flattern).
+Entprellung 30 s beidseitig plus Hysterese-Band, wie in der bewährten Opti-2.0-Automatik.
 
 ---
 
@@ -532,7 +536,7 @@ richtige Ladeleistung zu wählen.
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | `sensor.opti_pv_power_w` über der konfigurierten WR-Nennleistungsgrenze, SoC < 100 %, tagsüber |
+| Bedingung | `binary_sensor.opti_ueberschuss_ac_aktiv` = on (WR-AC-Leistung **plus Batterieleistung** über der WR-Nennleistungsgrenze, 30 s entprellt, 300 W Hysterese), SoC < 100 %, tagsüber |
 | Preis | irrelevant |
 | Tageszeit | nach Sonnenaufgang bis Sonnenuntergang |
 | Gesetzter Modus | **Akku Dynamisch** |

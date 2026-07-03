@@ -68,6 +68,17 @@ def test_70_hysterese_haelt_im_band():
     assert b70(this_state="off", **zw) == "False"
 
 
+def test_70_kanten_exakt_auf_grenze():
+    # Genau == ein (18000): noch KEIN Einschalten (Bedingung ist strikt >)...
+    assert b70(**{"sensor.opti_grid_export_w": "18000"}) == "False"
+    # ...aber Halten, wenn schon an (Band schliesst die Ein-Kante ein).
+    assert b70(this_state="on", **{"sensor.opti_grid_export_w": "18000"}) == "True"
+    # Genau == aus (17000): Band ist inklusiv -> an bleibt an.
+    assert b70(this_state="on", **{"sensor.opti_grid_export_w": "17000"}) == "True"
+    # Knapp darunter: aus.
+    assert b70(this_state="on", **{"sensor.opti_grid_export_w": "16999"}) == "False"
+
+
 def test_70_failsafe_bei_unavailable():
     assert b70(this_state="on",
                **{"sensor.opti_grid_export_w": "unavailable"}) == "False"

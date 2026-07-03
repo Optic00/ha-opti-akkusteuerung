@@ -36,7 +36,7 @@ Liest den Modus aus `input_select.akkusteuerung_modus` und steuert den WR via Mo
 Läuft als eigenständiger Blueprint-Adapter — Strategie und Hardware-Ansteuerung sind
 bewusst getrennt. Single-Writer-Regel: immer nur ein Adapter aktiv.
 
-**Canonical-Layer** (`opti_mapping.example.yaml` → `packages/opti_mapping.yaml`)
+**Canonical-Layer** (`opti_mapping.example.yaml` → `packages/opti_mapping.yaml`)  
 Bildet hardware-spezifische Entitäten (SMA, Huawei oder andere WR) auf 13 kanonische
 `sensor.opti_*`-Sensoren ab. Strategie und abgeleitete Sensoren konsumieren nur diese
 kanonischen Namen — keine Seriennummern im Code. → **[docs/canonical-layer.md](docs/canonical-layer.md)**
@@ -94,9 +94,6 @@ Strategie  →  input_select.akkusteuerung_modus  →  [ ADAPTER-BLUEPRINT ]  �
 (setzt Modus)        (+ input_number.* in W)              übersetzt
 ```
 
-> **Legacy-Flachdateien** (`old/`): Die alten Einzeldateien im Repo-Root wurden nach `old/`
-> verschoben und werden nicht mehr gepflegt. Der empfohlene Weg ist die Package-Struktur.
-
 ---
 
 ## Voraussetzungen
@@ -128,15 +125,7 @@ Strategie  →  input_select.akkusteuerung_modus  →  [ ADAPTER-BLUEPRINT ]  �
 | `automations/opti_strategie.yaml` | Strategie-Automation (editierbar, kein Blueprint) |
 
 **Legacy (zur Referenz, nicht mehr empfohlen):**
-
-| Pfad | Beschreibung |
-|---|---|
-| `old/configuration.yaml` | Alte Modbus-Konfiguration (Flachdatei) |
-| `old/opti-automatik.yaml` | Alte Opti-Automatik |
-| `old/templates.yaml` | Alte Template-Sensoren |
-| `old/statistik.yaml` | Alte Statistik-Sensoren |
-| `old/sma-se-akku-steuerung.yaml` | Alte manuelle Steuerautomatik |
-| `old_legacy/` | Noch ältere Stände (Grid Guard Code Ära) — Archiv |
+Die alten Flachdateien liegen mit Dateiübersicht unter [`old/`](old/README.md), noch ältere Stände aus der Grid-Guard-Code-Ära (Archiv) unter `old_legacy/`.
 
 ---
 
@@ -268,9 +257,11 @@ Empfohlen bleibt die Package-Struktur oben.
 > `akku_target_soc_intelligent`)? Erklärung und Alt↔Neu-Mapping:
 > **[old/README.md#konzepte-legacy-namen](old/README.md#konzepte-legacy-namen-oldtemplatesyaml)**
 
+---
+
 ## Modbus-Register Referenz
 
-Alle bekannten Registeradressen mit Wertebeschreibungen: → **[docs/modbus-register-referenz.md](docs/modbus-register-referenz.md)**
+Alle bekannten Registeradressen mit Wertebeschreibungen werden kanonisch im Adapter-Repo gepflegt: → **[ha-modbus-akku-adapter/docs/modbus-register-referenz.md](https://github.com/Optic00/ha-modbus-akku-adapter/blob/main/docs/modbus-register-referenz.md)**
 
 > ⚠️ Inoffizielle Community-Sammlung, keine Gewähr, Nutzung auf eigene Gefahr.
 

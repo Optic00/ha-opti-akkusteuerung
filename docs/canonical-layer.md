@@ -231,10 +231,7 @@ trigger-basierten Sensoren laden gar nicht, und die betroffenen `opti_*`-Sensore
 erscheinen als `unavailable`.
 
 **Empfehlung:** Aktuelle HA-Release-Version verwenden, mindestens 2025.1 (getestet mit 2026.6).
-Falls
-`sensor.opti_soc` nach dem Einrichten auf `unavailable` bleibt, in den
-Entwicklerwerkzeugen → Template prüfen, ob `has_value('sensor.DEINE_QUELLE')` korrekt
-ausgewertet wird.
+Falls `sensor.opti_soc` nach dem Einrichten auf `unavailable` bleibt, in den Entwicklerwerkzeugen → Template prüfen, ob `has_value('sensor.DEINE_QUELLE')` korrekt ausgewertet wird.
 
 ---
 

@@ -20,10 +20,10 @@ im Haupt-README.
 | `statistik.yaml` | Gleitende Mittelwert-Sensoren (ersetzt durch `packages/sma_statistik.yaml`) |
 | `sma-se-akku-steuerung.yaml` | Manuelle Steuerautomatik (Hardware-Adapter jetzt im Repo `ha-modbus-akku-adapter`) |
 
-## old_legacy/
+## old_legacy/ (entfernt)
 
-Der Unterordner `../old_legacy/` enthält noch ältere, ungenutzte Stände (SMA Grid Guard Code
-Ära) — nur für Archivzwecke, nutzt niemand mehr aktiv.
+Die noch älteren Stände aus der SMA-Grid-Guard-Code-Ära wurden aus dem Repo entfernt.
+Sie sind bei Bedarf über die Git-Historie abrufbar (Stand vor Juli 2026).
 
 ## Konzepte (Legacy-Namen, old/templates.yaml)
 

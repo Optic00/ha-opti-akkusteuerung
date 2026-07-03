@@ -1,6 +1,6 @@
 # ha-opti-akkusteuerung
 
-Prognosebasierte & manuelle Akku-Ladesteuerung für den **SMA STP SE Hybrid-Wechselrichter** in Home Assistant – direkt über Modbus, ohne Grid Guard Code.
+Prognosebasierte Akku-Ladesteuerung für Home Assistant - die Strategie ist hardware-agnostisch (Canonical-`opti_*`-Layer), als Referenz-Adapter dient der **SMA STP SE Hybrid-Wechselrichter** (direkt über Modbus, ohne Grid Guard Code).
 
 > ⚠️ **Disclaimer:** Dieses Projekt wird nicht von SMA begleitet oder supportet. Nutzung auf eigene Gefahr. Kein persönlicher Support, aber die Community hilft gerne über [Issues](https://github.com/Optic00/ha-opti-akkusteuerung/issues).
 
@@ -125,7 +125,8 @@ Strategie  →  input_select.akkusteuerung_modus  →  [ ADAPTER-BLUEPRINT ]  �
 | `automations/opti_strategie.yaml` | Strategie-Automation (editierbar, kein Blueprint) |
 
 **Legacy (zur Referenz, nicht mehr empfohlen):**
-Die alten Flachdateien liegen mit Dateiübersicht unter [`old/`](old/README.md), noch ältere Stände aus der Grid-Guard-Code-Ära (Archiv) unter `old_legacy/`.
+Die alten Flachdateien liegen mit Dateiübersicht unter [`old/`](old/README.md).
+Noch ältere Stände aus der Grid-Guard-Code-Ära wurden entfernt und sind über die Git-Historie abrufbar.
 
 ---
 

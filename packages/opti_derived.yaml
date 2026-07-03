@@ -28,6 +28,68 @@ template:
         name: "Opti Winter Charging Allowed"
         state: "{{ true }}"
 
+      # -----------------------------------------------------------------------
+      # 0a. Entprellte Überschuss-Signale (Anti-Flatter, 2026-07-03)
+      #    Rohwert-Vergleiche (grid > g70, pv > gac) flatterten live im
+      #    Minutentakt: das Export-Signal ist über den Akku rückgekoppelt
+      #    (Laden drückt den Export unter die Grenze und beendet damit die
+      #    eigene Freigabe). Diese Sensoren rechnen deshalb den Akku aus dem
+      #    Signal heraus (Export bzw. WR-AC + Batterieleistung, Vorzeichen
+      #    positiv = laden -> "Wert ohne Akku-Eingriff") und entprellen wie
+      #    die alte Opti-2.0-Automatik mit 30 s beidseitig; dazu ein
+      #    Hysterese-Band gegen Pendeln am Grenzwert. Quellen unavailable
+      #    -> off (fail-safe: im Zweifel keine Lade-Freigabe).
+      #    Policy-Gates (Toggle, Tag, SoC < 100) bleiben bewusst in
+      #    Strategie/Vorschau - hier steht nur das physikalische Signal.
+      # -----------------------------------------------------------------------
+      - unique_id: opti_ueberschuss_70_aktiv
+        name: "Opti Ueberschuss 70 Aktiv"
+        icon: mdi:transmission-tower-export
+        delay_on:
+          seconds: 30
+        delay_off:
+          seconds: 30
+        state: >
+          {% set ok = has_value('sensor.opti_grid_export_w')
+                      and has_value('sensor.opti_battery_power_w') %}
+          {% set export_ohne_akku = [0, states('sensor.opti_grid_export_w')|float(0)
+                                        + states('sensor.opti_battery_power_w')|float(0)] | max %}
+          {% set ein = states('input_number.akkusteuerung_wr_70proz_ueberschuss_grenze')|float(999999) %}
+          {% set aus = ein - 1000 %}
+          {% set war_an = this is defined and this.state == 'on' %}
+          {{ ok and (export_ohne_akku > ein
+                     or (export_ohne_akku >= aus and war_an)) }}
+        attributes:
+          export_ohne_akku_w: >
+            {{ [0, states('sensor.opti_grid_export_w')|float(0)
+                   + states('sensor.opti_battery_power_w')|float(0)] | max | round(0) }}
+          grenze_ein_w: "{{ states('input_number.akkusteuerung_wr_70proz_ueberschuss_grenze') }}"
+          hysterese_w: 1000
+
+      - unique_id: opti_ueberschuss_ac_aktiv
+        name: "Opti Ueberschuss AC Aktiv"
+        icon: mdi:sine-wave
+        delay_on:
+          seconds: 30
+        delay_off:
+          seconds: 30
+        state: >
+          {% set ok = has_value('sensor.opti_pv_power_w')
+                      and has_value('sensor.opti_battery_power_w') %}
+          {% set ac_ohne_akku = [0, states('sensor.opti_pv_power_w')|float(0)
+                                    + states('sensor.opti_battery_power_w')|float(0)] | max %}
+          {% set ein = states('input_number.akkusteuerung_wr_ac_ueberschuss_grenze')|float(999999) %}
+          {% set aus = ein - 300 %}
+          {% set war_an = this is defined and this.state == 'on' %}
+          {{ ok and (ac_ohne_akku > ein
+                     or (ac_ohne_akku >= aus and war_an)) }}
+        attributes:
+          ac_ohne_akku_w: >
+            {{ [0, states('sensor.opti_pv_power_w')|float(0)
+                   + states('sensor.opti_battery_power_w')|float(0)] | max | round(0) }}
+          grenze_ein_w: "{{ states('input_number.akkusteuerung_wr_ac_ueberschuss_grenze') }}"
+          hysterese_w: 300
+
   - sensor:
 
       # -----------------------------------------------------------------------
@@ -513,10 +575,6 @@ template:
           {% set win = states('binary_sensor.opti_winter_charging_allowed') != 'off' %}
           {% set hv_s = has_value('sensor.opti_forecast_score') %}
           {% set hv_st = has_value('sensor.opti_forecast_score_tomorrow') %}
-          {% set grid = states('sensor.opti_grid_export_w')|float(0) %}
-          {% set pv = states('sensor.opti_pv_power_w')|float(0) %}
-          {% set g70 = states('input_number.akkusteuerung_wr_70proz_ueberschuss_grenze')|float(999999) %}
-          {% set gac = states('input_number.akkusteuerung_wr_ac_ueberschuss_grenze')|float(999999) %}
           {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %}
           {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %}
           {% set p_c = price in ['VERY_CHEAP','CHEAP'] %}
@@ -546,8 +604,8 @@ template:
           {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}Akku nur Laden
-          {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}Akku Dynamisch
-          {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}Akku Dynamisch
+          {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}Akku Dynamisch
+          {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}Akku Dynamisch
           {%- elif soc > 99 %}Akku Dynamisch
           {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Akku nur Laden
           {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Akku nur Laden
@@ -569,10 +627,6 @@ template:
             {% set win = states('binary_sensor.opti_winter_charging_allowed') != 'off' %}
             {% set hv_s = has_value('sensor.opti_forecast_score') %}
             {% set hv_st = has_value('sensor.opti_forecast_score_tomorrow') %}
-            {% set grid = states('sensor.opti_grid_export_w')|float(0) %}
-            {% set pv = states('sensor.opti_pv_power_w')|float(0) %}
-            {% set g70 = states('input_number.akkusteuerung_wr_70proz_ueberschuss_grenze')|float(999999) %}
-            {% set gac = states('input_number.akkusteuerung_wr_ac_ueberschuss_grenze')|float(999999) %}
             {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %}
             {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %}
             {% set p_c = price in ['VERY_CHEAP','CHEAP'] %}
@@ -602,8 +656,8 @@ template:
             {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus
             {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}SOC<15 Notfall
             {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}SOC<45 sehr guenstig
-            {%- elif ueb and has_value('sensor.opti_grid_export_w') and day and grid > g70 and soc < 100 %}70% Ueberschuss (tag)
-            {%- elif ueb and has_value('sensor.opti_pv_power_w') and day and pv > gac and soc < 100 %}AC Ueberschuss (tag)
+            {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}70% Ueberschuss (tag, entprellt)
+            {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}AC Ueberschuss (tag, entprellt)
             {%- elif soc > 99 %}Akku voll
             {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%, Spread {{(ve_avg - cur)|round(1)}}ct)
             {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%)

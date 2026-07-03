@@ -354,7 +354,7 @@ du beeinflusst sie ausschließlich über dein Mapping und die Helfer-Werte.
 |---|---|---|---|
 | **Nacht / Reserve halten (Entladesperre)** | `opti_forecast_score` ≤ 2, SoC < 30 %, `opti_price_level` CHEAP | **Akku nur Laden** | Gate `input_boolean.opti_prognose_netzladen` muss `on` sein |
 | **Nacht / kein Ladegrund** | Score ≤ 2, SoC > 60 %, Preis EXPENSIVE | **Akku Dynamisch** (Default) | Kein Ladeblock greift → Default-Pfad |
-| **Sonne / PV-Überschuss** | `opti_grid_export_w` > 70%-Grenze, SoC < 100 % | **Akku Dynamisch** | Gate `input_boolean.opti_pv_ueberschuss_ladung` muss `on` sein |
+| **Sonne / PV-Überschuss** | `binary_sensor.opti_ueberschuss_70_aktiv` = on (Export + Batterieleistung > 70%-Grenze, 30 s entprellt, 1 kW Hysterese), SoC < 100 % | **Akku Dynamisch** | Gate `input_boolean.opti_pv_ueberschuss_ladung` muss `on` sein |
 | **Tagsüber unter Ziel-SoC** | SoC < `opti_target_soc` **− 3 %**, nach Sonnenaufgang | **Akku Dynamisch** | Option „Dynamisch laden wenn SOC < ZielSoC"; das ±3 %-Band verhindert Modus-Pendeln direkt an der Ziel-Kante — siehe [strategie-logik.md](strategie-logik.md#der-intelligente-ziel-soc--herzstück-der-akkuschonung) |
 | **Entladen über Ziel-SoC** | SoC > `opti_target_soc` **+ 3 %** | **Akku nur Entladen** | Option „Nur Entladen wenn SOC > DynZielSoC" |
 | **MinSOC-Schutz** | SoC < `input_number.minsoc` | **Akku nur Laden** | Höchste Priorität, überstimmt alle anderen Blöcke |
@@ -378,7 +378,7 @@ hat. Bereits durchgeführte Dashboard-Swaps (sicher, geprüft):
 | Alt (`sma_templates.yaml`) | Neu (`opti_derived.yaml`) | Status |
 |---|---|---|
 | `sensor.akkusteuerung_dynamische_ladestaerke` | `sensor.opti_charge_power_w` | Swap OK — SoC-/Temp-Staffelung 1:1 übernommen, nur die Tages-Güte-Klassifikation wurde bewusst von 5 Text-Kategorien auf 3 Score-Bänder umgebaut (nicht byte-identisch bei jedem Prognosewert, aber gleiche Kennlinie) |
-| `sensor.ueberschuss_pv_watt` | `sensor.opti_grid_export_w` | Swap OK — strukturell identische Formel (`max(0, Netzeinspeisung)`) |
+| `sensor.ueberschuss_pv_watt` | `binary_sensor.opti_ueberschuss_70_aktiv` | Nachkorrektur 2026-07-03: der erste Swap auf `opti_grid_export_w` war eine Regression. Das Alt-Signal war PV minus Haus (akkuunabhängig), der Export ist über den Akku rückgekoppelt (Laden drückt Export unter die Grenze -> Modus-Flattern, live beobachtet). Jetzt: Export + Batterieleistung (= Export ohne Akku-Eingriff) + 30-s-Entprellung + Hysterese im Binärsensor |
 | `sensor.pv_forecast_bewertung_heute` | `sensor.opti_forecast_score` | Swap vertretbar — andere Formel (PV-Fit statt Kapazitäts-Multiples), aber `opti_forecast_score` ist der Sensor, den die Strategie tatsächlich konsumiert |
 | `sensor.akku_net_verfugbare_energie` | Attribut `net_available_kwh` von `sensor.opti_target_soc` | Swap OK — Formel äquivalent |
 

@@ -307,28 +307,23 @@ Dieses Projekt lebt von der Community. Besonderer Dank geht an:
 
 | Datum | Was |
 |---|---|
-| Sep 2025 | Neue Modbus-Adressen für direkte Lade-/Entladeleistungssteuerung – Steuerlogik stark vereinfacht, dynamischer Ziel-SoC und Prognose-Bewertung |
-| Jul 2024 | Modbus-Direktsteuerung ohne Grid Guard Code mit aktuellem Firmware-Stand möglich |
+| Jul 2026 | Entlade-Peak-Allokation: berechneter Reserve-SoC, Peak-Leiter, Negativpreis- und Vorladeregel (neuer Adapter-Modus "Akku Netzladen"), Backtest gegen echte Winterdaten, Test-Harness fuer die Jinja-Templates, Viertelstunden-Preisraster |
+| Jun 2026 | Canonical-`opti_*`-Layer: Strategie hardware-agnostisch, prognosebasierter Ziel-SoC mit echter Schmitt-Hysterese, anbieter-agnostisches Preisniveau (Midrank-Perzentil), Vorschau-Sensor fuer Soll/Ist-Vergleich |
+| Sep 2025 | Neue Modbus-Adressen fuer direkte Lade-/Entladeleistungssteuerung - Steuerlogik stark vereinfacht, dynamischer Ziel-SoC und Prognose-Bewertung |
+| Jul 2024 | Modbus-Direktsteuerung ohne Grid Guard Code mit aktuellem Firmware-Stand moeglich |
 
 ---
 
 ## Roadmap
 
-**Code & Aufräumen**
-- [x] Doppelten deaktivierten `Akku nur Entladen`-Block in `sma-se-akku-steuerung.yaml` entfernen
-- [x] `sensor.ueberschuss_pv_watt` in Templates aufnehmen
-- [x] Akkukapazitäts-Fallback auf `sensor.sma_stp_se_40187_batterie_nennkapazitaet` – funktioniert jetzt automatisch für alle Akkugrößen
-- [x] Trigger auf `sensor.akkusteuerung_dynamische_ladestaerke` in Steuerungs-Automation ergänzt
-- [x] Forecast-abhängige C-Raten: schlechter Tag aggressiv laden, guter Tag schonend (3 Profile)
-- [x] Hysterese-Rounding (0,25-Schritte) für Ziel-SoC, verhindert Flattern an Stufengrenzen
+**Strategie**
+- [ ] Netzladen zu Off-Peak-Zeiten / Paragraf-14a-Fenster (pauschal guenstigere Nachtstunden)
+- [ ] Mindestentladepreis als echte Entlade-Bedingung nutzen (bisher nur informativ)
+- [ ] Akku im Winter mindestens 1x pro Woche automatisch auf 100 % laden (Zaehler `tage_seit_akku100` existiert schon)
+- [ ] Hysterese-Band fuer die PV-Ueberschuss-Grenzen (verhindert Modus-Wechsel im Sekundentakt bei Wolken an der Grenze)
+- [ ] `opti_peak_verbrauch_kw` statistisch aus der Verbrauchshistorie ableiten statt fix zu konfigurieren
+- [ ] Wirkleistungsbegrenzung bei negativen Strompreisen ueber Modbus (Register 41255) - experimentell, kein aktiver Support
 
-**Features**
-- [ ] Akku im Winter mindestens 1× pro Woche automatisch auf 100% laden
-- [ ] Ladegeschwindigkeit ab 95–98% auf 500 W begrenzen
-- [ ] Tibber-Preisladen finalisieren
-- [ ] Wirkleistungsbegrenzung bei negativen Strompreisen über Modbus (einstellbare Preisschwelle, Register 41255) – experimentell, kein aktiver Support
-
-**Weitere Geräte & Versionen**
-- [ ] SBS-Unterstützung (suche Tester → [Issue öffnen](https://github.com/Optic00/ha-opti-akkusteuerung/issues))
-- [ ] Blueprint-Version für einfachere Installation (in Arbeit)
+**Weitere Geraete & Versionen**
+- [ ] SBS-Unterstuetzung (suche Tester -> [Issue oeffnen](https://github.com/Optic00/ha-opti-akkusteuerung/issues))
 - [ ] English version?

@@ -104,7 +104,7 @@ Strategie  →  input_select.akkusteuerung_modus  →  [ ADAPTER-BLUEPRINT ]  �
 - Home Assistant mit **SMA-Integration** (für SoC, PV-Leistung, etc.)
 - **Solcast-Integration** für PV-Prognosen
 - Ein dynamischer Stromtarif mit stündlicher `today`/`tomorrow`-Preisliste (z. B. Tibber, Nordpool, EPEX)
-- **Home Assistant >= 2024.10** (die abgeleiteten Sensoren nutzen trigger-basierte Template-Sensoren mit `variables:`)
+- **Home Assistant 2025.1 oder neuer** (getestet mit 2026.6; technische Untergrenze ist 2024.10, weil die abgeleiteten Sensoren trigger-basierte Template-Sensoren mit `variables:` nutzen)
 - Aktuelle WR-Firmware – **kein Beta-Firmware und kein Grid Guard Code nötig**
 - Modbus TCP am WR erreichbar (Standard-Port 502)
 

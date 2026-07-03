@@ -230,7 +230,8 @@ Mit älteren Versionen werden Availability-Checks als `false` ausgewertet bzw. d
 trigger-basierten Sensoren laden gar nicht, und die betroffenen `opti_*`-Sensoren
 erscheinen als `unavailable`.
 
-**Empfehlung:** Aktuelle HA-Release-Version verwenden, mindestens 2024.10. Falls
+**Empfehlung:** Aktuelle HA-Release-Version verwenden, mindestens 2025.1 (getestet mit 2026.6).
+Falls
 `sensor.opti_soc` nach dem Einrichten auf `unavailable` bleibt, in den
 Entwicklerwerkzeugen → Template prüfen, ob `has_value('sensor.DEINE_QUELLE')` korrekt
 ausgewertet wird.

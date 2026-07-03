@@ -1,6 +1,6 @@
 # ha-opti-akkusteuerung
 
-Prognosebasierte & manuelle Akku-Ladesteuerung für den **SMA STP SE Hybrid-Wechselrichter** in Home Assistant – direkt über Modbus, ohne Grid Guard Code.
+Prognosebasierte Akku-Ladesteuerung für Home Assistant - die Strategie ist hardware-agnostisch (Canonical-`opti_*`-Layer), als Referenz-Adapter dient der **SMA STP SE Hybrid-Wechselrichter** (direkt über Modbus, ohne Grid Guard Code).
 
 > ⚠️ **Disclaimer:** Dieses Projekt wird nicht von SMA begleitet oder supportet. Nutzung auf eigene Gefahr. Kein persönlicher Support, aber die Community hilft gerne über [Issues](https://github.com/Optic00/ha-opti-akkusteuerung/issues).
 
@@ -36,7 +36,7 @@ Liest den Modus aus `input_select.akkusteuerung_modus` und steuert den WR via Mo
 Läuft als eigenständiger Blueprint-Adapter — Strategie und Hardware-Ansteuerung sind
 bewusst getrennt. Single-Writer-Regel: immer nur ein Adapter aktiv.
 
-**Canonical-Layer** (`opti_mapping.example.yaml` → `packages/opti_mapping.yaml`)
+**Canonical-Layer** (`opti_mapping.example.yaml` → `packages/opti_mapping.yaml`)  
 Bildet hardware-spezifische Entitäten (SMA, Huawei oder andere WR) auf 13 kanonische
 `sensor.opti_*`-Sensoren ab. Strategie und abgeleitete Sensoren konsumieren nur diese
 kanonischen Namen — keine Seriennummern im Code. → **[docs/canonical-layer.md](docs/canonical-layer.md)**
@@ -62,9 +62,11 @@ die Modbus-Konfiguration gebündelt mit.
 1. Modbus-Verbindung anlegen (Adapter-Repo, Schritt 1). Helfer NICHT hier anlegen, wenn du Schritt 2 nutzt — siehe Hinweis unten.
 2. Opti-Packages aktivieren + `opti_mapping.yaml` ausfüllen (Opti-Repo)
 3. Home Assistant neu starten — `sensor.opti_*` prüfen
-4. Adapter-Blueprint importieren, Inputs auf `sensor.opti_charge_power_w` /
-   `sensor.opti_target_soc` setzen (nicht ungeprüft die Blueprint-Vorschlagswerte
-   übernehmen, falls sie abweichen)
+4. Adapter-Blueprint importieren, Inputs prüfen: `dynamic_charge_strength_sensor` auf
+   `sensor.opti_charge_power_w` setzen, dazu `battery_capacity_sensor`,
+   `inverter_status_sensor` und `inverter_ok_states` auf deine echten Entitäten bzw.
+   Status-Codes (nicht ungeprüft die Blueprint-Vorschlagswerte übernehmen, falls sie
+   abweichen)
 5. Strategie-Automation (`automations/opti_strategie.yaml`) aktivieren
 
 > ⚠️ **Helfer nur aus einer Quelle:** Bei kombinierter Nutzung liefert
@@ -74,13 +76,23 @@ die Modbus-Konfiguration gebündelt mit.
 > Entity-IDs führen zu einem Duplicate-Key-Fehler im HA-Log. Nutzt du den Adapter
 > **ohne** das Opti-Repo (eigene Strategie), gilt die Adapter-Anleitung normal.
 
+> ⚠️ **Modbus-Hub nur aus einer Quelle:** Dieselbe Falle gilt für den Modbus-Hub selbst.
+> Wer Schritt 1 bereits im Adapter-Repo erledigt hat (eigener `modbus:`-Block in der
+> `configuration.yaml`), lässt `packages/sma_modbus.yaml` aus diesem Repo weg — zwei
+> `modbus:`-Blöcke mit demselben Hub-Namen führen zum selben Duplicate-Key-Fehler im
+> HA-Log.
+
+### Versions-Kompatibilität
+
+| Strategie-Feature | benötigter Adapter-Stand |
+|---|---|
+| Peak-Allokation / Modus „Akku Netzladen" | [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter) >= v1.5.0 |
+| Alle übrigen Modi (Automatisch, Dynamisch, Pause, nur Laden, nur Entladen, schnell Laden, schnell Entladen, 0.2C Laden) | [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter) >= v1.2.0 (Write-on-Change-Helfer) |
+
 ```
 Strategie  →  input_select.akkusteuerung_modus  →  [ ADAPTER-BLUEPRINT ]  →  Modbus-Register  →  WR
 (setzt Modus)        (+ input_number.* in W)              übersetzt
 ```
-
-> **Legacy-Flachdateien** (`old/`): Die alten Einzeldateien im Repo-Root wurden nach `old/`
-> verschoben und werden nicht mehr gepflegt. Der empfohlene Weg ist die Package-Struktur.
 
 ---
 
@@ -88,6 +100,8 @@ Strategie  →  input_select.akkusteuerung_modus  →  [ ADAPTER-BLUEPRINT ]  �
 
 - Home Assistant mit **SMA-Integration** (für SoC, PV-Leistung, etc.)
 - **Solcast-Integration** für PV-Prognosen
+- Ein dynamischer Stromtarif mit stündlicher `today`/`tomorrow`-Preisliste (z. B. Tibber, Nordpool, EPEX)
+- **Home Assistant 2025.1 oder neuer** (getestet mit 2026.6; technische Untergrenze ist 2024.10, weil die abgeleiteten Sensoren trigger-basierte Template-Sensoren mit `variables:` nutzen)
 - Aktuelle WR-Firmware – **kein Beta-Firmware und kein Grid Guard Code nötig**
 - Modbus TCP am WR erreichbar (Standard-Port 502)
 
@@ -111,15 +125,8 @@ Strategie  →  input_select.akkusteuerung_modus  →  [ ADAPTER-BLUEPRINT ]  �
 | `automations/opti_strategie.yaml` | Strategie-Automation (editierbar, kein Blueprint) |
 
 **Legacy (zur Referenz, nicht mehr empfohlen):**
-
-| Pfad | Beschreibung |
-|---|---|
-| `old/configuration.yaml` | Alte Modbus-Konfiguration (Flachdatei) |
-| `old/opti-automatik.yaml` | Alte Opti-Automatik |
-| `old/templates.yaml` | Alte Template-Sensoren |
-| `old/statistik.yaml` | Alte Statistik-Sensoren |
-| `old/sma-se-akku-steuerung.yaml` | Alte manuelle Steuerautomatik |
-| `old_legacy/` | Noch ältere Stände (Grid Guard Code Ära) — Archiv |
+Die alten Flachdateien liegen mit Dateiübersicht unter [`old/`](old/README.md).
+Noch ältere Stände aus der Grid-Guard-Code-Ära wurden entfernt und sind über die Git-Historie abrufbar.
 
 ---
 
@@ -166,9 +173,9 @@ Verzeichnis kopieren:
 | Datei | Inhalt |
 |---|---|
 | `opti_derived.yaml` | Abgeleitete Entscheidungs-Sensoren (Score, Ziel-SoC, Preisniveau, …) |
-| `sma_modbus.yaml` | Modbus-TCP-Verbindung zum WR (nur **IP** anpassen) |
+| `sma_modbus.yaml` | ⚠️ **nur falls nicht bereits über Adapter-Repo Schritt 1 angelegt** — Modbus-TCP-Verbindung zum WR (nur **IP** anpassen) |
 | `sma_helpers.yaml` | alle `input_select`/`input_number`/`input_boolean`/`counter` (Modus, Sollwerte, SoC-Grenzen …) |
-| `sma_templates.yaml` | Legacy-Template-Sensoren (nur noch teilweise gebraucht — siehe Hinweis oben in der Dateitabelle) |
+| `sma_templates.yaml` | **optional** — nur für Sollkurve-/Abregelungs-Anzeige (Legacy), enthält Platzhalter-Entity-IDs: ersetzen oder ganz weglassen |
 | `sma_statistik.yaml` | gleitende Mittelwerte (Verbrauch, Batterielast) |
 
 **4. Home Assistant neu starten** → Helfer, Templates, Statistik & Modbus sind da.
@@ -180,243 +187,70 @@ beim Anlegen der Automation die Eingaben auf deine Entitäten mappen
 (Modbus-Hub, WR-Status-Sensor, Modus-Select `input_select.akkusteuerung_modus`,
 dyn. Ladestärke `sensor.opti_charge_power_w`).
 
-**6. Strategie einspielen:** die Opti-Automatik (steuert *welcher Modus wann*) – siehe
-`automations/opti_strategie.yaml`. Sie ist bewusst **editierbar** (kein Blueprint), damit
-du sie an deine Anlage/Strategie anpassen kannst.
+**6. Strategie einspielen:** die Opti-Automatik (steuert *welcher Modus wann*) liegt in
+`automations/opti_strategie.yaml` — als Top-Level-Liste im Format von `automations.yaml`,
+**nicht** als fertiges Package. Sie ist bewusst **editierbar** (kein Blueprint), damit du
+sie an deine Anlage/Strategie anpassen kannst. Zwei Wege, sie einzuspielen:
 
-**7. Feinjustieren:** SoC-Grenzen, Lade-/Entladegrenzen, Prognose-Schwellen über die
-HA-Oberfläche (alle als Helfer vorhanden).
+- **(a) An `automations.yaml` anhängen** (einfachster Weg): den kompletten Inhalt von
+  `automations/opti_strategie.yaml` ans Ende deiner `automations.yaml` kopieren. HA
+  erkennt sie danach als normale Automation, editierbar über die UI.
+- **(b) Als eigenes Package speichern:** die Datei nach `packages/opti_strategie.yaml`
+  kopieren und mit dem Schlüssel `automation:` wrappen — dann lassen sich zusätzlich
+  Optionen wie `initial_state` ergänzen:
+
+  ```yaml
+  automation:
+    - id: "opti_canonical_strategie"
+      alias: "Akku Opti Strategie"
+      initial_state: true
+      # ... restlicher Inhalt aus automations/opti_strategie.yaml unverändert ...
+  ```
+
+**7. Einschalten:** die Strategie-Automation bleibt wirkungslos, solange ihr Master-Schalter
+aus ist — und frisch angelegte `input_boolean`-Helfer starten **aus** (kein `initial:`, siehe
+Warnung unten). Über die HA-Oberfläche auf **an** stellen:
+
+| Helfer | Wirkung |
+|---|---|
+| `input_boolean.akku_opti_automatik` | Master-Schalter — ohne „an" tut die gesamte Strategie-Automation nichts |
+| `input_boolean.opti_prognose_netzladen` | Gate für die prognosebasierten „Akku nur Laden"-Blöcke (Reserve halten bei schlechter PV-Prognose) |
+| `input_boolean.opti_pv_ueberschuss_ladung` | Gate für die PV-/AC-Überschussblöcke (Akku Dynamisch bei Einspeise-Überschuss) |
+
+**8. Erststart-Werte setzen:** `input_number`-Helfer ohne `initial:` starten beim
+allerersten Anlegen auf ihrem **Minimum** — bei `maxsoc` und den beiden
+Max-Ladestärke-Helfern ist das **0**, was jedes Laden/Entladen blockiert. Nach dem ersten
+Anlegen (Schritt 4, HA-Neustart) einmalig über die HA-Oberfläche setzen — danach übersteht
+der Wert jeden weiteren Neustart:
+
+| Helfer | Erststart-Wert (Minimum) | Empfohlener Startwert |
+|---|---|---|
+| `input_number.minsoc` | 0 % | 10 % |
+| `input_number.maxsoc` | 0 % | 95 % |
+| `input_number.akkusteuerung_max_ladestaerke` | 0 W | 3000 W |
+| `input_number.akkusteuerung_max_entladestaerke` | 0 W | 5000 W |
+| `input_number.akkusteuerung_ladestaerke_soll` | 100 W | 2000 W |
+| `input_number.akkusteuerung_entladestaerke_soll` | 100 W | 2000 W |
+| `input_number.akkusteuerung_min_ladestaerke` | 0 W | 0 W |
+| `input_number.akkusteuerung_min_entladestaerke` | 0 W | 0 W |
+| `input_number.opti_peak_verbrauch_kw` | 0.1 kW | 0.8 kW |
+| `input_number.opti_einspeiseverguetung_ct` | 0 ct/kWh | dein eigener EEG-Satz |
+| `input_number.opti_netzlade_spread_ct` | 0 ct/kWh | 10 ct/kWh |
+| `input_number.opti_peak_min_aufschlag_ct` | 0 ct/kWh | 5 ct/kWh |
+| `input_number.opti_halte_spread_ct` | 0 ct/kWh | 5 ct/kWh |
+
+**9. Feinjustieren:** SoC-Grenzen, Lade-/Entladegrenzen, Prognose-Schwellen über die
+HA-Oberfläche weiter an die eigene Anlage anpassen (alle als Helfer vorhanden).
 
 > ⚠️ **Single-Writer-Regel:** Nur **eine** Automation darf den WR via Modbus schreiben.
 > Wenn du den Adapter-Blueprint nutzt, keine zweite Steuer-Automatik gleichzeitig aktiv lassen.
 
 ---
 
-## Einrichtung (manuell – Flachdateien)
+## Legacy-Setup (Referenz)
 
-> Alternativer, manueller Weg mit den Legacy-Einzeldateien (jetzt unter `old/`). Für den
-> Nachbau empfehlen wir die Package-Variante oben; dieser Abschnitt bleibt nur als Referenz.
-
-### 1. Modbus-Verbindung (`configuration.yaml`)
-
-Den Inhalt der mitgelieferten `configuration.yaml` in deine eigene `configuration.yaml` eintragen, nur die IP-Adresse anpassen:
-
-```yaml
-modbus:
-  - name: sma-sr_wr
-    type: tcp
-    host: 192.168.x.x   # ← IP des Wechselrichters anpassen
-    port: 502
-    ...
-```
-
-> ⚠️ Den Temperatur-Sensor (`SMA-STP-SE_Temperatur`, Adresse 30953) unbedingt mit einbinden – er ist bereits in der mitgelieferten `configuration.yaml` enthalten. Ohne diesen Sensor startet die Modbus-Integration nicht zuverlässig.
-
----
-
-### 2. Eigene Sensoren anlegen
-
-Diese Sensoren müssen auf deine Entity-IDs angepasst werden (Seriennummer im Sensornamen ersetzen).
-
-**PV-Überschuss für Akkuladung** (berücksichtigt Wallbox, falls vorhanden):
-
-```yaml
-- unique_id: maximaler_ueberschuss_akkuladung
-  device_class: power
-  state_class: measurement
-  name: Maximaler Ueberschuss fuer Akkuladung Watt
-  unit_of_measurement: W
-  state: >
-    {{ (states('sensor.pv_generation_komplett_watt') | float)
-       - (states('sensor.home_energy_usage_watt') | float)
-       - (states('sensor.sn_3015XXXXX_battery_power_charge_total') | float)
-       + (states('sensor.sn_3015XXXXX_metering_power_absorbed') | float)
-       + (states('sensor.DEINE_WALLBOX_powernow') | float) }}
-```
-
-**PV-Überschuss für 70%-Kappungserkennung:**
-
-```yaml
-- unique_id: akkusteuerung_ueberschuss_pv
-  device_class: power
-  state_class: measurement
-  name: Ueberschuss PV Watt
-  unit_of_measurement: W
-  state: >
-    {{ (states('sensor.pv_generation_komplett_watt') | float(0))
-       - (states('sensor.home_energy_usage_watt') | float)
-       - (states('sensor.sn_3017XXXXXX_metering_power_absorbed') | float) }}
-```
-
-**Hausverbrauch:**
-
-```yaml
-- unique_id: home_energy_usage_w
-  device_class: power
-  state_class: measurement
-  name: Home Energy Usage Watt
-  unit_of_measurement: W
-  state: >
-    {{ (states('sensor.sn_3017XXXXXX_metering_power_absorbed') | float)
-       + (states('sensor.sn_3017XXXXXX_grid_power') | float)
-       - (states('sensor.sn_3017XXXXXX_metering_power_supplied') | float) }}
-```
-
-**Wirkungsgrad & Zyklen (optional):**
-
-```yaml
-- unique_id: byd_akku_wirkungsgrad_lade_entlade
-  name: BYD Akku Wirkungsgrad Ladung und Entladung
-  unit_of_measurement: "%"
-  state: >
-    {{ ((states('sensor.sn_3017XXXXXX_battery_discharge_total') | float)
-        / (states('sensor.sn_3017XXXXXX_battery_charge_total') | float) * 100)
-       | round(2) }}
-
-- unique_id: byd_akku_zyklen
-  name: BYD Akku Zyklen
-  unit_of_measurement: Zyklen
-  state: >
-    {{ (((states('sensor.sn_3017XXXXXX_battery_discharge_total') | float)
-         + (states('sensor.sn_3017XXXXXX_battery_charge_total') | float)) / 100
-        * (states('sensor.sn_3017XXXXXX_battery_capacity_total') | float)
-        / (2 * 10.2)) | round(1) }}
-```
-
-**Statistik-Sensor für Laufzeitberechnung** (`statistik.yaml`):
-
-```yaml
-- platform: statistics
-  name: "House Battery Load 30 mins"
-  entity_id: sensor.sn_3015XXXXX_battery_power_discharge_total
-  state_characteristic: mean
-  max_age:
-    minutes: 30
-```
-
----
-
-### 3. Input-Helfer anlegen
-
-Entweder manuell über die HA-Oberfläche oder per YAML. Alle Helfer auf einen Blick:
-
-| Helfer | Typ | Bereich | Beschreibung |
-|---|---|---|---|
-| `akkusteuerung_modus` | input_select | 8 Modi | Aktiver Steuermodus |
-| `akku_opti_automatik` | input_boolean | – | Opti-Automatik Ein/Aus |
-| `akkusteuerung_ladestaerke_soll` | input_number | 100–10000 W | Ladestärke (manuell) |
-| `akkusteuerung_entladestaerke_soll` | input_number | 100–10000 W | Entladestärke (manuell) |
-| `akkusteuerung_min_ladestaerke` | input_number | 0–2000 W | Minimale Ladestärke |
-| `akkusteuerung_max_ladestaerke` | input_number | 0–10000 W | Maximale Ladestärke |
-| `akkusteuerung_min_entladestaerke` | input_number | 0–2000 W | Minimale Entladestärke |
-| `akkusteuerung_max_entladestaerke` | input_number | 0–10000 W | Maximale Entladestärke |
-| `akkusteuerung_wr_ac_ueberschuss_grenze` | input_number | 0–15000 W | WR AC-Nennleistung (z.B. 9900 bei 10kW-Anlage) |
-| `akkusteuerung_wr_70proz_ueberschuss_grenze` | input_number | 0–15000 W | 70%-Kappungsgrenze (z.B. 6800 bei 10kW) |
-| `minsoc` | input_number | 0–100 % | Minimaler SoC |
-| `maxsoc` | input_number | 0–100 % | Maximaler SoC |
-
-> 💡 **Nur manuelle Steuerung gewünscht?** Dann reichen `akkusteuerung_modus` + die Ladehelfer + die Sensor-Definitionen.
-
----
-
-### 4. Dashboard-Karte
-
-```yaml
-type: vertical-stack
-cards:
-  - type: custom:mushroom-title-card
-    title: Akkusteuerung SMA STP-SE
-  - type: custom:mushroom-chips-card
-    chips:
-      - type: conditional
-        conditions:
-          - condition: numeric_state
-            entity: sensor.sn_301XXXXXXX_battery_power_discharge_total
-            above: 0.001
-        chip:
-          type: template
-          entity: sensor.sn_301XXXXXXX_battery_power_discharge_total
-          content: "{{ (states(entity) | float / 1000) | round(2) }} kW"
-          icon: mdi:battery-minus
-          icon_color: red
-      - type: conditional
-        conditions:
-          - condition: numeric_state
-            entity: sensor.sn_301XXXXXXX_battery_power_charge_total
-            above: 0.001
-        chip:
-          type: entity
-          entity: sensor.sn_301XXXXXXX_battery_power_charge_total
-          icon: mdi:battery-positive
-          icon_color: green
-      - type: entity
-        entity: sensor.sn_301XXXXXXX_battery_soc_total
-        icon_color: blue
-      - type: template
-        entity: sensor.byd_12_8_akku_wirkungsgrad_ladung_und_entladung
-        content: "{{ states(entity) | round(1) }}% η"
-        icon: mdi:vector-difference
-        icon_color: orange
-      - type: template
-        entity: sensor.byd_12_8_akku_zyklen
-        content: "{{ states(entity) }}"
-        icon: mdi:counter
-        icon_color: yellow
-      - type: entity
-        entity: sensor.sn_301XXXXXXX_battery_temp_a
-      - type: entity
-        entity: sensor.sma_stp_se_temperatur
-  - type: entities
-    entities:
-      - entity: sensor.akkusteuerung_dynamische_ladestaerke
-      - entity: sensor.pv_forecast_bewertung_heute
-      - entity: sensor.pv_forecast_bewertung_morgen
-      - entity: sensor.house_battery_runtime_raw
-  - type: custom:mushroom-select-card
-    entity: input_select.akkusteuerung_modus
-    name: Akkusteuerung
-    primary_info: name
-    secondary_info: last-changed
-  - type: tile
-    entity: input_boolean.akku_opti_automatik
-  - type: tile
-    entity: input_boolean.akku_nach_preis_laden
-  - type: horizontal-stack
-    cards:
-      - type: tile
-        entity: sensor.sn_301XXXXXXX_battery_discharge_total
-        name: Entladen Watt
-      - type: tile
-        entity: sensor.sn_301XXXXXXX_battery_charge_total
-        name: Laden Watt
-  - type: entities
-    entities:
-      - entity: input_number.akkusteuerung_ladestaerke_soll
-      - entity: input_number.akkusteuerung_entladestaerke_soll
-        name: Entladestärke
-      - entity: input_number.akkusteuerung_wr_ac_ueberschuss_grenze
-        name: WR AC-Grenze
-      - entity: input_number.akkusteuerung_wr_70proz_ueberschuss_grenze
-        name: 70% Grenze
-      - entity: input_number.akkusteuerung_max_ladestaerke
-        name: Akku max Ladestärke
-      - entity: input_number.akkusteuerung_min_ladestaerke
-        name: Akku min Ladestärke
-      - entity: input_number.akkusteuerung_max_entladestaerke
-        name: Akku max Entladestärke
-      - entity: input_number.akkusteuerung_min_entladestaerke
-        name: Akku min Entladestärke
-      - entity: input_number.minsoc
-      - entity: input_number.maxsoc
-  - type: heading
-    heading: Debugging
-    heading_style: title
-  - type: entities
-    entities:
-      - entity: sensor.akku_target_soc_intelligent
-      - entity: sensor.akku_net_verfugbare_energie
-      - entity: sensor.verbleibende_sonnenstunden
-```
+Der frühere manuelle Weg mit Flachdateien (Modbus-Config, Sensoren, Helfer-Tabelle, Dashboard-Karte) ist umgezogen nach [`old/README.md`](old/README.md).
+Empfohlen bleibt die Package-Struktur oben.
 
 ---
 
@@ -424,9 +258,11 @@ cards:
 > `akku_target_soc_intelligent`)? Erklärung und Alt↔Neu-Mapping:
 > **[old/README.md#konzepte-legacy-namen](old/README.md#konzepte-legacy-namen-oldtemplatesyaml)**
 
-### Modbus-Register Referenz
+---
 
-Alle bekannten Registeradressen mit Wertebeschreibungen: → **[docs/modbus-register-referenz.md](docs/modbus-register-referenz.md)**
+## Modbus-Register Referenz
+
+Alle bekannten Registeradressen mit Wertebeschreibungen werden kanonisch im Adapter-Repo gepflegt: → **[ha-modbus-akku-adapter/docs/modbus-register-referenz.md](https://github.com/Optic00/ha-modbus-akku-adapter/blob/main/docs/modbus-register-referenz.md)**
 
 > ⚠️ Inoffizielle Community-Sammlung, keine Gewähr, Nutzung auf eigene Gefahr.
 
@@ -463,28 +299,23 @@ Dieses Projekt lebt von der Community. Besonderer Dank geht an:
 
 | Datum | Was |
 |---|---|
-| Sep 2025 | Neue Modbus-Adressen für direkte Lade-/Entladeleistungssteuerung – Steuerlogik stark vereinfacht, dynamischer Ziel-SoC und Prognose-Bewertung |
+| Jul 2026 | Entlade-Peak-Allokation: berechneter Reserve-SoC, Peak-Leiter, Negativpreis- und Vorladeregel (neuer Adapter-Modus "Akku Netzladen"), Backtest gegen echte Winterdaten, Test-Harness für die Jinja-Templates, Viertelstunden-Preisraster |
+| Jun 2026 | Canonical-`opti_*`-Layer: Strategie hardware-agnostisch, prognosebasierter Ziel-SoC mit echter Schmitt-Hysterese, anbieter-agnostisches Preisniveau (Midrank-Perzentil), Vorschau-Sensor für Soll/Ist-Vergleich |
+| Sep 2025 | Neue Modbus-Adressen für direkte Lade-/Entladeleistungssteuerung - Steuerlogik stark vereinfacht, dynamischer Ziel-SoC und Prognose-Bewertung |
 | Jul 2024 | Modbus-Direktsteuerung ohne Grid Guard Code mit aktuellem Firmware-Stand möglich |
 
 ---
 
 ## Roadmap
 
-**Code & Aufräumen**
-- [x] Doppelten deaktivierten `Akku nur Entladen`-Block in `sma-se-akku-steuerung.yaml` entfernen
-- [x] `sensor.ueberschuss_pv_watt` in Templates aufnehmen
-- [x] Akkukapazitäts-Fallback auf `sensor.sma_stp_se_40187_batterie_nennkapazitaet` – funktioniert jetzt automatisch für alle Akkugrößen
-- [x] Trigger auf `sensor.akkusteuerung_dynamische_ladestaerke` in Steuerungs-Automation ergänzt
-- [x] Forecast-abhängige C-Raten: schlechter Tag aggressiv laden, guter Tag schonend (3 Profile)
-- [x] Hysterese-Rounding (0,25-Schritte) für Ziel-SoC, verhindert Flattern an Stufengrenzen
-
-**Features**
-- [ ] Akku im Winter mindestens 1× pro Woche automatisch auf 100% laden
-- [ ] Ladegeschwindigkeit ab 95–98% auf 500 W begrenzen
-- [ ] Tibber-Preisladen finalisieren
-- [ ] Wirkleistungsbegrenzung bei negativen Strompreisen über Modbus (einstellbare Preisschwelle, Register 41255) – experimentell, kein aktiver Support
+**Strategie**
+- [ ] Netzladen zu Off-Peak-Zeiten / Paragraf-14a-Fenster (pauschal günstigere Nachtstunden)
+- [ ] Mindestentladepreis als echte Entlade-Bedingung nutzen (bisher nur informativ)
+- [ ] Akku im Winter mindestens 1x pro Woche automatisch auf 100 % laden (Zähler `tage_seit_akku100` existiert schon)
+- [ ] Hysterese-Band für die PV-Überschuss-Grenzen (verhindert Modus-Wechsel im Sekundentakt bei Wolken an der Grenze)
+- [ ] `opti_peak_verbrauch_kw` statistisch aus der Verbrauchshistorie ableiten statt fix zu konfigurieren
+- [ ] Wirkleistungsbegrenzung bei negativen Strompreisen über Modbus (Register 41255) - experimentell, kein aktiver Support
 
 **Weitere Geräte & Versionen**
-- [ ] SBS-Unterstützung (suche Tester → [Issue öffnen](https://github.com/Optic00/ha-opti-akkusteuerung/issues))
-- [ ] Blueprint-Version für einfachere Installation (in Arbeit)
+- [ ] SBS-Unterstützung (suche Tester -> [Issue öffnen](https://github.com/Optic00/ha-opti-akkusteuerung/issues))
 - [ ] English version?

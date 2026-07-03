@@ -5,10 +5,15 @@
 # Diese Datei muss einmalig eingebunden werden – danach werden alle nötigen
 # Entitäten automatisch in HA angelegt.
 #
-# ⚙️  Nichts anpassen – die Standardwerte sind ein guter Ausgangspunkt.
-#     Werte später über die HA-Oberfläche feinjustieren.
+# ⚙️  WICHTIG: Diese Helfer haben bewusst KEIN `initial:` (siehe Hinweis unten) -
+#     ohne `initial:` starten frisch angelegte input_number auf ihrem Minimum,
+#     z.B. maxsoc = 0%, akkusteuerung_max_ladestaerke = 0 W. Nach dem ersten
+#     Anlegen daher einmalig die Erststart-Werte aus der Tabelle im README
+#     (Abschnitt "Schnell-Nachbau über Packages") über die HA-Oberfläche setzen.
 # Hinweis: `initial` greift NUR beim allerersten Anlegen eines Helfers.
 #     Danach restauriert HA bei jedem Neustart den zuletzt gespeicherten Wert.
+#     Genau deshalb wurde `initial:` hier bewusst NICHT gesetzt (PR #21) - sonst
+#     würde HA bei jedem Neustart die eigenen, per Hand gesetzten Werte verwerfen.
 # =============================================================================
 
 input_select:
@@ -194,7 +199,9 @@ input_number:
     # Empfohlener Startwert aus dem Winter-Backtest-Sweep (2026-07-02): 5.
     # (Sweep 0/5/10/15: 5 ist der guenstigste Wert, der die VE-Abdeckungs-
     # Vorgabe >= 31.2% haelt; ab 10 faellt die Abdeckung unter die Vorgabe.)
-    # Solange der Helfer nicht manuell gesetzt ist, gilt der Template-Fallback von 10 ct, nicht der empfohlene Startwert 5.
+    # Der Template-Fallback von 10 ct (opti_derived.yaml) greift NUR, wenn dieser
+    # Helfer gar nicht existiert. Ist er einmal angelegt, gewinnt sein Wert immer -
+    # auch der Erststart-Wert 0. Nach dem Anlegen aktiv auf 5 setzen.
     min: 0
     max: 100
     step: 0.5
@@ -211,7 +218,9 @@ input_number:
     # Empfohlener Startwert aus dem Winter-Backtest-Sweep (2026-07-02): 5.
     # (Sweep 0/3/5 bei aufschlag 5: 5 war die guenstigste Variante bei
     # praktisch gleicher VE-Abdeckung.)
-    # Solange der Helfer nicht manuell gesetzt ist, gilt der Template-Fallback von 3 ct, nicht der empfohlene Startwert 5.
+    # Der Template-Fallback von 3 ct (opti_derived.yaml) greift NUR, wenn dieser
+    # Helfer gar nicht existiert. Ist er einmal angelegt, gewinnt sein Wert immer -
+    # auch der Erststart-Wert 0. Nach dem Anlegen aktiv auf 5 setzen.
     min: 0
     max: 50
     step: 0.5

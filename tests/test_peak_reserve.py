@@ -113,12 +113,46 @@ def test_exp_stunden_gehen_in_gesamt_nicht_ve():
     assert peak["ges_soc"] >= peak["ve_soc"]
 
 
-def test_viertelstunden_raster_ungueltig():
-    # 96 Werte (15-min-Raster statt Stunden-Raster): Stundenzuordnung per Index
-    # waere falsch -> gesamte Preisbasis wird verworfen.
-    today = [50.0] * 96
+def test_viertelstunden_raster_gueltig():
+    # 96 Werte (15-min-Raster): slot_h = 24/96 = 0.25 h. 12 teure Slots
+    # (19:00-22:00, je 200 ct) inmitten eines flachen 50-ct-Tages -> 3 h VE.
+    today = [50.0] * 76 + [200.0] * 12 + [50.0] * 8
+    peak = _peak(_hass(today, [50.0] * 24))
+    assert peak["gueltig"] is True
+    assert peak["benoetigt_kwh"] == 3.0
+    assert peak["ve_stunden"] == 3.0
+
+
+def test_gemischtes_raster():
+    # today im Stundenraster (24, flach -> 0 VE-Stunden), tomorrow im
+    # Viertelstundenraster (96, mit 12-Slot-Spitze -> 3 VE-Stunden):
+    # unterschiedliche slot_h pro Liste, beide muessen korrekt gezaehlt werden.
+    today = [50.0] * 24
+    tomorrow = [50.0] * 76 + [200.0] * 12 + [50.0] * 8
+    peak = _peak(_hass(today, tomorrow, score_morgen="1"))
+    assert peak["gueltig"] is True
+    assert peak["ve_stunden"] == 3.0
+    assert peak["benoetigt_kwh"] == 3.0
+
+
+def test_unplausible_laenge_ungueltig():
+    # 40 Werte passen weder ins Stundenraster (20-27) noch ins
+    # Viertelstundenraster (80-108) -> komplette Preisbasis wird verworfen.
+    today = [50.0] * 40
     peak = _peak(_hass(today, [50.0] * 24))
     assert peak["gueltig"] is False
+
+
+def test_dst_grenzfall_92_und_100_gueltig():
+    # DST-Tage koennen 92 (Fruehjahr, -1h) oder 100 (Herbst, +1h) Viertelstunden
+    # haben statt 96 - beide Grenzfaelle bleiben gueltig (Bereich 80-108).
+    today_92 = [50.0] * 92
+    peak_92 = _peak(_hass(today_92, [50.0] * 24))
+    assert peak_92["gueltig"] is True
+
+    today_100 = [50.0] * 100
+    peak_100 = _peak(_hass(today_100, [50.0] * 24))
+    assert peak_100["gueltig"] is True
 
 
 def test_laufende_peak_stunde_zaehlt():

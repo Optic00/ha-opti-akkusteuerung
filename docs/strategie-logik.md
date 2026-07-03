@@ -304,8 +304,12 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
 
 - **< 4 Preise gesamt** (`today` + `tomorrow`): `sensor.opti_peak_reserve_soc` wird `unavailable`, `binary_sensor.opti_peak_reserve_aktiv` fällt auf `off` - die komplette Leiter (L1-L4) ist inaktiv.
   Das ist **bewusst anders** als der NORMAL-Fallback von `sensor.opti_price_level` bei derselben Datenlage: eine Reserve von 0 % sähe wie „keine Peaks in Sicht" aus und würde die Leiter fälschlich freigeben, statt sie einfach abzuschalten.
-- **DST-Limitation:** Die Preislisten liefern keine Zeitstempel, die Stundenzuordnung erfolgt über den Listenindex ab Mitternacht.
-  An Tagen mit Zeitumstellung kann diese Zuordnung um eine Stunde verrutschen - akzeptiertes, bekanntes Verhalten.
+- **Raster-Erkennung:** Die Preislisten liefern keine Zeitstempel.
+  Die Slot-Länge (`slot_h`) wird pro Liste (`today`/`tomorrow` getrennt) aus der Listenlänge abgeleitet: 24 geteilt durch die Anzahl der Einträge.
+  Unterstützt werden Stundenraster (Listenlänge 20-27, inklusive Zeitumstellungstage) und Viertelstundenraster (Listenlänge 80-108, inklusive Zeitumstellungstage) - seit der Tibber-Umstellung auf 15-Minuten-Day-Ahead-Preise (Juli 2026) liefert `sensor.opti_price_series` 96 Werte pro Tag statt 24.
+  Jede andere Listenlänge macht die komplette Preisbasis `gueltig=false`.
+  An Tagen mit Zeitumstellung ist `slot_h` (z. B. 24/92 oder 24/100 bei Viertelstunden) leicht ungenau - akzeptiertes, bekanntes Verhalten.
+  Das Fenster beginnt weiterhin an der aktuellen vollen Stunde (nicht am aktuellen Slot): bei Viertelstundenraster zählen dadurch bis zu drei bereits vergangene Slots der laufenden Stunde konservativ mit.
 
 ### Wechselwirkung mit den alten Ladeblöcken
 

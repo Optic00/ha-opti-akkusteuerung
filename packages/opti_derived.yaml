@@ -630,8 +630,15 @@ template:
   #    Fail-safe: < 4 Preise -> Sensor unavailable (BEWUSST anders als der
   #    NORMAL-Fallback von opti_price_level: Reserve 0 saehe aus wie "keine
   #    Peaks" und wuerde die Leiter falsch scharf schalten).
-  #    Bekannte Grenze: Preislisten ohne Zeitstempel, Stundenzuordnung per Index
-  #    (DST-Tage koennen 1 h verrutschen - akzeptiert).
+  #    Raster: today/tomorrow werden ueber die Listenlaenge erkannt (Stunden-
+  #    ODER Viertelstundenraster, siehe Tibber-15-min-Umstellung 07/2026);
+  #    slot_h wird PRO LISTE separat abgeleitet, da today/tomorrow in
+  #    Uebergangsphasen unterschiedliche Raster haben koennen. Bekannte
+  #    Grenze: Preislisten ohne Zeitstempel, Zuordnung per Index
+  #    (DST-Tage koennen slot_h leicht ungenau machen - akzeptiert).
+  #    Fensterstart bleibt die aktuelle volle STUNDE (nicht der aktuelle
+  #    Slot): bei Viertelstundenraster zaehlen dadurch bis zu 3 bereits
+  #    vergangene Slots der laufenden Stunde konservativ mit.
   # ---------------------------------------------------------------------------
   - triggers:
       - trigger: homeassistant
@@ -656,22 +663,34 @@ template:
         {% set max_soc = states('input_number.maxsoc') | float(95) %}
         {% set aufschlag = states('input_number.opti_peak_min_aufschlag_ct') | float(10) %}
         {% set eta = 0.9 %}
-        {# 1. Preisbasis + Zukunftsstunden einsammeln (Stundenindex -> Zeitpunkt).
-           Raster-Guard: Listen > 25 Eintraege (15-min-Raster o.ae.) -> ungueltig;
-           die Stundenzuordnung via Index setzt Stundenraster voraus. #}
+        {# 1. Preisbasis + Zukunftszeitpunkte einsammeln (Slot-Index -> Zeitpunkt).
+           slot_h wird PRO LISTE aus der Listenlaenge abgeleitet (24 / Laenge):
+           Stundenraster -> slot_h=1.0, Viertelstundenraster -> slot_h=0.25.
+           today/tomorrow koennen unterschiedliche Raster haben (z.B. waehrend
+           der Tibber-Umstellung auf 15-min-Day-Ahead-Preise).
+           Raster-Guard: nur Laengen 20-27 (Stundenraster inkl. DST) oder
+           80-108 (Viertelstundenraster inkl. DST) sind gueltig; jede andere
+           nicht-leere Laenge verwirft die GESAMTE Preisbasis (raster_ok=false).
+           Eine leere Liste (today/tomorrow fehlt) ist erlaubt und traegt
+           einfach nichts bei. Bei DST-Tagen ist slot_h leicht ungenau
+           (24/92 bzw. 24/100) - akzeptiert. #}
         {% set ns = namespace(prices=[], future=[], raster_ok=true) %}
         {% set heute = today_at('00:00') %}
         {% for key in ['today', 'tomorrow'] %}
           {% set arr = state_attr('sensor.opti_price_series', key) %}
-          {% if arr is iterable and arr is not string %}
-            {% if arr | length > 25 %}{% set ns.raster_ok = false %}{% endif %}
+          {% if arr is iterable and arr is not string and arr | length > 0 %}
+            {% set laenge = arr | length %}
+            {% if not ((20 <= laenge <= 27) or (80 <= laenge <= 108)) %}
+              {% set ns.raster_ok = false %}
+            {% endif %}
+            {% set slot_h = 24 / laenge %}
             {% set base = heute if key == 'today' else heute + timedelta(days=1) %}
             {% for it in arr %}
               {% if it is mapping %}{% set p = it.get('total', it.get('price', it.get('value'))) %}{% else %}{% set p = it %}{% endif %}
               {% set p = p | float(none) %}
               {% if p is not none %}
                 {% set ns.prices = ns.prices + [p] %}
-                {% set ns.future = ns.future + [[base + timedelta(hours=loop.index0), p]] %}
+                {% set ns.future = ns.future + [[base + timedelta(hours=loop.index0 * slot_h), p, slot_h]] %}
               {% endif %}
             {% endfor %}
           {% endif %}
@@ -714,35 +733,42 @@ template:
           {% endfor %}
         {% endif %}
         {% set fenster_min = fw.min %}
-        {# 3b. Zweiter Durchlauf: Zukunftsstunden im Horizont klassifizieren
+        {# 3b. Zweiter Durchlauf: Zukunftsslots im Horizont klassifizieren
            (Midrank-Perzentil, Grenzen unveraendert) UND zusaetzlich oekonomisch
            filtern (p >= fenster_min + aufschlag). Fenster ab der aktuellen
-           vollen Stunde: die laufende Peak-Stunde zaehlt mit, damit das Gate
+           vollen Stunde: die laufenden Peak-Slots zaehlen mit, damit das Gate
            waehrend der Spitze nicht abfaellt (laufende Stunde konservativ voll
-           gerechnet). min_preis_vor_peak_ct bezieht sich weiterhin auf die
-           erste GEZAEHLTE (also gefilterte) Peak-Stunde. #}
-        {% set f = namespace(ve=0, exp=0, minpre=none, summe=0.0, anz=0, peak_gesehen=false, ve_summe=0.0, ve_anz=0) %}
+           gerechnet - bei Viertelstundenraster zaehlen dadurch bis zu 3 bereits
+           vergangene Slots der laufenden Stunde mit). min_preis_vor_peak_ct
+           bezieht sich weiterhin auf die erste GEZAEHLTE (also gefilterte)
+           Peak-Stunde. f.ve/f.exp summieren STUNDEN (slot_h je Slot), nicht
+           Slot-Anzahlen, da today/tomorrow unterschiedliche slot_h haben
+           koennen - deshalb Namespace-Summe statt Zaehler * Konstante. #}
+        {% set f = namespace(ve=0.0, exp=0.0, minpre=none, summe=0.0, anz=0, peak_gesehen=false, ve_summe=0.0, ve_anz=0) %}
         {% if n >= 4 %}
           {% for eintrag in ns.future %}
             {% set t = eintrag[0] %}
             {% set p = eintrag[1] %}
+            {% set slot_h = eintrag[2] %}
             {% if t >= start and t < horizont_ende %}
               {% set kleiner = ns.prices | select('lt', p) | list | length %}
               {% set gleich  = ns.prices | select('eq', p) | list | length %}
               {% set pct = (kleiner + 0.5 * gleich) / n %}
               {% set ist_peak_preis = fenster_min is none or p >= fenster_min + aufschlag %}
               {% if pct >= 0.80 and ist_peak_preis %}
-                {% set f.ve = f.ve + 1 %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
+                {% set f.ve = f.ve + slot_h %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
                 {% set f.ve_summe = f.ve_summe + p %}{% set f.ve_anz = f.ve_anz + 1 %}
               {% elif pct >= 0.60 and ist_peak_preis %}
-                {% set f.exp = f.exp + 1 %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
+                {% set f.exp = f.exp + slot_h %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
               {% elif not f.peak_gesehen %}
                 {% set f.minpre = p if f.minpre is none else ([f.minpre, p] | min) %}
               {% endif %}
             {% endif %}
           {% endfor %}
         {% endif %}
-        {# 4. Reserve in kWh und SoC (mit Entladeverlusten), Kappung bei maxsoc #}
+        {# 4. Reserve in kWh und SoC (mit Entladeverlusten), Kappung bei maxsoc.
+           f.ve/f.exp sind bereits Stunden-Summen (siehe 3b), also direkt mit
+           verbrauch_kw multiplizieren statt mit einer Slot-Anzahl. #}
         {% set ve_kwh = f.ve * verbrauch_kw / eta %}
         {% set ges_kwh = (f.ve + f.exp) * verbrauch_kw / eta %}
         {% if cap_kwh > 0 %}
@@ -755,8 +781,8 @@ template:
         {{ {'gueltig': n >= 4,
             've_soc': ve_soc | round(1),
             'ges_soc': ges_soc | round(1),
-            've_stunden': f.ve,
-            'exp_stunden': f.exp,
+            've_stunden': f.ve | round(2),
+            'exp_stunden': f.exp | round(2),
             'benoetigt_kwh': ges_kwh | round(2),
             'min_preis_vor_peak_ct': (f.minpre | round(2)) if f.minpre is not none else none,
             'peak_preis_avg_ct': ((f.summe / f.anz) | round(2)) if f.anz > 0 else none,

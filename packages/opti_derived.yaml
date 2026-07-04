@@ -58,7 +58,7 @@ template:
           {% set aus = ein - 1000 %}
           {% set war_an = this is defined and this.state == 'on' %}
           {{ ok and (export_ohne_akku > ein
-                     or (export_ohne_akku >= aus and war_an)) }}
+                     or (aus > 0 and export_ohne_akku >= aus and war_an)) }}
         attributes:
           export_ohne_akku_w: >
             {{ [0, states('sensor.opti_grid_export_w')|float(0)
@@ -82,7 +82,7 @@ template:
           {% set aus = ein - 300 %}
           {% set war_an = this is defined and this.state == 'on' %}
           {{ ok and (ac_ohne_akku > ein
-                     or (ac_ohne_akku >= aus and war_an)) }}
+                     or (aus > 0 and ac_ohne_akku >= aus and war_an)) }}
         attributes:
           ac_ohne_akku_w: >
             {{ [0, states('sensor.opti_pv_power_w')|float(0)

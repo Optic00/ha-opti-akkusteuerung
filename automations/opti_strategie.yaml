@@ -37,10 +37,16 @@
     - trigger: state
       entity_id:
         - binary_sensor.opti_ueberschuss_ac_aktiv
+      to:
+        - "on"
+        - "off"
       id: "AC-Überschuss geändert"
     - trigger: state
       entity_id:
         - binary_sensor.opti_ueberschuss_70_aktiv
+      to:
+        - "on"
+        - "off"
       id: "PV-70%-Überschuss geändert"
     # Prognose-Scores statt PV-Forecast-Bewertungslabels
     - trigger: state

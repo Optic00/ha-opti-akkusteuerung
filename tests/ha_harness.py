@@ -16,11 +16,13 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 
 
 class FakeHass:
-    def __init__(self, states=None, attrs=None, now=None, this_attributes=None):
+    def __init__(self, states=None, attrs=None, now=None, this_attributes=None,
+                 this_state=None):
         self.states_map = dict(states or {})
         self.attrs_map = {k: dict(v) for k, v in (attrs or {}).items()}
         self.now_value = now or dt.datetime(2026, 1, 15, 18, 30, tzinfo=TZ)
         self.this_attributes = dict(this_attributes or {})
+        self.this_state = this_state
 
     def states(self, entity_id):
         return self.states_map.get(entity_id, "unknown")
@@ -76,7 +78,8 @@ def _setup(env, hass):
         states=hass.states, state_attr=hass.state_attr, has_value=hass.has_value,
         is_state=hass.is_state, now=hass.now, today_at=hass.today_at,
         timedelta=dt.timedelta, min=min, max=max,
-        this=types.SimpleNamespace(attributes=hass.this_attributes),
+        this=types.SimpleNamespace(attributes=hass.this_attributes,
+                                   state=hass.this_state),
     )
     env.filters.update({
         "float": _float, "int": _int,

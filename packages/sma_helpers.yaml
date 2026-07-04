@@ -101,7 +101,9 @@ input_number:
   akkusteuerung_wr_70proz_ueberschuss_grenze:
     name: "Akkusteuerung 70%-Überschuss Grenze"
     min: 0
-    max: 15000
+    # 25000: 15000 konnte die 70%-Grenze von Anlagen ueber ~21 kWp
+    # nicht abbilden.
+    max: 25000
     step: 100
     unit_of_measurement: W
     mode: box

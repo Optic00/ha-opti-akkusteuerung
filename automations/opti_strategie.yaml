@@ -31,44 +31,23 @@
         - sensor.opti_mindestentladepreis_ct_kwh
       below: sensor.opti_price_current_ct_kwh
       id: "Entladeschwelle"
-    # AC-Überschuss = PV-Leistung über Grenze
-    - trigger: numeric_state
+    # Überschuss-Signale: entprellte Binärsensoren (akkuunabhängig, Hysterese,
+    # 30 s beidseitig in opti_derived.yaml) statt Rohwert-Schwellen. Beide
+    # Flanken triggern, damit auch das Zurückschalten sofort neu bewertet wird.
+    - trigger: state
       entity_id:
-        - sensor.opti_pv_power_w
-      above: input_number.akkusteuerung_wr_ac_ueberschuss_grenze
-      for:
-        hours: 0
-        minutes: 0
-        seconds: 30
-      id: "AC-Überschuss"
-    - trigger: numeric_state
+        - binary_sensor.opti_ueberschuss_ac_aktiv
+      to:
+        - "on"
+        - "off"
+      id: "AC-Überschuss geändert"
+    - trigger: state
       entity_id:
-        - sensor.opti_pv_power_w
-      below: input_number.akkusteuerung_wr_ac_ueberschuss_grenze
-      for:
-        hours: 0
-        minutes: 0
-        seconds: 30
-      id: "AC-Überschuss-Aus"
-    # 70%-Überschuss = Netzeinspeisung über Grenze
-    - trigger: numeric_state
-      entity_id:
-        - sensor.opti_grid_export_w
-      above: input_number.akkusteuerung_wr_70proz_ueberschuss_grenze
-      for:
-        hours: 0
-        minutes: 0
-        seconds: 30
-      id: "PV-70%-Überschuss"
-    - trigger: numeric_state
-      entity_id:
-        - sensor.opti_grid_export_w
-      below: input_number.akkusteuerung_wr_70proz_ueberschuss_grenze
-      for:
-        hours: 0
-        minutes: 0
-        seconds: 30
-      id: "PV-70%-Überschuss-Aus"
+        - binary_sensor.opti_ueberschuss_70_aktiv
+      to:
+        - "on"
+        - "off"
+      id: "PV-70%-Überschuss geändert"
     # Prognose-Scores statt PV-Forecast-Bewertungslabels
     - trigger: state
       entity_id:
@@ -483,14 +462,15 @@
             - condition: state
               entity_id: input_boolean.opti_pv_ueberschuss_ladung
               state: "on"
-            - condition: template
-              value_template: "{{ has_value('sensor.opti_grid_export_w') }}"
             - condition: sun
               after: sunrise
               before: sunset
-            - condition: numeric_state
-              entity_id: sensor.opti_grid_export_w
-              above: input_number.akkusteuerung_wr_70proz_ueberschuss_grenze
+            # Entprelltes, akkuunabhängiges Signal (opti_derived.yaml) statt
+            # Rohwert: verhindert, dass ein anderer Trigger den Zweig mit dem
+            # Momentanwert sofort zieht (Flatter-Fix 2026-07-03).
+            - condition: state
+              entity_id: binary_sensor.opti_ueberschuss_70_aktiv
+              state: "on"
             - condition: numeric_state
               entity_id: sensor.opti_soc
               below: 100
@@ -508,14 +488,13 @@
             - condition: state
               entity_id: input_boolean.opti_pv_ueberschuss_ladung
               state: "on"
-            - condition: template
-              value_template: "{{ has_value('sensor.opti_pv_power_w') }}"
             - condition: sun
               after: sunrise
               before: sunset
-            - condition: numeric_state
-              entity_id: sensor.opti_pv_power_w
-              above: input_number.akkusteuerung_wr_ac_ueberschuss_grenze
+            # Entprelltes, akkuunabhängiges Signal, siehe 70%-Zweig.
+            - condition: state
+              entity_id: binary_sensor.opti_ueberschuss_ac_aktiv
+              state: "on"
             - condition: numeric_state
               entity_id: sensor.opti_soc
               below: 100

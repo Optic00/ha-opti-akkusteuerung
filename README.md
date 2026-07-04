@@ -312,7 +312,7 @@ Dieses Projekt lebt von der Community. Besonderer Dank geht an:
 - [ ] Netzladen zu Off-Peak-Zeiten / Paragraf-14a-Fenster (pauschal günstigere Nachtstunden)
 - [ ] Mindestentladepreis als echte Entlade-Bedingung nutzen (bisher nur informativ)
 - [ ] Akku im Winter mindestens 1x pro Woche automatisch auf 100 % laden (Zähler `tage_seit_akku100` existiert schon)
-- [ ] Hysterese-Band für die PV-Überschuss-Grenzen (verhindert Modus-Wechsel im Sekundentakt bei Wolken an der Grenze)
+- [x] Hysterese-Band für die PV-Überschuss-Grenzen — erledigt als entprellte Binärsensoren `opti_ueberschuss_70_aktiv`/`opti_ueberschuss_ac_aktiv` (akkuunabhängiges Signal, 30 s beidseitig, Hysterese)
 - [ ] `opti_peak_verbrauch_kw` statistisch aus der Verbrauchshistorie ableiten statt fix zu konfigurieren
 - [ ] Wirkleistungsbegrenzung bei negativen Strompreisen über Modbus (Register 41255) - experimentell, kein aktiver Support
 

@@ -8,8 +8,8 @@ BASIS = {
     "sensor.opti_price_level": "NORMAL",
     "sensor.opti_target_soc": "60",
     "sensor.opti_price_current_ct_kwh": "30",
-    "sensor.opti_grid_export_w": "0",
-    "sensor.opti_pv_power_w": "0",
+    "binary_sensor.opti_ueberschuss_70_aktiv": "off",
+    "binary_sensor.opti_ueberschuss_ac_aktiv": "off",
     "sensor.opti_peak_reserve_soc": "unavailable",
     "binary_sensor.opti_peak_reserve_aktiv": "off",
     "binary_sensor.opti_winter_charging_allowed": "on",
@@ -20,8 +20,6 @@ BASIS = {
     # halte_spread "0" = alte Tests bleiben semantisch unveraendert (L3 haelt
     # sobald ve_avg gesetzt ist); neue Tests setzen halte_spread aktiv.
     "input_number.opti_halte_spread_ct": "0",
-    "input_number.akkusteuerung_wr_70proz_ueberschuss_grenze": "500",
-    "input_number.akkusteuerung_wr_ac_ueberschuss_grenze": "4500",
     "input_boolean.opti_prognose_netzladen": "on",
     "input_boolean.opti_pv_ueberschuss_ladung": "on",
     "input_select.akkusteuerung_modus": "Akku Dynamisch",
@@ -317,3 +315,48 @@ def test_l3_kein_halten_bei_unavailable_preissensor():
     out = grund(**{**L3_HALTE_FALL, "sensor.opti_price_current_ct_kwh": "unavailable"},
                 _attrs=attrs)
     assert "Peak-Leiter L3" not in out
+
+
+# --- Ueberschuss-Regeln (entprellt, 2026-07-03): Vorschau konsumiert Binaries ---
+
+UEBERSCHUSS_TAG = {"sun.sun": "above_horizon", "sensor.opti_soc": "70",
+                   "sensor.opti_target_soc": "50"}
+
+
+def test_ueberschuss_70_schaltet_dynamisch():
+    out = vorschau(**UEBERSCHUSS_TAG,
+                   **{"binary_sensor.opti_ueberschuss_70_aktiv": "on"})
+    assert out == "Akku Dynamisch"
+    assert "70% Ueberschuss" in grund(
+        **UEBERSCHUSS_TAG, **{"binary_sensor.opti_ueberschuss_70_aktiv": "on"})
+
+
+def test_ueberschuss_ac_schaltet_dynamisch():
+    assert "AC Ueberschuss" in grund(
+        **UEBERSCHUSS_TAG, **{"binary_sensor.opti_ueberschuss_ac_aktiv": "on"})
+
+
+def test_ueberschuss_nicht_nachts():
+    g = grund(**{**UEBERSCHUSS_TAG, "sun.sun": "below_horizon",
+                 "binary_sensor.opti_ueberschuss_70_aktiv": "on"})
+    assert "Ueberschuss" not in g
+
+
+def test_ueberschuss_gate_aus():
+    g = grund(**{**UEBERSCHUSS_TAG,
+                 "input_boolean.opti_pv_ueberschuss_ladung": "off",
+                 "binary_sensor.opti_ueberschuss_70_aktiv": "on"})
+    assert "Ueberschuss" not in g
+
+
+def test_ueberschuss_nicht_bei_vollem_akku():
+    g = grund(**{**UEBERSCHUSS_TAG, "sensor.opti_soc": "100",
+                 "binary_sensor.opti_ueberschuss_70_aktiv": "on"})
+    assert "Ueberschuss" not in g
+
+
+def test_ueberschuss_binary_unavailable_ist_aus():
+    # Fail-safe: unavailable darf nie wie "on" wirken.
+    g = grund(**{**UEBERSCHUSS_TAG,
+                 "binary_sensor.opti_ueberschuss_70_aktiv": "unavailable"})
+    assert "Ueberschuss" not in g

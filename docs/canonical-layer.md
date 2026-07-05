@@ -218,7 +218,7 @@ attributes:
 ```
 
 Auf der Konsumenten-Seite (`opti_derived.yaml`) gilt: `estimate10 <= 0` wird als fehlend behandelt und fällt auf den Median (die normale Prognose) zurück, statt remaining auf 0 zu drücken.
-Fehlt `estimate10` komplett, greift derselbe Median-Fallback - der Score läuft in beiden Fällen fehlerfrei weiter.
+Fehlt `estimate10` komplett, greift derselbe Median-Fallback - `opti_forecast_score` und `opti_target_soc` laufen in beiden Fällen fehlerfrei weiter.
 
 ---
 

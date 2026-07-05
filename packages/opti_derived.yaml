@@ -780,7 +780,10 @@ template:
         {% set s_morgen = states('sensor.opti_forecast_score_tomorrow') | float(-1) %}
         {% set horizont_max = now() + timedelta(hours=36) %}
         {% if is_state('sun.sun', 'above_horizon') and s_heute > 2 %}
-          {% set horizont_ende = now() %}
+          {# Auf die volle Stunde gekappt (== Fensterstart), damit das Fenster
+             wirklich leer ist - now() liesse die laufende Stunde durchrutschen,
+             sobald Minute > 0. #}
+          {% set horizont_ende = now().replace(minute=0, second=0, microsecond=0) %}
         {% else %}
           {% set rising = state_attr('sun.sun', 'next_rising') %}
           {% set rise = (rising | as_datetime | as_local) if rising else none %}

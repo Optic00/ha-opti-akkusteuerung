@@ -96,6 +96,19 @@ def test_sommer_tag_guter_score_horizont_leer():
     assert peak["benoetigt_kwh"] == 0.0
 
 
+def test_sommer_tag_horizont_leer_laufende_stunde_zaehlt_nicht():
+    # Randfall zum Test oben: now = 12:30 (NICHT volle Stunde) und die
+    # LAUFENDE Stunde (12 Uhr) ist teuer. Der "leere" Horizont (Tag + guter
+    # Score) darf die laufende Stunde nicht klassifizieren - sonst geht die
+    # Reserve an einem sonnigen Tag an, nur weil die aktuelle Stunde teuer ist.
+    mittag_halb = dt.datetime(2026, 6, 20, 12, 30, tzinfo=TZ)
+    today = [20.0] * 12 + [200.0] + [20.0] * 11
+    peak = _peak(_hass(today, [20.0] * 24, now=mittag_halb, score_heute="9",
+                       sun_state="above_horizon"))
+    assert peak["ve_stunden"] == 0
+    assert peak["benoetigt_kwh"] == 0.0
+
+
 def test_min_preis_vor_peak_nur_bis_erster_spitze():
     # Dip (30 ct) VOR der Spitze zaehlt, Dip (10 ct) NACH der Spitze nicht.
     today = [50.0] * 18 + [30.0, 200.0, 200.0, 10.0, 50.0, 50.0]

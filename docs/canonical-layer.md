@@ -204,7 +204,9 @@ oben mit derselben Seriennummer ersetzen.
 
 **`estimate10`-Attribut (P10-Sicherheitsnetz):**
 Die `opti_forecast_*_kwh`-Sensoren reichen das Attribut `estimate10` durch (10. Perzentil der Prognose - pessimistischer Worst-Case-Wert).
-Der `opti_forecast_score` nutzt diesen Wert als konservative Untergrenze für die PV-Fit-Bewertung.
+Der `opti_forecast_score` und der intelligente Ziel-SoC (`opti_target_soc`, siehe
+[strategie-logik.md](strategie-logik.md#der-intelligente-ziel-soc--herzstück-der-akkuschonung))
+nutzen diesen Wert als konservative Untergrenze.
 
 **Kontrakt:** Das Attribut wird nur gesetzt, wenn die Quelle tatsächlich ein P10 liefert - fehlt es, bleibt `estimate10` weg (bzw. `none`), es wird NICHT auf `0` normalisiert.
 Grund: `0` ist von "keine Schätzung vorhanden" nicht unterscheidbar, würde aber als echter P10-Wert von 0 kWh interpretiert und die Restproduktion fälschlich auf 0 drücken.

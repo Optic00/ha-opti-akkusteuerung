@@ -117,8 +117,11 @@ net_available   = max(0, restproduktion_kWh − hausverbrauch_kW × remaining_ho
 ratio           = net_available / akku_kapazität_kWh
 ```
 
-- `restproduktion_kWh` = `sensor.opti_forecast_remaining_today_kwh` (Solcast-Restprognose, über
-  das **P10-Perzentil** konservativ gerechnet).
+- `restproduktion_kWh` = `min(median, p10)` aus `sensor.opti_forecast_remaining_today_kwh`
+  (Median/`estimate`-Wert von Solcast) und dessen optionalem `estimate10`-Attribut
+  (P10-Perzentil) - der jeweils konservativere der beiden Werte gewinnt. Fehlt
+  `estimate10` oder ist er `<= 0`, gilt das als "keine P10-Schätzung vorhanden" und es
+  bleibt beim Median (siehe [canonical-layer.md](canonical-layer.md#solcast-anbindung)).
 - `hausverbrauch_kW` = `sensor.opti_house_consumption_w` / 1000.
 - `ratio` ist also der erwartete **PV-Überschuss bis Sonnenuntergang, ausgedrückt in
   „Akku-Kapazitäten"** — wie viele Akkufüllungen an Überschuss noch kommen.

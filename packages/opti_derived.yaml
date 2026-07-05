@@ -102,15 +102,22 @@ template:
       #    Verbrauch: nutzt den 60-min-Mittelwert (Legacy-Muster) statt des
       #    Momentanwerts, damit kurze Lastspitzen (z.B. Wasserkocher) den
       #    Score nicht minuetlich auf 0 kippen.
+      #    P10: estimate10 kommt vom REST-Tag-Sensor (remaining_today), nicht
+      #    vom Ganztags-Sensor - das Ganztags-P10 enthaelt die schon gelaufene
+      #    Produktion und waere nachmittags kein Sicherheitsnetz mehr.
+      #    Availability spiegelt die Zweige: der Abend-Zweig braucht nur den
+      #    Morgen-Score, die Tages-Formel Rest-Prognose + Kapazitaet + SoC.
       # -----------------------------------------------------------------------
       - unique_id: opti_forecast_score
         name: "Opti Forecast Score"
         state_class: measurement
         availability: >
-          {{ has_value('sensor.opti_forecast_remaining_today_kwh')
-             and has_value('sensor.opti_forecast_today_kwh')
-             and has_value('sensor.opti_battery_capacity_kwh')
-             and has_value('sensor.opti_soc') }}
+          {% set setting = state_attr('sun.sun', 'next_setting') %}
+          {% set nach_sunset = setting is not none and (setting | as_datetime | as_local).date() != now().date() %}
+          {{ (nach_sunset and has_value('sensor.opti_forecast_score_tomorrow'))
+             or (has_value('sensor.opti_forecast_remaining_today_kwh')
+                 and has_value('sensor.opti_battery_capacity_kwh')
+                 and has_value('sensor.opti_soc')) }}
         state: >
           {% set setting = state_attr('sun.sun', 'next_setting') %}
           {% set nach_sunset = setting is not none and (setting | as_datetime | as_local).date() != now().date() %}
@@ -118,7 +125,7 @@ template:
           {{ states('sensor.opti_forecast_score_tomorrow') | int(0) }}
           {% else %}
           {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
-          {% set p10_raw = state_attr('sensor.opti_forecast_today_kwh','estimate10') | float(median) %}
+          {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh','estimate10') | float(median) %}
           {% set p10 = p10_raw if p10_raw > 0 else median %}
           {% set remaining = [median, p10] | min %}
           {% set cap = states('sensor.opti_battery_capacity_kwh') | float(0) %}
@@ -134,21 +141,23 @@ template:
         attributes:
           remaining_kwh: >
             {% set median = states('sensor.opti_forecast_remaining_today_kwh')|float(0) %}
-            {% set p10_raw = state_attr('sensor.opti_forecast_today_kwh','estimate10')|float(median) %}
+            {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh','estimate10')|float(median) %}
             {% set p10 = p10_raw if p10_raw > 0 else median %}
             {{ [median, p10]|min|round(2) }}
           needed_full_kwh: "{{ (states('sensor.opti_battery_capacity_kwh')|float(0) * (1-(states('sensor.opti_soc')|float(0))/100))|round(2) }}"
           hours_to_sunset: "{{ (((state_attr('sun.sun','next_setting')|as_datetime - now()).total_seconds()/3600) if state_attr('sun.sun','next_setting') else 0)|round(1) }}"
           pv_surplus_kwh: >
             {% set median = states('sensor.opti_forecast_remaining_today_kwh')|float(0) %}
-            {% set rem = [median, state_attr('sensor.opti_forecast_today_kwh','estimate10')|float(median)]|min %}
+            {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh','estimate10')|float(median) %}
+            {% set rem = [median, p10_raw if p10_raw > 0 else median]|min %}
             {% set sunset = state_attr('sun.sun','next_setting') %}
             {% set h = ((sunset|as_datetime - now()).total_seconds()/3600) if sunset else 0 %}
             {% set hausverbrauch = states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %}
             {{ [rem - (hausverbrauch/1000*([h,0]|max)), 0]|max|round(2) }}
           ueberschuss_ueber_voll_kwh: >
             {% set median = states('sensor.opti_forecast_remaining_today_kwh')|float(0) %}
-            {% set rem = [median, state_attr('sensor.opti_forecast_today_kwh','estimate10')|float(median)]|min %}
+            {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh','estimate10')|float(median) %}
+            {% set rem = [median, p10_raw if p10_raw > 0 else median]|min %}
             {% set sunset = state_attr('sun.sun','next_setting') %}
             {% set h = ((sunset|as_datetime - now()).total_seconds()/3600) if sunset else 0 %}
             {% set hausverbrauch = states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %}

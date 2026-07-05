@@ -175,6 +175,27 @@ def test_score_p10_nutzt_rest_tag_sensor():
     # Score rechnet mit remaining=1.0: needed=13, verbrauch=0 -> surplus=1.0
     # -> ratio = 1/13 -> round(0.769) = 1.
     assert _score_state(hass) == "1"
+    # Auch die Surplus-Attribute muessen das Rest-P10 nutzen (verbrauch=0
+    # -> pv_surplus = remaining = 1.0).
+    assert float(_score_attr(hass, "pv_surplus_kwh")) == 1.0
+
+    # ueberschuss_ueber_voll diskriminierend pruefen: cap=0.5, soc=0
+    # -> needed=0.5 -> ueberschuss = 1.0 - 0.5 = 0.5 (Ganztags-P10 gaebe 1.5).
+    hass_klein = FakeHass(
+        states={
+            "sensor.opti_forecast_remaining_today_kwh": "2.0",
+            "sensor.opti_battery_capacity_kwh": "0.5",
+            "sensor.opti_soc": "0",
+            "sensor.opti_house_consumption_w": "0",
+        },
+        attrs={
+            "sun.sun": {"next_setting": next_setting},
+            "sensor.opti_forecast_remaining_today_kwh": {"estimate10": 1.0},
+            "sensor.opti_forecast_today_kwh": {"estimate10": 5.0},
+        },
+        now=now,
+    )
+    assert float(_score_attr(hass_klein, "ueberschuss_ueber_voll_kwh")) == 0.5
 
 
 def test_score_surplus_attribute_estimate10_null_guard():
@@ -223,6 +244,26 @@ def test_score_availability_abend_entkoppelt():
     )
     assert _score_availability(hass) == "True"
     assert _score_state(hass) == "8"
+
+
+def test_score_availability_abend_fallback_alte_formel():
+    # Nach Sonnenuntergang OHNE Morgen-Score: Fallback auf die alte Formel,
+    # dafuer reichen die Tages-Sensoren (opti_forecast_today_kwh wird nicht
+    # mehr verlangt).
+    now = dt.datetime(2026, 1, 15, 21, 45, tzinfo=TZ)
+    next_setting = dt.datetime(2026, 1, 16, 16, 30, tzinfo=TZ).isoformat()
+    hass = FakeHass(
+        states={
+            "sensor.opti_forecast_score_tomorrow": "unavailable",
+            "sensor.opti_forecast_remaining_today_kwh": "0",
+            "sensor.opti_battery_capacity_kwh": "10",
+            "sensor.opti_soc": "50",
+        },
+        attrs={"sun.sun": {"next_setting": next_setting}},
+        now=now,
+    )
+    assert _score_availability(hass) == "True"
+    assert _score_state(hass) == "0"
 
 
 def test_score_availability_tag():

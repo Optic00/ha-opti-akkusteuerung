@@ -207,6 +207,8 @@ Die `opti_forecast_*_kwh`-Sensoren reichen das Attribut `estimate10` durch (10. 
 Der `opti_forecast_score` und der intelligente Ziel-SoC (`opti_target_soc`, siehe
 [strategie-logik.md](strategie-logik.md#der-intelligente-ziel-soc--herzstück-der-akkuschonung))
 nutzen diesen Wert als konservative Untergrenze.
+Beide lesen das P10 vom Rest-Tag-Sensor (`opti_forecast_remaining_today_kwh`), nicht vom Ganztags-Sensor:
+das Ganztags-P10 enthält die bereits gelaufene Vormittagsproduktion und wäre ab dem Nachmittag praktisch immer größer als der Rest-Median - als Sicherheitsnetz damit wirkungslos.
 
 **Kontrakt:** Das Attribut wird nur gesetzt, wenn die Quelle tatsächlich ein P10 liefert - fehlt es, bleibt `estimate10` weg (bzw. `none`), es wird NICHT auf `0` normalisiert.
 Grund: `0` ist von "keine Schätzung vorhanden" nicht unterscheidbar, würde aber als echter P10-Wert von 0 kWh interpretiert und die Restproduktion fälschlich auf 0 drücken.

@@ -34,7 +34,7 @@ opti_mapping.yaml  →  sensor.opti_*  →  opti_derived.yaml  →  opti_strateg
 | `sensor.opti_price_series` | ct/kWh | Attribut `today`/`tomorrow` = Listen in ct/kWh | `sensor.tibber_electricity_price` | `sensor.nordpool_electricity_price` | EUR-Attribut-Listen × 100 (im Mapping normalisiert) |
 | `sensor.opti_forecast_today_kwh` | kWh | ≥ 0; Attribut `estimate10` (P10) | `sensor.solcast_pv_forecast_forecast_today` | `sensor.solcast_pv_forecast_forecast_today` | Direkt |
 | `sensor.opti_forecast_tomorrow_kwh` | kWh | ≥ 0; Attribut `estimate10` (P10) | `sensor.solcast_pv_forecast_forecast_tomorrow` | `sensor.solcast_pv_forecast_forecast_tomorrow` | Direkt |
-| `sensor.opti_forecast_remaining_today_kwh` | kWh | ≥ 0 | `sensor.solcast_pv_forecast_forecast_remaining_today` | `sensor.solcast_pv_forecast_forecast_remaining_today` | Direkt |
+| `sensor.opti_forecast_remaining_today_kwh` | kWh | ≥ 0; Attribut `estimate10` (P10, optional) | `sensor.solcast_pv_forecast_forecast_remaining_today` | `sensor.solcast_pv_forecast_forecast_remaining_today` | Direkt |
 | `sensor.opti_battery_power_w` | W | **+= laden** (positiv = Batterie lädt) | Zwei Sensoren: `sensor.sma_battery_charge` und `sensor.sma_battery_discharge` (beide ≥ 0) | `sensor.huawei_battery_power` (signierter Sensor) | SMA: `charge - discharge`; Huawei: direkt (oder `* -1` wenn Quelle positiv = Entladen) |
 
 ### Konventionen im Detail

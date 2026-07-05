@@ -189,3 +189,70 @@ def test_target_soc_geglaettet():
         this_attributes={},
     )
     assert float(_target_soc_attr(hass_momentary, "ratio")) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 2e. P10-Sicherheitsnetz opti_target_soc
+# ---------------------------------------------------------------------------
+
+def _p10_states(estimate10=None, remaining="8"):
+    states = {
+        "sensor.opti_battery_capacity_kwh": "10",
+        "sensor.opti_forecast_remaining_today_kwh": remaining,
+        "sensor.opti_house_consumption_w": "0",
+        "input_number.maxsoc": "95",
+        "input_number.minsoc": "10",
+        "input_boolean.hausakku_aus_netz_laden": "off",
+    }
+    attrs = {}
+    if estimate10 is not None:
+        attrs["sensor.opti_forecast_remaining_today_kwh"] = {"estimate10": estimate10}
+    return states, attrs
+
+
+def test_target_soc_p10_niedriger_als_median_wird_verwendet():
+    # Median 8 kWh, P10 3 kWh -> restproduktion soll 3 sein (konservativer).
+    # ratio = 3/10 = 0.3 < 0.375 -> tiefste Stufe -> maxsoc statt 90%.
+    # Prueft alle fuenf restproduktion-Stellen gleichzeitig (state/level/ratio/
+    # net_available_kwh/branch) - das deckt die Fuenffach-Duplikation ab.
+    states, attrs = _p10_states(estimate10=3)
+    hass = FakeHass(states=states, attrs=attrs, this_attributes={})
+    assert float(_target_soc_state(hass)) == 95.0
+    assert float(_target_soc_attr(hass, "net_available_kwh")) == 3.0
+    assert float(_target_soc_attr(hass, "ratio")) == 0.3
+    assert _target_soc_attr(hass, "level") == "0"
+    assert "ratio=0.3" in _target_soc_attr(hass, "branch")
+
+
+def test_target_soc_ohne_p10_bleibt_beim_median():
+    # Kein estimate10-Attribut vorhanden -> Fallback auf Median (8 kWh),
+    # identisch zum Vor-Fix-Verhalten. ratio = 8/10 = 0.8 -> 90%.
+    states, attrs = _p10_states(estimate10=None)
+    hass = FakeHass(states=states, attrs=attrs, this_attributes={})
+    assert float(_target_soc_state(hass)) == 90.0
+    assert float(_target_soc_attr(hass, "net_available_kwh")) == 8.0
+
+
+def test_target_soc_p10_null_faellt_auf_median_zurueck():
+    # estimate10 <= 0 gilt per Kontrakt als "keine P10-Schaetzung" -> Median.
+    states, attrs = _p10_states(estimate10=0)
+    hass = FakeHass(states=states, attrs=attrs, this_attributes={})
+    assert float(_target_soc_state(hass)) == 90.0
+
+
+def test_target_soc_p10_hoeher_als_median_median_gewinnt():
+    # P10 > Median waere fuer eine Solcast-Quelle untypisch, aber min() muss
+    # trotzdem den kleineren (konservativeren) Wert nehmen - hier den Median.
+    states, attrs = _p10_states(estimate10=20)
+    hass = FakeHass(states=states, attrs=attrs, this_attributes={})
+    assert float(_target_soc_attr(hass, "net_available_kwh")) == 8.0
+
+
+def test_target_soc_p10_sonnenuntergang_randfall():
+    # Median und P10 beide 0 (kurz vor/nach Sonnenuntergang) -> estimate10 <= 0
+    # -> Fallback Median (ebenfalls 0), kein Sonderverhalten, ratio 0 -> maxsoc
+    # wie schon vor diesem Fix.
+    states, attrs = _p10_states(estimate10=0, remaining="0")
+    hass = FakeHass(states=states, attrs=attrs, this_attributes={})
+    assert float(_target_soc_attr(hass, "net_available_kwh")) == 0.0
+    assert float(_target_soc_state(hass)) == 95.0

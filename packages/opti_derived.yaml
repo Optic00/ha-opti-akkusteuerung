@@ -197,7 +197,10 @@ template:
              has_value('sensor.opti_forecast_remaining_today_kwh') }}
         state: >
           {% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %}
-          {% set restproduktion = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+          {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+          {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(median) %}
+          {% set p10 = p10_raw if p10_raw > 0 else median %}
+          {% set restproduktion = [median, p10] | min %}
           {# Verbrauch geglaettet (60-min-Mittelwert, Legacy-Muster): sonst kippt eine
              kurze Lastspitze das Ziel-SoC-Band und erzeugt Flattern. #}
           {% set hausverbrauch  = states('sensor.opti_house_consumption_60min_w') | float(states('sensor.opti_house_consumption_w') | float(1500)) %}
@@ -244,7 +247,10 @@ template:
         attributes:
           branch: >
             {% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %}
-            {% set restproduktion = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+            {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+            {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(median) %}
+            {% set p10 = p10_raw if p10_raw > 0 else median %}
+            {% set restproduktion = [median, p10] | min %}
             {% set hausverbrauch  = states('sensor.opti_house_consumption_60min_w') | float(states('sensor.opti_house_consumption_w') | float(1500)) %}
             {% set max_soc        = states('input_number.maxsoc') | float(95) %}
             {% set netzladen      = states('input_boolean.hausakku_aus_netz_laden') %}
@@ -278,7 +284,10 @@ template:
           # zurueckgelesen; state + branch berechnen dieselbe Schmitt-Logik unabhaengig.
           level: >
             {% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %}
-            {% set restproduktion = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+            {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+            {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(median) %}
+            {% set p10 = p10_raw if p10_raw > 0 else median %}
+            {% set restproduktion = [median, p10] | min %}
             {% set hausverbrauch  = states('sensor.opti_house_consumption_60min_w') | float(states('sensor.opti_house_consumption_w') | float(1500)) %}
             {% set max_soc        = states('input_number.maxsoc') | float(95) %}
             {% set netzladen      = states('input_boolean.hausakku_aus_netz_laden') %}
@@ -309,7 +318,10 @@ template:
             {% endif %}
           ratio: >
             {% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %}
-            {% set restproduktion = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+            {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+            {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(median) %}
+            {% set p10 = p10_raw if p10_raw > 0 else median %}
+            {% set restproduktion = [median, p10] | min %}
             {% set hausverbrauch  = states('sensor.opti_house_consumption_60min_w') | float(states('sensor.opti_house_consumption_w') | float(1500)) %}
             {% set sunset_time = state_attr('sun.sun', 'next_setting') %}
             {% if sunset_time %}
@@ -321,7 +333,10 @@ template:
             {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
             {{ (0 if cap_kwh <= 0 else net_available / cap_kwh) | round(3) }}
           net_available_kwh: >
-            {% set restproduktion = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+            {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %}
+            {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(median) %}
+            {% set p10 = p10_raw if p10_raw > 0 else median %}
+            {% set restproduktion = [median, p10] | min %}
             {% set hausverbrauch  = states('sensor.opti_house_consumption_60min_w') | float(states('sensor.opti_house_consumption_w') | float(1500)) %}
             {% set sunset_time = state_attr('sun.sun', 'next_setting') %}
             {% if sunset_time %}

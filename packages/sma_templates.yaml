@@ -268,7 +268,7 @@ template:
                 {% set remaining_hours = 6 %}
               {% endif %}
               {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
-              {% set ratio = (((net_available / cap_kwh) * 4) | round(0)) / 4 %}
+              {% set ratio = ((((net_available / cap_kwh) * 4) | round(0)) / 4) if cap_kwh > 0 else 0 %}
               {% if   ratio >= 3.0 %}ratio>=3.0 → 50%
               {% elif ratio >= 2.0 %}ratio>=2.0 → 60%
               {% elif ratio >= 1.5 %}ratio>=1.5 → 70%
@@ -289,7 +289,7 @@ template:
               {% set remaining_hours = 6 %}
             {% endif %}
             {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
-            {{ (((net_available / cap_kwh) * 4) | round(0)) / 4 }}
+            {{ ((((net_available / cap_kwh) * 4) | round(0)) / 4) if cap_kwh > 0 else 0 }}
           net_available_kwh: >
             {% set restproduktion = states('sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute') | float(0) %}
             {% set hausverbrauch  = states('sensor.haus_stromverbrauch_60_min') | float(1500) %}

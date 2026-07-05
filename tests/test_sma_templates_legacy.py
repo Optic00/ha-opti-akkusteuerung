@@ -8,10 +8,17 @@ import datetime as dt
 from .ha_harness import REPO, TZ, FakeHass, find_template_entity, load_yaml, render
 
 
-def _target_soc_state(hass):
+def _target_soc_entity():
     cfg = load_yaml(REPO / "packages" / "sma_templates.yaml")
-    entity = find_template_entity(cfg, "sensor", "akku_target_soc_intelligent")
-    return render(hass, entity["state"])
+    return find_template_entity(cfg, "sensor", "akku_target_soc_intelligent")
+
+
+def _target_soc_state(hass):
+    return render(hass, _target_soc_entity()["state"])
+
+
+def _target_soc_attr(hass, attr):
+    return render(hass, _target_soc_entity()["attributes"][attr])
 
 
 def test_legacy_target_soc_cap_null_faellt_auf_maxsoc():
@@ -29,3 +36,6 @@ def test_legacy_target_soc_cap_null_faellt_auf_maxsoc():
         },
     )
     assert float(_target_soc_state(hass)) == 95.0
+    # Auch die Attribute rechnen net_available/cap_kwh separat - gleicher Guard.
+    assert float(_target_soc_attr(hass, "ratio")) == 0.0
+    assert "maxsoc" in _target_soc_attr(hass, "branch")

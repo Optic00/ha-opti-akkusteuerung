@@ -54,7 +54,9 @@ def _states(hour_price, soc, load_kw, neu, cap_kwh, peak, *,
             "sensor.opti_forecast_score": "1",
             "sensor.opti_forecast_score_tomorrow": "1",
             "sensor.opti_price_level": "unknown",  # wird unten gesetzt
-            "sensor.opti_target_soc": "95",
+            # Ziel-SoC fest auf maxsoc gepinnt (keine Tag-Dynamik simuliert,
+            # siehe Limitationen im Docstring) - folgt aber maxsoc-Sweeps.
+            "sensor.opti_target_soc": str(maxsoc),
             "sensor.opti_price_current_ct_kwh": str(hour_price),
             "sensor.opti_grid_export_w": "0",
             "sensor.opti_pv_power_w": "0",

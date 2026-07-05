@@ -209,6 +209,25 @@ def test_paritaet_pro_zweig(zweig, name, overrides, erw_modus, erw_grund):
         f"[{name}] Vorschau-grund {vor_grund!r} enthaelt nicht {erw_grund!r}")
 
 
+def test_paritaet_gate_unavailable_fail_closed():
+    # Die Gates (opti_prognose_netzladen etc.) sind in der Automation
+    # state:"on"-Conditions und fallen bei unavailable ZU (Zweig wird
+    # uebersprungen). Die Vorschau muss dasselbe tun - ihr frueheres
+    # fail-open ("!= 'off'") liess sie hier den SOC<20-Zweig anzeigen,
+    # den die Automation nie geschaltet haette.
+    hass = _make_hass({
+        "sensor.opti_soc": "18",
+        "sensor.opti_forecast_score": "1",
+        "sensor.opti_forecast_score_tomorrow": "1",
+        "sensor.opti_price_level": "NORMAL",
+        "input_boolean.opti_prognose_netzladen": "unavailable",
+    })
+    auto_zweig, auto_modus = _evaluate_automation(hass)
+    assert auto_zweig == "default"
+    assert auto_modus == "Akku Dynamisch"
+    assert _vorschau(hass, "state") == auto_modus
+
+
 def test_struktur_alle_choose_optionen_abgedeckt():
     """Harter Fail, wenn jemand eine choose-Option ergaenzt/entfernt, ohne den
     Test mitzuziehen: Zahl der choose-Optionen == Zahl der getesteten Zweige."""

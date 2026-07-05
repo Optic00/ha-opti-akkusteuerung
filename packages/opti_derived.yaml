@@ -594,9 +594,9 @@ template:
           {% set target = states('sensor.opti_target_soc')|float(100) %}
           {% set minsoc = states('input_number.minsoc')|float(10) %}
           {% set day = is_state('sun.sun','above_horizon') %}
-          {% set prog = states('input_boolean.opti_prognose_netzladen') != 'off' %}
-          {% set ueb = states('input_boolean.opti_pv_ueberschuss_ladung') != 'off' %}
-          {% set win = states('binary_sensor.opti_winter_charging_allowed') != 'off' %}
+          {% set prog = states('input_boolean.opti_prognose_netzladen') == 'on' %}
+          {% set ueb = states('input_boolean.opti_pv_ueberschuss_ladung') == 'on' %}
+          {% set win = states('binary_sensor.opti_winter_charging_allowed') == 'on' %}
           {% set hv_s = has_value('sensor.opti_forecast_score') %}
           {% set hv_st = has_value('sensor.opti_forecast_score_tomorrow') %}
           {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %}
@@ -646,9 +646,9 @@ template:
             {% set target = states('sensor.opti_target_soc')|float(100) %}
             {% set minsoc = states('input_number.minsoc')|float(10) %}
             {% set day = is_state('sun.sun','above_horizon') %}
-            {% set prog = states('input_boolean.opti_prognose_netzladen') != 'off' %}
-            {% set ueb = states('input_boolean.opti_pv_ueberschuss_ladung') != 'off' %}
-            {% set win = states('binary_sensor.opti_winter_charging_allowed') != 'off' %}
+            {% set prog = states('input_boolean.opti_prognose_netzladen') == 'on' %}
+            {% set ueb = states('input_boolean.opti_pv_ueberschuss_ladung') == 'on' %}
+            {% set win = states('binary_sensor.opti_winter_charging_allowed') == 'on' %}
             {% set hv_s = has_value('sensor.opti_forecast_score') %}
             {% set hv_st = has_value('sensor.opti_forecast_score_tomorrow') %}
             {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %}

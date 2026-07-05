@@ -1,7 +1,7 @@
 modbus:
   - name: sma-sr_wr
     type: tcp
-    host: 192.168.10.2
+    host: 192.168.1.100  # <- durch die IP deines Wechselrichters ersetzen
     port: 502
     delay: 2
     message_wait_milliseconds: 60

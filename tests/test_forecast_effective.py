@@ -209,3 +209,36 @@ def test_aeussere_min_mutant_waere_optimistischer():
 
     assert float(_state(hass, real)) == 10.0
     assert float(_state(hass, mutant)) == 20.0
+
+
+def test_state_ungerundet_mutant_wuerde_kippen():
+    # Der State ist BEWUSST ungerundet: haelt alpha=0 bit-identisch zum alten
+    # min(median, P10) und vermeidet einen Rundungs-Kipp an den Ziel-SoC-
+    # Stufengrenzen (Commit f4a0076). Ein nachtraegliches round() wuerde die
+    # Suite sonst still ueberleben, weil alle anderen Testwerte glatt sind.
+    real = _cfg()
+    mutant = _mutant_cfg(
+        "{{ [median, blended] | min }}",
+        "{{ [median, blended] | min | round(2) }}",
+    )
+    states, attrs = _states(remaining="10", estimate10=3.14159265, alpha="0")
+    hass = FakeHass(states=states, attrs=attrs)
+
+    assert _state(hass, real) == "3.14159265"
+    assert _state(hass, mutant) == "3.14"
+
+
+def test_oberer_clamp_mutant_extrapoliert():
+    # Der obere Clamp (alpha <= 100) verhindert Extrapolation UNTER den Median.
+    # median=10, est10=20 (>median), helper=150: mit Clamp alpha=1 -> Median 10;
+    # ohne Clamp alpha=1.5 -> blended = 1.5*10 - 0.5*20 = 5 -> min(10,5) = 5.
+    real = _cfg()
+    mutant = _mutant_cfg(
+        "[100, states('input_number.opti_forecast_optimismus') | float(0)] | min",
+        "states('input_number.opti_forecast_optimismus') | float(0)",
+    )
+    states, attrs = _states(remaining="10", estimate10=20, alpha="150")
+    hass = FakeHass(states=states, attrs=attrs)
+
+    assert float(_state(hass, real)) == 10.0
+    assert float(_state(hass, mutant)) == 5.0

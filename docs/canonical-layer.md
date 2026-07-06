@@ -206,7 +206,7 @@ oben mit derselben Seriennummer ersetzen.
 Die `opti_forecast_*_kwh`-Sensoren reichen das Attribut `estimate10` durch (10. Perzentil der Prognose - pessimistischer Worst-Case-Wert).
 Der `opti_forecast_score` und der intelligente Ziel-SoC (`opti_target_soc`, siehe
 [strategie-logik.md](strategie-logik.md#der-intelligente-ziel-soc--herzstück-der-akkuschonung))
-nutzen diesen Wert als konservative Untergrenze.
+nutzen diesen Wert als - per Default konservative - Referenz; der Optimismus-Grad ist einstellbar (siehe unten).
 Beide lesen das P10 vom Rest-Tag-Sensor (`opti_forecast_remaining_today_kwh`), nicht vom Ganztags-Sensor:
 das Ganztags-P10 enthält die bereits gelaufene Vormittagsproduktion und wäre ab dem Nachmittag praktisch immer größer als der Rest-Median - als Sicherheitsnetz damit wirkungslos.
 
@@ -219,8 +219,14 @@ attributes:
   estimate10: "{{ state_attr('sensor.solcast_pv_forecast_forecast_today', 'estimate10') if state_attr('sensor.solcast_pv_forecast_forecast_today', 'estimate10') is not none else none }}"
 ```
 
-Auf der Konsumenten-Seite (`opti_derived.yaml`) gilt: `estimate10 <= 0` wird als fehlend behandelt und fällt auf den Median (die normale Prognose) zurück, statt remaining auf 0 zu drücken.
-Fehlt `estimate10` komplett, greift derselbe Median-Fallback - `opti_forecast_score` und `opti_target_soc` laufen in beiden Fällen fehlerfrei weiter.
+Auf der Konsumenten-Seite bündelt der zentrale Sensor `sensor.opti_forecast_effective_remaining_kwh` diese Logik an genau einer Stelle: `estimate10 <= 0` (oder komplett fehlend) gilt als "keine P10-Schätzung" und fällt auf den Median zurück, statt remaining auf 0 zu drücken.
+`opti_forecast_score` und `opti_target_soc` lesen ausschließlich diesen Sensor (die `min(median, P10)`-Rechnung war früher an neun Stellen dupliziert).
+
+**Einstellbarer Optimismus (`input_number.opti_forecast_optimismus`, 0-100 %):**
+Der Sensor mischt Median und P10: `P_eff = min(median, α·median + (1-α)·P10)` mit α = Regler / 100.
+α=0 (Default) = konservatives `min(median, P10)` wie bisher; α=50 = `(median+P10)/2`; α=100 = reiner Median.
+Höheres α lässt die Ziel-SoC-Treppe später steigen (der Akku wird weniger früh voll gefahren) - sinnvoll in ertragssicheren Monaten/Regionen, in denen der reale Tagesertrag fast immer über P10 liegt.
+Die äußere `min(median, …)`-Klammer sorgt dafür, dass der Wert nie optimistischer als der Median wird (greift nur beim seltenen Solcast-Fall P10 > Median).
 
 ---
 
@@ -323,6 +329,7 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 |---|---|
 | `sensor.opti_forecast_score` | PV-Fit heute (0–10); nutzt `estimate10` als P10-Sicherheitsnetz; nach dem heutigen Sonnenuntergang Fallback auf `opti_forecast_score_tomorrow`, falls verfügbar (sonst alte Formel) |
 | `sensor.opti_forecast_score_tomorrow` | PV-Fit morgen (0–10) |
+| `sensor.opti_forecast_effective_remaining_kwh` | Effektive Rest-Prognose (kWh): Blend aus Median und P10 über `input_number.opti_forecast_optimismus` (0–100 %, Default 0 = `min(median, P10)`). Einzige Quelle für Score und Ziel-SoC. |
 | `sensor.opti_target_soc` | Ziel-SoC (%) basierend auf Restprognose und geglättetem Hausverbrauch |
 | `sensor.opti_charge_power_w` | Dynamische Ladestärke (W) nach SoC-Stufe und Forecast-Score |
 | `sensor.opti_price_level` | Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE); Midrank-Perzentil (Gleichstände zählen halb) - flache Preistage (viele identische Werte) landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE |

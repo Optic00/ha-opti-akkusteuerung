@@ -117,11 +117,11 @@ net_available   = max(0, restproduktion_kWh − hausverbrauch_kW × remaining_ho
 ratio           = net_available / akku_kapazität_kWh
 ```
 
-- `restproduktion_kWh` = `min(median, p10)` aus `sensor.opti_forecast_remaining_today_kwh`
-  (Median/`estimate`-Wert von Solcast) und dessen optionalem `estimate10`-Attribut
-  (P10-Perzentil) - der jeweils konservativere der beiden Werte gewinnt. Fehlt
-  `estimate10` oder ist er `<= 0`, gilt das als "keine P10-Schätzung vorhanden" und es
-  bleibt beim Median (siehe [canonical-layer.md](canonical-layer.md#solcast-anbindung)).
+- `restproduktion_kWh` = `sensor.opti_forecast_effective_remaining_kwh`, der zentrale
+  Blend aus Median und P10 der Rest-Tag-Prognose. Default ist `min(median, p10)` (der
+  konservativere der beiden gewinnt); über den Regler `input_number.opti_forecast_optimismus`
+  (0-100 %) lässt sich Richtung Median optimieren. Fehlt `estimate10` oder ist er `<= 0`,
+  bleibt es beim Median (siehe [canonical-layer.md](canonical-layer.md#solcast-anbindung)).
 - `hausverbrauch_kW` = `sensor.opti_house_consumption_w` / 1000.
 - `ratio` ist also der erwartete **PV-Überschuss bis Sonnenuntergang, ausgedrückt in
   „Akku-Kapazitäten"** — wie viele Akkufüllungen an Überschuss noch kommen.
@@ -677,7 +677,7 @@ Steuer-Automation parallel aktiv lassen.
 
 | Baustein | Beschreibung |
 |---|---|
-| **P10-Sicherheitsnetz** | `sensor.opti_forecast_score` / `_tomorrow` und `sensor.opti_target_soc` verwenden das 10. Perzentil der Solcast-Prognose (`estimate10`) als konservativen Referenzwert — schützt vor Überoptimismus bei unsicheren Prognosen |
+| **P10-Sicherheitsnetz** | `sensor.opti_forecast_score` / `_tomorrow` und `sensor.opti_target_soc` verwenden das 10. Perzentil der Solcast-Prognose (`estimate10`) als konservativen Referenzwert — schützt vor Überoptimismus bei unsicheren Prognosen. Der Grad ist über `input_number.opti_forecast_optimismus` einstellbar (0 = reines P10, 100 = reiner Median); der zentrale Sensor `opti_forecast_effective_remaining_kwh` liefert den Blend |
 | **Score-Abendfallback** | `sensor.opti_forecast_score` zählt nach dem heutigen Sonnenuntergang den Morgen-Score (`sensor.opti_forecast_score_tomorrow`), falls verfügbar, statt jeden Abend auf 0 zu fallen.<br>Ohne diesen Fallback degradieren die "heute schlecht"-Blöcke der Strategie abends zu reinen Preis-Bedingungen, egal wie sonnig der nächste Tag wird.<br>Fehlt der Morgen-Score, bleibt die alte Formel als Fallback (best-effort, keine Availability-Kopplung).<br>Der Verbrauchsanteil in `opti_forecast_score`, `_tomorrow` und `opti_target_soc` nutzt außerdem den geglätteten 60-min-Mittelwert (`sensor.opti_house_consumption_60min_w`) statt des Momentanwerts, damit kurze Lastspitzen (z. B. ein Wasserkocher) den Score nicht minütlich auf 0 kippen und Modus-Flips auslösen. |
 | **Ziel-SoC-Hysterese** | `sensor.opti_target_soc` hält die aktuelle `ratio`-Stufe im Attribut `level` (Schmitt-Trigger, Marge 0.10) → kein Flattern der Zielstufe. Siehe [Der intelligente Ziel-SoC](#der-intelligente-ziel-soc--herzstück-der-akkuschonung) |
 | **Decision-Trace-Attribute** | `sensor.opti_target_soc` hängt Debugging-Attribute an (`branch`, `level`, `ratio`, `net_available_kwh`, `remaining_hours`), lesbar über HA-Entwicklerwerkzeuge |

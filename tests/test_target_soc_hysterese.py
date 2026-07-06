@@ -46,10 +46,13 @@ def _attr(hass, attr, cfg=None):
 
 def _states(remaining, cap="10"):
     # hausverbrauch=0, kein sun.sun -> net_available = restproduktion = remaining.
-    # cap=10 -> ratio = remaining/10. netzladen off, kein estimate10 -> p10=median.
+    # cap=10 -> ratio = remaining/10. netzladen off. remaining wird direkt auf
+    # den zentralen Effective-Sensor gestellt (kein estimate10/Blend-Setup
+    # mehr noetig - opti_target_soc liest seit Feature #30 nur noch
+    # opti_forecast_effective_remaining_kwh).
     return {
         "sensor.opti_battery_capacity_kwh": cap,
-        "sensor.opti_forecast_remaining_today_kwh": remaining,
+        "sensor.opti_forecast_effective_remaining_kwh": remaining,
         "sensor.opti_house_consumption_60min_w": "0",
         "input_number.maxsoc": "95",
         "input_number.minsoc": "10",

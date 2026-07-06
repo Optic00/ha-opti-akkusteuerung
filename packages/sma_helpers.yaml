@@ -211,6 +211,20 @@ input_number:
     mode: box
     icon: mdi:filter-outline
 
+  opti_forecast_optimismus:
+    name: "Opti Forecast-Optimismus"
+    # Blend-Regler zwischen konservativem P10 und Median der Solcast-Rest-
+    # prognose (sensor.opti_forecast_effective_remaining_kwh). alpha=0
+    # (Erststart, kein initial gesetzt) -> min(median, P10), heutiges
+    # Verhalten. alpha=50 -> (median+P10)/2. alpha=100 -> reiner Median
+    # (optimistisch: Ziel-SoC steigt spaeter, Akku wird weniger frueh voll).
+    min: 0
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    mode: slider
+    icon: mdi:weather-sunny
+
   opti_halte_spread_ct:
     name: "Opti Halte-Spread"
     # L3 haelt bei EXPENSIVE nur noch, wenn der Preisdurchschnitt der

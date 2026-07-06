@@ -231,6 +231,7 @@ def test_score_availability_abend_fallback_alte_formel():
         states={
             "sensor.opti_forecast_score_tomorrow": "unavailable",
             "sensor.opti_forecast_remaining_today_kwh": "0",
+            "sensor.opti_forecast_effective_remaining_kwh": "0",
             "sensor.opti_battery_capacity_kwh": "10",
             "sensor.opti_soc": "50",
         },
@@ -252,6 +253,7 @@ def test_score_availability_tag():
     hass_ok = FakeHass(
         states={
             "sensor.opti_forecast_remaining_today_kwh": "8",
+            "sensor.opti_forecast_effective_remaining_kwh": "8",
             "sensor.opti_battery_capacity_kwh": "13",
             "sensor.opti_soc": "50",
         },
@@ -263,6 +265,7 @@ def test_score_availability_tag():
     hass_missing = FakeHass(
         states={
             "sensor.opti_forecast_remaining_today_kwh": "unavailable",
+            "sensor.opti_forecast_effective_remaining_kwh": "unavailable",
             "sensor.opti_battery_capacity_kwh": "13",
             "sensor.opti_soc": "50",
         },
@@ -270,6 +273,37 @@ def test_score_availability_tag():
         now=now,
     )
     assert _score_availability(hass_missing) == "False"
+
+    # Startup-/Ordering-Fenster: Quelle schon da, Effective-Sensor noch nicht
+    # ausgewertet. Der Tages-Zweig braucht ihn -> unavailable statt still aus
+    # float(0) zu rechnen (Codex-Review #30, Finding 3).
+    hass_eff_fehlt = FakeHass(
+        states={
+            "sensor.opti_forecast_remaining_today_kwh": "8",
+            "sensor.opti_forecast_effective_remaining_kwh": "unknown",
+            "sensor.opti_battery_capacity_kwh": "13",
+            "sensor.opti_soc": "50",
+        },
+        attrs=attrs,
+        now=now,
+    )
+    assert _score_availability(hass_eff_fehlt) == "False"
+
+
+def test_target_soc_availability_braucht_effective_sensor():
+    # opti_target_soc liest restproduktion NUR aus dem Effective-Sensor -> er
+    # gehoert in die Availability, sonst rechnet der Ziel-SoC im Startup-Fenster
+    # still aus float(0) (= ratio 0 -> maxsoc). (Codex-Review #30, Finding 3.)
+    base = {
+        "sensor.opti_battery_capacity_kwh": "13",
+        "sensor.opti_forecast_remaining_today_kwh": "8",
+    }
+    cfg = _cfg()
+    entity = find_template_entity(cfg, "sensor", "opti_target_soc")
+    ok = FakeHass(states={**base, "sensor.opti_forecast_effective_remaining_kwh": "8"})
+    fehlt = FakeHass(states={**base, "sensor.opti_forecast_effective_remaining_kwh": "unknown"})
+    assert render(ok, entity["availability"]) == "True"
+    assert render(fehlt, entity["availability"]) == "False"
 
 
 # ---------------------------------------------------------------------------

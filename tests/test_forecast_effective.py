@@ -201,8 +201,8 @@ def test_p10_sonnenuntergang_randfall():
 def test_aeussere_min_mutant_waere_optimistischer():
     real = _cfg()
     mutant = _mutant_cfg(
-        "{{ ([median, blended] | min) | round(3) }}",
-        "{{ blended | round(3) }}",
+        "{{ [median, blended] | min }}",
+        "{{ blended }}",
     )
     states, attrs = _states(remaining="10", estimate10=20, alpha="0")
     hass = FakeHass(states=states, attrs=attrs)

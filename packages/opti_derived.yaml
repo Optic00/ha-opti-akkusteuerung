@@ -116,6 +116,7 @@ template:
           {% set nach_sunset = setting is not none and (setting | as_datetime | as_local).date() != now().date() %}
           {{ (nach_sunset and has_value('sensor.opti_forecast_score_tomorrow'))
              or (has_value('sensor.opti_forecast_remaining_today_kwh')
+                 and has_value('sensor.opti_forecast_effective_remaining_kwh')
                  and has_value('sensor.opti_battery_capacity_kwh')
                  and has_value('sensor.opti_soc')) }}
         state: >
@@ -205,7 +206,10 @@ template:
           {% set p10 = p10_raw if p10_raw > 0 else median %}
           {% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus') | float(0)] | min] | max) / 100 %}
           {% set blended = alpha * median + (1 - alpha) * p10 %}
-          {{ ([median, blended] | min) | round(3) }}
+          {# Roh, NICHT gerundet: haelt alpha=0 bit-identisch zum alten
+             min(median, P10) und vermeidet einen Rundungs-Kipp an den
+             Ziel-SoC-Stufengrenzen. Anzeige-Rundung nur in den Attributen. #}
+          {{ [median, blended] | min }}
         attributes:
           median_kwh: "{{ states('sensor.opti_forecast_remaining_today_kwh') | float(0) | round(3) }}"
           p10_kwh: >
@@ -228,7 +232,8 @@ template:
         # haelt die vorige Stufe, bis ratio die Grenze um die Marge m ueber-/unterschreitet.
         availability: >
           {{ has_value('sensor.opti_battery_capacity_kwh') and
-             has_value('sensor.opti_forecast_remaining_today_kwh') }}
+             has_value('sensor.opti_forecast_remaining_today_kwh') and
+             has_value('sensor.opti_forecast_effective_remaining_kwh') }}
         state: >
           {% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %}
           {% set restproduktion = states('sensor.opti_forecast_effective_remaining_kwh') | float(0) %}

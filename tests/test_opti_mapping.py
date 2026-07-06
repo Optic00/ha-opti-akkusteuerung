@@ -32,6 +32,10 @@ def test_mapping_remaining_today_reicht_estimate10_durch():
     assert float(_remaining_today_estimate10(hass)) == 9.46
 
 
-def test_mapping_remaining_today_estimate10_fehlt_wird_0():
+def test_mapping_remaining_today_estimate10_fehlt_bleibt_none():
+    # Kontrakt (canonical-layer.md): fehlt das P10 an der Quelle, bleibt das
+    # Attribut none - NICHT 0, denn 0 waere von "echtes P10 = 0 kWh" nicht
+    # unterscheidbar. Seit 2026-07-05 ist die private opti_mapping.yaml auf
+    # die none-Variante des Examples angeglichen.
     hass = FakeHass(states={SOURCE: "22.26"})
-    assert float(_remaining_today_estimate10(hass)) == 0.0
+    assert _remaining_today_estimate10(hass) == "None"

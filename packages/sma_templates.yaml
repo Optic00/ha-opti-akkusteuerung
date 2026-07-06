@@ -12,6 +12,10 @@
 #   sensor.DEIN_PV_POWER              → PV-Leistungssensor (SMA Integration)
 #   sensor.DEIN_STROMVERBRAUCH_SENSOR → Haus-Verbrauchssensor
 #   sensor.DEIN_NETZLEISTUNG_SENSOR   → Netzeinspeise-Sensor in W (positiv = Einspeisung)
+#   sensor.DEIN_STROMPREIS            → aktueller Strompreis in ct/kWh (z.B. Tibber)
+#   sensor.DEIN_WR_LEISTUNGSLIMIT     → aktives Einspeiselimit des WR in W
+#   sensor.DEINE_ANLAGE_PEAK_WP       → installierte PV-Peakleistung in Wp
+#   sensor.DEINE_PV_ERZEUGUNG         → momentane PV-Erzeugung in W
 #
 #   Die SMA-Integrations-Sensoren haben typischerweise das Format:
 #   sensor.sn_SERIENNUMMER_battery_soc_total
@@ -231,8 +235,10 @@ template:
             {% endif %}
 
             {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
-            {# Auf 0.25-Schritte runden → verhindert Flattern an Stufengrenzen #}
-            {% set ratio = (((net_available / cap_kwh) * 4) | round(0)) / 4 %}
+            {# Auf 0.25-Schritte runden → verhindert Flattern an Stufengrenzen.
+               cap_kwh <= 0 (z.B. Modbus liefert 0 in der WR-Startphase) -> ratio 0
+               -> unterste Stufe -> maxsoc, statt Division durch 0. #}
+            {% set ratio = ((((net_available / cap_kwh) * 4) | round(0)) / 4) if cap_kwh > 0 else 0 %}
 
             {% if   ratio >= 3.0 %} {% set target = 50 %}
             {% elif ratio >= 2.0 %} {% set target = 60 %}
@@ -262,7 +268,7 @@ template:
                 {% set remaining_hours = 6 %}
               {% endif %}
               {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
-              {% set ratio = (((net_available / cap_kwh) * 4) | round(0)) / 4 %}
+              {% set ratio = ((((net_available / cap_kwh) * 4) | round(0)) / 4) if cap_kwh > 0 else 0 %}
               {% if   ratio >= 3.0 %}ratio>=3.0 → 50%
               {% elif ratio >= 2.0 %}ratio>=2.0 → 60%
               {% elif ratio >= 1.5 %}ratio>=1.5 → 70%
@@ -283,7 +289,7 @@ template:
               {% set remaining_hours = 6 %}
             {% endif %}
             {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
-            {{ (((net_available / cap_kwh) * 4) | round(0)) / 4 }}
+            {{ ((((net_available / cap_kwh) * 4) | round(0)) / 4) if cap_kwh > 0 else 0 }}
           net_available_kwh: >
             {% set restproduktion = states('sensor.solcast_pv_forecast_prognose_verbleibende_leistung_heute') | float(0) %}
             {% set hausverbrauch  = states('sensor.haus_stromverbrauch_60_min') | float(1500) %}

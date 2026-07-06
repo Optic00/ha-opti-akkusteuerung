@@ -6,10 +6,20 @@ Modus-Wirkung im Simulator (vereinfachtes Adapter-Modell):
   Akku nur Laden     -> reine Entladesperre (kein Netzbezug); Haus laeuft aus
                         dem Netz, Akku bleibt idle.
   Akku Netzladen     -> erzwungenes Netzladen (beide Laderegeln setzen diesen
-                        Modus); laedt aus dem Netz bis 95% SoC.
+                        Modus); laedt aus dem Netz bis maxsoc.
   Akku nur Entladen  -> deckt Hauslast aus dem Akku (bis minsoc).
   Akku Dynamisch     -> deckt Hauslast aus dem Akku (bis minsoc), laedt PV ein.
 Verluste: Laden und Entladen je mit eta=0.95 (Round-Trip ~0.9).
+
+Bewusste Limitationen (Ergebnisse entsprechend eng interpretieren):
+  - Es wird durchgehend NACHT simuliert (sun.sun below_horizon, Score 1,
+    opti_target_soc fest auf 95): alle Tag-Zweige der Strategie (70%/AC-
+    Ueberschuss, "dyn bis Ziel tag", Ziel-SoC-getriebenes Entladen) werden
+    nie durchlaufen. Der Backtest validiert den Nacht-/Peak-Pfad.
+  - _price_level ist eine Python-Reimplementierung des opti_price_level-
+    Templates (Midrank-Perzentil) - bei Aenderungen am Template dort
+    mit nachziehen. Reserve-Sensor und Strategie-Vorschau laufen dagegen
+    als ECHTE Templates.
 """
 from __future__ import annotations
 
@@ -32,7 +42,7 @@ _peak_template = find_trigger_block_variables(_derived, "peak")
 
 
 def _states(hour_price, soc, load_kw, neu, cap_kwh, peak, *,
-            halte_spread_ct, netzlade_spread_ct):
+            halte_spread_ct, netzlade_spread_ct, minsoc, maxsoc):
     minv = peak["min_preis_vor_peak_ct"] if peak else None
     avg = peak["peak_preis_avg_ct"] if peak else None
     ve_avg = peak["ve_preis_avg_ct"] if peak else None
@@ -44,7 +54,9 @@ def _states(hour_price, soc, load_kw, neu, cap_kwh, peak, *,
             "sensor.opti_forecast_score": "1",
             "sensor.opti_forecast_score_tomorrow": "1",
             "sensor.opti_price_level": "unknown",  # wird unten gesetzt
-            "sensor.opti_target_soc": "95",
+            # Ziel-SoC fest auf maxsoc gepinnt (keine Tag-Dynamik simuliert,
+            # siehe Limitationen im Docstring) - folgt aber maxsoc-Sweeps.
+            "sensor.opti_target_soc": str(maxsoc),
             "sensor.opti_price_current_ct_kwh": str(hour_price),
             "sensor.opti_grid_export_w": "0",
             "sensor.opti_pv_power_w": "0",
@@ -52,8 +64,8 @@ def _states(hour_price, soc, load_kw, neu, cap_kwh, peak, *,
                 str(peak["ges_soc"]) if aktiv else "unavailable",
             "binary_sensor.opti_peak_reserve_aktiv": "on" if (neu and aktiv) else "off",
             "binary_sensor.opti_winter_charging_allowed": "on",
-            "input_number.minsoc": "10",
-            "input_number.maxsoc": "95",
+            "input_number.minsoc": str(minsoc),
+            "input_number.maxsoc": str(maxsoc),
             "input_number.opti_peak_verbrauch_kw": str(load_kw),
             "input_number.opti_einspeiseverguetung_ct": "8" if neu else "0",
             "input_number.opti_netzlade_spread_ct": str(netzlade_spread_ct) if neu else "999",
@@ -90,7 +102,8 @@ def _price_level(prices, current):
 
 def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
                  start_soc, cap_kwh, neu, modus_start="Akku Dynamisch",
-                 aufschlag_ct=None, halte_spread_ct=None, netzlade_spread_ct=None):
+                 aufschlag_ct=None, halte_spread_ct=None, netzlade_spread_ct=None,
+                 minsoc=10.0, maxsoc=95.0):
     # Tuning-Hebel: neu=True -> Gewinner-Defaults aus dem Winter-Backtest-Sweep
     # 2026-07-02 (aufschlag 5, halte 5, netzlade_spread 10), neu=False -> Gate
     # stillgelegt, Parameter egal (aufschlag/halte 0 zur Klarheit).
@@ -117,8 +130,8 @@ def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
                 "sensor.opti_forecast_score": "1",
                 "sensor.opti_forecast_score_tomorrow": "1",
                 "input_number.opti_peak_verbrauch_kw": str(load_kw),
-                "input_number.minsoc": "10",
-                "input_number.maxsoc": "95",
+                "input_number.minsoc": str(minsoc),
+                "input_number.maxsoc": str(maxsoc),
                 "input_number.opti_peak_min_aufschlag_ct": str(aufschlag_ct),
                 "sun.sun": "below_horizon",
             },
@@ -131,7 +144,8 @@ def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
         # 2. Strategie-Entscheidung mit echtem Vorschau-Template
         hass = _states(preis, soc, load_kw, neu, cap_kwh, peak,
                        halte_spread_ct=halte_spread_ct,
-                       netzlade_spread_ct=netzlade_spread_ct)
+                       netzlade_spread_ct=netzlade_spread_ct,
+                       minsoc=minsoc, maxsoc=maxsoc)
         hass.now_value = now
         hass.states_map["sensor.opti_price_level"] = _price_level(alle_preise, preis)
         hass.states_map["input_select.akkusteuerung_modus"] = modus
@@ -140,19 +154,19 @@ def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
         pv = pv_kwh_per_hour[hour]
         last = load_kw
         if modus == "Akku nur Entladen" or modus == "Akku Dynamisch":
-            entnehmbar = max(0.0, (soc - 10) / 100 * cap_kwh) * ETA
+            entnehmbar = max(0.0, (soc - minsoc) / 100 * cap_kwh) * ETA
             aus_akku = min(last, entnehmbar)
             soc -= aus_akku / ETA / cap_kwh * 100
             cost += (last - aus_akku) * preis / 100
         elif modus == "Akku Netzladen":  # erzwungenes dynamisches Netzladen
             cost += last * preis / 100
-            lade = min(LADE_KW, (95 - soc) / 100 * cap_kwh / ETA)
+            lade = min(LADE_KW, (maxsoc - soc) / 100 * cap_kwh / ETA)
             soc += lade * ETA / cap_kwh * 100
             cost += lade * preis / 100
         else:  # Akku nur Laden: reine Entladesperre (idle), Haus aus dem Netz
             cost += last * preis / 100
-        if pv > 0 and soc < 95:
-            soc = min(95.0, soc + pv * ETA / cap_kwh * 100)
+        if pv > 0 and soc < maxsoc:
+            soc = min(maxsoc, soc + pv * ETA / cap_kwh * 100)
         soc = max(0.0, min(100.0, soc))
         soc_verlauf.append(round(soc, 1))
         modus_verlauf.append(modus)
@@ -177,6 +191,8 @@ SZENARIEN = {
 
 
 def main():
+    print("Hinweis: Nacht-only-Simulation (keine Tag-Zweige, Ziel-SoC fest 95) -"
+          " siehe Limitationen im Modul-Docstring.\n")
     for name, sz in SZENARIEN.items():
         kwargs = dict(load_kw=0.9, pv_kwh_per_hour=[0.0] * 24, cap_kwh=12.8, **sz)
         alt = simulate_day(neu=False, **kwargs)

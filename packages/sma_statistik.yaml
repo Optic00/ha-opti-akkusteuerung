@@ -2,7 +2,9 @@
 # SMA Akkusteuerung – Statistik-Sensoren
 # =============================================================================
 # Gleitende Mittelwerte für Batterielast und Hausverbrauch.
-# Diese Sensoren werden von den Template-Sensoren in sma_templates.yaml genutzt.
+# Konsumenten: "Haus Stromverbrauch 60 min" und "House Battery Load 30 mins"
+# werden vom Legacy-Layer (sma_templates.yaml) genutzt,
+# "Opti House Consumption 60min W" vom Canonical-Layer (opti_derived.yaml).
 #
 # Eingänge kommen vom Canonical-Layer (opti_mapping.yaml):
 #   Batterielast:    sensor.opti_battery_power_w
@@ -21,26 +23,6 @@ sensor:
     state_characteristic: mean
     max_age:
       minutes: 30
-    sampling_size: 360
-    precision: 0
-
-  - platform: statistics
-    name: "House Stromverbrauch 30 min"
-    unique_id: haus_stromverbrauch_30_min
-    entity_id: sensor.opti_house_consumption_w
-    state_characteristic: mean
-    max_age:
-      minutes: 30
-    sampling_size: 360
-    precision: 0
-
-  - platform: statistics
-    name: "Haus Battery Load 60 mins"
-    unique_id: haus_battery_load_60_mins
-    entity_id: sensor.opti_battery_power_w
-    state_characteristic: mean
-    max_age:
-      minutes: 60
     sampling_size: 360
     precision: 0
 

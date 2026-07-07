@@ -354,13 +354,16 @@ nach stabilem Stand über Done-SoC feuert und `counter = 0` setzt → Watchdog `
 | Zustand | Bedingung (fällig vorausgesetzt) | Strategie-Modus |
 |---|---|---|
 | `pv` | tagsüber (`sun.sun` above_horizon) | Akku nur Laden |
-| `netz` | nachts, **`opti_prognose_netzladen` = on**, aktueller Preis < Einspeisevergütung (gratis/negativ) | Akku Netzladen |
-| `netz` | nachts, **`opti_prognose_netzladen` = on**, nach Karenz (`counter` ≥ Intervall + `opti_balancing_karenz_tage`), Preisniveau VERY_CHEAP/CHEAP **und** aktueller Preis ≤ `opti_balancing_max_ct` (> 0) | Akku Netzladen |
+| `netz` | nachts, **`opti_balancing_netzladen` = on**, aktueller Preis < Einspeisevergütung (gratis/negativ) | Akku Netzladen |
+| `netz` | nachts, **`opti_balancing_netzladen` = on**, nach Karenz (`counter` ≥ Intervall + `opti_balancing_karenz_tage`), Preisniveau VERY_CHEAP/CHEAP **und** aktueller Preis ≤ `opti_balancing_max_ct` (> 0) | Akku Netzladen |
 | `aus` | sonst (auf besseres Fenster warten) | — (Kaskade läuft weiter) |
 
-**Netzlade-Gate:** Beide `netz`-Zweige respektieren `input_boolean.opti_prognose_netzladen` -
-ist das Gate aus, bleibt der Watchdog nachts `aus` (**harte Garantie gegen jedes Netzladen**,
-siehe [canonical-layer.md](canonical-layer.md#harte-garantie-gegen-jedes-netzladen)). Der
+**Netzlade-Schalter:** Beide `netz`-Zweige hängen am **eigenen** Schalter
+`input_boolean.opti_balancing_netzladen` (**Default aus**) - ist er aus, bleibt der Watchdog
+nachts `aus` und balancet rein per PV. Bewusst **entkoppelt** von `opti_prognose_netzladen`:
+so lässt sich Balancing-Netzladen erlauben, ohne das allgemeine Prognose-Netzladen zu öffnen
+(die **harte Netzlade-Garantie** bleibt darüber erhalten, siehe
+[canonical-layer.md](canonical-layer.md#harte-garantie-gegen-jedes-netzladen)). Der
 `pv`-Zweig ist **ungegatet** - PV-Vollladung zieht keinen Netzstrom.
 
 Der PV-Zweig ist im MVP bewusst simpel (ganztags PV-bevorzugt, kein PV > Haus-Gate). Der
@@ -502,16 +505,16 @@ VERY_EXPENSIVE-Reserve liegt (Freigabeband +5 %/+3 %, siehe Hauptabschnitt).
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | `sensor.opti_balancing_watchdog` = `netz` (fällig, nachts, `opti_prognose_netzladen` = on; gratis/negativer Preis, oder nach Karenz günstig **und** unter dem Preisdeckel) |
+| Bedingung | `sensor.opti_balancing_watchdog` = `netz` (fällig, nachts, `opti_balancing_netzladen` = on; gratis/negativer Preis, oder nach Karenz günstig **und** unter dem Preisdeckel) |
 | Preis | gratis/negativ (< Einspeisevergütung) oder VERY_CHEAP/CHEAP ≤ `opti_balancing_max_ct` |
 | Tageszeit | nachts (der PV-Zweig hat tagsüber Vorrang) |
-| Gate | `input_boolean.opti_prognose_netzladen` muss `on` sein (im Sensor gegated) |
+| Schalter | `input_boolean.opti_balancing_netzladen` muss `on` sein (im Sensor gegated, Default aus) |
 | Gesetzter Modus | **Akku Netzladen** (braucht `ha-modbus-akku-adapter` >= v1.5.0) |
 
 **Warum:** Reicht die PV nicht (nachts), lädt der Watchdog aus dem Netz - sofort bei gratis/
 negativem Strom, sonst erst nach einer Karenz und nur günstig unter einem absoluten Deckel.
-Beide `netz`-Fälle respektieren das Netzlade-Gate `opti_prognose_netzladen` (harte Garantie
-gegen jedes Netzladen); der `pv`-Zweig bleibt ungegatet.
+Beide `netz`-Fälle hängen am eigenen Wartungs-Schalter `opti_balancing_netzladen` (Default
+aus, entkoppelt von `opti_prognose_netzladen`); der `pv`-Zweig bleibt ungegatet.
 `opti_balancing_max_ct = 0` (Erststart) lässt den bezahlten Fallback aus. Details siehe
 **[Balancing-/Deep-Charge-Watchdog](#balancing-deep-charge-watchdog)**.
 

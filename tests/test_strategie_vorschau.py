@@ -382,7 +382,9 @@ WD_BASIS = {
     "input_number.opti_einspeiseverguetung_ct": "8",
     "sensor.opti_price_current_ct_kwh": "30",
     "sensor.opti_price_level": "NORMAL",
-    "input_boolean.opti_prognose_netzladen": "on",
+    # Eigener Wartungs-Schalter fuers Balancing-Netzladen (entkoppelt von
+    # opti_prognose_netzladen). Default aus; hier an, damit die netz-Faelle greifen.
+    "input_boolean.opti_balancing_netzladen": "on",
     "sun.sun": "below_horizon",
 }
 
@@ -484,28 +486,38 @@ def test_watchdog_intervall_null_global_aus():
                        "sun.sun": "above_horizon"}) == "aus"
 
 
-# Netzlade-Gate: 'netz' respektiert input_boolean.opti_prognose_netzladen.
-def test_watchdog_netz_respektiert_prognose_gate():
-    # Gratis-Netz (cur 3 < EEG 8) waere 'netz', aber prog off -> 'aus'
-    # (harte Garantie gegen jedes Netzladen).
+# Netzlade-Gate: 'netz' respektiert den EIGENEN Schalter opti_balancing_netzladen
+# (entkoppelt von opti_prognose_netzladen). Default aus -> Balancing rein per PV.
+def test_watchdog_netz_respektiert_balancing_schalter():
+    # Gratis-Netz (cur 3 < EEG 8) waere 'netz', aber Schalter aus -> 'aus'
+    # (harte Netzlade-Garantie bleibt erhalten).
     fall = {"sun.sun": "below_horizon", "sensor.opti_price_current_ct_kwh": "3"}
-    assert watchdog(**{**fall, "input_boolean.opti_prognose_netzladen": "off"}) == "aus"
-    # Gegentest: prog on -> 'netz'.
-    assert watchdog(**{**fall, "input_boolean.opti_prognose_netzladen": "on"}) == "netz"
+    assert watchdog(**{**fall, "input_boolean.opti_balancing_netzladen": "off"}) == "aus"
+    # Gegentest: Schalter an -> 'netz'.
+    assert watchdog(**{**fall, "input_boolean.opti_balancing_netzladen": "on"}) == "netz"
 
 
-def test_watchdog_bezahltes_netz_respektiert_prognose_gate():
-    # Auch der bezahlte Fallback ist gegated.
+def test_watchdog_bezahltes_netz_respektiert_balancing_schalter():
+    # Auch der bezahlte Fallback haengt am eigenen Schalter.
     fall = {"sun.sun": "below_horizon", "counter.tage_seit_akku100": "17",
             "sensor.opti_price_level": "CHEAP", "sensor.opti_price_current_ct_kwh": "20"}
-    assert watchdog(**{**fall, "input_boolean.opti_prognose_netzladen": "off"}) == "aus"
-    assert watchdog(**{**fall, "input_boolean.opti_prognose_netzladen": "on"}) == "netz"
+    assert watchdog(**{**fall, "input_boolean.opti_balancing_netzladen": "off"}) == "aus"
+    assert watchdog(**{**fall, "input_boolean.opti_balancing_netzladen": "on"}) == "netz"
 
 
-def test_watchdog_pv_ungegatet_von_prognose():
-    # 'pv' zieht keinen Netzstrom -> vom Netzlade-Gate unberuehrt.
+def test_watchdog_netz_unabhaengig_von_prognose_gate():
+    # Der Balancing-Netzschalter ist ENTKOPPELT von opti_prognose_netzladen:
+    # Balancing darf ans Netz, auch wenn die allgemeine Prognose-Netzladung aus ist.
+    fall = {"sun.sun": "below_horizon", "sensor.opti_price_current_ct_kwh": "3",
+            "input_boolean.opti_balancing_netzladen": "on",
+            "input_boolean.opti_prognose_netzladen": "off"}
+    assert watchdog(**fall) == "netz"
+
+
+def test_watchdog_pv_ungegatet_vom_netzschalter():
+    # 'pv' zieht keinen Netzstrom -> vom Netzlade-Schalter unberuehrt.
     assert watchdog(**{"sun.sun": "above_horizon",
-                       "input_boolean.opti_prognose_netzladen": "off"}) == "pv"
+                       "input_boolean.opti_balancing_netzladen": "off"}) == "pv"
 
 
 # Vorschau-Mapping direkt: pv -> nur Laden, netz -> Netzladen.

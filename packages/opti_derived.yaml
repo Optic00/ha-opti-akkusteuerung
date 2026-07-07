@@ -621,15 +621,17 @@ template:
           {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %}
           {% set price = states('sensor.opti_price_level') %}
           {% set day = is_state('sun.sun','above_horizon') %}
-          {% set prog = states('input_boolean.opti_prognose_netzladen') == 'on' %}
+          {% set bal_netz = states('input_boolean.opti_balancing_netzladen') == 'on' %}
           {% set faellig = intervall > 0 and soc >= 0 and soc < 100 and counter >= intervall %}
-          {# 'netz' respektiert das Netzlade-Gate opti_prognose_netzladen (harte
-             Garantie gegen jedes Netzladen, docs/canonical-layer.md #26). 'pv'
-             bleibt ungegatet - PV-Vollladung zieht keinen Netzstrom. #}
+          {# 'netz' hat einen EIGENEN Schalter opti_balancing_netzladen (Default aus),
+             entkoppelt vom allgemeinen opti_prognose_netzladen. So bleibt die harte
+             Netzlade-Garantie (docs/canonical-layer.md #26) erhalten: Balancing zieht
+             nur Netzstrom, wenn dieser Wartungs-Schalter bewusst an ist. 'pv' bleibt
+             ungegatet - PV-Vollladung zieht keinen Netzstrom. #}
           {% if not faellig %}aus
           {%- elif day %}pv
-          {%- elif prog and hv_cur and cur < eeg %}netz
-          {%- elif prog and counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct %}netz
+          {%- elif bal_netz and hv_cur and cur < eeg %}netz
+          {%- elif bal_netz and counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct %}netz
           {%- else %}aus{% endif %}
         attributes:
           grund: >
@@ -643,16 +645,16 @@ template:
             {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %}
             {% set price = states('sensor.opti_price_level') %}
             {% set day = is_state('sun.sun','above_horizon') %}
-            {% set prog = states('input_boolean.opti_prognose_netzladen') == 'on' %}
+            {% set bal_netz = states('input_boolean.opti_balancing_netzladen') == 'on' %}
             {% set faellig = intervall > 0 and soc >= 0 and soc < 100 and counter >= intervall %}
             {% if intervall <= 0 %}Watchdog aus (Intervall 0)
             {%- elif soc < 0 %}opti_soc fehlt
             {%- elif soc >= 100 %}Akku voll (soc>=100)
             {%- elif not faellig %}nicht faellig ({{counter}}/{{intervall}} Tage)
             {%- elif day %}PV-Vollladung (tag, {{counter}} Tage seit voll)
-            {%- elif prog and hv_cur and cur < eeg %}Gratis-Netz ({{cur}}ct < EEG {{eeg}}ct)
-            {%- elif prog and counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct %}Bezahltes Netz ({{cur}}ct <= Deckel {{maxct}}ct, nach Karenz)
-            {%- elif not prog and (hv_cur and cur < eeg or counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct) %}Netz-Balancing gesperrt (opti_prognose_netzladen aus)
+            {%- elif bal_netz and hv_cur and cur < eeg %}Gratis-Netz ({{cur}}ct < EEG {{eeg}}ct)
+            {%- elif bal_netz and counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct %}Bezahltes Netz ({{cur}}ct <= Deckel {{maxct}}ct, nach Karenz)
+            {%- elif not bal_netz and (hv_cur and cur < eeg or counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct) %}Netz-Balancing gesperrt (opti_balancing_netzladen aus)
             {%- else %}warte auf besseres Fenster{% endif %}
           soc: "{{ states('sensor.opti_soc') }}"
           tage_seit_voll: "{{ states('counter.tage_seit_akku100') }}"

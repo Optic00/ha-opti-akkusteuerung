@@ -248,15 +248,19 @@ der Wert jeden weiteren Neustart:
 | `input_number.opti_balancing_intervall_tage` | 0 Tage (= Watchdog aus) | 14 Tage |
 | `input_number.opti_balancing_karenz_tage` | 0 Tage | 3 Tage |
 | `input_number.opti_balancing_max_ct` | 0 ct/kWh (= kein bezahltes Netzladen) | 25 ct/kWh |
+| `input_boolean.opti_balancing_netzladen` | aus (= Balancing rein per PV) | nach Wunsch an |
 
-Die vier `opti_balancing_*`-Helfer steuern den **Balancing-/Deep-Charge-Watchdog**
+Die `opti_balancing_*`-Helfer steuern den **Balancing-/Deep-Charge-Watchdog**
 (`sensor.opti_balancing_watchdog`): `intervall_tage` = Tage ohne Voll-/Done-Ladung bis
 der Watchdog fällig wird (0 = aus), `karenz_tage` = zusätzliche Wartezeit vor dem
 bezahlten Netz-Fallback, `max_ct` = absoluter Brutto-Preisdeckel fürs bezahlte
-Balancing-Netzladen (0 = fail-safe aus). Der vierte Helfer
-`input_number.opti_balancing_done_soc` hat als einziger ein `initial:` (98.5 %) und muss
-nicht von Hand gesetzt werden — er definiert die „Akku ~voll"-Schwelle für Counter-Reset
-und tägliches Increment.
+Balancing-Netzladen (0 = fail-safe aus). `input_number.opti_balancing_done_soc` hat als
+einziger ein `initial:` (98.5 %) und muss nicht von Hand gesetzt werden — er definiert die
+„Akku ~voll"-Schwelle für Counter-Reset und tägliches Increment. Der Schalter
+`input_boolean.opti_balancing_netzladen` (**Default aus**) entscheidet, ob der Watchdog fürs
+BMS-Balancing auch aus dem **Netz** laden darf; ohne ihn balancet er rein per PV. Er ist
+bewusst von `opti_prognose_netzladen` entkoppelt, damit Balancing-Netzladen unabhängig vom
+allgemeinen Prognose-Netzladen freigegeben werden kann.
 
 **9. Feinjustieren:** SoC-Grenzen, Lade-/Entladegrenzen, Prognose-Schwellen über die
 HA-Oberfläche weiter an die eigene Anlage anpassen (alle als Helfer vorhanden).

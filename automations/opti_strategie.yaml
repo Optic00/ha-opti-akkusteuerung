@@ -661,13 +661,18 @@
         # Modus-Set-Zweig: nur Entladen wenn SOC über Ziel-SoC.
         - alias: "Modus 'nur Entladen': SOC über Ziel-SoC"
           conditions:
-            # Band H=3 %: nur Entladen erst wenn soc > target + H (Template, da Offset).
+            # Band H=3 %: rein bei soc > target + 3. Asymmetrische Hysterese gegen
+            # Ziel-SoC-Flattern: ist der Modus schon 'Akku nur Entladen', bleibt er
+            # bis soc <= target (Offset 0) drin. Sonst flippt er mittags im
+            # Minutentakt Entladen<->Dynamisch, weil das Entladen selbst den SoC
+            # wieder unter die Kante zieht und PV ihn sofort erneut drueber drueckt.
             - condition: template
               value_template: >-
+                {% set off = 0 if is_state('input_select.akkusteuerung_modus', 'Akku nur Entladen') else 3 %}
                 {{ has_value('sensor.opti_soc')
                    and has_value('sensor.opti_battery_capacity_kwh')
                    and has_value('sensor.opti_target_soc')
-                   and (states('sensor.opti_soc') | float) > (states('sensor.opti_target_soc') | float + 3) }}
+                   and (states('sensor.opti_soc') | float) > (states('sensor.opti_target_soc') | float + off) }}
           sequence:
             - action: input_select.select_option
               data:

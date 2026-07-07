@@ -723,7 +723,12 @@ template:
           {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Akku nur Laden
           {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Akku nur Laden
           {%- elif soc > minsoc and soc < target - H and day %}Akku Dynamisch
-          {%- elif soc > target + H %}Akku nur Entladen
+          {# Asymmetrische Hysterese gegen Ziel-SoC-Flattern (v.a. mittags, wenn
+             PV den SoC ueber die Schwelle drueckt): rein bei target+H, drin
+             bleiben bis target. Ohne das flippt der Modus im Minutentakt
+             Entladen<->Dynamisch, weil das Entladen selbst den SoC wieder
+             unter die Kante zieht. #}
+          {%- elif soc > target + (0 if is_state('input_select.akkusteuerung_modus','Akku nur Entladen') else H) %}Akku nur Entladen
           {%- elif soc >= 0 %}Akku Dynamisch
           {%- else %}unbekannt{% endif %}
         attributes:
@@ -777,7 +782,7 @@ template:
             {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%, Spread {{(ve_avg - cur)|round(1)}}ct)
             {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%)
             {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag)
-            {%- elif soc > target + H %}ueber Ziel-SoC
+            {%- elif soc > target + (0 if is_state('input_select.akkusteuerung_modus','Akku nur Entladen') else H) %}ueber Ziel-SoC
             {%- elif soc >= 0 %}Default (Nacht/keine Aktion)
             {%- else %}opti_soc fehlt{% endif %}
           ist_modus: "{{ states('input_select.akkusteuerung_modus') }}"

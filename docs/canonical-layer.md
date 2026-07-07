@@ -173,6 +173,48 @@ state: "{{ states('sensor.awattar_current_price') | float(0) * 100 }}"
 
 ---
 
+## Setup ohne dynamische Strompreise
+
+Kein dynamischer Tarif (Tibber, Nordpool, aWATTar …)?
+Die Steuerung läuft trotzdem - sie fällt dann auf reine Eigenverbrauchsoptimierung nach Sonnenstand, Prognose und Hausverbrauch zurück.
+Die Preis-Sensoren (Sensor 8 `opti_price_current_ct_kwh`, Sensor 9 `opti_price_series`) lässt du in diesem Fall einfach ungemappt.
+
+**Was du trotzdem mappen musst:** alle übrigen Pflicht-Sensoren - Solcast-Prognose, SoC, Batteriekapazität, Hausverbrauch, PV/Einspeisung und Batterieleistung.
+Ohne die läuft die Strategie gar nicht (siehe [Fail-safe-Verhalten](#testfälle--erwartetes-verhalten): fehlt `opti_soc` oder `opti_battery_capacity_kwh`, wird kein Modus gesetzt).
+
+### Was ohne Preis-Sensoren aktiv bleibt
+
+- **Intelligenter Ziel-SoC** (`sensor.opti_target_soc`): rein Solcast-Prognose- und Verbrauchs-basiert, enthält keine Preis-Referenz.
+- **PV-Überschuss-Laden tagsüber:** greift, solange `input_boolean.opti_pv_ueberschuss_ladung` an ist (rein leistungsbasiert über die Überschuss-Binärsensoren).
+- **MinSOC-Absicherung:** `SoC < input_number.minsoc` erzwingt „Akku nur Laden" - höchste Priorität, preisunabhängig.
+- **Voller-Akku-Cleanup** und der Ziel-SoC-basierte Dynamisch/Entladen-Default.
+
+### Was automatisch wegfällt
+
+Fehlt `opti_price_current_ct_kwh`, wird `sensor.opti_price_level` über seinen Availability-Check `unavailable` (siehe [Abgeleitete Sensoren](#abgeleitete-sensoren-opti_derivedyaml)).
+Damit greift **kein** Ladeblock mehr, der ein Preisniveau prüft:
+
+- **Preis- und Winter-Ladeblöcke** (Entladesperre „Akku nur Laden" nach Preisniveau `VERY_CHEAP`/`CHEAP`/…): inaktiv, weil `opti_price_level` `unavailable` ist.
+- **Entlade-Peak-Allokation (Leiter L1-L4):** inaktiv - dieselbe Ursache.
+- **Echtes erzwungenes Netzladen** (Modus „Akku Netzladen", inkl. Vorladen unter Einspeisevergütung / bei Peak-Spread): fällt weg, weil alle diese Zweige zusätzlich `has_value('sensor.opti_price_current_ct_kwh')` voraussetzen.
+
+> **Wichtige Klarstellung:** Die Preis-/Winter-Ladeblöcke setzen „Akku nur Laden" - das ist eine reine **Entladesperre**, kein Netzbezug.
+> Echten Netzbezug gibt es nur im separaten Modus „Akku Netzladen", und der hängt exakt an den Zweigen, die ohne Preis-Sensor ohnehin wegfallen.
+
+### Harte Garantie gegen jedes Netzladen
+
+Willst du sicherstellen, dass die Steuerung **niemals** aus dem Netz lädt (etwa in der Testphase, bevor die Hardware dranhängt), lässt du zusätzlich diese beiden Toggles bewusst aus:
+
+- `input_boolean.opti_prognose_netzladen` - Gate für beide Netzladen-Zweige plus die alten Reserve-Blöcke.
+- `input_boolean.hausakku_aus_netz_laden` - manueller Booster, unabhängig davon: der zieht den Ziel-SoC sonst direkt auf `maxsoc`.
+
+### Vorher gefahrlos durchspielen
+
+`sensor.opti_strategie_vorschau` zeigt dir für eine gegebene Situation, welchen Modus die Strategie wählen würde - ein guter Weg, das Setup ohne Akku-Zugriff zu testen.
+Das Attribut `grund` desselben Sensors nennt den ausschlaggebenden Block.
+
+---
+
 ## SMA-Rezept: Hausverbrauch (`opti_house_consumption_w`)
 
 Die SMA-Integration liefert keinen direkten Hausverbrauchs-Sensor - er muss aus den

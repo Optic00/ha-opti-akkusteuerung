@@ -316,30 +316,82 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
 
 ### Wechselwirkung mit den alten Ladeblöcken
 
-Die bestehenden SOC-gestuften Ladeblöcke (Optionen 6-10 in der Übersicht unten, siehe [Winter-/Prognose-Ladelogik](#winter-prognose-ladelogik--intent)) stehen weiterhin **hinter** der Negativpreis-/Vorladeregel und **hinter** den Entlade-Stufen der Leiter (L1/L2), aber **vor** deren Halte-Stufen (L3/L4) - Peak-Entladen schlägt Winterladen, günstiges Laden schlägt Halten (Ben-Entscheidung 2026-07-02). Sie kennen die Ladefenster-Wahl **nicht** - sie laden sofort, sobald ihre eigenen SoC-/Preisbedingungen erfüllt sind.
+Die bestehenden SOC-gestuften Ladeblöcke (Optionen 8-12 in der Übersicht unten, siehe [Winter-/Prognose-Ladelogik](#winter-prognose-ladelogik--intent)) stehen weiterhin **hinter** der Negativpreis-/Vorladeregel und **hinter** den Entlade-Stufen der Leiter (L1/L2), aber **vor** deren Halte-Stufen (L3/L4) - Peak-Entladen schlägt Winterladen, günstiges Laden schlägt Halten (Ben-Entscheidung 2026-07-02). Sie kennen die Ladefenster-Wahl **nicht** - sie laden sofort, sobald ihre eigenen SoC-/Preisbedingungen erfüllt sind.
 Das ist bewusst so belassen: Fällt die Peak-Allokation aus (z. B. wegen zu weniger Preise) oder ist ihre Reserve zu knapp bemessen, sorgen die alten Blöcke weiterhin als **Sicherheitsnetz** dafür, dass bei schlechter Prognose überhaupt geladen wird, unabhängig davon, ob gerade das optimale Fenster ist.
+
+---
+
+## Balancing-/Deep-Charge-Watchdog
+
+Ein Lithium-BMS (hier BYD HVS 12.8 kWh) muss den Akku regelmäßig einmal ~voll laden, um die
+Zellen zu balancen und die SoC-Kalibrierung frisch zu halten. Im PV-Alltag - und besonders im
+Sommer-Schonband mit `maxsoc` < 100 - erreicht die dynamische Ziel-SoC-Treppe die 100 % aber
+nie. Der Watchdog erzwingt diesen Voll-Zyklus gezielt, sobald der Akku zu lange nicht mehr
+oben war.
+
+**Zustand rein abgeleitet, kein Latch:** `sensor.opti_balancing_watchdog` berechnet seinen
+Zustand jederzeit neu aus dem Zähler `counter.tage_seit_akku100`, dem SoC und den Helfern -
+damit ist er **restart-durabel** (kein gelatchtes Flag, das ein HA-Neustart verlieren könnte).
+
+**Fälligkeit:** Der Watchdog wird fällig, wenn
+`input_number.opti_balancing_intervall_tage` > 0 **und** SoC < 100 % **und**
+`counter.tage_seit_akku100` ≥ Intervall. Das Ladeziel ist bewusst **100 %** (nicht nur
+`maxsoc`), damit die Zelle in die CV-Phase kommt. `intervall = 0` schaltet den Watchdog
+komplett aus.
+
+**Zähler-Pflege (zwei Automationen in `automations/opti_balancing_counter.yaml`):**
+`opti_balancing_counter_increment` zählt `counter.tage_seit_akku100` täglich um 23:59 um 1
+hoch, solange der Akku an dem Tag den Done-SoC nicht erreicht hat.
+`opti_balancing_counter_reset` setzt den Zähler auf 0, sobald der Akku **30 min stabil** über
+`input_number.opti_balancing_done_soc` (Default 98.5 %) steht. Der Reset ist bewusst ein
+numeric_state-**Trigger** mit `for: 30 min` (nicht eine numeric_state-Condition mit `for:` -
+letzteres wertet HA nicht belastbar aus). Beide nutzen dieselbe Done-Schwelle - eine einzige
+Voll-/Done-Definition. Damit hält der Watchdog (Ladeziel 100 %/CV-Phase), bis der Reset-Trigger
+nach stabilem Stand über Done-SoC feuert und `counter = 0` setzt → Watchdog `aus`.
+
+**Staffelung (Kosten aufsteigend)** - der Zustand entscheidet über den Strategie-Zweig:
+
+| Zustand | Bedingung (fällig vorausgesetzt) | Strategie-Modus |
+|---|---|---|
+| `pv` | tagsüber (`sun.sun` above_horizon) | Akku nur Laden |
+| `netz` | nachts, **`opti_balancing_netzladen` = on**, aktueller Preis < Einspeisevergütung (gratis/negativ) | Akku Netzladen |
+| `netz` | nachts, **`opti_balancing_netzladen` = on**, nach Karenz (`counter` ≥ Intervall + `opti_balancing_karenz_tage`), Preisniveau VERY_CHEAP/CHEAP **und** aktueller Preis ≤ `opti_balancing_max_ct` (> 0) | Akku Netzladen |
+| `aus` | sonst (auf besseres Fenster warten) | — (Kaskade läuft weiter) |
+
+**Netzlade-Schalter:** Beide `netz`-Zweige hängen am **eigenen** Schalter
+`input_boolean.opti_balancing_netzladen` (**Default aus**) - ist er aus, bleibt der Watchdog
+nachts `aus` und balancet rein per PV. Bewusst **entkoppelt** von `opti_prognose_netzladen`:
+so lässt sich Balancing-Netzladen erlauben, ohne das allgemeine Prognose-Netzladen zu öffnen
+(die **harte Netzlade-Garantie** bleibt darüber erhalten, siehe
+[canonical-layer.md](canonical-layer.md#harte-garantie-gegen-jedes-netzladen)). Der
+`pv`-Zweig ist **ungegatet** - PV-Vollladung zieht keinen Netzstrom.
+
+Der PV-Zweig ist im MVP bewusst simpel (ganztags PV-bevorzugt, kein PV > Haus-Gate). Der
+bezahlte Netz-Fallback ist doppelt abgesichert: erst nach der Karenz, nur bei günstigem
+Preisniveau **und** unter einem absoluten Brutto-Deckel. `opti_balancing_max_ct = 0`
+(Erststart-Wert) lässt den bezahlten Fallback komplett aus - fail-safe kein bezahltes
+Netzladen, bis der Deckel bewusst gesetzt wird (empfohlen 25 ct).
+
+**Position in der Kaskade:** Die beiden Watchdog-Zweige stehen **nach** der Peak-Entlade-Leiter
+L1/L2 (ein aktiver Preisspitzen-Peak schlägt das Balancing) und **vor** den Prognose-Ladeblöcken
+(Optionen 6/7 in der Übersicht unten). Fehlt `opti_soc`, ist der Watchdog `aus` (fail-safe).
 
 ---
 
 ## Block-für-Block-Übersicht
 
 Die Automation besteht aus mehreren Aktionsblöcken, die **sequenziell** ausgeführt werden.
-Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 17 Optionen und einem Default-Pfad.
+Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 19 Optionen und einem Default-Pfad.
+
+> **Hinweis — Counter-Pflege ausgelagert:** Der Zähler `counter.tage_seit_akku100` (Increment
+> täglich, Reset bei 30 min stabil über Done-SoC) liegt **nicht** in dieser Automation, sondern
+> als zwei eigene, trigger-basierte Automationen in `automations/opti_balancing_counter.yaml` -
+> ein zuverlässiger 30-min-Halt braucht einen numeric_state-**Trigger** mit `for:`, nicht eine
+> gleichnamige Condition. Details siehe [Balancing-/Deep-Charge-Watchdog](#balancing-deep-charge-watchdog).
 
 ---
 
-### Aktionsblock 1 — Counter-Reset bei 100 % SoC
-
-**Was passiert:** Sobald der Trigger „Akku ist voll" (SoC > 99 %) feuert, wird der Zähler
-`counter.tage_seit_akku100` auf null zurückgesetzt. Dieser Zähler läuft täglich hoch und
-zeigt, wie lange der Akku nicht mehr vollgeladen war — nützlich für Wartungsplanung und
-spätere Automatisierungen, die einen Voll-Zyklus erzwingen können.
-
-**Modus-Auswirkung:** Keine direkte Modus-Änderung — nur Counter-Reset.
-
----
-
-### Aktionsblock 2 — „Zwischen Speicherszenarien wählen" (17 Optionen + Default)
+### Aktionsblock 1 — „Zwischen Speicherszenarien wählen" (19 Optionen + Default)
 
 Dies ist das Herzstück. Die Optionen werden **der Reihe nach** geprüft;
 die erste, deren Bedingungen alle erfüllt sind, wird ausgeführt und die weitere Prüfung
@@ -413,9 +465,10 @@ Reserve ja da. Details zur Leiter (L1-L4) und zum Freigabeband stehen im Abschni
 **[Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden)**.
 
 **Warum vor den alten Ladeblöcken (Ben-Entscheidung 2026-07-02):** L1/L2 stehen jetzt direkt
-nach der Peak-Vorladeregel und damit vor den alten SOC-gestuften Ladeblöcken (Option 6-10):
-Peak-Entladen schlägt Winterladen. Die Halte-Stufen L3/L4 (Option 14/15) bleiben hinter den
-Ladeblöcken stehen — günstiges Laden schlägt Halten.
+nach der Peak-Vorladeregel und damit vor den alten SOC-gestuften Ladeblöcken (Option 8-12):
+Peak-Entladen schlägt Winterladen. Die Halte-Stufen L3/L4 (Option 16/17) bleiben hinter den
+Ladeblöcken stehen — günstiges Laden schlägt Halten. Dazwischen (Option 6/7) sitzt der
+Balancing-Watchdog: er lädt vor den Prognoseblöcken, aber hinter einem aktiven Peak.
 
 ---
 
@@ -433,7 +486,41 @@ VERY_EXPENSIVE-Reserve liegt (Freigabeband +5 %/+3 %, siehe Hauptabschnitt).
 
 ---
 
-#### Option 6 — Laden wenn heute + morgen schlecht, SoC < 20 % (Tag und Nacht)
+#### Option 6 - Balancing-Watchdog: PV-Vollladung (Tag)
+
+| Eigenschaft | Wert |
+|---|---|
+| Bedingung | `sensor.opti_balancing_watchdog` = `pv` (fällig **und** tagsüber) |
+| Preis | irrelevant |
+| Tageszeit | nach Sonnenaufgang bis Sonnenuntergang |
+| Gesetzter Modus | **Akku nur Laden** |
+
+**Warum:** Ist der Watchdog fällig (Akku zu lange nicht ~voll), wird tagsüber PV-bevorzugt bis
+100 % geladen, damit das BMS balancen kann. Details und Staffelung siehe
+**[Balancing-/Deep-Charge-Watchdog](#balancing-deep-charge-watchdog)**.
+
+---
+
+#### Option 7 - Balancing-Watchdog: Netz-Vollladung (Nacht)
+
+| Eigenschaft | Wert |
+|---|---|
+| Bedingung | `sensor.opti_balancing_watchdog` = `netz` (fällig, nachts, `opti_balancing_netzladen` = on; gratis/negativer Preis, oder nach Karenz günstig **und** unter dem Preisdeckel) |
+| Preis | gratis/negativ (< Einspeisevergütung) oder VERY_CHEAP/CHEAP ≤ `opti_balancing_max_ct` |
+| Tageszeit | nachts (der PV-Zweig hat tagsüber Vorrang) |
+| Schalter | `input_boolean.opti_balancing_netzladen` muss `on` sein (im Sensor gegated, Default aus) |
+| Gesetzter Modus | **Akku Netzladen** (braucht `ha-modbus-akku-adapter` >= v1.5.0) |
+
+**Warum:** Reicht die PV nicht (nachts), lädt der Watchdog aus dem Netz - sofort bei gratis/
+negativem Strom, sonst erst nach einer Karenz und nur günstig unter einem absoluten Deckel.
+Beide `netz`-Fälle hängen am eigenen Wartungs-Schalter `opti_balancing_netzladen` (Default
+aus, entkoppelt von `opti_prognose_netzladen`); der `pv`-Zweig bleibt ungegatet.
+`opti_balancing_max_ct = 0` (Erststart) lässt den bezahlten Fallback aus. Details siehe
+**[Balancing-/Deep-Charge-Watchdog](#balancing-deep-charge-watchdog)**.
+
+---
+
+#### Option 8 — Laden wenn heute + morgen schlecht, SoC < 20 % (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -449,7 +536,7 @@ noch besser als kein Puffer. Diese Ausnahmeregelung gilt nur für diese kritisch
 
 ---
 
-#### Option 7 — Laden wenn heute + morgen schlecht, SoC < 75 % (Tag und Nacht)
+#### Option 9 — Laden wenn heute + morgen schlecht, SoC < 75 % (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -461,12 +548,12 @@ noch besser als kein Puffer. Diese Ausnahmeregelung gilt nur für diese kritisch
 **Warum (Nuance):** Bei moderatem SoC (20–75 %) und zwei schlechten Prognosetagen wird
 bis NORMAL-Preis nachgeladen. Der Grenze zu EXPENSIVE bleibt verschlossen, weil der Akku
 noch nicht kritisch leer ist — es lohnt sich, auf günstigere Stunden zu warten.
-Dieser Block bildet zusammen mit Option 6 eine bewusste Abstufung: je leerer der Akku,
+Dieser Block bildet zusammen mit Option 8 eine bewusste Abstufung: je leerer der Akku,
 desto teureren Strom darf die Automatik akzeptieren.
 
 ---
 
-#### Option 8 — Laden wenn heute + morgen schlecht, Wintermodus, SoC < 80 % (Tag und Nacht)
+#### Option 10 — Laden wenn heute + morgen schlecht, Wintermodus, SoC < 80 % (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -484,7 +571,7 @@ Sommermodus-Schalter überschrieben werden, wenn ein saisonales Gate gewünscht 
 
 ---
 
-#### Option 9 — Laden wenn heute schlecht, SoC < 15 % (Tag und Nacht)
+#### Option 11 — Laden wenn heute schlecht, SoC < 15 % (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -493,13 +580,13 @@ Sommermodus-Schalter überschrieben werden, wenn ein saisonales Gate gewünscht 
 | Tageszeit | jederzeit |
 | Gesetzter Modus | **Akku nur Laden** |
 
-**Warum:** Ähnlich wie Option 6, aber unabhängig von der Morgen-Prognose. Wenn der Akku
+**Warum:** Ähnlich wie Option 8, aber unabhängig von der Morgen-Prognose. Wenn der Akku
 fast leer ist (< 15 %) und die heutige Bewertung schlecht ist, wird notgeladen — ohne
 Rücksicht auf morgen. Kurzfrist-Schutz.
 
 ---
 
-#### Option 10 — Laden wenn heute schlecht, SoC < 45 %, Strom sehr günstig (Tag und Nacht)
+#### Option 12 — Laden wenn heute schlecht, SoC < 45 %, Strom sehr günstig (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -515,7 +602,7 @@ Stunden rechtfertigen das Netzladen bei diesem SoC-Niveau.
 
 ---
 
-#### Option 11 — Bei 70%-Überschuss laden (nur tagsüber)
+#### Option 13 — Bei 70%-Überschuss laden (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -535,7 +622,7 @@ Entprellung 30 s beidseitig plus Hysterese-Band, wie in der bewährten Opti-2.0-
 
 ---
 
-#### Option 12 — Bei AC-Überschuss laden (nur tagsüber)
+#### Option 14 — Bei AC-Überschuss laden (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -550,7 +637,7 @@ der Netzeinspeisung. Nutzt verfügbare PV-Energie aktiv, bevor sie verschwendet 
 
 ---
 
-#### Option 13 — Bei vollem Akku auf Dynamisch schalten
+#### Option 15 — Bei vollem Akku auf Dynamisch schalten
 
 | Eigenschaft | Wert |
 |---|---|
@@ -565,7 +652,7 @@ einspeisen, bei Verbrauch den Akku nutzen — je nach aktuellem Systemzustand.
 
 ---
 
-#### Option 14 - Peak-Leiter L3: Halten bei EXPENSIVE unter VE-Reserve (Tag und Nacht)
+#### Option 16 - Peak-Leiter L3: Halten bei EXPENSIVE unter VE-Reserve (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -582,7 +669,7 @@ preislich kaum über der aktuellen EXPENSIVE-Stunde, kostet die Entladesperre nu
 
 ---
 
-#### Option 15 - Peak-Leiter L4: Halten bei NORMAL oder billiger unter Gesamt-Reserve (Tag und Nacht)
+#### Option 17 - Peak-Leiter L4: Halten bei NORMAL oder billiger unter Gesamt-Reserve (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -594,11 +681,11 @@ preislich kaum über der aktuellen EXPENSIVE-Stunde, kostet die Entladesperre nu
 **Warum:** Auch bei günstigem Preis wird nicht in die für Peaks reservierte Energie
 entladen, solange der SoC die Gesamt-Reserve noch nicht deutlich übersteigt.
 Trifft keine der vier Leiter-Stufen zu, fällt die Prüfung durch zu den normalen
-Ziel-SoC-Optionen (Option 16/17).
+Ziel-SoC-Optionen (Option 18/19).
 
 ---
 
-#### Option 16 — Dynamisch laden wenn SoC zwischen MinSOC und Ziel-SoC (nur tagsüber)
+#### Option 18 — Dynamisch laden wenn SoC zwischen MinSOC und Ziel-SoC (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -615,7 +702,7 @@ erklärt. Das **−3 %-Band** (H) verhindert Modus-Pendeln direkt an der Ziel-Ka
 
 ---
 
-#### Option 17 — Nur Entladen wenn SoC über Ziel-SoC
+#### Option 19 — Nur Entladen wenn SoC über Ziel-SoC
 
 | Eigenschaft | Wert |
 |---|---|
@@ -633,7 +720,7 @@ Ziel-SoC-Hysterese dafür, dass der Modus an der Grenze nicht flattert.
 
 #### Default — Akku Dynamisch
 
-Trifft keine der 17 Optionen zu (z. B. nachts ohne Ladegrund, Preis zu hoch),
+Trifft keine der 19 Optionen zu (z. B. nachts ohne Ladegrund, Preis zu hoch),
 wird der Modus auf **Akku Dynamisch** gesetzt. Der Adapter entscheidet dann
 situationsabhängig, ob leicht geladen oder entladen wird — ein sicherer Mittelweg.
 
@@ -642,7 +729,7 @@ verfügbar sind — Fail-safe bei unavailable Quellen.
 
 ---
 
-### Aktionsblock 3 — Cleanup: Netzladen-Booster deaktivieren bei vollem Akku
+### Aktionsblock 2 — Cleanup: Netzladen-Booster deaktivieren bei vollem Akku
 
 **Was passiert:** Wenn SoC > 99 % und der manuelle Netzlade-Booster
 (`input_boolean.hausakku_aus_netz_laden`) aktiv ist, wird dieser automatisch deaktiviert.
@@ -658,14 +745,14 @@ putzt den Zustand automatisch auf — er läuft immer (kein Toggle-Gate).
 
 | Modus | Typische Situation |
 |---|---|
-| **Akku nur Laden** | SoC unter MinSOC (Notfall); schlechte Prognose + günstiger Strom; Wintermodus aktiv; Akku fast leer bei Schlechtwetter; Peak-Leiter L3/L4 (halten) |
-| **Akku Netzladen** | Negativpreis-Laderegel oder Peak-Vorladeregel aktiv — erzwungenes dynamisches Netzladen (BatChaMinW = `opti_charge_power_w`); braucht `ha-modbus-akku-adapter` >= v1.5.0 |
+| **Akku nur Laden** | SoC unter MinSOC (Notfall); schlechte Prognose + günstiger Strom; Wintermodus aktiv; Akku fast leer bei Schlechtwetter; Peak-Leiter L3/L4 (halten); Balancing-Watchdog PV-Vollladung (tagsüber) |
+| **Akku Netzladen** | Negativpreis-Laderegel, Peak-Vorladeregel oder Balancing-Watchdog (nachts) aktiv — erzwungenes dynamisches Netzladen (BatChaMinW = `opti_charge_power_w`); braucht `ha-modbus-akku-adapter` >= v1.5.0 |
 | **Akku Dynamisch** | PV-Überschuss tagsüber; Akku zwischen MinSOC und Ziel-SoC; voller Akku; kein klarer Lade-/Entladegrund (Default) |
 | **Akku nur Entladen** | SoC über intelligentem Ziel-SoC (`sensor.opti_target_soc`); Peak-Leiter L1/L2 (entladen) |
 
 **Modus-Contract (Single-Writer-Regel):**
 Die Strategie-Automation schreibt primär `input_select.akkusteuerung_modus`. Im
-Cleanup-Block (Aktionsblock 3) werden zusätzlich `input_boolean.hausakku_aus_netz_laden`
+Cleanup-Block (Aktionsblock 2) werden zusätzlich `input_boolean.hausakku_aus_netz_laden`
 und `input_number.ladepreis` gesetzt. Was der Modus am Wechselrichter/Speicher auslöst,
 entscheidet allein der Hardware-Adapter (Blueprint im Repo `ha-modbus-akku-adapter`).
 Nur eine Automation darf gleichzeitig via Modbus schreiben — keine zweite
@@ -686,3 +773,4 @@ Steuer-Automation parallel aktiv lassen.
 | **Midrank-Perzentil** | `sensor.opti_price_level` zählt Preis-Gleichstände seit dem Fix nur noch halb (statt sie wie ein `select('le')` komplett auf die teure Seite zu zählen) - flache Preistage landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE. Dieselbe Klassifikation nutzt auch `sensor.opti_peak_reserve_soc` |
 | **`sensor.opti_peak_reserve_soc`** | Reserve-SoC für kommende Preisspitzen im Wiederauflade-Horizont (36h); steuert die Peak-Leiter L1-L4. Siehe [Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden) |
 | **`binary_sensor.opti_winter_charging_allowed`** | Fail-open Gate für Winterladeblöcke (Standard: `true`); kann mit eigenem Sommermodus-Sensor überschrieben werden |
+| **`sensor.opti_balancing_watchdog`** | Balancing-/Deep-Charge-Watchdog (`aus`/`pv`/`netz`): erzwingt einen Voll-Zyklus, wenn der Akku zu lange nicht ~voll war (BMS-Balancing). Rein abgeleitet aus `counter.tage_seit_akku100`, SoC und den `opti_balancing_*`-Helfern → restart-durabel. Siehe [Balancing-/Deep-Charge-Watchdog](#balancing-deep-charge-watchdog) |

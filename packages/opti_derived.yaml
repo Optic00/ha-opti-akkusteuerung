@@ -589,6 +589,78 @@ template:
           {% endif %}
 
       # -----------------------------------------------------------------------
+      # 7a. Balancing-/Deep-Charge-Watchdog (Feature #31) — READ-ONLY-Signal.
+      #    Feuert, wenn der Akku zu lange nicht ~voll war (counter
+      #    tage_seit_akku100 >= Intervall), damit das BMS des BYD HVS balancen/
+      #    kalibrieren kann. Ladeziel bewusst bis 100% (nicht nur bis maxsoc),
+      #    damit die Zelle in die CV-Phase kommt - deshalb greift der Watchdog
+      #    besonders im Sommer-Schonband (maxsoc<100), wo die Ziel-SoC-Treppe
+      #    100% nie erreicht. Rein abgeleitet -> restart-durabel (kein Latch).
+      #    State: 'aus' | 'pv' | 'netz'. Staffelung (Kosten aufsteigend):
+      #      1. tagsueber          -> 'pv'   (ganztags PV-bevorzugt, bewusst
+      #                                       simpel, kein PV>Haus-Gate im MVP)
+      #      2. Gratis-/Negativpreis (cur < EEG) -> 'netz'   (sofort, keine Karenz)
+      #      3. bezahlter Fallback -> 'netz'  (erst nach Karenz, nur VERY_CHEAP/
+      #                                       CHEAP UND cur <= absoluter Deckel,
+      #                                       Deckel 0 = aus = fail-safe)
+      #      sonst -> 'aus' (auf besseres Fenster warten).
+      #    Fail-safe: fehlt opti_soc (float(-1)) -> faellig false -> 'aus'.
+      #    Intervall 0 = Watchdog global aus.
+      # -----------------------------------------------------------------------
+      - unique_id: opti_balancing_watchdog
+        name: "Opti Balancing Watchdog"
+        icon: mdi:battery-heart-variant
+        state: >
+          {% set soc = states('sensor.opti_soc')|float(-1) %}
+          {% set counter = states('counter.tage_seit_akku100')|int(0) %}
+          {% set intervall = states('input_number.opti_balancing_intervall_tage')|int(0) %}
+          {% set karenz = states('input_number.opti_balancing_karenz_tage')|int(0) %}
+          {% set maxct = states('input_number.opti_balancing_max_ct')|float(0) %}
+          {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %}
+          {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %}
+          {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %}
+          {% set price = states('sensor.opti_price_level') %}
+          {% set day = is_state('sun.sun','above_horizon') %}
+          {% set bal_netz = states('input_boolean.opti_balancing_netzladen') == 'on' %}
+          {% set faellig = intervall > 0 and soc >= 0 and soc < 100 and counter >= intervall %}
+          {# 'netz' hat einen EIGENEN Schalter opti_balancing_netzladen (Default aus),
+             entkoppelt vom allgemeinen opti_prognose_netzladen. So bleibt die harte
+             Netzlade-Garantie (docs/canonical-layer.md #26) erhalten: Balancing zieht
+             nur Netzstrom, wenn dieser Wartungs-Schalter bewusst an ist. 'pv' bleibt
+             ungegatet - PV-Vollladung zieht keinen Netzstrom. #}
+          {% if not faellig %}aus
+          {%- elif day %}pv
+          {%- elif bal_netz and hv_cur and cur < eeg %}netz
+          {%- elif bal_netz and counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct %}netz
+          {%- else %}aus{% endif %}
+        attributes:
+          grund: >
+            {% set soc = states('sensor.opti_soc')|float(-1) %}
+            {% set counter = states('counter.tage_seit_akku100')|int(0) %}
+            {% set intervall = states('input_number.opti_balancing_intervall_tage')|int(0) %}
+            {% set karenz = states('input_number.opti_balancing_karenz_tage')|int(0) %}
+            {% set maxct = states('input_number.opti_balancing_max_ct')|float(0) %}
+            {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %}
+            {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %}
+            {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %}
+            {% set price = states('sensor.opti_price_level') %}
+            {% set day = is_state('sun.sun','above_horizon') %}
+            {% set bal_netz = states('input_boolean.opti_balancing_netzladen') == 'on' %}
+            {% set faellig = intervall > 0 and soc >= 0 and soc < 100 and counter >= intervall %}
+            {% if intervall <= 0 %}Watchdog aus (Intervall 0)
+            {%- elif soc < 0 %}opti_soc fehlt
+            {%- elif soc >= 100 %}Akku voll (soc>=100)
+            {%- elif not faellig %}nicht faellig ({{counter}}/{{intervall}} Tage)
+            {%- elif day %}PV-Vollladung (tag, {{counter}} Tage seit voll)
+            {%- elif bal_netz and hv_cur and cur < eeg %}Gratis-Netz ({{cur}}ct < EEG {{eeg}}ct)
+            {%- elif bal_netz and counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct %}Bezahltes Netz ({{cur}}ct <= Deckel {{maxct}}ct, nach Karenz)
+            {%- elif not bal_netz and (hv_cur and cur < eeg or counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct) %}Netz-Balancing gesperrt (opti_balancing_netzladen aus)
+            {%- else %}warte auf besseres Fenster{% endif %}
+          soc: "{{ states('sensor.opti_soc') }}"
+          tage_seit_voll: "{{ states('counter.tage_seit_akku100') }}"
+          intervall_tage: "{{ states('input_number.opti_balancing_intervall_tage') }}"
+
+      # -----------------------------------------------------------------------
       # 8. Strategie-Vorschau (Soll-Modus, READ-ONLY) — spiegelt die Entscheidungs-
       #    kette aus automations/opti_strategie.yaml, OHNE zu steuern. Vergleich
       #    Soll (state) vs Ist (input_select.akkusteuerung_modus, Attribut ist_modus).
@@ -638,6 +710,8 @@ template:
           {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen
           {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Akku nur Entladen
           {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Akku nur Entladen
+          {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Akku nur Laden
+          {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Akku Netzladen
           {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden
           {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden
@@ -690,6 +764,8 @@ template:
             {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%)
             {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Peak-Leiter L1 (VE entladen)
             {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%)
+            {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Balancing-Watchdog (PV-Vollladung)
+            {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Balancing-Watchdog (Netz-Vollladung)
             {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht)
             {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL)
             {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus

@@ -101,23 +101,22 @@
         - sensor.opti_peak_reserve_soc
         - binary_sensor.opti_peak_reserve_aktiv
       id: "Peak-Reserve geändert"
+    # Balancing-/Deep-Charge-Watchdog: sonst bliebe der Modus nach einem
+    # Watchdog-Zustandswechsel (aus/pv/netz) stale.
+    - trigger: state
+      entity_id:
+        - sensor.opti_balancing_watchdog
+      id: "Balancing-Watchdog geändert"
   conditions:
     - condition: state
       entity_id: input_boolean.akku_opti_automatik
       state: "on"
   actions:
-    # CLEANUP (immer, kein has_value-/Toggle-Gate): Counter bei vollem Akku zurücksetzen
-    - alias: "Counter auf 0 setzen bei 100% SoC"
-      choose:
-        - conditions:
-            - condition: numeric_state
-              entity_id: sensor.opti_soc
-              above: 99
-          sequence:
-            - action: counter.reset
-              target:
-                entity_id: counter.tage_seit_akku100
-
+    # Hinweis: Der Counter-Reset (counter.tage_seit_akku100) fuers Balancing liegt
+    # bewusst NICHT hier als per-Execution-Cleanup, sondern als eigene, trigger-
+    # basierte Automation in automations/opti_balancing_counter.yaml. Grund: ein
+    # zuverlaessiger 30-min-Halt braucht einen numeric_state-TRIGGER mit for: -
+    # for: auf einer numeric_state-CONDITION ist in HA nicht belastbar.
     - alias: "Zwischen Speicherszenarien wählen"
       choose:
         # OBERSTE PRIORITÄT: Entladesperre <minsoc — vor allen anderen geprüft.
@@ -246,6 +245,41 @@
             - action: input_select.select_option
               data:
                 option: "Akku nur Entladen"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        # ---------------------------------------------------------------------
+        # Balancing-/Deep-Charge-Watchdog (Feature #31): laedt den Akku gezielt
+        # einmalig hoch, wenn er zu lange nicht ~voll war (BMS-Balancing des BYD
+        # HVS). Entscheidung komplett im abgeleiteten sensor.opti_balancing_watchdog
+        # (aus/pv/netz) - restart-durabel, kein Latch. Position bewusst NACH der
+        # Peak-Entlade-Leiter L1/L2 (aktiver Peak schlaegt Balancing) und VOR den
+        # Prognose-Ladebloecken. 'pv' = tagsueber PV-Vollladung, 'netz' = guenstiges/
+        # gratis Netzladen fuers BMS.
+        # ---------------------------------------------------------------------
+        - alias: "Modus 'nur Laden' (Balancing-Watchdog): tagsueber PV-Vollladung fuers BMS-Balancing"
+          conditions:
+            - condition: state
+              entity_id: sensor.opti_balancing_watchdog
+              state: "pv"
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
+
+        - alias: "Modus 'Netzladen' (Balancing-Watchdog): guenstiges/gratis Netzladen fuers BMS-Balancing"
+          conditions:
+            - condition: state
+              entity_id: sensor.opti_balancing_watchdog
+              state: "netz"
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku Netzladen"
               target:
                 entity_id: input_select.akkusteuerung_modus
             - stop: "fertig"

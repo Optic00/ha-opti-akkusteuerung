@@ -1,0 +1,64 @@
+# =============================================================================
+# opti_balancing_counter.yaml — Taegliches Increment fuer den Balancing-Watchdog
+# =============================================================================
+# Zaehlt counter.tage_seit_akku100 einmal pro Tag um 1 hoch, WENN der Akku an
+# diesem Tag NICHT den Done-SoC (input_number.opti_balancing_done_soc, Default
+# 98.5%) erreicht hat. Der Reset des Counters passiert an anderer Stelle
+# (Cleanup-Block in automations/opti_strategie.yaml, sobald der Akku 30 min
+# stabil ueber dem Done-SoC steht) - beide nutzen dieselbe Done-Schwelle.
+#
+# Kanonisierte Repo-Version der bislang nur live vorhandenen (verwaisten)
+# Increment-Automation. Als Top-Level-Automations-Liste im Format von
+# automations.yaml (siehe README, Abschnitt Strategie-Automation einbinden).
+#
+# Downtime-Randfall: ist HA um 23:59 (ueber Mitternacht) down, wird der Tag
+# NICHT nachgeholt. Harmlos/fail-safe: der Watchdog zaehlt dann eher zu wenig
+# und feuert allenfalls einen Tag spaeter - bei einem 14-Tage-Intervall
+# unkritisch.
+# =============================================================================
+- id: opti_balancing_counter_increment
+  alias: "Opti Balancing: Tage seit Akku 100% täglich hochzählen"
+  description: >-
+    Zaehlt counter.tage_seit_akku100 taeglich um 1 hoch, solange der Akku an
+    diesem Tag nicht den Done-SoC erreicht hat. Speist den Balancing-/Deep-
+    Charge-Watchdog (sensor.opti_balancing_watchdog).
+  mode: single
+  triggers:
+    - trigger: time
+      at: "23:59:00"
+  conditions:
+    - condition: numeric_state
+      entity_id: sensor.opti_soc
+      below: input_number.opti_balancing_done_soc
+  actions:
+    - action: counter.increment
+      target:
+        entity_id: counter.tage_seit_akku100
+
+# -----------------------------------------------------------------------------
+# Counter-Reset bei erreichtem Done-SoC. Bewusst als eigene, TRIGGER-basierte
+# Automation: ein numeric_state-Trigger mit for: haelt zuverlaessig 30 min
+# (im Gegensatz zu for: auf einer numeric_state-CONDITION, das HA nicht
+# belastbar auswertet). 30 min stabil >= Done-SoC = Balancing-Zyklus erledigt
+# -> counter.tage_seit_akku100 = 0 -> sensor.opti_balancing_watchdog faellt auf
+# 'aus'. Loest den semantischen Widerspruch (Watchdog laedt bis 100 / CV-Phase,
+# Reset bereits ab Done-SoC 98.5%) sauber auf: der Watchdog haelt, bis dieser
+# Trigger nach stabilem Stand ueber Done-SoC feuert.
+# -----------------------------------------------------------------------------
+- id: opti_balancing_counter_reset
+  alias: "Opti Balancing: Counter zuruecksetzen bei erreichtem Done-SoC"
+  description: >-
+    Setzt counter.tage_seit_akku100 auf 0, sobald der Akku 30 min stabil ueber
+    dem Done-SoC (input_number.opti_balancing_done_soc) steht. Beendet damit
+    einen faelligen Balancing-Zyklus des Watchdogs.
+  mode: single
+  triggers:
+    - trigger: numeric_state
+      entity_id: sensor.opti_soc
+      above: input_number.opti_balancing_done_soc
+      for:
+        minutes: 30
+  actions:
+    - action: counter.reset
+      target:
+        entity_id: counter.tage_seit_akku100

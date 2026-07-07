@@ -244,6 +244,60 @@ input_number:
     mode: box
     icon: mdi:hand-back-right-outline
 
+  # --- Balancing-/Deep-Charge-Watchdog (Feature #31) ---
+  # Laedt den Akku gezielt einmalig auf ~100%, wenn er zu lange nicht mehr voll
+  # war, damit das BMS balancen/kalibrieren kann. Rein abgeleitet ueber
+  # sensor.opti_balancing_watchdog (kein gelatchtes Flag -> restart-durabel).
+  opti_balancing_intervall_tage:
+    name: "Opti Balancing Intervall"
+    # Tage ohne Voll-/Done-Ladung, ab denen der Watchdog faellig wird.
+    # Dokumentierter Startwert 14; 0 = Watchdog komplett aus (Erststart-Wert
+    # ohne initial = Minimum 0 = fail-safe aus). Nach Anlegen auf 14 setzen.
+    min: 0
+    max: 60
+    step: 1
+    unit_of_measurement: "Tage"
+    mode: box
+    icon: mdi:calendar-refresh
+
+  opti_balancing_karenz_tage:
+    name: "Opti Balancing Karenz"
+    # Zusaetzliche Karenz-Tage nach Faelligkeit, bevor der bezahlte Netz-
+    # Fallback (guenstiges Netzladen) erlaubt wird. Startwert 3.
+    min: 0
+    max: 14
+    step: 1
+    unit_of_measurement: "Tage"
+    mode: box
+    icon: mdi:timer-sand
+
+  opti_balancing_max_ct:
+    name: "Opti Balancing Preisdeckel"
+    # Absoluter Brutto-Preisdeckel (ct/kWh) fuers bezahlte Balancing-Netzladen.
+    # Erststart 0 = fail-safe = KEIN bezahltes Netzladen (nur PV + Gratis-/
+    # Negativ-Netz). Nach Anlegen auf 25 setzen; 0 laesst den bezahlten
+    # Netz-Fallback aus.
+    min: 0
+    max: 50
+    step: 0.5
+    unit_of_measurement: ct/kWh
+    mode: box
+    icon: mdi:cash-lock
+
+  opti_balancing_done_soc:
+    name: "Opti Balancing Done-SoC"
+    # Schwelle (%), ab der ein Balancing-Zyklus als erledigt gilt: der Counter
+    # tage_seit_akku100 wird ab hier (30 min stabil) zurueckgesetzt, das
+    # taegliche Increment zaehlt nur unterhalb weiter. HIER ist 0 NICHT
+    # fail-safe, daher expliziter initial-Wert.
+    initial: 98.5
+    min: 90
+    max: 100
+    step: 0.5
+    unit_of_measurement: "%"
+    mode: box
+    icon: mdi:battery-heart-variant
+
 input_boolean:
   akku_opti_automatik:
     name: "Akku Opti-Automatik"
@@ -276,6 +330,17 @@ input_boolean:
     name: "Opti PV-Überschussladung erlauben"
     # Gate für die PV-/AC-Überschussblöcke (Akku Dynamisch). Default an.
     icon: mdi:solar-power
+
+  opti_balancing_netzladen:
+    name: "Opti Balancing darf ans Netz"
+    # Eigener Schalter für den Balancing-/Deep-Charge-Watchdog (Feature #31):
+    # erlaubt dem Watchdog, den Akku fürs BMS-Balancing auch AUS DEM NETZ
+    # hochzuladen (Gratis-/Negativpreis + bezahlter Fallback unter Deckel).
+    # Bewusst entkoppelt von opti_prognose_netzladen, damit die harte
+    # Netzlade-Garantie (#26) erhalten bleibt. Default AUS (fail-safe): ohne
+    # diesen Schalter balancet der Watchdog rein per PV. PV-Balancing läuft
+    # unabhängig davon immer, solange das Intervall > 0 ist.
+    icon: mdi:battery-heart-variant
 
 counter:
   tage_seit_akku100:

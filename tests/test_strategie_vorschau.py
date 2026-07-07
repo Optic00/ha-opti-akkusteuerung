@@ -275,6 +275,27 @@ def test_l4_normal_mit_genug_reserve_normalbetrieb():
                                      _attrs=LEITER_ATTRS)
 
 
+# --- Ziel-SoC-Anti-Flatter: asymmetrische Hysterese am "ueber Ziel"-Zweig ---
+def test_ueber_ziel_hysterese_deadband():
+    # soc 61 knapp ueber Ziel 60, Modus NICHT 'nur Entladen':
+    # Eintrittsschwelle target+3=63 noch nicht erreicht -> kein Entladen.
+    assert vorschau(**{"sensor.opti_soc": "61"}) == "Akku Dynamisch"
+
+
+def test_ueber_ziel_hysterese_sticky():
+    # Gleicher SoC 61, aber Modus schon 'Akku nur Entladen': Offset 0 ->
+    # bleibt entladen bis target erreicht ist (verhindert Minutentakt-Flattern).
+    assert vorschau(**{"sensor.opti_soc": "61",
+                       "input_select.akkusteuerung_modus": "Akku nur Entladen"}) == "Akku nur Entladen"
+
+
+def test_ueber_ziel_eintritt_unveraendert():
+    # Eintrittsschwelle unveraendert: soc 64 > 60+3 -> Entladen, egal welcher Modus.
+    assert vorschau(**{"sensor.opti_soc": "64"}) == "Akku nur Entladen"
+    assert vorschau(**{"sensor.opti_soc": "64",
+                       "input_select.akkusteuerung_modus": "Akku nur Entladen"}) == "Akku nur Entladen"
+
+
 def test_leiter_inaktiv_ohne_gate():
     out = grund(**{**LEITER, "sensor.opti_price_level": "EXPENSIVE",
                    "sensor.opti_soc": "31",

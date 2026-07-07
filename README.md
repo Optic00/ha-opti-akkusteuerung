@@ -207,10 +207,12 @@ sie an deine Anlage/Strategie anpassen kannst. Zwei Wege, sie einzuspielen:
       # ... restlicher Inhalt aus automations/opti_strategie.yaml unverändert ...
   ```
 
-  Auf demselben Weg gehört die zweite Automation `automations/opti_balancing_counter.yaml`
-  eingespielt (zählt `counter.tage_seit_akku100` täglich um 23:59 hoch und speist den
-  Balancing-Watchdog). Ersetzt eine ggf. bereits live vorhandene, gleichnamige
-  Increment-Automation.
+  Auf demselben Weg gehört die Datei `automations/opti_balancing_counter.yaml` eingespielt -
+  sie enthält **zwei** Automationen, die den Balancing-Watchdog speisen:
+  `opti_balancing_counter_increment` (zählt `counter.tage_seit_akku100` täglich um 23:59 hoch)
+  und `opti_balancing_counter_reset` (setzt den Zähler auf 0, sobald der Akku 30 min stabil
+  über dem Done-SoC steht - numeric_state-Trigger mit `for:`). Ersetzt eine ggf. bereits live
+  vorhandene, gleichnamige Increment-Automation.
 
 **7. Einschalten:** die Strategie-Automation bleibt wirkungslos, solange ihr Master-Schalter
 aus ist — und frisch angelegte `input_boolean`-Helfer starten **aus** (kein `initial:`, siehe

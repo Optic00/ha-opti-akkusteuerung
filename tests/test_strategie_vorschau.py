@@ -371,6 +371,7 @@ def test_ueberschuss_binary_unavailable_ist_aus():
 # ihn dann in die Vorschau (wie live: Sensor -> Strategie).
 
 # Basis fuer den Watchdog-Sensor: faellig (Intervall 14, counter 14, soc 40<100).
+# prog='on': das Netzlade-Gate ist offen, damit die 'netz'-Zweige greifen koennen.
 WD_BASIS = {
     "sensor.opti_soc": "40",
     "counter.tage_seit_akku100": "14",
@@ -381,6 +382,7 @@ WD_BASIS = {
     "input_number.opti_einspeiseverguetung_ct": "8",
     "sensor.opti_price_current_ct_kwh": "30",
     "sensor.opti_price_level": "NORMAL",
+    "input_boolean.opti_prognose_netzladen": "on",
     "sun.sun": "below_horizon",
 }
 
@@ -480,6 +482,30 @@ def test_watchdog_maxct_null_kein_bezahltes_netz():
 def test_watchdog_intervall_null_global_aus():
     assert watchdog(**{"input_number.opti_balancing_intervall_tage": "0",
                        "sun.sun": "above_horizon"}) == "aus"
+
+
+# Netzlade-Gate: 'netz' respektiert input_boolean.opti_prognose_netzladen.
+def test_watchdog_netz_respektiert_prognose_gate():
+    # Gratis-Netz (cur 3 < EEG 8) waere 'netz', aber prog off -> 'aus'
+    # (harte Garantie gegen jedes Netzladen).
+    fall = {"sun.sun": "below_horizon", "sensor.opti_price_current_ct_kwh": "3"}
+    assert watchdog(**{**fall, "input_boolean.opti_prognose_netzladen": "off"}) == "aus"
+    # Gegentest: prog on -> 'netz'.
+    assert watchdog(**{**fall, "input_boolean.opti_prognose_netzladen": "on"}) == "netz"
+
+
+def test_watchdog_bezahltes_netz_respektiert_prognose_gate():
+    # Auch der bezahlte Fallback ist gegated.
+    fall = {"sun.sun": "below_horizon", "counter.tage_seit_akku100": "17",
+            "sensor.opti_price_level": "CHEAP", "sensor.opti_price_current_ct_kwh": "20"}
+    assert watchdog(**{**fall, "input_boolean.opti_prognose_netzladen": "off"}) == "aus"
+    assert watchdog(**{**fall, "input_boolean.opti_prognose_netzladen": "on"}) == "netz"
+
+
+def test_watchdog_pv_ungegatet_von_prognose():
+    # 'pv' zieht keinen Netzstrom -> vom Netzlade-Gate unberuehrt.
+    assert watchdog(**{"sun.sun": "above_horizon",
+                       "input_boolean.opti_prognose_netzladen": "off"}) == "pv"
 
 
 # Vorschau-Mapping direkt: pv -> nur Laden, netz -> Netzladen.

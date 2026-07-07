@@ -112,27 +112,11 @@
       entity_id: input_boolean.akku_opti_automatik
       state: "on"
   actions:
-    # CLEANUP (immer, kein has_value-/Toggle-Gate): Counter zuruecksetzen, wenn der
-    # Akku den Done-SoC erreicht hat. Eine einzige Voll-/Done-Definition:
-    # opti_balancing_done_soc (Default 98.5%). for: 30 min -> erst als "erledigt"
-    # zaehlen, wenn der Akku stabil oben steht (kein kurzer Spike). Bleibt
-    # per-Execution-Cleanup (laeuft bei JEDER Automationsausfuehrung), nicht nur
-    # kantengetriggert. Der Balancing-Watchdog laedt bis 100 (CV-Phase), der
-    # Counter-Reset lehnt bewusst schon bei done_soc ab -> Watchdog feuert nicht
-    # unnoetig, sobald der Akku regulaer ~voll war.
-    - alias: "Counter auf 0 setzen bei erreichtem Done-SoC (30 min stabil)"
-      choose:
-        - conditions:
-            - condition: numeric_state
-              entity_id: sensor.opti_soc
-              above: input_number.opti_balancing_done_soc
-              for:
-                minutes: 30
-          sequence:
-            - action: counter.reset
-              target:
-                entity_id: counter.tage_seit_akku100
-
+    # Hinweis: Der Counter-Reset (counter.tage_seit_akku100) fuers Balancing liegt
+    # bewusst NICHT hier als per-Execution-Cleanup, sondern als eigene, trigger-
+    # basierte Automation in automations/opti_balancing_counter.yaml. Grund: ein
+    # zuverlaessiger 30-min-Halt braucht einen numeric_state-TRIGGER mit for: -
+    # for: auf einer numeric_state-CONDITION ist in HA nicht belastbar.
     - alias: "Zwischen Speicherszenarien wählen"
       choose:
         # OBERSTE PRIORITÄT: Entladesperre <minsoc — vor allen anderen geprüft.

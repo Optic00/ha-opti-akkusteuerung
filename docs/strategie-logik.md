@@ -339,21 +339,29 @@ damit ist er **restart-durabel** (kein gelatchtes Flag, das ein HA-Neustart verl
 `maxsoc`), damit die Zelle in die CV-Phase kommt. `intervall = 0` schaltet den Watchdog
 komplett aus.
 
-**Zähler-Pflege:** Eine eigene Automation (`automations/opti_balancing_counter.yaml`, täglich
-um 23:59) zählt `counter.tage_seit_akku100` um 1 hoch, solange der Akku an dem Tag den
-Done-SoC nicht erreicht hat. Zurückgesetzt wird der Zähler im Cleanup-Block der
-Strategie-Automation, sobald der Akku 30 min stabil über
-`input_number.opti_balancing_done_soc` (Default 98.5 %) steht. Beide nutzen dieselbe
-Done-Schwelle - eine einzige Voll-/Done-Definition.
+**Zähler-Pflege (zwei Automationen in `automations/opti_balancing_counter.yaml`):**
+`opti_balancing_counter_increment` zählt `counter.tage_seit_akku100` täglich um 23:59 um 1
+hoch, solange der Akku an dem Tag den Done-SoC nicht erreicht hat.
+`opti_balancing_counter_reset` setzt den Zähler auf 0, sobald der Akku **30 min stabil** über
+`input_number.opti_balancing_done_soc` (Default 98.5 %) steht. Der Reset ist bewusst ein
+numeric_state-**Trigger** mit `for: 30 min` (nicht eine numeric_state-Condition mit `for:` -
+letzteres wertet HA nicht belastbar aus). Beide nutzen dieselbe Done-Schwelle - eine einzige
+Voll-/Done-Definition. Damit hält der Watchdog (Ladeziel 100 %/CV-Phase), bis der Reset-Trigger
+nach stabilem Stand über Done-SoC feuert und `counter = 0` setzt → Watchdog `aus`.
 
 **Staffelung (Kosten aufsteigend)** - der Zustand entscheidet über den Strategie-Zweig:
 
 | Zustand | Bedingung (fällig vorausgesetzt) | Strategie-Modus |
 |---|---|---|
 | `pv` | tagsüber (`sun.sun` above_horizon) | Akku nur Laden |
-| `netz` | nachts, aktueller Preis < Einspeisevergütung (gratis/negativ) | Akku Netzladen |
-| `netz` | nachts, nach Karenz (`counter` ≥ Intervall + `opti_balancing_karenz_tage`), Preisniveau VERY_CHEAP/CHEAP **und** aktueller Preis ≤ `opti_balancing_max_ct` (> 0) | Akku Netzladen |
+| `netz` | nachts, **`opti_prognose_netzladen` = on**, aktueller Preis < Einspeisevergütung (gratis/negativ) | Akku Netzladen |
+| `netz` | nachts, **`opti_prognose_netzladen` = on**, nach Karenz (`counter` ≥ Intervall + `opti_balancing_karenz_tage`), Preisniveau VERY_CHEAP/CHEAP **und** aktueller Preis ≤ `opti_balancing_max_ct` (> 0) | Akku Netzladen |
 | `aus` | sonst (auf besseres Fenster warten) | — (Kaskade läuft weiter) |
+
+**Netzlade-Gate:** Beide `netz`-Zweige respektieren `input_boolean.opti_prognose_netzladen` -
+ist das Gate aus, bleibt der Watchdog nachts `aus` (**harte Garantie gegen jedes Netzladen**,
+siehe [canonical-layer.md](canonical-layer.md#harte-garantie-gegen-jedes-netzladen)). Der
+`pv`-Zweig ist **ungegatet** - PV-Vollladung zieht keinen Netzstrom.
 
 Der PV-Zweig ist im MVP bewusst simpel (ganztags PV-bevorzugt, kein PV > Haus-Gate). Der
 bezahlte Netz-Fallback ist doppelt abgesichert: erst nach der Karenz, nur bei günstigem
@@ -372,23 +380,15 @@ L1/L2 (ein aktiver Preisspitzen-Peak schlägt das Balancing) und **vor** den Pro
 Die Automation besteht aus mehreren Aktionsblöcken, die **sequenziell** ausgeführt werden.
 Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 19 Optionen und einem Default-Pfad.
 
----
-
-### Aktionsblock 1 — Counter-Reset bei erreichtem Done-SoC
-
-**Was passiert:** Steht der SoC 30 min stabil über `input_number.opti_balancing_done_soc`
-(Default 98.5 %), wird der Zähler `counter.tage_seit_akku100` auf null zurückgesetzt. Dieser
-Zähler läuft täglich hoch (eigene Automation `opti_balancing_counter.yaml`, 23:59) und zeigt,
-wie lange der Akku nicht mehr ~voll war — er speist den
-[Balancing-/Deep-Charge-Watchdog](#balancing-deep-charge-watchdog). Der Block läuft bei
-**jeder** Automationsausführung (per-Execution-Cleanup, kein reiner Kanten-Trigger); die
-`for: 30 min`-Bedingung verhindert, dass ein kurzer SoC-Spike den Zähler fälschlich löscht.
-
-**Modus-Auswirkung:** Keine direkte Modus-Änderung — nur Counter-Reset.
+> **Hinweis — Counter-Pflege ausgelagert:** Der Zähler `counter.tage_seit_akku100` (Increment
+> täglich, Reset bei 30 min stabil über Done-SoC) liegt **nicht** in dieser Automation, sondern
+> als zwei eigene, trigger-basierte Automationen in `automations/opti_balancing_counter.yaml` -
+> ein zuverlässiger 30-min-Halt braucht einen numeric_state-**Trigger** mit `for:`, nicht eine
+> gleichnamige Condition. Details siehe [Balancing-/Deep-Charge-Watchdog](#balancing-deep-charge-watchdog).
 
 ---
 
-### Aktionsblock 2 — „Zwischen Speicherszenarien wählen" (19 Optionen + Default)
+### Aktionsblock 1 — „Zwischen Speicherszenarien wählen" (19 Optionen + Default)
 
 Dies ist das Herzstück. Die Optionen werden **der Reihe nach** geprüft;
 die erste, deren Bedingungen alle erfüllt sind, wird ausgeführt und die weitere Prüfung
@@ -502,13 +502,16 @@ VERY_EXPENSIVE-Reserve liegt (Freigabeband +5 %/+3 %, siehe Hauptabschnitt).
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | `sensor.opti_balancing_watchdog` = `netz` (fällig, nachts; gratis/negativer Preis, oder nach Karenz günstig **und** unter dem Preisdeckel) |
+| Bedingung | `sensor.opti_balancing_watchdog` = `netz` (fällig, nachts, `opti_prognose_netzladen` = on; gratis/negativer Preis, oder nach Karenz günstig **und** unter dem Preisdeckel) |
 | Preis | gratis/negativ (< Einspeisevergütung) oder VERY_CHEAP/CHEAP ≤ `opti_balancing_max_ct` |
 | Tageszeit | nachts (der PV-Zweig hat tagsüber Vorrang) |
+| Gate | `input_boolean.opti_prognose_netzladen` muss `on` sein (im Sensor gegated) |
 | Gesetzter Modus | **Akku Netzladen** (braucht `ha-modbus-akku-adapter` >= v1.5.0) |
 
 **Warum:** Reicht die PV nicht (nachts), lädt der Watchdog aus dem Netz - sofort bei gratis/
 negativem Strom, sonst erst nach einer Karenz und nur günstig unter einem absoluten Deckel.
+Beide `netz`-Fälle respektieren das Netzlade-Gate `opti_prognose_netzladen` (harte Garantie
+gegen jedes Netzladen); der `pv`-Zweig bleibt ungegatet.
 `opti_balancing_max_ct = 0` (Erststart) lässt den bezahlten Fallback aus. Details siehe
 **[Balancing-/Deep-Charge-Watchdog](#balancing-deep-charge-watchdog)**.
 
@@ -723,7 +726,7 @@ verfügbar sind — Fail-safe bei unavailable Quellen.
 
 ---
 
-### Aktionsblock 3 — Cleanup: Netzladen-Booster deaktivieren bei vollem Akku
+### Aktionsblock 2 — Cleanup: Netzladen-Booster deaktivieren bei vollem Akku
 
 **Was passiert:** Wenn SoC > 99 % und der manuelle Netzlade-Booster
 (`input_boolean.hausakku_aus_netz_laden`) aktiv ist, wird dieser automatisch deaktiviert.
@@ -746,7 +749,7 @@ putzt den Zustand automatisch auf — er läuft immer (kein Toggle-Gate).
 
 **Modus-Contract (Single-Writer-Regel):**
 Die Strategie-Automation schreibt primär `input_select.akkusteuerung_modus`. Im
-Cleanup-Block (Aktionsblock 3) werden zusätzlich `input_boolean.hausakku_aus_netz_laden`
+Cleanup-Block (Aktionsblock 2) werden zusätzlich `input_boolean.hausakku_aus_netz_laden`
 und `input_number.ladepreis` gesetzt. Was der Modus am Wechselrichter/Speicher auslöst,
 entscheidet allein der Hardware-Adapter (Blueprint im Repo `ha-modbus-akku-adapter`).
 Nur eine Automation darf gleichzeitig via Modbus schreiben — keine zweite

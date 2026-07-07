@@ -207,6 +207,11 @@ sie an deine Anlage/Strategie anpassen kannst. Zwei Wege, sie einzuspielen:
       # ... restlicher Inhalt aus automations/opti_strategie.yaml unverändert ...
   ```
 
+  Auf demselben Weg gehört die zweite Automation `automations/opti_balancing_counter.yaml`
+  eingespielt (zählt `counter.tage_seit_akku100` täglich um 23:59 hoch und speist den
+  Balancing-Watchdog). Ersetzt eine ggf. bereits live vorhandene, gleichnamige
+  Increment-Automation.
+
 **7. Einschalten:** die Strategie-Automation bleibt wirkungslos, solange ihr Master-Schalter
 aus ist — und frisch angelegte `input_boolean`-Helfer starten **aus** (kein `initial:`, siehe
 Warnung unten). Über die HA-Oberfläche auf **an** stellen:
@@ -238,6 +243,18 @@ der Wert jeden weiteren Neustart:
 | `input_number.opti_netzlade_spread_ct` | 0 ct/kWh | 10 ct/kWh |
 | `input_number.opti_peak_min_aufschlag_ct` | 0 ct/kWh | 5 ct/kWh |
 | `input_number.opti_halte_spread_ct` | 0 ct/kWh | 5 ct/kWh |
+| `input_number.opti_balancing_intervall_tage` | 0 Tage (= Watchdog aus) | 14 Tage |
+| `input_number.opti_balancing_karenz_tage` | 0 Tage | 3 Tage |
+| `input_number.opti_balancing_max_ct` | 0 ct/kWh (= kein bezahltes Netzladen) | 25 ct/kWh |
+
+Die vier `opti_balancing_*`-Helfer steuern den **Balancing-/Deep-Charge-Watchdog**
+(`sensor.opti_balancing_watchdog`): `intervall_tage` = Tage ohne Voll-/Done-Ladung bis
+der Watchdog fällig wird (0 = aus), `karenz_tage` = zusätzliche Wartezeit vor dem
+bezahlten Netz-Fallback, `max_ct` = absoluter Brutto-Preisdeckel fürs bezahlte
+Balancing-Netzladen (0 = fail-safe aus). Der vierte Helfer
+`input_number.opti_balancing_done_soc` hat als einziger ein `initial:` (98.5 %) und muss
+nicht von Hand gesetzt werden — er definiert die „Akku ~voll"-Schwelle für Counter-Reset
+und tägliches Increment.
 
 **9. Feinjustieren:** SoC-Grenzen, Lade-/Entladegrenzen, Prognose-Schwellen über die
 HA-Oberfläche weiter an die eigene Anlage anpassen (alle als Helfer vorhanden).
@@ -311,7 +328,7 @@ Dieses Projekt lebt von der Community. Besonderer Dank geht an:
 **Strategie**
 - [ ] Netzladen zu Off-Peak-Zeiten / Paragraf-14a-Fenster (pauschal günstigere Nachtstunden)
 - [ ] Mindestentladepreis als echte Entlade-Bedingung nutzen (bisher nur informativ)
-- [ ] Akku im Winter mindestens 1x pro Woche automatisch auf 100 % laden (Zähler `tage_seit_akku100` existiert schon)
+- [x] Akku regelmäßig automatisch auf 100 % balancen — erledigt als saison-übergreifender **Balancing-/Deep-Charge-Watchdog** (`sensor.opti_balancing_watchdog`): erzwingt einen Voll-Zyklus fürs BMS, wenn der Akku länger als `opti_balancing_intervall_tage` (Default 14) nicht mehr ~voll war. Staffelt PV-Vollladung (tagsüber) → Gratis-/Negativ-Netz → bezahltes Netz erst nach `opti_balancing_karenz_tage` und nur unter dem Deckel `opti_balancing_max_ct`. Rein abgeleitet aus `counter.tage_seit_akku100` → restart-durabel. Details: [`docs/strategie-logik.md`](docs/strategie-logik.md#balancing-deep-charge-watchdog)
 - [x] Hysterese-Band für die PV-Überschuss-Grenzen — erledigt als entprellte Binärsensoren `opti_ueberschuss_70_aktiv`/`opti_ueberschuss_ac_aktiv` (akkuunabhängiges Signal, 30 s beidseitig, Hysterese)
 - [ ] `opti_peak_verbrauch_kw` statistisch aus der Verbrauchshistorie ableiten statt fix zu konfigurieren
 - [ ] Wirkleistungsbegrenzung bei negativen Strompreisen über Modbus (Register 41255) - experimentell, kein aktiver Support

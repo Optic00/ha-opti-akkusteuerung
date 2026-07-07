@@ -24,6 +24,8 @@ BASIS = {
     "input_boolean.opti_pv_ueberschuss_ladung": "on",
     "input_select.akkusteuerung_modus": "Akku Dynamisch",
     "sun.sun": "below_horizon",
+    # Balancing-Watchdog default aus (feuert nur, wenn Fixture ihn setzt).
+    "sensor.opti_balancing_watchdog": "aus",
 }
 
 
@@ -360,3 +362,129 @@ def test_ueberschuss_binary_unavailable_ist_aus():
     g = grund(**{**UEBERSCHUSS_TAG,
                  "binary_sensor.opti_ueberschuss_70_aktiv": "unavailable"})
     assert "Ueberschuss" not in g
+
+
+# --- Feature #31: Balancing-/Deep-Charge-Watchdog ---
+# Zwei Ebenen: (1) der abgeleitete sensor.opti_balancing_watchdog (aus/pv/netz)
+# aus den Rohwerten, (2) die Vorschau-Kaskade, die diesen State auf einen Modus
+# abbildet. Die End-to-End-Faelle rechnen zuerst den Watchdog-State und speisen
+# ihn dann in die Vorschau (wie live: Sensor -> Strategie).
+
+# Basis fuer den Watchdog-Sensor: faellig (Intervall 14, counter 14, soc 40<100).
+WD_BASIS = {
+    "sensor.opti_soc": "40",
+    "counter.tage_seit_akku100": "14",
+    "input_number.opti_balancing_intervall_tage": "14",
+    "input_number.opti_balancing_karenz_tage": "3",
+    "input_number.opti_balancing_max_ct": "25",
+    "input_number.opti_balancing_done_soc": "98.5",
+    "input_number.opti_einspeiseverguetung_ct": "8",
+    "sensor.opti_price_current_ct_kwh": "30",
+    "sensor.opti_price_level": "NORMAL",
+    "sun.sun": "below_horizon",
+}
+
+
+def watchdog(**overrides):
+    states = dict(WD_BASIS)
+    states.update(overrides)
+    hass = FakeHass(states=states)
+    cfg = load_yaml(REPO / "packages" / "opti_derived.yaml")
+    entity = find_template_entity(cfg, "sensor", "opti_balancing_watchdog")
+    return render(hass, entity["state"])
+
+
+def vorschau_e2e(**overrides):
+    """End-to-End: Watchdog-State berechnen und in die Vorschau einspeisen."""
+    wd = watchdog(**overrides)
+    return vorschau(**{**overrides, "sensor.opti_balancing_watchdog": wd})
+
+
+# (a) faellig + Tag -> PV -> Vorschau "Akku nur Laden"
+def test_watchdog_tag_pv():
+    assert watchdog(**{"sun.sun": "above_horizon"}) == "pv"
+    assert vorschau_e2e(**{"sun.sun": "above_horizon"}) == "Akku nur Laden"
+
+
+# (b) faellig + Nacht + cur < eeg -> Gratis-Netz -> "Akku Netzladen"
+def test_watchdog_gratis_netz():
+    fall = {"sun.sun": "below_horizon", "sensor.opti_price_current_ct_kwh": "3"}
+    assert watchdog(**fall) == "netz"
+    assert vorschau_e2e(**fall) == "Akku Netzladen"
+
+
+# (c) faellig + Nacht + nach Karenz + CHEAP + cur <= maxct -> bezahltes Netz
+def test_watchdog_bezahltes_netz_nach_karenz():
+    fall = {"sun.sun": "below_horizon", "counter.tage_seit_akku100": "17",
+            "sensor.opti_price_level": "CHEAP",
+            "sensor.opti_price_current_ct_kwh": "20"}
+    assert watchdog(**fall) == "netz"
+    assert vorschau_e2e(**fall) == "Akku Netzladen"
+
+
+# (d) faellig + Nacht + CHEAP + cur > maxct -> faellt durch (kein Netzladen)
+def test_watchdog_ueber_deckel_faellt_durch():
+    fall = {"sun.sun": "below_horizon", "counter.tage_seit_akku100": "17",
+            "sensor.opti_price_level": "CHEAP",
+            "sensor.opti_price_current_ct_kwh": "30"}  # > maxct 25
+    assert watchdog(**fall) == "aus"
+
+
+# (e) faellig + Nacht + vor Karenz -> kein bezahltes Netzladen
+def test_watchdog_vor_karenz_kein_bezahltes_netz():
+    # counter 14 = faellig, aber < intervall+karenz (17) -> CHEAP-Fallback aus.
+    fall = {"sun.sun": "below_horizon", "counter.tage_seit_akku100": "14",
+            "sensor.opti_price_level": "CHEAP",
+            "sensor.opti_price_current_ct_kwh": "20"}
+    assert watchdog(**fall) == "aus"
+
+
+# (f) counter < intervall -> Watchdog aus
+def test_watchdog_nicht_faellig():
+    assert watchdog(**{"counter.tage_seit_akku100": "13",
+                       "sun.sun": "above_horizon"}) == "aus"
+
+
+# (g) soc >= 100 -> Watchdog aus (auch bei Tag/faelligem Counter)
+def test_watchdog_akku_voll_aus():
+    assert watchdog(**{"sensor.opti_soc": "100",
+                       "sun.sun": "above_horizon"}) == "aus"
+
+
+# (h) L1/L2-Peak schlaegt den Watchdog (Watchdog steht in der Kaskade dahinter)
+def test_watchdog_peak_hat_vorrang():
+    # Watchdog waere 'netz' (Nacht, cur<eeg), aber ein aktiver VERY_EXPENSIVE-Peak
+    # (L1) steht davor -> "Akku nur Entladen".
+    fall = {"sun.sun": "below_horizon", "sensor.opti_price_current_ct_kwh": "3",
+            "sensor.opti_soc": "85", "sensor.opti_price_level": "VERY_EXPENSIVE",
+            "binary_sensor.opti_peak_reserve_aktiv": "on",
+            "sensor.opti_peak_reserve_soc": "45",
+            "_attrs": reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0)}
+    assert watchdog(**{k: v for k, v in fall.items() if k != "_attrs"}) == "netz"
+    out = vorschau(**{**fall, "sensor.opti_balancing_watchdog": "netz"})
+    assert out == "Akku nur Entladen"
+
+
+# (i) maxct = 0 -> kein bezahltes Netzladen (fail-safe Erststart)
+def test_watchdog_maxct_null_kein_bezahltes_netz():
+    # cur 20 >= EEG 8, damit NICHT der Gratis-Netz-Zweig greift und wirklich der
+    # bezahlte Fallback getestet wird: maxct 0 -> kein Netzladen.
+    fall = {"sun.sun": "below_horizon", "counter.tage_seit_akku100": "17",
+            "sensor.opti_price_level": "CHEAP",
+            "sensor.opti_price_current_ct_kwh": "20",
+            "input_number.opti_balancing_max_ct": "0"}
+    assert watchdog(**fall) == "aus"
+
+
+# Intervall 0 -> Watchdog global aus (auch bei faelligem Counter)
+def test_watchdog_intervall_null_global_aus():
+    assert watchdog(**{"input_number.opti_balancing_intervall_tage": "0",
+                       "sun.sun": "above_horizon"}) == "aus"
+
+
+# Vorschau-Mapping direkt: pv -> nur Laden, netz -> Netzladen.
+def test_watchdog_vorschau_mapping():
+    assert vorschau(**{"sensor.opti_balancing_watchdog": "pv"}) == "Akku nur Laden"
+    assert vorschau(**{"sensor.opti_balancing_watchdog": "netz"}) == "Akku Netzladen"
+    assert "Balancing-Watchdog (PV" in grund(**{"sensor.opti_balancing_watchdog": "pv"})
+    assert "Balancing-Watchdog (Netz" in grund(**{"sensor.opti_balancing_watchdog": "netz"})

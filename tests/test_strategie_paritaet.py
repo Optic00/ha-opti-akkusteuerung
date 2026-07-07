@@ -1,14 +1,14 @@
 """Paritaets-Test: echte Steuer-Automation vs. Spiegel-Sensor.
 
 Die Steuerung lebt in automations/opti_strategie.yaml (action-Alias
-"Zwischen Speicherszenarien waehlen": choose-Kette mit 17 Optionen + default).
+"Zwischen Speicherszenarien waehlen": choose-Kette mit 19 Optionen + default).
 Ihr Spiegel ist der Vorschau-Sensor opti_strategie_vorschau in
 packages/opti_derived.yaml (state-if/elif-Kette + grund-Attribut). Der
 YAML-Kommentar verlangt manuelle Spiegelung ("MUSS mitgespiegelt werden") -
 ohne diesen Test laesst eine Aenderung an der Automation alle Tests gruen,
 obwohl die Steuerung von der Vorschau abweicht.
 
-Der Test baut fuer JEDE der 17 choose-Optionen + den Default eine Fixture
+Der Test baut fuer JEDE der 19 choose-Optionen + den Default eine Fixture
 (FakeHass-Zustand), die genau diesen Zweig trifft, und prueft:
   (i)   Automation-choose-Kette (eigener Evaluator) -> getroffener Zweig-Index
         + gesetzter Modus.
@@ -16,7 +16,7 @@ Der Test baut fuer JEDE der 17 choose-Optionen + den Default eine Fixture
   Assert: Modus identisch UND der getroffene Zweig ist der beabsichtigte
   (Index der choose-Option == Position des grund-Labels).
 Ein Struktur-Assert koppelt die Zahl der choose-Optionen an die Zahl der vom
-Test abgedeckten Zweige: wer eine 18. Option ergaenzt, ohne den Test zu
+Test abgedeckten Zweige: wer eine 20. Option ergaenzt, ohne den Test zu
 erweitern, bricht hier hart.
 
 Bewusst ignoriert: Trigger und die Top-Level-condition der Automation
@@ -24,7 +24,7 @@ Bewusst ignoriert: Trigger und die Top-Level-condition der Automation
 Booster-Aus). Fuer die Paritaet zaehlt ausschliesslich die Modus-Wahl in der
 choose-Kette der Action "Zwischen Speicherszenarien waehlen".
 
-Bekannte, GEWOLLTE Aequivalenz (kein Fail): die Vorschau-L3 (Zweig 13) laesst
+Bekannte, GEWOLLTE Aequivalenz (kein Fail): die Vorschau-L3 (Zweig 15) laesst
 die Bedingung 'soc <= ve_res + band' weg, die in der Automation-L3 explizit
 steht. Das ist aequivalent, weil fuer soc > ve_res + band bei EXPENSIVE bereits
 der davorstehende L2-Zweig (Index 4) in BEIDEN Seiten entladen haette; die
@@ -131,52 +131,58 @@ BRANCHES = [
      {**LEITER_BASE, "sensor.opti_soc": "85", "sensor.opti_price_level": "EXPENSIVE",
       "_attrs": reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0)},
      "Akku nur Entladen", "Peak-Leiter L2"),
-    (5, "soc20_prognose",
+    (5, "balancing_watchdog_pv",
+     {"sensor.opti_balancing_watchdog": "pv"},
+     "Akku nur Laden", "Balancing-Watchdog (PV"),
+    (6, "balancing_watchdog_netz",
+     {"sensor.opti_balancing_watchdog": "netz"},
+     "Akku Netzladen", "Balancing-Watchdog (Netz"),
+    (7, "soc20_prognose",
      {"sensor.opti_soc": "18", "sensor.opti_forecast_score": "1",
       "sensor.opti_forecast_score_tomorrow": "1", "sensor.opti_price_level": "NORMAL"},
      "Akku nur Laden", "SOC<20"),
-    (6, "soc75_prognose",
+    (8, "soc75_prognose",
      {"sensor.opti_soc": "50", "sensor.opti_forecast_score": "1",
       "sensor.opti_forecast_score_tomorrow": "1", "sensor.opti_price_level": "NORMAL"},
      "Akku nur Laden", "SOC<75"),
-    (7, "soc80_wintermodus",
+    (9, "soc80_wintermodus",
      {"sensor.opti_soc": "78", "sensor.opti_forecast_score": "1",
       "sensor.opti_forecast_score_tomorrow": "1", "sensor.opti_price_level": "EXPENSIVE"},
      "Akku nur Laden", "SOC<80 Wintermodus"),
-    (8, "soc15_notfall",
+    (10, "soc15_notfall",
      {"sensor.opti_soc": "12", "sensor.opti_forecast_score": "1",
       "sensor.opti_price_level": "NORMAL"},
      "Akku nur Laden", "SOC<15 Notfall"),
-    (9, "soc45_sehr_guenstig",
+    (11, "soc45_sehr_guenstig",
      {"sensor.opti_soc": "30", "sensor.opti_forecast_score": "1",
       "sensor.opti_price_level": "CHEAP"},
      "Akku nur Laden", "SOC<45"),
-    (10, "ueberschuss_70",
+    (12, "ueberschuss_70",
      {"sun.sun": "above_horizon", "sensor.opti_soc": "70", "sensor.opti_target_soc": "50",
       "binary_sensor.opti_ueberschuss_70_aktiv": "on"},
      "Akku Dynamisch", "70% Ueberschuss"),
-    (11, "ueberschuss_ac",
+    (13, "ueberschuss_ac",
      {"sun.sun": "above_horizon", "sensor.opti_soc": "70", "sensor.opti_target_soc": "50",
       "binary_sensor.opti_ueberschuss_ac_aktiv": "on"},
      "Akku Dynamisch", "AC Ueberschuss"),
-    (12, "akku_voll",
+    (14, "akku_voll",
      {"sensor.opti_soc": "100"},
      "Akku Dynamisch", "Akku voll"),
-    (13, "leiter_l3_halten",
+    (15, "leiter_l3_halten",
      {**LEITER_BASE, "sensor.opti_soc": "31", "sensor.opti_price_level": "EXPENSIVE",
       "input_boolean.opti_prognose_netzladen": "off",
       "input_number.opti_halte_spread_ct": "3",
       "_attrs": reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0, ve_avg=55.0)},
      "Akku nur Laden", "Peak-Leiter L3"),
-    (14, "leiter_l4_halten",
+    (16, "leiter_l4_halten",
      {**LEITER_BASE, "sensor.opti_soc": "40", "sensor.opti_price_level": "NORMAL",
       "input_boolean.opti_prognose_netzladen": "off",
       "_attrs": reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0)},
      "Akku nur Laden", "Peak-Leiter L4"),
-    (15, "dyn_bis_ziel",
+    (17, "dyn_bis_ziel",
      {"sun.sun": "above_horizon", "sensor.opti_soc": "40", "sensor.opti_target_soc": "60"},
      "Akku Dynamisch", "dyn bis Ziel"),
-    (16, "ueber_ziel_soc",
+    (18, "ueber_ziel_soc",
      {"sensor.opti_soc": "70", "sensor.opti_target_soc": "60"},
      "Akku nur Entladen", "ueber Ziel-SoC"),
 ]

@@ -1,0 +1,36 @@
+# =============================================================================
+# opti_balancing_counter.yaml — Taegliches Increment fuer den Balancing-Watchdog
+# =============================================================================
+# Zaehlt counter.tage_seit_akku100 einmal pro Tag um 1 hoch, WENN der Akku an
+# diesem Tag NICHT den Done-SoC (input_number.opti_balancing_done_soc, Default
+# 98.5%) erreicht hat. Der Reset des Counters passiert an anderer Stelle
+# (Cleanup-Block in automations/opti_strategie.yaml, sobald der Akku 30 min
+# stabil ueber dem Done-SoC steht) - beide nutzen dieselbe Done-Schwelle.
+#
+# Kanonisierte Repo-Version der bislang nur live vorhandenen (verwaisten)
+# Increment-Automation. Als Top-Level-Automations-Liste im Format von
+# automations.yaml (siehe README, Abschnitt Strategie-Automation einbinden).
+#
+# Downtime-Randfall: ist HA um 23:59 (ueber Mitternacht) down, wird der Tag
+# NICHT nachgeholt. Harmlos/fail-safe: der Watchdog zaehlt dann eher zu wenig
+# und feuert allenfalls einen Tag spaeter - bei einem 14-Tage-Intervall
+# unkritisch.
+# =============================================================================
+- id: opti_balancing_counter_increment
+  alias: "Opti Balancing: Tage seit Akku 100% täglich hochzählen"
+  description: >-
+    Zaehlt counter.tage_seit_akku100 taeglich um 1 hoch, solange der Akku an
+    diesem Tag nicht den Done-SoC erreicht hat. Speist den Balancing-/Deep-
+    Charge-Watchdog (sensor.opti_balancing_watchdog).
+  mode: single
+  triggers:
+    - trigger: time
+      at: "23:59:00"
+  conditions:
+    - condition: numeric_state
+      entity_id: sensor.opti_soc
+      below: input_number.opti_balancing_done_soc
+  actions:
+    - action: counter.increment
+      target:
+        entity_id: counter.tage_seit_akku100

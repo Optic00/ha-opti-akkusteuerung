@@ -296,6 +296,14 @@ def test_ueber_ziel_eintritt_unveraendert():
                        "input_select.akkusteuerung_modus": "Akku nur Entladen"}) == "Akku nur Entladen"
 
 
+def test_ueber_ziel_hysterese_austritt():
+    # Tragendes zweites Halbteil: Modus schon 'nur Entladen', soc genau am Ziel
+    # (60) -> Freigabe zu Dynamisch, weil soc > target+0 falsch ist. Schuetzt
+    # gegen einen '>'->'>=' Regressionsbug (der alle anderen Tests gruen liesse).
+    assert vorschau(**{"sensor.opti_soc": "60",
+                       "input_select.akkusteuerung_modus": "Akku nur Entladen"}) == "Akku Dynamisch"
+
+
 def test_leiter_inaktiv_ohne_gate():
     out = grund(**{**LEITER, "sensor.opti_price_level": "EXPENSIVE",
                    "sensor.opti_soc": "31",

@@ -382,3 +382,39 @@ def test_target_soc_effective_sensor_alle_fuenf_stellen():
     assert float(_target_soc_attr(hass, "ratio")) == 0.3
     assert _target_soc_attr(hass, "level") == "0"
     assert "ratio=0.3" in _target_soc_attr(hass, "branch")
+
+
+# ---------------------------------------------------------------------------
+# score_tomorrow: Forecast-Optimismus (alpha) wirkt jetzt auch auf den
+# Morgen-Score (steuert abends den Peak-Reserve-Horizont). alpha=0 bleibt
+# bit-identisch zum alten min(median, P10).
+# ---------------------------------------------------------------------------
+def _score_tomorrow_state(median="100", estimate10="20", alpha=None, house="4000"):
+    states = {
+        "sensor.opti_forecast_tomorrow_kwh": median,
+        "sensor.opti_house_consumption_w": house,
+        "sensor.opti_house_consumption_60min_w": house,
+    }
+    if alpha is not None:
+        states["input_number.opti_forecast_optimismus"] = alpha
+    attrs = {"sensor.opti_forecast_tomorrow_kwh": {"estimate10": estimate10}}
+    hass = FakeHass(states=states, attrs=attrs)
+    entity = _entity("sensor", "opti_forecast_score_tomorrow")
+    return render(hass, entity["state"])
+
+
+def test_score_tomorrow_alpha0_bleibt_p10():
+    # denom = 4kW*24/1000 = 96 kWh. alpha=0: tomorrow=min(100,20)=20 -> 20/96 -> 2.
+    assert _score_tomorrow_state(alpha="0") == "2"
+
+
+def test_score_tomorrow_alpha_hebt_score():
+    # alpha=40: blended=0.4*100+0.6*20=52 -> 52/96 -> 5.
+    assert _score_tomorrow_state(alpha="40") == "5"
+    # alpha=100: reiner Median 100 -> min(100/96,1) -> 10.
+    assert _score_tomorrow_state(alpha="100") == "10"
+
+
+def test_score_tomorrow_ohne_optimismus_helper_default0():
+    # Helper fehlt -> float(0) -> alpha 0 -> P10-Verhalten (2), kein Crash.
+    assert _score_tomorrow_state(alpha=None) == "2"

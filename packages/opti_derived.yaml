@@ -177,8 +177,23 @@ template:
           {% set median_t = states('sensor.opti_forecast_tomorrow_kwh')|float(0) %}
           {% set p10_raw_t = state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(median_t) %}
           {% set p10_t = p10_raw_t if p10_raw_t > 0 else median_t %}
-          {% set tomorrow = [median_t, p10_t]|min %}
+          {# Forecast-Optimismus (Feature #30) jetzt auch fuer den Morgen-Score:
+             gleicher alpha-Blend wie opti_forecast_effective_remaining_kwh, damit
+             EIN Regler konsistent Tag- UND Nacht-Pfad steuert. alpha=0 ->
+             min(median, P10), bit-identisch zum alten Verhalten. Wichtig, weil der
+             Peak-Reserve-Horizont abends an score_tomorrow haengt - sonst hielt die
+             Reserve nachts bei pessimistischem Solcast-P10 unnoetig Ladung (-> Netzbezug). #}
+          {% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus')|float(0)]|min]|max) / 100 %}
+          {% set blended_t = alpha * median_t + (1 - alpha) * p10_t %}
+          {% set tomorrow = [median_t, blended_t]|min %}
           {{ (([ [tomorrow / denom_kwh, 1]|min, 0]|max) * 10)|round(0)|int }}
+        attributes:
+          alpha: "{{ ([0, [100, states('input_number.opti_forecast_optimismus')|float(0)]|min]|max) / 100 }}"
+          median_kwh: "{{ states('sensor.opti_forecast_tomorrow_kwh')|float(0)|round(2) }}"
+          p10_kwh: >
+            {% set m = states('sensor.opti_forecast_tomorrow_kwh')|float(0) %}
+            {% set p = state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(m) %}
+            {{ (p if p > 0 else m)|round(2) }}
 
       # -----------------------------------------------------------------------
       # 2a. Effektive Rest-Prognose (kWh) — einstellbarer Forecast-Optimismus

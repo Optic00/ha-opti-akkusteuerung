@@ -237,3 +237,52 @@ template:
         # state: "{{ states('sensor.DEIN_BATT_POWER') | float(0) }}"
         # Falls Quelle positiv = entladen (Laden ist negativ) → Vorzeichen drehen:
         # state: "{{ states('sensor.DEIN_BATT_POWER') | float(0) * -1 }}"
+
+      # -----------------------------------------------------------------------
+      # 14. OPTIONAL - Kennzahlen fuer die KI-Analyse-Schicht (Phase 1).
+      # Alle Eintraege optional: Block weglassen oder Quelle leer lassen ->
+      # Sensor bleibt unavailable, der Tagesreport markiert die Kennzahl als
+      # "nicht verfuegbar". KEINE Steuerungsfunktion.
+      # -----------------------------------------------------------------------
+
+      # Kumulierte Batterie-Ladung (kWh, monoton steigend, z. B. WR-Total)
+      - unique_id: opti_mapping_battery_charge_total
+        name: "Opti Battery Charge Total kWh"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        availability: "{{ has_value('sensor.DEIN_AKKU_LADUNG_TOTAL') }}"
+        state: "{{ states('sensor.DEIN_AKKU_LADUNG_TOTAL') | float(0) }}"
+
+      # Kumulierte Batterie-Entladung (kWh, monoton steigend)
+      - unique_id: opti_mapping_battery_discharge_total
+        name: "Opti Battery Discharge Total kWh"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        availability: "{{ has_value('sensor.DEIN_AKKU_ENTLADUNG_TOTAL') }}"
+        state: "{{ states('sensor.DEIN_AKKU_ENTLADUNG_TOTAL') | float(0) }}"
+
+      # Preisspanne heute (ct/kWh, max - min des Tages)
+      - unique_id: opti_mapping_price_spread_today
+        name: "Opti Price Spread Today ct"
+        unit_of_measurement: "ct/kWh"
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEINE_PREISSPANNE_HEUTE') }}"
+        state: "{{ states('sensor.DEINE_PREISSPANNE_HEUTE') | float(0) }}"
+
+      # Netzbezug heute (kWh)
+      - unique_id: opti_mapping_grid_import_today
+        name: "Opti Grid Import Today kWh"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        availability: "{{ has_value('sensor.DEIN_NETZBEZUG_HEUTE') }}"
+        state: "{{ states('sensor.DEIN_NETZBEZUG_HEUTE') | float(0) }}"
+
+      # PV-Ertrag heute (kWh, Ist-Erzeugung fuer Forecast-vs-Ist)
+      - unique_id: opti_mapping_pv_yield_today
+        name: "Opti PV Yield Today kWh"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        availability: "{{ has_value('sensor.DEIN_PV_ERTRAG_HEUTE') }}"
+        state: "{{ states('sensor.DEIN_PV_ERTRAG_HEUTE') | float(0) }}"

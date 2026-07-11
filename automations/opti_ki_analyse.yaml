@@ -130,12 +130,13 @@
               boolean:
           auffaelligkeiten:
             description: >-
-              Liste von Objekten {code, schweregrad, beobachtung};
-              schweregrad ist info, warnung oder kritisch; leere Liste wenn
-              nichts auffaellig
+              Eine Zeile pro Auffaelligkeit im Format
+              '- [schweregrad] code: beobachtung' (schweregrad: info, warnung
+              oder kritisch); leerer String wenn nichts auffaellig
             required: true
             selector:
-              object:
+              text:
+                multiline: true
 
     - alias: "Bei Fehler still enden"
       condition: template

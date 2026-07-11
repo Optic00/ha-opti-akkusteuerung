@@ -1,9 +1,7 @@
 """Tests fuer das KI-Analyse-Paket (Phase 1)."""
 import json
-import pathlib
 
 import jinja2
-import yaml
 
 from .ha_harness import REPO, FakeHass, load_yaml, render
 

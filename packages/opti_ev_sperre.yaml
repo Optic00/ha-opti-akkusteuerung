@@ -1,0 +1,86 @@
+# =============================================================================
+# opti_ev_sperre.yaml — EV-Schnelllade-Entladesperre (OPTIONAL)
+# =============================================================================
+# Verhindert, dass der Hausakku ins Auto entlaedt, wenn evcc "schnell" laedt
+# (Modus now oder minpv). Sperr-Modus in der Strategie-Leiter ist "Akku nur
+# Laden" (reine Entladesperre, PV-Laden bleibt moeglich).
+#
+# Voraussetzungen:
+#   - HACS-Integration evcc_intg ("evcc Bridge")
+#   - Ladepunkt-Mapping in packages/opti_mapping.yaml (Sensoren
+#     opti_ev_lp1_schnell / opti_ev_lp2_schnell, siehe opti_mapping.example.yaml)
+#   - UI-Helfer input_boolean.opti_ev_akku_pause (Feature-Schalter, Default aus;
+#     dokumentiert in packages/sma_helpers.yaml)
+# Ohne diese Voraussetzungen bleibt die Sperre dauerhaft inaktiv (fail-safe:
+# die Leiter prueft state == 'on', fehlende Entitaeten zaehlen als aus).
+# WICHTIG: evcc-seitige Batteriesperre/Discharge-Control muss AUS bleiben —
+# der Akku wird nur von der Strategie-Leiter gesteuert, nie von zwei Systemen.
+#
+# Latch-Semantik (Spec 2026-07-11 rev. 3, Wahrheitstabelle):
+#   - mind. ein Ladepunkt valide 'on'  -> sofort on (kein delay_on: jede
+#     Minute Verzoegerung ist Akku-Energie im Auto)
+#   - alle Ladepunkte valide 'off'     -> off nach 300 s (Fahrzeug-Regelpausen)
+#   - kein valides 'on', mind. ein LP invalide -> Zustand HALTEN (evcc-Neustart
+#     darf eine aktive Sperre nicht beenden; Selbstreferenz = Latch)
+#   - HA-Kaltstart ohne Vorzustand     -> off (fail-open, bewusst akzeptiert)
+#   - Feature-Schalter aus             -> Sperre sofort wirkungslos (der
+#     Schalter wird in der Leiter geprueft, delay_off verzoegert ihn nicht)
+# =============================================================================
+
+template:
+  - binary_sensor:
+      - unique_id: opti_ev_schnellladung
+        name: "Opti EV Schnellladung"
+        icon: mdi:ev-station
+        delay_off:
+          seconds: 300
+        state: >-
+          {% set on = is_state('binary_sensor.opti_ev_lp1_schnell', 'on')
+                      or is_state('binary_sensor.opti_ev_lp2_schnell', 'on') %}
+          {% set alle_valide = has_value('binary_sensor.opti_ev_lp1_schnell')
+                               and has_value('binary_sensor.opti_ev_lp2_schnell') %}
+          {% set prev = is_state('binary_sensor.opti_ev_schnellladung', 'on') %}
+          {{ on or (prev and not alle_valide) }}
+        attributes:
+          haltegrund: >-
+            {% set on = is_state('binary_sensor.opti_ev_lp1_schnell', 'on')
+                        or is_state('binary_sensor.opti_ev_lp2_schnell', 'on') %}
+            {% set alle_valide = has_value('binary_sensor.opti_ev_lp1_schnell')
+                                 and has_value('binary_sensor.opti_ev_lp2_schnell') %}
+            {% set prev = is_state('binary_sensor.opti_ev_schnellladung', 'on') %}
+            {% if on %}aktiv erkannt
+            {%- elif prev and not alle_valide %}gehalten (evcc-Daten invalide)
+            {%- else %}-{% endif %}
+          lp1_modus: "{{ state_attr('binary_sensor.opti_ev_lp1_schnell', 'modus') }}"
+          lp1_leistung_kw: "{{ state_attr('binary_sensor.opti_ev_lp1_schnell', 'leistung_kw') }}"
+          lp2_modus: "{{ state_attr('binary_sensor.opti_ev_lp2_schnell', 'modus') }}"
+          lp2_leistung_kw: "{{ state_attr('binary_sensor.opti_ev_lp2_schnell', 'leistung_kw') }}"
+
+automation:
+  # Sichtbarkeit fuer den Dauerhalt-Fall: bleibt die Sperre >60 min nur wegen
+  # invalider evcc-Daten aktiv, Ben informieren (manueller Ausstieg: Feature-
+  # Schalter input_boolean.opti_ev_akku_pause aus).
+  # Live-Abweichung (dokumentiert): notify.notify wird live ggf. durch den
+  # echten Mobile-App-Service ersetzt (Muster wie opti_ki_analyse.yaml).
+  - id: opti_ev_sperre_invaliditaets_warnung
+    alias: "EV-Sperre | Warnung: gehalten wegen invalider evcc-Daten"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.opti_ev_schnellladung
+        attribute: haltegrund
+        to: "gehalten (evcc-Daten invalide)"
+        for:
+          minutes: 60
+    conditions:
+      - condition: state
+        entity_id: input_boolean.opti_ev_akku_pause
+        state: "on"
+    actions:
+      - action: notify.notify
+        data:
+          title: "EV-Sperre haengt"
+          message: >-
+            Die EV-Entladesperre wird seit ueber 60 min nur gehalten, weil die
+            evcc-Daten invalide sind (evcc/Integration pruefen). Manueller
+            Ausstieg: Schalter 'Opti EV Akku-Pause' ausschalten.

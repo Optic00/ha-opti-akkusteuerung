@@ -45,3 +45,41 @@ def test_mapping_lp1_invalide_wird_unavailable():
     hass = FakeHass(states={LP1_MODE: "unavailable", LP1_CHARGING: "on"})
     _state, avail = _lp1_state(hass)
     assert avail == "False"
+
+
+# --- Block B: Aggregations-/Latch-Sensor (packages/opti_ev_sperre.yaml) ---
+
+EV_AGG = "binary_sensor.opti_ev_schnellladung"
+LP1 = "binary_sensor.opti_ev_lp1_schnell"
+LP2 = "binary_sensor.opti_ev_lp2_schnell"
+
+
+def _agg(part, states):
+    cfg = load_yaml(REPO / "packages" / "opti_ev_sperre.yaml")
+    entity = find_template_entity(cfg, "binary_sensor", "opti_ev_schnellladung")
+    template = entity["state"] if part == "state" else entity["attributes"][part]
+    return render(FakeHass(states=states), template)
+
+
+# Latch-Wahrheitstabelle (Spec rev. 3). prev = Selbstreferenz auf den eigenen
+# vorherigen Zustand (EV_AGG in den states). delay_off (300 s) haengt am
+# Sensor-YAML und ist hier nicht simulierbar - getestet wird die Template-Logik.
+@pytest.mark.parametrize("name,lp1,lp2,prev,erwartet", [
+    ("ein_lp_valide_on_sofort_on",      "on",          "off",         "off",     "True"),
+    ("beide_valide_off_wird_off",       "off",         "off",         "on",      "False"),
+    ("invalide_haelt_on",               "unavailable", "off",         "on",      "True"),
+    ("invalide_ohne_vorzustand_off",    "unavailable", "unavailable", "unknown", "False"),
+    ("valide_on_schlaegt_invalide_lp2", "on",          "unavailable", "off",     "True"),
+])
+def test_latch_wahrheitstabelle(name, lp1, lp2, prev, erwartet):
+    assert _agg("state", {LP1: lp1, LP2: lp2, EV_AGG: prev}) == erwartet
+
+
+def test_haltegrund_gehalten_bei_invaliditaet():
+    grund = _agg("haltegrund", {LP1: "unavailable", LP2: "off", EV_AGG: "on"})
+    assert "gehalten" in grund
+
+
+def test_haltegrund_aktiv_bei_ladung():
+    grund = _agg("haltegrund", {LP1: "on", LP2: "off", EV_AGG: "off"})
+    assert "aktiv" in grund

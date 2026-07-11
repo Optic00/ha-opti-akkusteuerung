@@ -26,6 +26,9 @@ BASIS = {
     "sun.sun": "below_horizon",
     # Balancing-Watchdog default aus (feuert nur, wenn Fixture ihn setzt).
     "sensor.opti_balancing_watchdog": "aus",
+    # EV-Sperre default aus (Feature optional; Fixtures schalten sie gezielt an).
+    "input_boolean.opti_ev_akku_pause": "off",
+    "binary_sensor.opti_ev_schnellladung": "off",
 }
 
 

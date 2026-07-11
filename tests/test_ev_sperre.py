@@ -83,3 +83,84 @@ def test_haltegrund_gehalten_bei_invaliditaet():
 def test_haltegrund_aktiv_bei_ladung():
     grund = _agg("haltegrund", {LP1: "on", LP2: "off", EV_AGG: "off"})
     assert "aktiv" in grund
+
+
+# --- Block C: Leiter-Regression (nutzt die Paritaets-Infrastruktur) ---
+
+from .test_strategie_paritaet import _evaluate_automation, _make_hass, _vorschau
+from .test_strategie_vorschau import reserve_attrs
+
+SPERRE_AN = {"input_boolean.opti_ev_akku_pause": "on",
+             "binary_sensor.opti_ev_schnellladung": "on"}
+
+LEITER_BASE = {
+    "sensor.opti_forecast_score": "1",
+    "sensor.opti_forecast_score_tomorrow": "1",
+    "sensor.opti_peak_reserve_soc": "45",
+    "binary_sensor.opti_peak_reserve_aktiv": "on",
+    "sensor.opti_price_current_ct_kwh": "50",
+}
+
+
+@pytest.mark.parametrize("name,overrides,erw_modus,erw_grund", [
+    # L1/L2 werden durch die Sperre blockiert -> EV-Zweig faengt sie ab.
+    ("l1_gesperrt",
+     {**LEITER_BASE, **SPERRE_AN, "sensor.opti_soc": "85",
+      "sensor.opti_price_level": "VERY_EXPENSIVE",
+      "_attrs": reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0)},
+     "Akku nur Laden", "EV-Sperre"),
+    ("l2_gesperrt",
+     {**LEITER_BASE, **SPERRE_AN, "sensor.opti_soc": "85",
+      "sensor.opti_price_level": "EXPENSIVE",
+      "_attrs": reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0)},
+     "Akku nur Laden", "EV-Sperre"),
+    # Akku voll + Sperre -> nur Laden statt Dynamisch (wuerde sonst entladen).
+    ("akku_voll_gesperrt",
+     {**SPERRE_AN, "sensor.opti_soc": "100"},
+     "Akku nur Laden", "EV-Sperre"),
+    # dyn bis Ziel / ueber Ziel / Default: alle gesperrt.
+    ("dyn_bis_ziel_gesperrt",
+     {**SPERRE_AN, "sun.sun": "above_horizon", "sensor.opti_soc": "40",
+      "sensor.opti_target_soc": "60"},
+     "Akku nur Laden", "EV-Sperre"),
+    ("ueber_ziel_gesperrt",
+     {**SPERRE_AN, "sensor.opti_soc": "70", "sensor.opti_target_soc": "60"},
+     "Akku nur Laden", "EV-Sperre"),
+    ("default_nacht_gesperrt",
+     {**SPERRE_AN},
+     "Akku nur Laden", "EV-Sperre"),
+    # Negativtests: Lade-Zweige OBERHALB bleiben aktiv (Netzladen/Balancing).
+    ("peak_vorladen_bleibt",
+     {**SPERRE_AN, "sensor.opti_price_current_ct_kwh": "50",
+      "sensor.opti_forecast_score": "1", "sensor.opti_forecast_score_tomorrow": "1",
+      "sensor.opti_peak_reserve_soc": "35",
+      "binary_sensor.opti_peak_reserve_aktiv": "on", "sensor.opti_soc": "15",
+      "_attrs": reserve_attrs(ve=25.0, min_vor=50.0, avg=200.0)},
+     "Akku Netzladen", "Peak-Vorladen"),
+    ("balancing_netz_bleibt",
+     {**SPERRE_AN, "sensor.opti_balancing_watchdog": "netz"},
+     "Akku Netzladen", "Balancing-Watchdog (Netz"),
+    ("minsoc_schutz_bleibt",
+     {**SPERRE_AN, "sensor.opti_soc": "5"},
+     "Akku nur Laden", "MinSOC-Schutz"),
+    # Feature-Schalter aus -> Sperre wirkungslos, normale Leiter.
+    ("toggle_aus_keine_sperre",
+     {"binary_sensor.opti_ev_schnellladung": "on",
+      "input_boolean.opti_ev_akku_pause": "off",
+      "sensor.opti_soc": "70", "sensor.opti_target_soc": "60"},
+     "Akku nur Entladen", "ueber Ziel-SoC"),
+    # Sensor fehlt komplett (Repo-Nutzer ohne evcc) -> keine Sperre.
+    ("sensor_fehlt_keine_sperre",
+     {"input_boolean.opti_ev_akku_pause": "on",
+      "binary_sensor.opti_ev_schnellladung": "unavailable",
+      "sensor.opti_soc": "70", "sensor.opti_target_soc": "60"},
+     "Akku nur Entladen", "ueber Ziel-SoC"),
+])
+def test_leiter_mit_ev_sperre(name, overrides, erw_modus, erw_grund):
+    hass = _make_hass(overrides)
+    _zweig, auto_modus = _evaluate_automation(hass)
+    vor_modus = _vorschau(hass, "state")
+    vor_grund = _vorschau(hass, "grund")
+    assert auto_modus == vor_modus == erw_modus, (
+        f"[{name}] Automation={auto_modus!r} Vorschau={vor_modus!r} erwartet={erw_modus!r}")
+    assert erw_grund in vor_grund

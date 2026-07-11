@@ -73,10 +73,21 @@ def _as_local(value):
     return value.astimezone(TZ) if isinstance(value, dt.datetime) else value
 
 
+def _as_timestamp(value, default=None):
+    try:
+        parsed = dt.datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return default
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=TZ)
+    return parsed.timestamp()
+
+
 def _setup(env, hass):
     env.globals.update(
         states=hass.states, state_attr=hass.state_attr, has_value=hass.has_value,
         is_state=hass.is_state, now=hass.now, today_at=hass.today_at,
+        as_timestamp=_as_timestamp,
         timedelta=dt.timedelta, min=min, max=max,
         this=types.SimpleNamespace(attributes=hass.this_attributes,
                                    state=hass.this_state),

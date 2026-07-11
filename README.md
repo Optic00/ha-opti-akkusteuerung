@@ -177,6 +177,7 @@ Verzeichnis kopieren:
 | `sma_helpers.yaml` | alle `input_select`/`input_number`/`input_boolean`/`counter` (Modus, Sollwerte, SoC-Grenzen …) |
 | `sma_templates.yaml` | **optional** — nur für Sollkurve-/Abregelungs-Anzeige (Legacy), enthält Platzhalter-Entity-IDs: ersetzen oder ganz weglassen |
 | `sma_statistik.yaml` | gleitende Mittelwerte (Verbrauch, Batterielast) |
+| `opti_ki_analyse.yaml` | **optional** — täglicher KI-Tagesreport per `ai_task.generate_data`, rein lesend; Details siehe [docs/canonical-layer.md](docs/canonical-layer.md#ki-analyse-schicht-optional-phase-1) |
 
 **4. Home Assistant neu starten** → Helfer, Templates, Statistik & Modbus sind da.
 

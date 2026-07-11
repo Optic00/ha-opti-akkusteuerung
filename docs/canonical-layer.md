@@ -403,6 +403,16 @@ du beeinflusst sie ausschließlich über dein Mapping und die Helfer-Werte.
 
 ---
 
+## KI-Analyse-Schicht (optional, Phase 1)
+
+`packages/opti_ki_analyse.yaml` + `automations/opti_ki_analyse.yaml` erzeugen einen täglichen KI-Tagesreport (21:00) über `ai_task.generate_data`.
+Die Schicht liest ausschließlich - der Regelkreis funktioniert ohne sie vollständig.
+Datenzugriff läuft über die optionalen Mapping-Einträge (Abschnitt 12 der Example-Datei); fehlende Quellen werden im Report als "nicht verfügbar" markiert.
+Ein deterministischer Watchdog (22:00) meldet, wenn die Analyse 3 Tage keinen Erfolg hatte.
+Details: `docs/superpowers/specs/2026-07-10-ki-analyse-schicht-design.md` (lokal).
+
+---
+
 ## Testfälle — Erwartetes Verhalten
 
 | Szenario | Relevante Eingaben | Erwarteter Modus | Hinweise |

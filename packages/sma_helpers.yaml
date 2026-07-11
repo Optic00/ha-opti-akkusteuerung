@@ -331,6 +331,14 @@ input_boolean:
     # Gate für die PV-/AC-Überschussblöcke (Akku Dynamisch). Default an.
     icon: mdi:solar-power
 
+  opti_ev_akku_pause:
+    name: "Opti EV Akku-Pause"
+    # Feature-Schalter der EV-Schnelllade-Entladesperre (optionales Package
+    # packages/opti_ev_sperre.yaml, braucht evcc_intg + Ladepunkt-Mapping).
+    # Aus = Sperre komplett wirkungslos (Sofort-Notausstieg, wirkt auch
+    # waehrend delay_off/Latch des Erkennungssensors). Default AUS.
+    icon: mdi:car-electric
+
   opti_balancing_netzladen:
     name: "Opti Balancing darf ans Netz"
     # Eigener Schalter für den Balancing-/Deep-Charge-Watchdog (Feature #31):

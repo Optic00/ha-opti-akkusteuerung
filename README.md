@@ -122,6 +122,7 @@ Strategie  →  input_select.akkusteuerung_modus  →  [ ADAPTER-BLUEPRINT ]  �
 | `packages/sma_helpers.yaml` | Alle Helfer (input_select, input_number, input_boolean, counter, input_text/input_datetime für Adapter-Write-on-Change ab v1.2.0) |
 | `packages/sma_templates.yaml` | Legacy-Template-Sensoren — teils durch `opti_derived.yaml` abgelöst (Ziel-SoC, Ladestärke, Prognose-Score, Preisniveau, Laufzeit), teils noch ohne Canonical-Äquivalent (Sollkurve/P-Regler, Abregelung) |
 | `packages/sma_statistik.yaml` | Gleitende Mittelwert-Sensoren für Verbrauch & Batterielast |
+| `packages/opti_ev_sperre.yaml` | **optional** — EV-Schnelllade-Entladesperre (Hausakku entlädt nicht ins Auto, wenn evcc im Modus now/minpv lädt); braucht HACS-Integration `evcc_intg` + Ladepunkt-Block im Mapping; Details siehe [docs/strategie-logik.md](docs/strategie-logik.md) (Option 13) |
 | `automations/opti_strategie.yaml` | Strategie-Automation (editierbar, kein Blueprint) |
 
 **Legacy (zur Referenz, nicht mehr empfohlen):**

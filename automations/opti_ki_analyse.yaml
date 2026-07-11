@@ -151,13 +151,11 @@
         datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
 
     - alias: "Ergebnis an Dashboard-Sensor"
-      action: event.fire
-      data:
-        event_type: opti_ki_analyse_fertig
-        event_data:
-          zusammenfassung: "{{ analyse.data.zusammenfassung }}"
-          auffaelligkeiten: "{{ analyse.data.auffaelligkeiten }}"
-          meldenswert: "{{ analyse.data.meldenswert | default(false) | bool }}"
+      event: opti_ki_analyse_fertig
+      event_data:
+        zusammenfassung: "{{ analyse.data.zusammenfassung }}"
+        auffaelligkeiten: "{{ analyse.data.auffaelligkeiten }}"
+        meldenswert: "{{ analyse.data.meldenswert | default(false) | bool }}"
 
     - alias: "Notification je nach Toggle/meldenswert"
       if:

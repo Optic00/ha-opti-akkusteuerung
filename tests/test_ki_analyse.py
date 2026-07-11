@@ -114,3 +114,19 @@ def test_datenpaket_markiert_fehlende_quellen():
     ergebnis = json.loads(render(hass, _datenpaket_template()))
     assert ergebnis["tag"]["preisspanne_ct"] == "nicht verfuegbar"
     assert ergebnis["byd"]["verfuegbar"] is False
+
+
+def _watchdog_condition():
+    cfg = load_yaml(KI_AUTOMATIONS)
+    auto = next(a for a in cfg if a["id"] == "opti_ki_watchdog")
+    return auto["conditions"][0]["value_template"]
+
+
+def test_watchdog_meldet_nach_drei_tagen():
+    import datetime as dt
+    from .ha_harness import TZ
+    now = dt.datetime(2026, 7, 15, 22, 0, tzinfo=TZ)
+    alt = FakeHass(states={"input_datetime.opti_ki_last_success": "2026-07-11 21:00:00"}, now=now)
+    frisch = FakeHass(states={"input_datetime.opti_ki_last_success": "2026-07-14 21:00:00"}, now=now)
+    assert render(alt, _watchdog_condition()) == "True"
+    assert render(frisch, _watchdog_condition()) == "False"

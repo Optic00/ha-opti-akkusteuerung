@@ -171,3 +171,35 @@
           data:
             title: "🔋🤖 Akku-Tagesreport ({{ now().strftime('%d.%m.') }})"
             message: "{{ analyse.data.zusammenfassung }}"
+
+- id: "opti_ki_watchdog"
+  alias: "KI | Opti Analyse-Watchdog"
+  description: >-
+    Deterministischer Watchdog gegen stilles Sterben der KI-Analyse: meldet,
+    wenn der letzte erfolgreiche Lauf aelter als 3 Tage ist. Laeuft maximal
+    einmal taeglich, beruehrt den Regelkreis nicht. Beim Deploy wird
+    opti_ki_last_success einmalig auf den Aktivierungszeitpunkt gesetzt
+    (Karenz fuer den ersten Lauf, siehe Spec-Grenzfaelle).
+  mode: single
+  triggers:
+    - trigger: time
+      at: "22:00:00"
+  conditions:
+    - condition: template
+      value_template: >-
+        {{ (now().timestamp() - as_timestamp(states('input_datetime.opti_ki_last_success'), 0)) > 259200 }}
+  actions:
+    - action: notify.notify
+      data:
+        title: "🤖⚠️ KI-Analyse ohne Erfolg"
+        message: >-
+          Die Opti-KI-Analyse hatte seit
+          {{ ((now().timestamp() - as_timestamp(states('input_datetime.opti_ki_last_success'), 0)) / 86400) | round(1) }}
+          Tagen keinen erfolgreichen Lauf. OpenAI-Integration/API-Key pruefen.
+    - action: persistent_notification.create
+      data:
+        notification_id: opti_ki_watchdog
+        title: "KI-Analyse ohne Erfolg"
+        message: >-
+          Letzter Erfolg: {{ states('input_datetime.opti_ki_last_success') }}.
+          Automation "KI | Opti Tagesanalyse" und OpenAI-Integration pruefen.

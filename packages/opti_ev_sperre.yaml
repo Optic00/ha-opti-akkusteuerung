@@ -22,7 +22,11 @@
 #   - alle Ladepunkte valide 'off'     -> off nach 300 s (Fahrzeug-Regelpausen)
 #   - kein valides 'on', mind. ein LP invalide -> Zustand HALTEN (evcc-Neustart
 #     darf eine aktive Sperre nicht beenden; Selbstreferenz = Latch)
-#   - HA-Kaltstart ohne Vorzustand     -> off (fail-open, bewusst akzeptiert)
+#   - HA-Kaltstart ohne Vorzustand     -> off (fail-open, bewusst akzeptiert).
+#     HA-Eigenheit (live beobachtet 11.7.): mit delay_off bleibt der Sensor
+#     nach Reload/Neustart auf unknown, bis sich das Template-Ergebnis erstmals
+#     aendert (erste Ladung). unknown wirkt in der Leiter wie off (keine
+#     Sperre) - semantisch identisch mit dem dokumentierten fail-open.
 #   - Feature-Schalter aus             -> Sperre sofort wirkungslos (der
 #     Schalter wird in der Leiter geprueft, delay_off verzoegert ihn nicht)
 # =============================================================================

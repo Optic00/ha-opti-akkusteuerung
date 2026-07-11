@@ -55,9 +55,9 @@
               "score_morgen": {{ num('sensor.opti_forecast_score_tomorrow', 0) }}
             },
             "jetzt": {
-              "modus": "{{ states('input_select.akkusteuerung_modus') }}",
-              "vorschau": "{{ states('sensor.opti_strategie_vorschau') }}",
-              "grund_code": "{{ state_attr('sensor.opti_strategie_vorschau', 'grund') }}",
+              "modus": {{ states('input_select.akkusteuerung_modus') | tojson }},
+              "vorschau": {{ states('sensor.opti_strategie_vorschau') | tojson }},
+              "grund_code": {{ (state_attr('sensor.opti_strategie_vorschau', 'grund') or '') | tojson }},
               "ziel_soc": {{ num('sensor.opti_target_soc', 0) }}
             },
             "parameter": {
@@ -155,7 +155,7 @@
       event: opti_ki_analyse_fertig
       event_data:
         zusammenfassung: "{{ analyse.data.zusammenfassung }}"
-        auffaelligkeiten: "{{ analyse.data.auffaelligkeiten }}"
+        auffaelligkeiten: "{{ analyse.data.auffaelligkeiten | default('') }}"
         meldenswert: "{{ analyse.data.meldenswert | default(false) | bool }}"
 
     - alias: "Notification je nach Toggle/meldenswert"

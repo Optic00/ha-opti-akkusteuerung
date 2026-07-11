@@ -1,0 +1,174 @@
+# =============================================================================
+# opti_ki_analyse.yaml - KI-Analyse-Schicht Phase 1 (Tagesreport + Anomalie)
+# -----------------------------------------------------------------------------
+# Deterministischer Unterbau fuer den taeglichen KI-Report (21:00, siehe
+# automations/opti_ki_analyse.yaml). Die KI liest ausschliesslich - nichts in
+# dieser Datei schreibt in die Steuerung. Ausfall der KI = kein Report.
+# Spec: docs/superpowers/specs/2026-07-10-ki-analyse-schicht-design.md
+# =============================================================================
+
+input_boolean:
+  opti_ki_tagesreport_immer:
+    name: "Opti KI Tagesreport immer senden"
+    icon: mdi:message-text-clock
+
+input_datetime:
+  opti_ki_last_attempt:
+    name: "Opti KI letzter Versuch"
+    has_date: true
+    has_time: true
+  opti_ki_last_success:
+    name: "Opti KI letzter Erfolg"
+    has_date: true
+    has_time: true
+
+sensor:
+  # ---- Modus-Verweildauern und Einschaltzahlen (heute) ---------------------
+  - platform: history_stats
+    name: "Opti KI Dauer Nur Laden"
+    unique_id: opti_ki_dauer_nur_laden
+    entity_id: input_select.akkusteuerung_modus
+    state: "Akku nur Laden"
+    type: time
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Opti KI Starts Nur Laden"
+    unique_id: opti_ki_starts_nur_laden
+    entity_id: input_select.akkusteuerung_modus
+    state: "Akku nur Laden"
+    type: count
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Opti KI Dauer Netzladen"
+    unique_id: opti_ki_dauer_netzladen
+    entity_id: input_select.akkusteuerung_modus
+    state: "Akku Netzladen"
+    type: time
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Opti KI Starts Netzladen"
+    unique_id: opti_ki_starts_netzladen
+    entity_id: input_select.akkusteuerung_modus
+    state: "Akku Netzladen"
+    type: count
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Opti KI Dauer Nur Entladen"
+    unique_id: opti_ki_dauer_nur_entladen
+    entity_id: input_select.akkusteuerung_modus
+    state: "Akku nur Entladen"
+    type: time
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Opti KI Starts Nur Entladen"
+    unique_id: opti_ki_starts_nur_entladen
+    entity_id: input_select.akkusteuerung_modus
+    state: "Akku nur Entladen"
+    type: count
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Opti KI Dauer Dynamisch"
+    unique_id: opti_ki_dauer_dynamisch
+    entity_id: input_select.akkusteuerung_modus
+    state: "Akku Dynamisch"
+    type: time
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Opti KI Starts Dynamisch"
+    unique_id: opti_ki_starts_dynamisch
+    entity_id: input_select.akkusteuerung_modus
+    state: "Akku Dynamisch"
+    type: count
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+
+  # ---- Datenqualitaet: unavailable-Zeiten der Kernquellen (heute) ----------
+  - platform: history_stats
+    name: "Opti KI Preis Unavailable H"
+    unique_id: opti_ki_preis_unavailable_h
+    entity_id: sensor.opti_price_current_ct_kwh
+    state:
+      - "unavailable"
+      - "unknown"
+    type: time
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Opti KI Forecast Unavailable H"
+    unique_id: opti_ki_forecast_unavailable_h
+    entity_id: sensor.opti_forecast_score
+    state:
+      - "unavailable"
+      - "unknown"
+    type: time
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+
+  # ---- BYD-Gesundheit: Balancing-Dauer heute (optional, s. Spec-Delta) -----
+  - platform: history_stats
+    name: "Opti KI Balancing Dauer H"
+    unique_id: opti_ki_balancing_dauer_h
+    entity_id: binary_sensor.byd_balancing_aktiv
+    state: "on"
+    type: time
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+
+  # ---- SoC-Band und Ruhe-Spreizung (24h rollierend, bewusst akzeptiert) ----
+  - platform: statistics
+    name: "Opti KI SoC Min 24h"
+    unique_id: opti_ki_soc_min_24h
+    entity_id: sensor.opti_soc
+    state_characteristic: value_min
+    max_age:
+      hours: 24
+    sampling_size: 3000
+  - platform: statistics
+    name: "Opti KI SoC Max 24h"
+    unique_id: opti_ki_soc_max_24h
+    entity_id: sensor.opti_soc
+    state_characteristic: value_max
+    max_age:
+      hours: 24
+    sampling_size: 3000
+  - platform: statistics
+    name: "Opti KI Ruhe Spreizung Max 24h"
+    unique_id: opti_ki_ruhe_spreizung_max_24h
+    entity_id: sensor.byd_zellspreizung_ruhe
+    state_characteristic: value_max
+    max_age:
+      hours: 24
+    sampling_size: 3000
+
+# ---- Akku-Ladung/Entladung heute (aus kumulierten Mapping-Totals) ----------
+utility_meter:
+  opti_ki_akku_ladung_heute:
+    name: "Opti KI Akku Ladung Heute"
+    source: sensor.opti_battery_charge_total_kwh
+    cycle: daily
+  opti_ki_akku_entladung_heute:
+    name: "Opti KI Akku Entladung Heute"
+    source: sensor.opti_battery_discharge_total_kwh
+    cycle: daily
+
+# ---- Ergebnis-Sensor: gefuellt vom Analyse-Event ---------------------------
+template:
+  - triggers:
+      - trigger: event
+        event_type: opti_ki_analyse_fertig
+    sensor:
+      - unique_id: opti_ki_analyse
+        name: "Opti KI Analyse"
+        icon: mdi:robot-outline
+        state: "{{ 'auffaellig' if trigger.event.data.meldenswert else 'ok' }}"
+        attributes:
+          zusammenfassung: "{{ trigger.event.data.zusammenfassung }}"
+          auffaelligkeiten: "{{ trigger.event.data.auffaelligkeiten }}"
+          generiert: "{{ now().isoformat() }}"

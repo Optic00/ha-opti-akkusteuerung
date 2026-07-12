@@ -16,7 +16,7 @@
               "entities": {
                 "grid": {
                   "entity": {
-                    "consumption": "__NETZ_BEZUG_W__",
+                    "consumption": "sensor.opti_grid_import_w",
                     "production": "sensor.opti_grid_export_w"
                   }
                 },

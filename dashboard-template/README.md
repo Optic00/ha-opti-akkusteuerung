@@ -6,7 +6,7 @@ Sie ist so aufgebaut, dass eine andere HA-Instanz sie mit minimalem Aufwand nach
 
 Weil die Zielinstanz die opti-Schicht dieses Repos bereits fährt (Shadow-Betrieb), sind fast alle Karten direkt auf die kanonischen `sensor.opti_*`-Sensoren und die opti-Helfer gemappt.
 Diese Karten brauchen beim Nachbau keinen Platzhalter und funktionieren sofort.
-Nur echte hardwarespezifische Sensoren (Zell-/BMS-Werte) und ein fehlender Kanonik-Sensor (Netzbezug) sind als `__ROLLE__`-Platzhalter markiert.
+Nur echte hardwarespezifische Sensoren (Zell-/BMS-Werte) sind als `__ROLLE__`-Platzhalter markiert.
 
 ## Quelle und Auswahl
 
@@ -28,7 +28,6 @@ Alles andere ist bereits fest auf kanonische opti-Entitäten verdrahtet (siehe n
 
 | Platzhalter | Bedeutung | Einheit / Vorzeichenkonvention | Bens Original-Entität (Referenz) | Hinweis für die Zielinstanz |
 |---|---|---|---|---|
-| `__NETZ_BEZUG_W__` | Netzbezug (Import aus dem Netz) | W, positiv = Bezug aus dem Netz | (kein kanonischer Sensor vorhanden) | Der Canonical-Layer liefert nur `sensor.opti_grid_export_w` (Einspeisung). Für das Flussdiagramm wird zusätzlich der Import benötigt. Huawei stellt dafür meist einen signierten Zähler oder einen eigenen Consumption-Sensor bereit. |
 | `__ZELL_SPREIZUNG_MV__` | Zellspannungs-Spreizung (max - min) | mV, positiv | `sensor.byd_zellspreizung` | Zell-Level-Wert eines externen BMS-Auslesers. Auf Huawei LUNA2000 in der Regel nicht vorhanden. Abschnitt "Akku-Gesundheit" sonst entfernen. |
 | `__ZELL_SPANNUNG_MIN_V__` | niedrigste Zellspannung | V | `sensor.byd_zellspannung_min` | wie oben |
 | `__ZELL_SPANNUNG_MAX_V__` | höchste Zellspannung | V | `sensor.byd_zellspannung_max` | wie oben |
@@ -49,6 +48,7 @@ Die Vorzeichen-/Einheiten-Konventionen stammen aus `docs/canonical-layer.md` die
 | `sensor.opti_pv_power_w` | PV-AC-Leistung | W, immer >= 0 |
 | `sensor.opti_house_consumption_w` | Hausverbrauch | W, >= 0 |
 | `sensor.opti_grid_export_w` | Einspeisung ins Netz | W, **positiv = Einspeisung**, immer >= 0 |
+| `sensor.opti_grid_import_w` | Netzbezug (Import) | W, **positiv = Bezug**, immer >= 0 (optionaler Anzeige-Sensor, siehe `docs/canonical-layer.md`) |
 | `sensor.opti_battery_temp` | Akku-Temperatur | °C |
 | `sensor.opti_battery_capacity_kwh` | nutzbare Kapazität | kWh |
 | `sensor.opti_target_soc` | intelligenter Ziel-SoC | % |
@@ -114,8 +114,8 @@ Das Template hat eine einzige View "Übersicht" mit folgenden Abschnitten (von o
 ## Ergänzte Karten
 
 - **Energiefluss-Diagramm** (`custom:power-flow-card-plus`), Abschnitt "⚡ Energiefluss (Live-Diagramm)": neu empfohlen, nicht aus einem bestehenden Dashboard 1:1 kopiert. Die Karte ist auf die kanonischen opti-Sensoren gemappt.
-  - PV: `sensor.opti_pv_power_w`, Haus: `sensor.opti_house_consumption_w`, Einspeisung: `sensor.opti_grid_export_w`, Batterie: `sensor.opti_battery_power_w` mit SoC `sensor.opti_soc`.
-  - **Netzbezug** ist als `__NETZ_BEZUG_W__` offen, weil der Canonical-Layer keinen Import-Sensor hat.
+  - PV: `sensor.opti_pv_power_w`, Haus: `sensor.opti_house_consumption_w`, Netzbezug: `sensor.opti_grid_import_w`, Einspeisung: `sensor.opti_grid_export_w`, Batterie: `sensor.opti_battery_power_w` mit SoC `sensor.opti_soc`.
+  - **Netzbezug**: `sensor.opti_grid_import_w` ist der optionale, symmetrisch zu `opti_grid_export_w` ergänzte Canonical-Sensor (siehe `docs/canonical-layer.md`, Sensor 6b). Fehlt er auf der Zielinstanz, im Mapping die Bezugsquelle nachtragen oder den grid-consumption-Eintrag entfernen.
   - **Batterie-Vorzeichen**: opti nutzt "positiv = laden". `power-flow-card-plus` erwartet standardmäßig "positiv = entladen (zum Haus)". Deshalb steht `invert_state: true` in der Batterie-Konfiguration. Beim Nachbau prüfen, ob die Flussrichtung stimmt, und `invert_state` sonst umstellen.
 
 ## Bewusst ausgelassen

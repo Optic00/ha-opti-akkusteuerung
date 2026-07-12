@@ -21,7 +21,7 @@
                   }
                 },
                 "solar": {
-                  "entity": "sensor.opti_pv_power_w"
+                  "entity": "sensor.opti_pv_generation_w"
                 },
                 "battery": {
                   "entity": "sensor.opti_battery_power_w",

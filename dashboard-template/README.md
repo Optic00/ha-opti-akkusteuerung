@@ -114,7 +114,7 @@ Das Template hat eine einzige View "Übersicht" mit folgenden Abschnitten (von o
 ## Ergänzte Karten
 
 - **Energiefluss-Diagramm** (`custom:power-flow-card-plus`), Abschnitt "⚡ Energiefluss (Live-Diagramm)": neu empfohlen, nicht aus einem bestehenden Dashboard 1:1 kopiert. Die Karte ist auf die kanonischen opti-Sensoren gemappt.
-  - PV: `sensor.opti_pv_power_w`, Haus: `sensor.opti_house_consumption_w`, Netzbezug: `sensor.opti_grid_import_w`, Einspeisung: `sensor.opti_grid_export_w`, Batterie: `sensor.opti_battery_power_w` mit SoC `sensor.opti_soc`.
+  - PV: `sensor.opti_pv_generation_w` (PV GESAMT - nicht `opti_pv_power_w`, das ist nur der AC-Ausgang des Hybrid-WR und lässt bei Mehr-WR-Anlagen die Bilanz im Flussdiagramm nicht aufgehen), Haus: `sensor.opti_house_consumption_w`, Netzbezug: `sensor.opti_grid_import_w`, Einspeisung: `sensor.opti_grid_export_w`, Batterie: `sensor.opti_battery_power_w` mit SoC `sensor.opti_soc`.
   - **Netzbezug**: `sensor.opti_grid_import_w` ist der optionale, symmetrisch zu `opti_grid_export_w` ergänzte Canonical-Sensor (siehe `docs/canonical-layer.md`, Sensor 6b). Fehlt er auf der Zielinstanz, im Mapping die Bezugsquelle nachtragen oder den grid-consumption-Eintrag entfernen.
   - **Batterie-Vorzeichen**: opti nutzt "positiv = laden". `power-flow-card-plus` erwartet standardmäßig "positiv = entladen (zum Haus)". Deshalb steht `invert_state: true` in der Batterie-Konfiguration. Beim Nachbau prüfen, ob die Flussrichtung stimmt, und `invert_state` sonst umstellen.
 

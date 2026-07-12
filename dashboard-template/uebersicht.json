@@ -265,32 +265,15 @@
               }
             },
             {
-              "type": "custom:bar-card",
+              "type": "tile",
               "entity": "counter.tage_seit_akku100",
               "name": "Tage seit 100%",
               "icon": "mdi:calendar-refresh",
-              "max": 14,
-              "positions": {
-                "icon": "outside",
-                "indicator": "outside",
-                "name": "inside",
-                "value": "inside"
-              },
-              "severity": [
+              "features": [
                 {
-                  "color": "#4caf50",
-                  "from": 0,
-                  "to": 9
-                },
-                {
-                  "color": "#ff9800",
-                  "from": 10,
-                  "to": 13
-                },
-                {
-                  "color": "#f44336",
-                  "from": 14,
-                  "to": 60
+                  "type": "bar-gauge",
+                  "min": 0,
+                  "max": 14
                 }
               ]
             },

@@ -88,8 +88,10 @@ Auf der Zielinstanz laut Vorgabe bereits vorhanden: `mushroom`, `power-flow-card
 | Mushroom-Template-/Select-Card | `custom:mushroom-template-card`, `custom:mushroom-select-card` | `piitaya/lovelace-mushroom` | v5.1.1 | vorhanden |
 | Power Flow Card Plus | `custom:power-flow-card-plus` | `flixlix/power-flow-card-plus` | v0.3.7 | vorhanden |
 | card-mod (CSS in `card_mod:`) | (Ressource, kein Kartentyp) | `thomasloven/lovelace-card-mod` | v4.2.1 | **nachinstallieren** |
-| Bar Card | `custom:bar-card` | `custom-cards/bar-card` | 3.2.0 | **nachinstallieren** |
 | ApexCharts Card | `custom:apexcharts-card` | `RomRider/apexcharts-card` | v2.2.3 | **nachinstallieren** |
+
+Die frühere Bar Card (`custom-cards/bar-card`) ist unmaintained und aus dem HACS-Default-Index entfernt.
+Der "Tage seit 100%"-Balken ist deshalb eine native `tile`-Karte mit `bar-gauge`-Feature (min 0 / max 14); dabei entfallen die Severity-Farbschwellen der alten Karte.
 
 Ohne `card-mod` rendern die Mushroom-Karten trotzdem, nur der Zeilenumbruch im `secondary`-Text greift nicht.
 Der `card_mod`-Block kann dann alternativ entfernt werden.
@@ -120,7 +122,7 @@ Das Template hat eine einzige View "Übersicht" mit folgenden Abschnitten (von o
 
 - **Personenbezogene Karten**: In dieser Übersicht-View gab es keine (keine Personen-Tracker, Kalender, Kameras, Anwesenheit). Es musste nichts entfernt werden.
 - **Zelltemperatur über 5 Module** (`custom:mushroom-template-card` mit `sensor.byd_modul_1..5_temp_min/max`): ausgelassen, stark BYD-spezifisch (fünf Einzelmodule eines externen BMS-Auslesers).
-- **Per-Modul-Balkenkarte** "Module: min. Zellspannung" (`custom:bar-card` mit `sensor.byd_modul_1..5_zellspannung_min`): ausgelassen, gleiche BYD-Modul-Spezifik.
+- **Per-Modul-Balkenkarte** "Module: min. Zellspannung" (`sensor.byd_modul_1..5_zellspannung_min`, in Bens Live-Config inzwischen fünf native `tile`-Karten mit `bar-gauge` statt der früheren `custom:bar-card`): ausgelassen, gleiche BYD-Modul-Spezifik.
 - Beide Karten lassen sich auf einer Instanz mit vergleichbaren Modul-Sensoren aus Bens Live-Config wieder ergänzen. Für die Huawei-Zielinstanz sind sie nicht sinnvoll portierbar.
 
 ## Privacy-Hinweise

@@ -720,11 +720,13 @@ template:
           {% set band = 5 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 3 %}
           {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %}
           {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
+          {% set ev = states('input_boolean.opti_ev_akku_pause') == 'on'
+                      and is_state('binary_sensor.opti_ev_schnellladung', 'on') %}
           {% if soc >= 0 and soc < minsoc %}Akku nur Laden
           {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Akku Netzladen
           {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen
-          {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Akku nur Entladen
-          {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Akku nur Entladen
+          {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' and not ev %}Akku nur Entladen
+          {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev %}Akku nur Entladen
           {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Akku nur Laden
           {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Akku Netzladen
           {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden
@@ -732,6 +734,10 @@ template:
           {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}Akku nur Laden
+          {# EV-Schnelllade-Sperre: nach den Lade-Zweigen, vor allen Zweigen,
+             die Dynamisch/Entladen liefern koennen (inkl. Akku voll). Sperr-
+             Modus 'Akku nur Laden' = reine Entladesperre, PV-Laden bleibt. #}
+          {%- elif ev %}Akku nur Laden
           {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}Akku Dynamisch
           {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}Akku Dynamisch
           {%- elif soc > 99 %}Akku Dynamisch
@@ -779,11 +785,13 @@ template:
             {% set band = 5 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 3 %}
             {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %}
             {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
+            {% set ev = states('input_boolean.opti_ev_akku_pause') == 'on'
+                        and is_state('binary_sensor.opti_ev_schnellladung', 'on') %}
             {% if soc >= 0 and soc < minsoc %}MinSOC-Schutz (SoC<{{minsoc}})
             {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct)
             {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%)
-            {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' %}Peak-Leiter L1 (VE entladen)
-            {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%)
+            {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' and not ev %}Peak-Leiter L1 (VE entladen)
+            {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%)
             {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Balancing-Watchdog (PV-Vollladung)
             {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Balancing-Watchdog (Netz-Vollladung)
             {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht)
@@ -791,6 +799,7 @@ template:
             {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus
             {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}SOC<15 Notfall
             {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}SOC<45 sehr guenstig
+            {%- elif ev %}EV-Sperre (Schnellladung, Entladesperre)
             {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}70% Ueberschuss (tag, entprellt)
             {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}AC Ueberschuss (tag, entprellt)
             {%- elif soc > 99 %}Akku voll

@@ -378,10 +378,30 @@ L1/L2 (ein aktiver Preisspitzen-Peak schlägt das Balancing) und **vor** den Pro
 
 ---
 
+## Ladedeckel: `maxsoc` als harte Obergrenze
+
+`input_number.maxsoc` ist ein **harter Ladedeckel**, nicht nur ein Planungswert.
+Oberhalb der Obergrenze wählt die Strategie den Modus **Akku nur Entladen** und der Adapter fährt die Ladeleistung auf 0.
+Der einzige reguläre Weg über `maxsoc` hinaus ist der Balancing-Watchdog (gezielt bis ~100 % fürs BMS-Balancing).
+
+**Warum der Zweig nötig ist:** Ohne ihn setzt die neutrale Zone um den Ziel-SoC (der Ziel-SoC-Entladezweig greift erst bei `soc > Ziel + 3`) bzw. der Default den Modus auf **Akku Dynamisch**.
+In „Dynamisch" gibt die Strategie die Kontrolle an die WR-Eigenverbrauchslogik ab, und der Wechselrichter trickelt freien PV-Überschuss über `maxsoc` hinaus (live beobachtet 2026-07-13: SoC 95 → 99 % bei `maxsoc` 95, obwohl Export-Headroom vorhanden war).
+Der Deckel schließt diese Lücke, indem er oberhalb `maxsoc` aktiv **Akku nur Entladen** erzwingt.
+
+**Bedingungen:** `binary_sensor.opti_peak_reserve_aktiv` = `off` **und** `soc >= maxsoc` (mit Hysterese).
+Das Peak-Reserve-Gate gibt der Peak-Reserve-Haltelogik (L3/L4) bei anstehender Preisspitze bewusst Vorrang - dann darf die Reserve bis knapp über `maxsoc` gehalten werden, statt sie vor dem Peak zu verlieren.
+
+**Anti-Flatter-Hysterese:** Rein bei `soc >= maxsoc`, drin bleibt der Deckel bis `soc < maxsoc − 3` (asymmetrisch, an den Modus-String gebunden - dieselbe Philosophie wie der Ziel-SoC-Entladezweig).
+So chattert der Modus nicht an der Kante.
+
+**Position in der Kaskade:** **nach** dem Balancing-Watchdog (der darf `maxsoc` bewusst überschreiten) und **vor** den Prognose-Ladeblöcken, Überschuss-Zweigen und dem Default - damit greift der Deckel, bevor irgendein Ladepfad über `maxsoc` hinaus aktiv werden kann.
+
+---
+
 ## Block-für-Block-Übersicht
 
 Die Automation besteht aus mehreren Aktionsblöcken, die **sequenziell** ausgeführt werden.
-Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 19 Optionen und einem Default-Pfad.
+Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 20 Optionen und einem Default-Pfad.
 
 > **Hinweis — Counter-Pflege ausgelagert:** Der Zähler `counter.tage_seit_akku100` (Increment
 > täglich, Reset bei 30 min stabil über Done-SoC) liegt **nicht** in dieser Automation, sondern
@@ -391,7 +411,7 @@ Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 19 Optionen und ei
 
 ---
 
-### Aktionsblock 1 — „Zwischen Speicherszenarien wählen" (19 Optionen + Default)
+### Aktionsblock 1 — „Zwischen Speicherszenarien wählen" (20 Optionen + Default)
 
 Dies ist das Herzstück. Die Optionen werden **der Reihe nach** geprüft;
 die erste, deren Bedingungen alle erfüllt sind, wird ausgeführt und die weitere Prüfung
@@ -720,7 +740,7 @@ Ziel-SoC-Hysterese dafür, dass der Modus an der Grenze nicht flattert.
 
 #### Default — Akku Dynamisch
 
-Trifft keine der 19 Optionen zu (z. B. nachts ohne Ladegrund, Preis zu hoch),
+Trifft keine der 20 Optionen zu (z. B. nachts ohne Ladegrund, Preis zu hoch),
 wird der Modus auf **Akku Dynamisch** gesetzt. Der Adapter entscheidet dann
 situationsabhängig, ob leicht geladen oder entladen wird — ein sicherer Mittelweg.
 
@@ -748,7 +768,7 @@ putzt den Zustand automatisch auf — er läuft immer (kein Toggle-Gate).
 | **Akku nur Laden** | SoC unter MinSOC (Notfall); schlechte Prognose + günstiger Strom; Wintermodus aktiv; Akku fast leer bei Schlechtwetter; Peak-Leiter L3/L4 (halten); Balancing-Watchdog PV-Vollladung (tagsüber) |
 | **Akku Netzladen** | Negativpreis-Laderegel, Peak-Vorladeregel oder Balancing-Watchdog (nachts) aktiv — erzwungenes dynamisches Netzladen (BatChaMinW = `opti_charge_power_w`); braucht `ha-modbus-akku-adapter` >= v1.5.0 |
 | **Akku Dynamisch** | PV-Überschuss tagsüber; Akku zwischen MinSOC und Ziel-SoC; voller Akku; kein klarer Lade-/Entladegrund (Default) |
-| **Akku nur Entladen** | SoC über intelligentem Ziel-SoC (`sensor.opti_target_soc`); Peak-Leiter L1/L2 (entladen) |
+| **Akku nur Entladen** | SoC über intelligentem Ziel-SoC (`sensor.opti_target_soc`); **Ladedeckel `maxsoc` erreicht** (harte Obergrenze, kein Balancing/Peak fällig); Peak-Leiter L1/L2 (entladen) |
 
 **Modus-Contract (Single-Writer-Regel):**
 Die Strategie-Automation schreibt primär `input_select.akkusteuerung_modus`. Im

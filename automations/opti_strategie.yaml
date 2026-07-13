@@ -284,6 +284,38 @@
                 entity_id: input_select.akkusteuerung_modus
             - stop: "fertig"
 
+        # ---------------------------------------------------------------------
+        # Ladedeckel maxsoc: oberhalb der konfigurierten Obergrenze NICHT weiter
+        # laden. maxsoc ist damit ein harter Deckel, nicht nur ein Planungswert.
+        # Bewusst NACH dem Balancing-Watchdog (der darf gezielt bis 100 % ueber
+        # maxsoc) und gegated auf peak_reserve_aktiv=off, damit die Peak-Reserve-
+        # Haltelogik (L3/L4) bei anstehender Preisspitze Vorrang behaelt.
+        # Ohne diesen Zweig setzte die neutrale Zone um den Ziel-SoC (bzw. der
+        # Default) den Modus auf 'Akku Dynamisch', worauf der WR freien PV-
+        # Ueberschuss ueber maxsoc trickelt (beobachtet 2026-07-13: 96 % bei
+        # maxsoc 95). 'Akku nur Entladen' zwingt den Adapter auf Ladeleistung 0.
+        # Asymmetrische Hysterese (rein bei >= maxsoc, drin bis < maxsoc-3) gegen
+        # Modus-Flattern an der Kante - selbe Philosophie wie der Ziel-SoC-Zweig.
+        # ---------------------------------------------------------------------
+        - alias: "Modus 'nur Entladen' (Ladedeckel): SoC >= maxsoc, kein Balancing/Peak faellig"
+          conditions:
+            - condition: state
+              entity_id: binary_sensor.opti_peak_reserve_aktiv
+              state: "off"
+            - condition: template
+              value_template: >-
+                {% set band = 3 if is_state('input_select.akkusteuerung_modus', 'Akku nur Entladen') else 0 %}
+                {{ has_value('sensor.opti_soc')
+                   and has_value('input_number.maxsoc')
+                   and (states('sensor.opti_soc') | float) >= (states('input_number.maxsoc') | float(95) - band) }}
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Entladen"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "Ladedeckel maxsoc erreicht - kein Laden ueber Obergrenze"
+
         # Winter-/Prognose-Ladeblock (SOC < 20 %).
         # Quelle: heute+morgen schlecht → Score<3 (beide); Preis VERY_CHEAP..EXPENSIVE.
         # Gates: opti_prognose_netzladen on + opti_winter_charging_allowed on.

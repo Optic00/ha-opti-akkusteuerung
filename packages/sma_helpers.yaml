@@ -250,9 +250,13 @@ input_number:
   # sensor.opti_balancing_watchdog (kein gelatchtes Flag -> restart-durabel).
   opti_balancing_intervall_tage:
     name: "Opti Balancing Intervall"
-    # Tage ohne Voll-/Done-Ladung, ab denen der Watchdog faellig wird.
-    # Dokumentierter Startwert 14; 0 = Watchdog komplett aus (Erststart-Wert
-    # ohne initial = Minimum 0 = fail-safe aus). Nach Anlegen auf 14 setzen.
+    # Tage ohne Voll-/Done-Ladung, ab denen der Watchdog faellig wird (Zeit-Pfad).
+    # 7 = woechentlich (frische Zell-Balance/SoC-Kalibrierung, LFP-typisch),
+    # 14 = schonender (weniger 100%-Zyklen). Der Bedarfs-Pfad
+    # (opti_balancing_spreizungs_schwelle) zieht bei driftenden Zellen frueher -
+    # bei langem Intervall entfaltet er mehr Wirkung. 0 = Watchdog komplett aus
+    # (beide Pfade; Erststart-Wert ohne initial = Minimum 0 = fail-safe aus).
+    # Nach Anlegen sinnvoll setzen (Referenzanlage laeuft mit 7).
     min: 0
     max: 60
     step: 1

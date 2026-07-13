@@ -298,6 +298,32 @@ input_number:
     mode: box
     icon: mdi:battery-heart-variant
 
+  opti_balancing_spreizungs_schwelle:
+    name: "Opti Balancing Spreizungs-Schwelle"
+    # Bedarfsgesteuertes Balancing: ab dieser Ruhe-Zellspreizung (mV,
+    # sensor.byd_zellspreizung_ruhe) wird der Watchdog vorzeitig faellig, auch
+    # bevor das Zeit-Intervall ablaeuft (Zellen driften -> vollladen zum Balancen).
+    # Bewusst UNTER der Health-Alarm-Schwelle (50 mV) -> max 49. 0 = Bedarfs-
+    # Pfad aus (nur Zeit-Intervall). Startwert 35.
+    min: 0
+    max: 49
+    step: 1
+    unit_of_measurement: mV
+    mode: box
+    icon: mdi:arrow-collapse-vertical
+
+  opti_balancing_bedarf_cooldown_tage:
+    name: "Opti Balancing Bedarf-Cooldown Tage"
+    # Mindestabstand (Tage seit letztem Vollzyklus), bevor der Spreizungs-Bedarf
+    # erneut einen Zyklus ausloesen darf. Rate-Limit gegen Dauer-100%, falls eine
+    # echte Imbalance in einem Zyklus nicht verschwindet. Startwert 5.
+    min: 0
+    max: 30
+    step: 1
+    unit_of_measurement: "Tage"
+    mode: box
+    icon: mdi:timer-sand
+
 input_boolean:
   akku_opti_automatik:
     name: "Akku Opti-Automatik"

@@ -333,11 +333,27 @@ oben war.
 Zustand jederzeit neu aus dem Zähler `counter.tage_seit_akku100`, dem SoC und den Helfern -
 damit ist er **restart-durabel** (kein gelatchtes Flag, das ein HA-Neustart verlieren könnte).
 
-**Fälligkeit:** Der Watchdog wird fällig, wenn
-`input_number.opti_balancing_intervall_tage` > 0 **und** SoC < 100 % **und**
-`counter.tage_seit_akku100` ≥ Intervall. Das Ladeziel ist bewusst **100 %** (nicht nur
-`maxsoc`), damit die Zelle in die CV-Phase kommt. `intervall = 0` schaltet den Watchdog
-komplett aus.
+**Fälligkeit (zwei Pfade):** Der Watchdog wird fällig, wenn
+`input_number.opti_balancing_intervall_tage` > 0 **und** einer von beiden gilt:
+
+- **Zeit-Pfad:** `counter.tage_seit_akku100` ≥ Intervall (garantierter Boden, z. B. wöchentlich).
+- **Bedarfs-Pfad:** die Ruhe-Zellspreizung `sensor.byd_zellspreizung_ruhe` ≥
+  `input_number.opti_balancing_spreizungs_schwelle` (Default 35 mV, bewusst unter der
+  Health-Alarm-Schwelle 50 mV) **und** `counter` ≥ `opti_balancing_bedarf_cooldown_tage`
+  (Default 5). Driften die Zellen, zieht das den Balancing-Zyklus vor; der Cooldown ist ein
+  Rate-Limit gegen tägliche 100 %-Zyklen, falls eine echte Imbalance in einem Zyklus nicht
+  verschwindet. `schwelle = 0` schaltet nur den Bedarfs-Pfad aus.
+
+Das Ladeziel ist bewusst **100 %** (nicht nur `maxsoc`), damit die Zelle in die CV-Phase
+kommt. `intervall = 0` schaltet den Watchdog **komplett** aus (beide Pfade). Das Attribut
+`faellig_grund` (`zeit`/`spreizung`/`keiner`) macht sichtbar, welcher Pfad greift.
+
+> **Kein `soc < 100`-Gate mehr (Interaktion mit dem Ladedeckel):** Die Fälligkeit hängt
+> bewusst **nicht** an `SoC < 100`. Sonst fiele der Watchdog bei Erreichen von 100 % sofort
+> auf `aus`, der [maxsoc-Ladedeckel](#ladedeckel-maxsoc-als-harte-obergrenze) griffe und
+> setzte „Akku nur Entladen" - der SoC sackte unter die Done-Schwelle, **bevor** die 30-min-
+> Reset-Bedingung erfüllt ist, und der Zyklus würde nie fertig. Ohne das Gate hält der
+> Watchdog bis zum echten `counter`-Reset oben; **erst danach** übernimmt der Deckel.
 
 **Zähler-Pflege (zwei Automationen in `automations/opti_balancing_counter.yaml`):**
 `opti_balancing_counter_increment` zählt `counter.tage_seit_akku100` täglich um 23:59 um 1

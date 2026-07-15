@@ -263,7 +263,10 @@ Erwartet: kleiner mV-Wert (im Plateau ~1-3, positiv wenn Modul 2 tiefer).
         unit_of_measurement: "mV"
         state_class: measurement
         icon: mdi:arrow-down-bold-box
-        availability: "{{ is_state('binary_sensor.byd_daten_frisch','on') }}"
+        availability: >
+          {{ has_value('sensor.byd_modul_1_zellspannung_min') and has_value('sensor.byd_modul_2_zellspannung_min')
+             and has_value('sensor.byd_modul_3_zellspannung_min') and has_value('sensor.byd_modul_4_zellspannung_min')
+             and has_value('sensor.byd_modul_5_zellspannung_min') }}
         state: >
           {% set peers = [states('sensor.byd_modul_1_zellspannung_min')|float,
                           states('sensor.byd_modul_3_zellspannung_min')|float,
@@ -428,7 +431,7 @@ git commit -m "feat(byd): Latch-Sensor Nettoenergie bis Knie"
         target: { entity_id: input_number.byd_knie_ref_frozen }
         data:
           value: "{{ states('input_number.byd_knie_referenzspannung')|float(3.20) }}"
-      - action: input_boolean.turn_off
+      - action: input_boolean.turn_on   # am Anker ist Modul 2 verifiziert hoch -> Flag direkt setzen (Guard-Automation ist redundanter Backup)
         target: { entity_id: input_boolean.byd_knie_ueberschwelle_gesehen }
       - action: input_text.set_value
         target: { entity_id: input_text.byd_knie_cycle_id }
@@ -590,14 +593,17 @@ git commit -m "feat(byd): Ueberschwelle-Guard + Knie-Latch Automation"
                 value_template: >
                   {{ states('sensor.byd_modul_2_zellspannung_min')|float(9)
                      <= states('input_number.byd_knie_ref_frozen')|float(3.20) + 0.01 }}
-          # Unplausibler Sprung: Netto-Aenderung > 3 kWh in einem Schritt (bei 60 s physikalisch unmoeglich)
+          # Unplausibler POSITIVER Sprung: Netto-Zuwachs > 3 kWh in einem Schritt (bei 60 s physikalisch
+          # unmoeglich). Nur positiv (negative Stufen = utility_meter-Reset am Anker), plus 120-s-Grace
+          # nach dem Voll-Anker, damit die Reset-Stufe selbst nicht faelschlich invalidiert.
           - condition: template
             value_template: >
               {{ trigger.id == 'zaehlersprung'
                  and trigger.from_state is not none and trigger.to_state is not none
                  and trigger.from_state.state not in ['unknown','unavailable']
                  and trigger.to_state.state not in ['unknown','unavailable']
-                 and (trigger.to_state.state|float - trigger.from_state.state|float)|abs > 3 }}
+                 and (trigger.to_state.state|float - trigger.from_state.state|float) > 3
+                 and (now().timestamp() - state_attr('input_datetime.byd_voll_anker_zeit','timestamp')|float(0)) > 120 }}
     actions:
       - action: input_select.select_option
         target: { entity_id: input_select.byd_knie_zyklus_status }

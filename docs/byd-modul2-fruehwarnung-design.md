@@ -113,7 +113,7 @@ Aktion am Anker:
 
 - Beide Utility Meter zurücksetzen (`utility_meter.reset`).
 - `byd_knie_ref_frozen` := aktueller `byd_knie_referenzspannung`.
-- `byd_knie_ueberschwelle_gesehen` := off.
+- `byd_knie_ueberschwelle_gesehen` := **on** (am Anker ist Modul 2 verifiziert hoch; das flankengetriggerte Guard bliebe sonst aus - Review-Fix C1). Die separate Guard-Automation bleibt als redundanter Backup.
 - `byd_knie_cycle_id` := jetzt (ISO), `byd_voll_anker_zeit` := jetzt.
 - `byd_knie_zyklus_status` := `armed`.
 

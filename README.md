@@ -171,3 +171,9 @@ Dieses Projekt lebt von der Community. Besonderer Dank geht an:
 **Weitere Geräte & Versionen**
 - [ ] SBS-Unterstützung (suche Tester → [Issue öffnen](https://github.com/Optic00/ha-opti-akkusteuerung/issues))
 - [ ] English version?
+
+---
+
+## Lizenz
+
+[MIT](LICENSE) - frei nutzbar, anpassbar und weiterverteilbar, solange der Copyright- und Lizenzhinweis erhalten bleibt. Nutzung auf eigene Gefahr, ohne Gewähr (siehe Disclaimer oben).

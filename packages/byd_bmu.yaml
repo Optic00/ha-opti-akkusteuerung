@@ -747,6 +747,59 @@ automation:
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.byd_top_erreicht }
 
+  - id: byd_knie_ueberschwelle_gesehen
+    alias: "BYD | Knie Ueberschwelle gesehen"
+    description: "Setzt das Guard-Flag, sobald Modul-2-min seit dem Anker klar (>= ref+30 mV) oberhalb der Schwelle war."
+    mode: single
+    triggers:
+      - trigger: template
+        value_template: >
+          {{ states('sensor.byd_modul_2_zellspannung_min')|float(0)
+             > states('input_number.byd_knie_ref_frozen')|float(3.20) + 0.03 }}
+    conditions:
+      - condition: state
+        entity_id: input_boolean.byd_knie_armed
+        state: "on"
+    actions:
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.byd_knie_ueberschwelle_gesehen }
+
+  - id: byd_knie_latch
+    alias: "BYD | Knie-Latch (Nettoenergie festhalten)"
+    description: >-
+      Latcht, wenn Modul-2-min zum ersten Mal seit Voll die eingefrorene Referenz
+      (Default 3,20 V) 3 min lang unterschreitet, im standardisierten Entladeband
+      (+500..1500 W ueber die Haltezeit), bei frischen Daten und gesehener Ueberschwelle.
+      Die 3-min-Haltezeit ersetzt eine explizite mV-Hysterese (starke Entprellung).
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.byd_modul_2_zellspannung_min
+        below: input_number.byd_knie_ref_frozen
+        for: "00:03:00"
+    conditions:
+      - condition: state
+        entity_id: input_select.byd_knie_zyklus_status
+        state: "armed"
+      - condition: state
+        entity_id: input_boolean.byd_knie_ueberschwelle_gesehen
+        state: "on"
+      - condition: state
+        entity_id: binary_sensor.byd_entladeband
+        state: "on"
+        for: "00:03:00"
+      - condition: state
+        entity_id: binary_sensor.byd_daten_frisch
+        state: "on"
+      - condition: template
+        value_template: "{{ has_value('sensor.byd_netto_energie_seit_voll') }}"
+    actions:
+      - action: input_select.select_option
+        target: { entity_id: input_select.byd_knie_zyklus_status }
+        data: { option: "latched" }        # der Latch-Sensor (Task 5) snapshottet hierauf
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.byd_knie_armed }
+
 # ---------------------------------------------------------------------------
 # Modul-2 Fruehwarnung: Helfer fuer den Knie-Zyklus-Statemachine
 # (idle -> armed -> latched, jederzeit -> invalid). Details: docs/byd-modul2-fruehwarnung-plan.md

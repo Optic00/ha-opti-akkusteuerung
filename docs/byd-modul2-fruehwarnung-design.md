@@ -41,10 +41,13 @@ Verifizierte Fakten:
 - Die Zähler sind als **Absolutpaar inkonsistent** (unterschiedliche Epochen, Residuum ~1300 kWh), ihre **Inkremente über Stunden** sind aber brauchbar (Befund 12.7.).
 - **Kein direkter Stromsensor (A).** Deshalb Energie statt Ah; Strom ließe sich nur als `Leistung / Packspannung` schätzen (nicht Teil dieses Designs).
 
-Empirisch vor Implementierung zu verifizieren (siehe §12):
+Empirisch verifiziert (2026-07-15, Live-Historie):
 
-- **Vorzeichen von `sensor.byd_leistung`**: Annahme negativ = Entladen. Muss an echter Historie bestätigt werden, bevor das Lastband greift.
-- Erreicht Modul-2-min bei normalen Entladungen die 3,20-V-Schwelle oft genug (an flachen Tagen bottomte es ~3,24 V)? Referenzspannung ggf. nachziehen.
+- **Vorzeichen von `sensor.byd_leistung`: positiv = Entladen, negativ = Laden.**
+  Belegt: bei SoC 90 %, `zellmax` steigend, Balancing on war die Leistung −1030 W (= Laden); nachts konstant +700 W (= Hausentladung), tagsüber negativ (= PV-Ladung).
+  Das Lastband (§6.3) ist damit `sensor.byd_leistung` im Bereich **+500…+1500 W**.
+- **3,20-V-Trigger-Frequenz: sparsam.** Modul-2-min erreichte 3,20 V nur am tiefen Tag (SoC 21 %, min 3,178 V), an flachen Tagen ~3,24 V.
+  Der Latch feuert also nur an Tagen mit tiefer Entladung (~1 von 3 beim aktuellen Zyklen-Niveau). Valide, aber selten; bei zu wenigen Datenpunkten Referenz auf 3,24 V anheben (Regler vorhanden).
 
 ## 4. Architektur-Überblick
 
@@ -139,8 +142,8 @@ Ein reines Ruhefenster (<300 W) taugt am Knie ebenfalls nicht (tritt evtl. stund
 
 `binary_sensor.byd_entladeband` = on, wenn:
 
-- Vorzeichen eindeutig **Entladen** (nie Laden/unbekannt), UND
-- Entladeleistung im Band **0,5-1,5 kW** (≈ 1-3 A ≈ 0,04-0,12 C bei ~512 V).
+- Vorzeichen eindeutig **Entladen** (`sensor.byd_leistung` > 0; verifiziert: positiv = Entladen), UND
+- Entladeleistung im Band **+500…+1500 W** (≈ 1-3 A ≈ 0,04-0,12 C bei ~512 V).
 
 Der Latch verlangt, dass dieses Band über das gesamte Bestätigungsfenster (§6.4) gehalten wurde (Leistung nicht um mehr als ~300-500 W springt).
 Falls das Band real zu selten vorkommt, auf 0,5-2,0 kW erweitern - dann aber Messungen verschiedener Lastklassen **nicht** ungekennzeichnet vergleichen (Lastklasse wird am Latch mitgespeichert).

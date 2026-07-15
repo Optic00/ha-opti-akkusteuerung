@@ -800,6 +800,56 @@ automation:
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.byd_knie_armed }
 
+  - id: byd_knie_invalid
+    alias: "BYD | Knie-Zyklus ungueltig markieren"
+    description: >-
+      Markiert den laufenden armed-Zyklus als invalid bei Mess-Qualitaetsproblemen:
+      Datenluecke nahe Knie, Neustart nahe Knie, unplausibler Netto-Sprung.
+    mode: queued
+    max: 5
+    triggers:
+      - trigger: state
+        id: datenluecke
+        entity_id: binary_sensor.byd_daten_frisch
+        to: "off"
+        for: "00:02:00"
+      - trigger: homeassistant
+        id: neustart
+        event: start
+      - trigger: state
+        id: zaehlersprung
+        entity_id: sensor.byd_netto_energie_seit_voll
+    conditions:
+      - condition: state
+        entity_id: input_select.byd_knie_zyklus_status
+        state: "armed"
+      - condition: or
+        conditions:
+          # Datenluecke oder Neustart nur relevant, wenn Modul-2 nahe/unter Schwelle (Knie-Kandidat)
+          - condition: and
+            conditions:
+              - condition: trigger
+                id: ["datenluecke", "neustart"]
+              - condition: template
+                value_template: >
+                  {{ states('sensor.byd_modul_2_zellspannung_min')|float(9)
+                     <= states('input_number.byd_knie_ref_frozen')|float(3.20) + 0.01 }}
+          # Unplausibler Sprung: Netto-Aenderung > 3 kWh in einem Schritt (bei 60 s physikalisch unmoeglich)
+          - condition: template
+            value_template: >
+              {{ trigger.id == 'zaehlersprung'
+                 and trigger.from_state is not none and trigger.to_state is not none
+                 and trigger.from_state.state not in ['unknown','unavailable']
+                 and trigger.to_state.state not in ['unknown','unavailable']
+                 and (trigger.to_state.state|float - trigger.from_state.state|float)|abs > 3 }}
+    actions:
+      - action: input_select.select_option
+        target: { entity_id: input_select.byd_knie_zyklus_status }
+        data: { option: "invalid" }
+      - action: input_text.set_value
+        target: { entity_id: input_text.byd_knie_invalid_grund }
+        data: { value: "{{ trigger.id }} @ {{ now().strftime('%Y-%m-%d %H:%M') }}" }
+
 # ---------------------------------------------------------------------------
 # Modul-2 Fruehwarnung: Helfer fuer den Knie-Zyklus-Statemachine
 # (idle -> armed -> latched, jederzeit -> invalid). Details: docs/byd-modul2-fruehwarnung-plan.md

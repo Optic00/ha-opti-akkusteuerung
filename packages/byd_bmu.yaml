@@ -494,12 +494,12 @@ template:
         device_class: energy
         state_class: measurement
         icon: mdi:battery-alert-variant-outline
-        state: "{{ states('sensor.byd_netto_energie_seit_voll') }}"
+        state: "{{ states('sensor.byd_nettoenergie_seit_voll') }}"
         attributes:
-          netto_kwh: "{{ states('sensor.byd_netto_energie_seit_voll') }}"
+          netto_kwh: "{{ states('sensor.byd_nettoenergie_seit_voll') }}"
           geladen_inkrement_kwh: "{{ states('sensor.byd_geladen_seit_voll') }}"
           entladen_inkrement_kwh: "{{ states('sensor.byd_entladen_seit_voll') }}"
-          a_absackung_mv: "{{ states('sensor.byd_modul2_absackung') }}"
+          a_absackung_mv: "{{ states('sensor.byd_modul_2_absackung') }}"
           soc: "{{ states('sensor.byd_soc') }}"
           leistung_w: "{{ states('sensor.byd_leistung') }}"
           modul2_volt: "{{ states('sensor.byd_modul_2_zellspannung_min') }}"
@@ -723,7 +723,7 @@ automation:
       - condition: template
         value_template: >
           {{ is_state('input_select.byd_knie_zyklus_status','idle')
-             or states('sensor.byd_netto_energie_seit_voll')|float(0) >= 0.5 }}
+             or states('sensor.byd_nettoenergie_seit_voll')|float(0) >= 0.5 }}
     actions:
       - action: utility_meter.reset
         target:
@@ -795,7 +795,7 @@ automation:
         entity_id: binary_sensor.byd_daten_frisch
         state: "on"
       - condition: template
-        value_template: "{{ has_value('sensor.byd_netto_energie_seit_voll') }}"
+        value_template: "{{ has_value('sensor.byd_nettoenergie_seit_voll') }}"
     actions:
       - action: input_select.select_option
         target: { entity_id: input_select.byd_knie_zyklus_status }
@@ -821,7 +821,7 @@ automation:
         event: start
       - trigger: state
         id: zaehlersprung
-        entity_id: sensor.byd_netto_energie_seit_voll
+        entity_id: sensor.byd_nettoenergie_seit_voll
     conditions:
       - condition: state
         entity_id: input_select.byd_knie_zyklus_status

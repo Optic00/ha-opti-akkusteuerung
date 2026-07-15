@@ -476,6 +476,37 @@ template:
             {{ ns.idx }}
 
 # ---------------------------------------------------------------------------
+# Modul-2 Fruehwarnung: Latch-Sensor - snapshottet die Nettoenergie seit Voll
+# (und Begleitwerte) im Moment, in dem der Knie-Zyklus-Status nach "latched"
+# wechselt. Details: docs/byd-modul2-fruehwarnung-plan.md (Task 5).
+# ---------------------------------------------------------------------------
+  - triggers:
+      - trigger: state
+        entity_id: input_select.byd_knie_zyklus_status
+        to: "latched"
+    sensor:
+      - unique_id: byd_modul2_netto_bis_knie
+        name: "BYD Modul-2 Nettoenergie bis Knie"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: measurement
+        icon: mdi:battery-alert-variant-outline
+        state: "{{ states('sensor.byd_netto_energie_seit_voll') }}"
+        attributes:
+          netto_kwh: "{{ states('sensor.byd_netto_energie_seit_voll') }}"
+          geladen_inkrement_kwh: "{{ states('sensor.byd_geladen_seit_voll') }}"
+          entladen_inkrement_kwh: "{{ states('sensor.byd_entladen_seit_voll') }}"
+          a_absackung_mv: "{{ states('sensor.byd_modul2_absackung') }}"
+          soc: "{{ states('sensor.byd_soc') }}"
+          leistung_w: "{{ states('sensor.byd_leistung') }}"
+          modul2_volt: "{{ states('sensor.byd_modul_2_zellspannung_min') }}"
+          modul_temp_c: "{{ states('sensor.byd_modul_2_temp_max') }}"
+          ref_verwendet_v: "{{ states('input_number.byd_knie_ref_frozen') }}"
+          cycle_id: "{{ states('input_text.byd_knie_cycle_id') }}"
+          sauberer_zyklus: "{{ states('sensor.byd_geladen_seit_voll')|float(0) < 0.5 }}"
+          gemessen: "{{ now().isoformat() }}"
+
+# ---------------------------------------------------------------------------
 # Alarme: deterministische Gesundheits-Alarme aus den BMU-Daten.
 # Schwellen liegen bewusst VOR den BMS-Schutzgrenzen (2,75/3,65 V).
 #

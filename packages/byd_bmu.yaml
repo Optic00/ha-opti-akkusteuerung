@@ -570,3 +570,59 @@ automation:
               Temperatur-Spreizung: {{ states('sensor.byd_temperatur_spreizung') }} K
               Balancing aktiv: {{ states('binary_sensor.byd_balancing_aktiv') }}
               Steuerungs-Modus: {{ states('input_select.akkusteuerung_modus') }}
+
+# ---------------------------------------------------------------------------
+# Modul-2 Fruehwarnung: Helfer fuer den Knie-Zyklus-Statemachine
+# (idle -> armed -> latched, jederzeit -> invalid). Details: docs/byd-modul2-fruehwarnung-plan.md
+# ---------------------------------------------------------------------------
+input_number:
+  byd_knie_referenzspannung:
+    name: "BYD Knie-Referenzspannung"
+    min: 3.05
+    max: 3.35
+    step: 0.005
+    initial: 3.20          # nur beim allerersten Start; danach restore
+    unit_of_measurement: "V"
+    mode: box
+    icon: mdi:sine-wave
+  byd_knie_ref_frozen:
+    name: "BYD Knie-Referenz (eingefroren)"
+    min: 3.05
+    max: 3.35
+    step: 0.001
+    initial: 3.20
+    unit_of_measurement: "V"
+    mode: box
+    icon: mdi:snowflake
+
+input_boolean:
+  byd_knie_armed:
+    name: "BYD Knie scharf"
+    icon: mdi:target
+  byd_knie_ueberschwelle_gesehen:
+    name: "BYD Knie Ueberschwelle gesehen"
+    icon: mdi:arrow-up-bold
+  byd_top_erreicht:
+    name: "BYD Ladeschluss erreicht"
+    icon: mdi:arrow-collapse-up
+
+input_select:
+  byd_knie_zyklus_status:
+    name: "BYD Knie Zyklus-Status"
+    options: ["idle", "armed", "latched", "invalid"]
+    initial: idle
+    icon: mdi:state-machine
+
+input_text:
+  byd_knie_cycle_id:
+    name: "BYD Knie Cycle-ID"
+    max: 40
+  byd_knie_invalid_grund:
+    name: "BYD Knie Invalid-Grund"
+    max: 120
+
+input_datetime:
+  byd_voll_anker_zeit:
+    name: "BYD Voll-Anker Zeit"
+    has_date: true
+    has_time: true

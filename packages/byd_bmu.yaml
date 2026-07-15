@@ -361,6 +361,22 @@ template:
                          states('sensor.byd_modul_5_temp_min')|float(99)] | min %}
           {{ (tmax - tmin) | round(0) }}
 
+      # Modul-2 Fruehwarnung: Nettoenergie seit dem letzten Voll-Anker
+      # (entladen - geladen, kWh). Kann bei PV-Ueberschussladung zwischen
+      # Ankern sinken - deshalb measurement statt total_increasing.
+      # Details: docs/byd-modul2-fruehwarnung-plan.md (Task 3).
+      - unique_id: byd_netto_energie_seit_voll
+        name: "BYD Nettoenergie seit Voll"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: measurement          # NICHT total_increasing (darf bei PV-Ladung sinken)
+        icon: mdi:battery-minus-outline
+        availability: >
+          {{ has_value('sensor.byd_entladen_seit_voll') and has_value('sensor.byd_geladen_seit_voll') }}
+        state: >
+          {{ (states('sensor.byd_entladen_seit_voll')|float
+              - states('sensor.byd_geladen_seit_voll')|float) | round(3) }}
+
   # ---------------------------------------------------------------------------
   # Ruhe-Spreizung: aktualisiert NUR, wenn der Akku (nahezu) lastfrei ist
   # (|Leistung| < 300 W) UND der SoC im flachen Teil der LFP-Kennlinie liegt
@@ -651,3 +667,19 @@ input_datetime:
     name: "BYD Voll-Anker Zeit"
     has_date: true
     has_time: true
+
+# ---------------------------------------------------------------------------
+# Modul-2 Fruehwarnung: Energie-Zaehler seit dem letzten Voll-Anker (Reset
+# durch die Voll-Anker-Automation via utility_meter.reset). Quelle ist
+# total_increasing, kein Zyklus-Reset noetig -> periodically_resetting: false.
+# Details: docs/byd-modul2-fruehwarnung-plan.md (Task 3).
+# ---------------------------------------------------------------------------
+utility_meter:
+  byd_geladen_seit_voll:
+    source: sensor.byd_geladen_gesamt
+    name: "BYD geladen seit Voll"
+    periodically_resetting: false      # Quelle ist total_increasing, kein Zyklus-Reset
+  byd_entladen_seit_voll:
+    source: sensor.byd_entladen_gesamt
+    name: "BYD entladen seit Voll"
+    periodically_resetting: false

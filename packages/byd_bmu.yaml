@@ -680,6 +680,73 @@ automation:
               Balancing aktiv: {{ states('binary_sensor.byd_balancing_aktiv') }}
               Steuerungs-Modus: {{ states('input_select.akkusteuerung_modus') }}
 
+  - id: byd_top_erreicht_merker
+    alias: "BYD | Ladeschluss-Merker setzen"
+    description: "Merkt sich, dass im laufenden Ladevorgang die Ladeschluss-Zellspannung erreicht wurde (Voll-Anker-Evidenz)."
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.byd_zellspannung_max
+        above: 3.55
+        for: "00:02:00"
+    conditions: []
+    actions:
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.byd_top_erreicht }
+
+  - id: byd_voll_anker
+    alias: "BYD | Voll-Anker (Ladeabschluss)"
+    description: >-
+      Ladeabschluss-Event: Zellmax war >=3,55 V (Merker), danach Ladeende
+      (Leistung > -300 W = nicht mehr nennenswert Laden) fuer 5 min. Setzt den
+      Knie-Zyklus neu auf. Re-Arm-Sperre: nur wenn idle ODER seit letztem Anker
+      >=0,5 kWh netto entnommen (verhindert Mehrfach-Reset im Ladeschluss-Flattern).
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.byd_leistung
+        above: -300
+        for: "00:05:00"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.byd_top_erreicht
+        state: "on"
+      - condition: numeric_state
+        entity_id: sensor.byd_soc
+        above: 94
+      - condition: state
+        entity_id: binary_sensor.byd_daten_frisch
+        state: "on"
+      - condition: template
+        value_template: >
+          {{ is_state('input_select.byd_knie_zyklus_status','idle')
+             or states('sensor.byd_netto_energie_seit_voll')|float(0) >= 0.5 }}
+    actions:
+      - action: utility_meter.reset
+        target:
+          entity_id:
+            - sensor.byd_geladen_seit_voll
+            - sensor.byd_entladen_seit_voll
+      - action: input_number.set_value
+        target: { entity_id: input_number.byd_knie_ref_frozen }
+        data:
+          value: "{{ states('input_number.byd_knie_referenzspannung')|float(3.20) }}"
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.byd_knie_ueberschwelle_gesehen }
+      - action: input_text.set_value
+        target: { entity_id: input_text.byd_knie_cycle_id }
+        data: { value: "{{ now().isoformat() }}" }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.byd_voll_anker_zeit }
+        data: { datetime: "{{ now().isoformat() }}" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.byd_knie_zyklus_status }
+        data: { option: "armed" }
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.byd_knie_armed }
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.byd_top_erreicht }
+
 # ---------------------------------------------------------------------------
 # Modul-2 Fruehwarnung: Helfer fuer den Knie-Zyklus-Statemachine
 # (idle -> armed -> latched, jederzeit -> invalid). Details: docs/byd-modul2-fruehwarnung-plan.md

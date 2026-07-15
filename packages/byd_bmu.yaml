@@ -398,6 +398,31 @@ template:
           gemessen: "{{ now().isoformat() }}"
 
 # ---------------------------------------------------------------------------
+# Modul-2 Fruehwarnung: Frische- und Entladeband-Guards fuer die Knie-
+# Statemachine. Details: docs/byd-modul2-fruehwarnung-plan.md (Task 2).
+# ---------------------------------------------------------------------------
+  - binary_sensor:
+      - unique_id: byd_daten_frisch
+        name: "BYD Daten frisch"
+        device_class: connectivity
+        icon: mdi:database-check
+        state: >
+          {{ has_value('sensor.byd_soc') and has_value('sensor.byd_leistung')
+             and has_value('sensor.byd_modul_1_zellspannung_min')
+             and has_value('sensor.byd_modul_2_zellspannung_min')
+             and has_value('sensor.byd_modul_3_zellspannung_min')
+             and has_value('sensor.byd_modul_4_zellspannung_min')
+             and has_value('sensor.byd_modul_5_zellspannung_min')
+             and has_value('sensor.byd_geladen_seit_voll')
+             and has_value('sensor.byd_entladen_seit_voll') }}
+      - unique_id: byd_entladeband
+        name: "BYD Entladeband"
+        icon: mdi:speedometer-slow
+        state: >
+          {% set p = states('sensor.byd_leistung')|float(0) %}
+          {{ has_value('sensor.byd_leistung') and 500 <= p <= 1500 }}
+
+# ---------------------------------------------------------------------------
 # Alarme: deterministische Gesundheits-Alarme aus den BMU-Daten.
 # Schwellen liegen bewusst VOR den BMS-Schutzgrenzen (2,75/3,65 V).
 #

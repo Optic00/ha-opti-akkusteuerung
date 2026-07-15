@@ -439,6 +439,43 @@ template:
           {{ has_value('sensor.byd_leistung') and 500 <= p <= 1500 }}
 
 # ---------------------------------------------------------------------------
+# Modul-2 Fruehwarnung: Sensor A - relative Zell-Absackung (mV, Peer-Median
+# der 4 Nachbarmodule ggue. Modul 2). Details: docs/byd-modul2-fruehwarnung-plan.md (Task 4).
+# ---------------------------------------------------------------------------
+  - sensor:
+      - unique_id: byd_modul2_absackung
+        name: "BYD Modul-2 Absackung"
+        unit_of_measurement: "mV"
+        state_class: measurement
+        icon: mdi:arrow-down-bold-box
+        availability: "{{ is_state('binary_sensor.byd_daten_frisch','on') }}"
+        state: >
+          {% set peers = [states('sensor.byd_modul_1_zellspannung_min')|float,
+                          states('sensor.byd_modul_3_zellspannung_min')|float,
+                          states('sensor.byd_modul_4_zellspannung_min')|float,
+                          states('sensor.byd_modul_5_zellspannung_min')|float] | sort %}
+          {% set peer_median = (peers[1] + peers[2]) / 2 %}
+          {% set m2 = states('sensor.byd_modul_2_zellspannung_min')|float %}
+          {{ ((peer_median - m2) * 1000) | round(1) }}
+        attributes:
+          soc: "{{ states('sensor.byd_soc') }}"
+          leistung_w: "{{ states('sensor.byd_leistung') }}"
+          modul2_volt: "{{ states('sensor.byd_modul_2_zellspannung_min') }}"
+          peer_median_volt: >
+            {% set peers = [states('sensor.byd_modul_1_zellspannung_min')|float,
+                            states('sensor.byd_modul_3_zellspannung_min')|float,
+                            states('sensor.byd_modul_4_zellspannung_min')|float,
+                            states('sensor.byd_modul_5_zellspannung_min')|float] | sort %}
+            {{ ((peers[1] + peers[2]) / 2) | round(3) }}
+          schwaechstes_modul: >
+            {% set ns = namespace(min_v=99, idx='?') %}
+            {% for i in [1,2,3,4,5] %}
+              {% set v = states('sensor.byd_modul_' ~ i ~ '_zellspannung_min')|float(99) %}
+              {% if v < ns.min_v %}{% set ns.min_v = v %}{% set ns.idx = i|string %}{% endif %}
+            {% endfor %}
+            {{ ns.idx }}
+
+# ---------------------------------------------------------------------------
 # Alarme: deterministische Gesundheits-Alarme aus den BMU-Daten.
 # Schwellen liegen bewusst VOR den BMS-Schutzgrenzen (2,75/3,65 V).
 #

@@ -313,6 +313,68 @@ mqtt:
       state_class: measurement
       expire_after: 300
 
+    # Modul-2-Fruehwarnung: schwaechste/staerkste Zell-Nummer je Modul (MinVoltID/MaxVoltID)
+    - name: "BYD Modul 1 Min-Zell-ID"
+      unique_id: byd_bmu_m1_min_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_1/MinVoltID"
+      icon: mdi:battery-arrow-down
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 1 Max-Zell-ID"
+      unique_id: byd_bmu_m1_max_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_1/MaxVoltID"
+      icon: mdi:battery-arrow-up
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 2 Min-Zell-ID"
+      unique_id: byd_bmu_m2_min_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_2/MinVoltID"
+      icon: mdi:battery-arrow-down
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 2 Max-Zell-ID"
+      unique_id: byd_bmu_m2_max_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_2/MaxVoltID"
+      icon: mdi:battery-arrow-up
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 3 Min-Zell-ID"
+      unique_id: byd_bmu_m3_min_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_3/MinVoltID"
+      icon: mdi:battery-arrow-down
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 3 Max-Zell-ID"
+      unique_id: byd_bmu_m3_max_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_3/MaxVoltID"
+      icon: mdi:battery-arrow-up
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 4 Min-Zell-ID"
+      unique_id: byd_bmu_m4_min_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_4/MinVoltID"
+      icon: mdi:battery-arrow-down
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 4 Max-Zell-ID"
+      unique_id: byd_bmu_m4_max_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_4/MaxVoltID"
+      icon: mdi:battery-arrow-up
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 5 Min-Zell-ID"
+      unique_id: byd_bmu_m5_min_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_5/MinVoltID"
+      icon: mdi:battery-arrow-down
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 5 Max-Zell-ID"
+      unique_id: byd_bmu_m5_max_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_5/MaxVoltID"
+      icon: mdi:battery-arrow-up
+      entity_category: diagnostic
+      expire_after: 300
+
   binary_sensor:
     - name: "BYD Balancing aktiv"
       unique_id: byd_bmu_balancing
@@ -464,6 +526,7 @@ template:
           soc: "{{ states('sensor.byd_soc') }}"
           leistung_w: "{{ states('sensor.byd_leistung') }}"
           modul2_volt: "{{ states('sensor.byd_modul_2_zellspannung_min') }}"
+          schwaechste_zelle_id: "{{ states('sensor.byd_modul_2_min_zell_id') }}"
           peer_median_volt: >
             {% set peers = [states('sensor.byd_modul_1_zellspannung_min')|float,
                             states('sensor.byd_modul_3_zellspannung_min')|float,
@@ -503,6 +566,8 @@ template:
           soc: "{{ states('sensor.byd_soc') }}"
           leistung_w: "{{ states('sensor.byd_leistung') }}"
           modul2_volt: "{{ states('sensor.byd_modul_2_zellspannung_min') }}"
+          modul2_schwaechste_zelle_id: "{{ states('sensor.byd_modul_2_min_zell_id') }}"
+          modul2_staerkste_zelle_id: "{{ states('sensor.byd_modul_2_max_zell_id') }}"
           modul_temp_c: "{{ states('sensor.byd_modul_2_temp_max') }}"
           ref_verwendet_v: "{{ states('input_number.byd_knie_ref_frozen') }}"
           cycle_id: "{{ states('input_text.byd_knie_cycle_id') }}"

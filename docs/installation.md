@@ -117,17 +117,7 @@ sie an deine Anlage/Strategie anpassen kannst. Zwei Wege, sie einzuspielen:
   über dem Done-SoC steht - numeric_state-Trigger mit `for:`). Ersetzt eine ggf. bereits live
   vorhandene, gleichnamige Increment-Automation.
 
-**8. Einschalten:** die Strategie-Automation bleibt wirkungslos, solange ihr Master-Schalter
-aus ist - und frisch angelegte `input_boolean`-Helfer starten **aus** (kein `initial:`, siehe
-Warnung unten). Über die HA-Oberfläche auf **an** stellen:
-
-| Helfer | Wirkung |
-|---|---|
-| `input_boolean.akku_opti_automatik` | Master-Schalter - ohne „an" tut die gesamte Strategie-Automation nichts |
-| `input_boolean.opti_prognose_netzladen` | Gate für die prognosebasierten „Akku nur Laden"-Blöcke (Reserve halten bei schlechter PV-Prognose) |
-| `input_boolean.opti_pv_ueberschuss_ladung` | Gate für die PV-/AC-Überschussblöcke (Akku Dynamisch bei Einspeise-Überschuss) |
-
-**9. Erststart-Werte setzen:** `input_number`-Helfer ohne `initial:` starten beim
+**8. Erststart-Werte setzen:** `input_number`-Helfer ohne `initial:` starten beim
 allerersten Anlegen auf ihrem **Minimum** - bei `maxsoc` und den beiden
 Max-Ladestärke-Helfern ist das **0**, was jedes Laden/Entladen blockiert. Nach dem ersten
 Anlegen (Schritt 4, HA-Neustart) einmalig über die HA-Oberfläche setzen - danach übersteht
@@ -164,6 +154,15 @@ einziger ein `initial:` (98.5 %) und muss nicht von Hand gesetzt werden - er def
 BMS-Balancing auch aus dem **Netz** laden darf; ohne ihn balancet er rein per PV. Er ist
 bewusst von `opti_prognose_netzladen` entkoppelt, damit Balancing-Netzladen unabhängig vom
 allgemeinen Prognose-Netzladen freigegeben werden kann.
+
+**9. Einschalten:** die Strategie-Automation bleibt wirkungslos, solange ihr Master-Schalter
+aus ist - und frisch angelegte `input_boolean`-Helfer starten **aus** (kein `initial:`, siehe Schritt 8). Über die HA-Oberfläche auf **an** stellen:
+
+| Helfer | Wirkung |
+|---|---|
+| `input_boolean.akku_opti_automatik` | Master-Schalter - ohne „an" tut die gesamte Strategie-Automation nichts |
+| `input_boolean.opti_prognose_netzladen` | Gate für die prognosebasierten „Akku nur Laden"-Blöcke (Reserve halten bei schlechter PV-Prognose) |
+| `input_boolean.opti_pv_ueberschuss_ladung` | Gate für die PV-/AC-Überschussblöcke (Akku Dynamisch bei Einspeise-Überschuss) |
 
 **10. Feinjustieren:** SoC-Grenzen, Lade-/Entladegrenzen, Prognose-Schwellen über die
 HA-Oberfläche weiter an die eigene Anlage anpassen (alle als Helfer vorhanden).

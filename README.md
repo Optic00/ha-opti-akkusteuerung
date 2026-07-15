@@ -58,7 +58,7 @@ Die Strategie (dieses Repo) entscheidet nur den **Modus** - der Hardware-Adapter
 
 ## Voraussetzungen
 
-- Home Assistant mit **SMA-Integration** (für SoC, PV-Leistung, etc.)
+- Home Assistant mit **SMA-Integration** (für SoC, PV-Leistung, etc.) - das ist der getestete SMA-Referenzweg; bei anderer Hardware stattdessen deren Integration + eigenes Canonical-Mapping
 - **Solcast-Integration** für PV-Prognosen
 - Ein dynamischer Stromtarif mit stündlicher `today`/`tomorrow`-Preisliste (z. B. Tibber, Nordpool, EPEX)
 - **Home Assistant 2025.1 oder neuer** (getestet mit 2026.6; technische Untergrenze ist 2024.10, weil die abgeleiteten Sensoren trigger-basierte Template-Sensoren mit `variables:` nutzen)
@@ -79,14 +79,13 @@ Der Minimalpfad. Voller Ablauf mit beiden Einspiel-Varianten, allen Erststart-We
      packages: !include_dir_named packages/
    ```
 2. **Hardware-Mapping:** `opti_mapping.example.yaml` → `packages/opti_mapping.yaml` kopieren, alle `DEIN_*`-Platzhalter durch echte Entitäts-IDs ersetzen (→ [docs/canonical-layer.md](docs/canonical-layer.md)).
-3. **Package-Dateien** aus [`packages/`](packages/) ins HA-`packages/`-Verzeichnis kopieren (Überblick unter [Dateien](#dateien); `sma_templates.yaml`/`opti_ki_analyse.yaml`/`byd_bmu.yaml` sind optional).
+3. **Package-Dateien** aus [`packages/`](packages/) ins HA-`packages/`-Verzeichnis kopieren (Überblick unter [Dateien](#dateien); `sma_templates.yaml`/`opti_ki_analyse.yaml`/`byd_bmu.yaml` sind optional). In `sma_modbus.yaml` die **WR-IP** anpassen - oder die Datei weglassen, falls der Modbus-Hub schon aus dem Adapter-Repo kommt (siehe „Nur aus einer Quelle" unten).
 4. **Home Assistant neu starten.**
 5. ✅ **Verify-Gate - erst prüfen, dann scharf schalten:** In den Entwicklertools sicherstellen, dass `sensor.opti_target_soc`, `sensor.opti_charge_power_w` und `sensor.opti_price_level` plausible Werte zeigen und **nicht** `unavailable`/`unknown` sind. Stimmt etwas nicht → zuerst das Mapping korrigieren, nicht weitergehen.
-6. **Adapter-Blueprint importieren** aus [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter) und die Eingaben auf deine Entitäten mappen (Modbus-Hub, WR-Status, `input_select.akkusteuerung_modus`, `sensor.opti_charge_power_w`).
+6. **Adapter-Blueprint importieren** aus [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter) und die Eingaben auf deine Entitäten mappen (Modbus-Hub, WR-Status, `input_select.akkusteuerung_modus`, `sensor.opti_charge_power_w`, dazu `battery_capacity_sensor` und `inverter_ok_states` - die Blueprint-Vorschlagswerte prüfen, nicht ungeprüft übernehmen).
 7. **Strategie einspielen** aus `automations/opti_strategie.yaml` (zwei Wege - anhängen an `automations.yaml` oder als Package: → [docs/installation.md](docs/installation.md#schritt-für-schritt)).
-8. **Erst jetzt einschalten:** Master-Schalter `input_boolean.akku_opti_automatik` auf **an**.
-
-> ⚠️ **Erststart-Falle:** `input_number`-Helfer ohne `initial:` starten auf ihrem **Minimum** - bei `maxsoc` und den Max-Ladestärken ist das **0**, was jedes Laden/Entladen blockiert. Diese Werte nach dem ersten Neustart einmalig setzen. Vollständige Startwert-Tabelle: **[docs/installation.md](docs/installation.md#schritt-für-schritt)**.
+8. **Erststart-Werte setzen (VOR dem Einschalten):** `input_number`-Helfer ohne `initial:` starten auf ihrem **Minimum** - bei `maxsoc` und den Max-Ladestärken ist das **0**, was jedes Laden/Entladen blockiert. Also `maxsoc` (~95 %), `minsoc` (~10 %) und die Max-Lade-/Entladestärken einmalig über die HA-Oberfläche setzen. Vollständige Startwert-Tabelle: **[docs/installation.md](docs/installation.md#schritt-für-schritt)**.
+9. **Erst jetzt einschalten:** Master-Schalter `input_boolean.akku_opti_automatik` auf **an**.
 
 > ⚠️ **Single-Writer-Regel:** Nur **eine** Automation darf den WR via Modbus schreiben - keine zweite Steuer-Automatik parallel aktiv lassen.
 >

@@ -286,3 +286,50 @@ template:
         device_class: energy
         availability: "{{ has_value('sensor.DEIN_PV_ERTRAG_HEUTE') }}"
         state: "{{ states('sensor.DEIN_PV_ERTRAG_HEUTE') | float(0) }}"
+
+  # ---------------------------------------------------------------------------
+  # OPTIONAL: EV-Ladepunkte (evcc via HACS-Integration evcc_intg).
+  # Nur noetig fuer die EV-Schnelllade-Entladesperre (packages/opti_ev_sperre.yaml).
+  # Ohne evcc: Block weglassen - die Sperre bleibt dann dauerhaft inaktiv.
+  # Ein Ladepunkt mit invaliden Quelldaten wird unavailable (NICHT off), damit
+  # die Aggregation Invaliditaet von "laedt nicht" unterscheiden kann.
+  # Nur ein Ladepunkt? Zweiten Sensor trotzdem anlegen und die Quellen des
+  # ersten eintragen (oder die Aggregation in opti_ev_sperre.yaml anpassen).
+  # ---------------------------------------------------------------------------
+  - binary_sensor:
+
+      # 14. EV-Ladepunkt 1: Schnellladung aktiv (Modus now/minpv + laedt)
+      - unique_id: opti_mapping_ev_lp1_schnell
+        name: "Opti EV LP1 Schnell"
+        icon: mdi:ev-station
+        availability: >-
+          {{ has_value('select.DEIN_EVCC_LP1_MODE')
+             and has_value('binary_sensor.DEIN_EVCC_LP1_CHARGING') }}
+        state: >-
+          {{ is_state('binary_sensor.DEIN_EVCC_LP1_CHARGING', 'on')
+             and states('select.DEIN_EVCC_LP1_MODE') in ['now', 'minpv'] }}
+        attributes:
+          modus: "{{ states('select.DEIN_EVCC_LP1_MODE') }}"
+          charging: "{{ states('binary_sensor.DEIN_EVCC_LP1_CHARGING') }}"
+          leistung_kw: "{{ states('sensor.DEIN_EVCC_LP1_CHARGE_POWER') | float(none) }}"
+          valide: >-
+            {{ has_value('select.DEIN_EVCC_LP1_MODE')
+               and has_value('binary_sensor.DEIN_EVCC_LP1_CHARGING') }}
+
+      # 15. EV-Ladepunkt 2: analog Ladepunkt 1
+      - unique_id: opti_mapping_ev_lp2_schnell
+        name: "Opti EV LP2 Schnell"
+        icon: mdi:ev-station
+        availability: >-
+          {{ has_value('select.DEIN_EVCC_LP2_MODE')
+             and has_value('binary_sensor.DEIN_EVCC_LP2_CHARGING') }}
+        state: >-
+          {{ is_state('binary_sensor.DEIN_EVCC_LP2_CHARGING', 'on')
+             and states('select.DEIN_EVCC_LP2_MODE') in ['now', 'minpv'] }}
+        attributes:
+          modus: "{{ states('select.DEIN_EVCC_LP2_MODE') }}"
+          charging: "{{ states('binary_sensor.DEIN_EVCC_LP2_CHARGING') }}"
+          leistung_kw: "{{ states('sensor.DEIN_EVCC_LP2_CHARGE_POWER') | float(none) }}"
+          valide: >-
+            {{ has_value('select.DEIN_EVCC_LP2_MODE')
+               and has_value('binary_sensor.DEIN_EVCC_LP2_CHARGING') }}

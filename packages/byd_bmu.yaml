@@ -1,0 +1,572 @@
+# =============================================================================
+# BYD Battery-Box BMU-Monitoring via bydlogc + MQTT (OPTIONAL)
+# -----------------------------------------------------------------------------
+# Quelle: BYD-Logger cmdline (bydlogc, "olli" im Photovoltaikforum) laeuft als
+# Docker-Container/VM-Dienst und publisht alle ~60 s nach MQTT (Root-Topic
+# "Battery"). Dieses Package mappt die Topics auf HA-Sensoren - rein
+# beobachtend, KEINE Steuerlogik. Faellt der Logger aus, gehen die Sensoren
+# nach expire_after auf unavailable (Graceful Degradation).
+#
+# VORAUSSETZUNGEN (Details: docs/byd-bmu-monitoring.md):
+# 1. bydlogc-Binary (Bezug ueber den Photovoltaikforum-Thread des Autors,
+#    KEINE Redistribution hier) in einem Docker-Container oder einer VM mit
+#    MQTT-Anbindung an den HA-Broker.
+# 2. Netz-Routing zur BMU: die Box haengt hinter ihrem eigenen WLAN-Modul
+#    (Standard-IP 192.168.16.254) - je nach Router braucht es eine Host-Route
+#    oder SNAT-Regel, siehe Doku (Hairpin-Falle!).
+# 3. Ein-Verbindungs-Limit der BMU: Be-Connect-App/BYD-Logger-GUI nie
+#    parallel zum Logger laufen lassen.
+#
+# Einbau-Hinweis: Nutzt dein Setup bereits ein top-level `mqtt: !include`,
+# kollidiert der mqtt:-Block dieses Packages beim Merge (HA ignoriert ihn
+# still bzw. meldet Duplicate Key) - dann die mqtt-Sensoren in die bestehende
+# Include-Datei uebernehmen und hier nur den template:-Block behalten.
+#
+# Zweck (siehe Balancing-Roadmap): Zell-Spreizung, Balancing-Status und
+# SOH-Baseline ueber Wochen beobachten; spaeter Bedarfs-Balancing
+# (Spreizungs-Trigger) statt rein zeitgesteuertem Watchdog.
+#
+# BalanceData = 10 CSV-Werte (Bitmasken Balancing-Status pro Zellgruppe),
+# bewusst roh durchgereicht; Auswertung folgt mit dem Bedarfs-Balancing.
+# =============================================================================
+
+mqtt:
+  sensor:
+    # --------------------------- Gesamtwerte (BMS 1) ------------------------
+    - name: "BYD SoC"
+      unique_id: byd_bmu_soc
+      state_topic: "Battery/BYD/BMS_1/SOC"
+      unit_of_measurement: "%"
+      device_class: battery
+      state_class: measurement
+      expire_after: 300
+
+    - name: "BYD SoH"
+      unique_id: byd_bmu_soh
+      state_topic: "Battery/BYD/BMS_1/SOH"
+      unit_of_measurement: "%"
+      state_class: measurement
+      expire_after: 300
+      icon: mdi:battery-heart-variant
+
+    - name: "BYD Zellspannung min"
+      unique_id: byd_bmu_min_cell_volt
+      state_topic: "Battery/BYD/BMS_1/MinCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+
+    - name: "BYD Zellspannung max"
+      unique_id: byd_bmu_max_cell_volt
+      state_topic: "Battery/BYD/BMS_1/MaxCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+
+    - name: "BYD Zellspannung avg"
+      unique_id: byd_bmu_av_cell_volt
+      state_topic: "Battery/BYD/BMS_1/AvCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+
+    - name: "BYD Leistung"
+      unique_id: byd_bmu_power
+      state_topic: "Battery/BYD/BMS_1/Power"
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      expire_after: 300
+
+    - name: "BYD geladen gesamt"
+      unique_id: byd_bmu_charged_kwh
+      state_topic: "Battery/BYD/BMS_1/ChargedkWh"
+      unit_of_measurement: "kWh"
+      device_class: energy
+      state_class: total_increasing
+      expire_after: 300
+
+    - name: "BYD entladen gesamt"
+      unique_id: byd_bmu_discharged_kwh
+      state_topic: "Battery/BYD/BMS_1/DischargedkWh"
+      unit_of_measurement: "kWh"
+      device_class: energy
+      state_class: total_increasing
+      expire_after: 300
+
+    # Status-Bitfelder + Balancing-Rohdaten: bewusst roh (Diagnose/Forensik).
+    - name: "BYD Status 1"
+      unique_id: byd_bmu_status1
+      state_topic: "Battery/BYD/BMS_1/Status1"
+      entity_category: diagnostic
+      expire_after: 300
+      icon: mdi:information-outline
+
+    - name: "BYD Status 2"
+      unique_id: byd_bmu_status2
+      state_topic: "Battery/BYD/BMS_1/Status2"
+      entity_category: diagnostic
+      expire_after: 300
+      icon: mdi:information-outline
+
+    - name: "BYD BalanceData"
+      unique_id: byd_bmu_balance_data
+      state_topic: "Battery/BYD/BMS_1/BalanceData"
+      entity_category: diagnostic
+      expire_after: 300
+      icon: mdi:scale-balance
+
+    # --------------------------- Modulwerte (1-5) ---------------------------
+    - name: "BYD Modul 1 Zellspannung min"
+      unique_id: byd_bmu_m1_min_cell_volt
+      state_topic: "Battery/BYD/BMS_1/Module_1/MinCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+    - name: "BYD Modul 1 Zellspannung max"
+      unique_id: byd_bmu_m1_max_cell_volt
+      state_topic: "Battery/BYD/BMS_1/Module_1/MaxCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+    - name: "BYD Modul 1 Spannung"
+      unique_id: byd_bmu_m1_module_volt
+      state_topic: "Battery/BYD/BMS_1/Module_1/ModuleVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      expire_after: 300
+    - name: "BYD Modul 1 Temp min"
+      unique_id: byd_bmu_m1_min_temp
+      state_topic: "Battery/BYD/BMS_1/Module_1/MinTemp"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      expire_after: 300
+    - name: "BYD Modul 1 Temp max"
+      unique_id: byd_bmu_m1_max_temp
+      state_topic: "Battery/BYD/BMS_1/Module_1/MaxTemp"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      expire_after: 300
+
+    - name: "BYD Modul 2 Zellspannung min"
+      unique_id: byd_bmu_m2_min_cell_volt
+      state_topic: "Battery/BYD/BMS_1/Module_2/MinCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+    - name: "BYD Modul 2 Zellspannung max"
+      unique_id: byd_bmu_m2_max_cell_volt
+      state_topic: "Battery/BYD/BMS_1/Module_2/MaxCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+    - name: "BYD Modul 2 Spannung"
+      unique_id: byd_bmu_m2_module_volt
+      state_topic: "Battery/BYD/BMS_1/Module_2/ModuleVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      expire_after: 300
+    - name: "BYD Modul 2 Temp min"
+      unique_id: byd_bmu_m2_min_temp
+      state_topic: "Battery/BYD/BMS_1/Module_2/MinTemp"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      expire_after: 300
+    - name: "BYD Modul 2 Temp max"
+      unique_id: byd_bmu_m2_max_temp
+      state_topic: "Battery/BYD/BMS_1/Module_2/MaxTemp"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      expire_after: 300
+
+    - name: "BYD Modul 3 Zellspannung min"
+      unique_id: byd_bmu_m3_min_cell_volt
+      state_topic: "Battery/BYD/BMS_1/Module_3/MinCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+    - name: "BYD Modul 3 Zellspannung max"
+      unique_id: byd_bmu_m3_max_cell_volt
+      state_topic: "Battery/BYD/BMS_1/Module_3/MaxCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+    - name: "BYD Modul 3 Spannung"
+      unique_id: byd_bmu_m3_module_volt
+      state_topic: "Battery/BYD/BMS_1/Module_3/ModuleVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      expire_after: 300
+    - name: "BYD Modul 3 Temp min"
+      unique_id: byd_bmu_m3_min_temp
+      state_topic: "Battery/BYD/BMS_1/Module_3/MinTemp"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      expire_after: 300
+    - name: "BYD Modul 3 Temp max"
+      unique_id: byd_bmu_m3_max_temp
+      state_topic: "Battery/BYD/BMS_1/Module_3/MaxTemp"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      expire_after: 300
+
+    - name: "BYD Modul 4 Zellspannung min"
+      unique_id: byd_bmu_m4_min_cell_volt
+      state_topic: "Battery/BYD/BMS_1/Module_4/MinCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+    - name: "BYD Modul 4 Zellspannung max"
+      unique_id: byd_bmu_m4_max_cell_volt
+      state_topic: "Battery/BYD/BMS_1/Module_4/MaxCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+    - name: "BYD Modul 4 Spannung"
+      unique_id: byd_bmu_m4_module_volt
+      state_topic: "Battery/BYD/BMS_1/Module_4/ModuleVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      expire_after: 300
+    - name: "BYD Modul 4 Temp min"
+      unique_id: byd_bmu_m4_min_temp
+      state_topic: "Battery/BYD/BMS_1/Module_4/MinTemp"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      expire_after: 300
+    - name: "BYD Modul 4 Temp max"
+      unique_id: byd_bmu_m4_max_temp
+      state_topic: "Battery/BYD/BMS_1/Module_4/MaxTemp"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      expire_after: 300
+
+    - name: "BYD Modul 5 Zellspannung min"
+      unique_id: byd_bmu_m5_min_cell_volt
+      state_topic: "Battery/BYD/BMS_1/Module_5/MinCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+    - name: "BYD Modul 5 Zellspannung max"
+      unique_id: byd_bmu_m5_max_cell_volt
+      state_topic: "Battery/BYD/BMS_1/Module_5/MaxCellVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      suggested_display_precision: 3
+      expire_after: 300
+    - name: "BYD Modul 5 Spannung"
+      unique_id: byd_bmu_m5_module_volt
+      state_topic: "Battery/BYD/BMS_1/Module_5/ModuleVolt"
+      unit_of_measurement: "V"
+      device_class: voltage
+      state_class: measurement
+      expire_after: 300
+    - name: "BYD Modul 5 Temp min"
+      unique_id: byd_bmu_m5_min_temp
+      state_topic: "Battery/BYD/BMS_1/Module_5/MinTemp"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      expire_after: 300
+    - name: "BYD Modul 5 Temp max"
+      unique_id: byd_bmu_m5_max_temp
+      state_topic: "Battery/BYD/BMS_1/Module_5/MaxTemp"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state_class: measurement
+      expire_after: 300
+
+  binary_sensor:
+    - name: "BYD Balancing aktiv"
+      unique_id: byd_bmu_balancing
+      state_topic: "Battery/BYD/BMS_1/Balancing"
+      payload_on: "1"
+      payload_off: "0"
+      expire_after: 300
+      icon: mdi:scale-balance
+
+# ---------------------------------------------------------------------------
+# Abgeleitet: Zell-Spreizung in mV (max - min ueber den ganzen Turm).
+# DIE Kernmetrik fuer bedarfsgesteuertes Balancing.
+# ---------------------------------------------------------------------------
+template:
+  - sensor:
+      # Min/Max kommen als getrennte MQTT-Topics ~60 s versetzt an - kurz nach
+      # einem Update kann max-min deshalb verzerrt oder sogar negativ sein
+      # (Artefakt, kein Zellzustand). Negative Werte werden auf 0 geklemmt;
+      # gegen die positiven Transienten schuetzen die Ruhe-/SoC-Gates des
+      # Ruhe-Sensors und die for:-Haltezeiten der Alarme.
+      - unique_id: byd_bmu_zellspreizung_mv
+        name: "BYD Zellspreizung"
+        unit_of_measurement: "mV"
+        state_class: measurement
+        icon: mdi:arrow-expand-vertical
+        availability: >
+          {{ has_value('sensor.byd_zellspannung_max') and has_value('sensor.byd_zellspannung_min') }}
+        state: >
+          {{ [0, ((states('sensor.byd_zellspannung_max')|float(0) - states('sensor.byd_zellspannung_min')|float(0)) * 1000) | round(0)] | max }}
+
+      # Temperatur-Spreizung ueber alle 5 Module (max Zelltemp - min Zelltemp).
+      # Dauerhaft >10 K = ein Modul weicht ab (Kuehlung/Kontakt/Zelle pruefen).
+      - unique_id: byd_bmu_temp_spreizung_k
+        name: "BYD Temperatur-Spreizung"
+        unit_of_measurement: "K"
+        state_class: measurement
+        icon: mdi:thermometer-alert
+        availability: >
+          {{ has_value('sensor.byd_modul_1_temp_max') and has_value('sensor.byd_modul_5_temp_max') }}
+        state: >
+          {% set tmax = [states('sensor.byd_modul_1_temp_max')|float(0), states('sensor.byd_modul_2_temp_max')|float(0),
+                         states('sensor.byd_modul_3_temp_max')|float(0), states('sensor.byd_modul_4_temp_max')|float(0),
+                         states('sensor.byd_modul_5_temp_max')|float(0)] | max %}
+          {% set tmin = [states('sensor.byd_modul_1_temp_min')|float(99), states('sensor.byd_modul_2_temp_min')|float(99),
+                         states('sensor.byd_modul_3_temp_min')|float(99), states('sensor.byd_modul_4_temp_min')|float(99),
+                         states('sensor.byd_modul_5_temp_min')|float(99)] | min %}
+          {{ (tmax - tmin) | round(0) }}
+
+  # ---------------------------------------------------------------------------
+  # Ruhe-Spreizung: aktualisiert NUR, wenn der Akku (nahezu) lastfrei ist
+  # (|Leistung| < 300 W) UND der SoC im flachen Teil der LFP-Kennlinie liegt
+  # (15-85 %). Unter Last steigt die Spreizung durch Innenwiderstands-
+  # Unterschiede, am oberen/unteren Kennlinien-Knie (Ladeschluss/Tiefentladung)
+  # laeuft sie kennlinienbedingt hoch (beobachtet 11.7.: 292 mV bei SoC 99 %,
+  # 1-4 mV bei Mittel-SoC) - beides ist nicht vergleichbar. Erst dieser
+  # gefilterte Sensor macht Wochen-Trends und den spaeteren Bedarfs-Balancing-
+  # Trigger moeglich. Haelt zwischen Ruhephasen den letzten Wert (RestoreEntity).
+  # ---------------------------------------------------------------------------
+  - triggers:
+      - trigger: state
+        entity_id: sensor.byd_zellspreizung
+    conditions:
+      - condition: numeric_state
+        entity_id: sensor.byd_leistung
+        above: -300
+        below: 300
+      - condition: numeric_state
+        entity_id: sensor.byd_soc
+        above: 15
+        below: 85
+      - condition: template
+        value_template: "{{ has_value('sensor.byd_zellspreizung') }}"
+    sensor:
+      - unique_id: byd_bmu_zellspreizung_ruhe_mv
+        name: "BYD Zellspreizung Ruhe"
+        unit_of_measurement: "mV"
+        state_class: measurement
+        icon: mdi:arrow-collapse-vertical
+        state: "{{ states('sensor.byd_zellspreizung') }}"
+        attributes:
+          soc: "{{ states('sensor.byd_soc') }}"
+          leistung_w: "{{ states('sensor.byd_leistung') }}"
+          gemessen: "{{ now().isoformat() }}"
+
+# ---------------------------------------------------------------------------
+# Alarme: deterministische Gesundheits-Alarme aus den BMU-Daten.
+# Schwellen liegen bewusst VOR den BMS-Schutzgrenzen (2,75/3,65 V).
+#
+# SoC-Gating (Befund 2026-07-11): Am Ladeschluss (SoC >= 90 %, LFP-Kennlinien-
+# Knie, Balancing aktiv) laufen Max-Zellspannung und Spreizung kurzzeitig hoch
+# (beobachtet: 3,659 V Peak bei 0 W Ladeleistung) - das ist top-of-charge-
+# normal und feuert sonst bei JEDER Vollladung (der Balancing-Watchdog
+# erzwingt regelmaessige Vollladungen). Deshalb:
+#   - zell_hoch/zell_kritisch gelten nur bei SoC < 90 % (dort sind sie eine
+#     echte Anomalie).
+#   - Bei hohem SoC alarmiert nur noch zell_bms_grenze: >3,65 V ueber 5 min
+#     anhaltend = das BMS kappt nicht -> immer kritisch, egal welcher SoC.
+#
+# Live-Abweichung (dokumentiert): notify.notify wird live durch den echten
+# Mobile-App-Service ersetzt; script.ki_alarm_kontext (KI-Lagebild) existiert
+# nur live - der Aufruf ist mit continue_on_error abgesichert.
+# ---------------------------------------------------------------------------
+automation:
+  - id: byd_akku_gesundheit_alarme
+    alias: "BYD | Akku-Gesundheit Alarme"
+    description: >-
+      Deterministische Alarme aus den BMU-Daten (bydlogc via MQTT): Zellspannung
+      absolut (SoC-gegated, plus BMS-Grenzwaechter), Zelltemperatur, Temperatur-
+      Spreizung zwischen Modulen, persistierende Ruhe-Spreizung, Daten-Staleness
+      (Logger tot). Schwellen liegen bewusst VOR den BMS-Schutzgrenzen (2,75/3,65 V).
+    mode: queued
+    max: 5
+    triggers:
+      - trigger: numeric_state
+        id: zell_hoch
+        entity_id: sensor.byd_zellspannung_max
+        above: 3.55
+        for: "00:02:00"
+      - trigger: numeric_state
+        id: zell_kritisch
+        entity_id: sensor.byd_zellspannung_max
+        above: 3.6
+        for: "00:00:30"
+      - trigger: numeric_state
+        id: zell_bms_grenze
+        entity_id: sensor.byd_zellspannung_max
+        above: 3.65
+        for: "00:05:00"
+      - trigger: numeric_state
+        id: zell_niedrig
+        entity_id: sensor.byd_zellspannung_min
+        below: 2.9
+        for: "00:05:00"
+      - trigger: numeric_state
+        id: temp_hoch
+        entity_id:
+          - sensor.byd_modul_1_temp_max
+          - sensor.byd_modul_2_temp_max
+          - sensor.byd_modul_3_temp_max
+          - sensor.byd_modul_4_temp_max
+          - sensor.byd_modul_5_temp_max
+        above: 45
+        for: "00:05:00"
+      - trigger: numeric_state
+        id: temp_kritisch
+        entity_id:
+          - sensor.byd_modul_1_temp_max
+          - sensor.byd_modul_2_temp_max
+          - sensor.byd_modul_3_temp_max
+          - sensor.byd_modul_4_temp_max
+          - sensor.byd_modul_5_temp_max
+        above: 50
+        for: "00:01:00"
+      - trigger: numeric_state
+        id: temp_delta
+        entity_id: sensor.byd_temperatur_spreizung
+        above: 10
+        for: "00:15:00"
+      - trigger: numeric_state
+        id: ruhe_spreizung
+        entity_id: sensor.byd_zellspreizung_ruhe
+        above: 50
+        for: "01:00:00"
+      - trigger: state
+        id: stale
+        entity_id: sensor.byd_soc
+        to:
+          - "unavailable"
+          - "unknown"
+        for: "00:15:00"
+    conditions:
+      # SoC-Gate NUR fuer zell_hoch/zell_kritisch (siehe Kopfkommentar).
+      # Alle anderen Regeln (inkl. zell_bms_grenze) laufen ungefiltert.
+      - condition: or
+        conditions:
+          - condition: trigger
+            id:
+              - zell_bms_grenze
+              - zell_niedrig
+              - temp_hoch
+              - temp_kritisch
+              - temp_delta
+              - ruhe_spreizung
+              - stale
+          - condition: and
+            conditions:
+              - condition: trigger
+                id:
+                  - zell_hoch
+                  - zell_kritisch
+              - condition: numeric_state
+                entity_id: sensor.byd_soc
+                below: 90
+    actions:
+      - alias: "Alarmtext je Regel"
+        variables:
+          alarm_text: >-
+            {% set t = {
+              'zell_hoch': 'Zellspannung hoch: ' ~ states('sensor.byd_zellspannung_max') ~ ' V (>3,55 V seit 2 min bei SoC ' ~ states('sensor.byd_soc') ~ ' % - unter 90 % eine echte Anomalie). Ladeleistung beobachten/drosseln.',
+              'zell_kritisch': 'Zellspannung KRITISCH: ' ~ states('sensor.byd_zellspannung_max') ~ ' V (>3,60 V bei SoC ' ~ states('sensor.byd_soc') ~ ' % - unter 90 %!) - Laden sofort stoppen/pruefen!',
+              'zell_bms_grenze': 'Zellspannung UEBER BMS-GRENZE: ' ~ states('sensor.byd_zellspannung_max') ~ ' V (>3,65 V seit 5 min anhaltend - das BMS kappt nicht!) - sofort pruefen!',
+              'zell_niedrig': 'Zellspannung niedrig: ' ~ states('sensor.byd_zellspannung_min') ~ ' V (<2,90 V seit 5 min). Entladung beobachten.',
+              'temp_hoch': 'Zelltemperatur hoch: ' ~ trigger.to_state.state ~ ' C (>45 C, ' ~ trigger.to_state.name ~ ').',
+              'temp_kritisch': 'Zelltemperatur KRITISCH: ' ~ trigger.to_state.state ~ ' C (>50 C, ' ~ trigger.to_state.name ~ ') - sofort pruefen!',
+              'temp_delta': 'Temperatur-Spreizung zwischen Modulen: ' ~ states('sensor.byd_temperatur_spreizung') ~ ' K (>10 K seit 15 min) - ein Modul weicht ab.',
+              'ruhe_spreizung': 'Zellspreizung in Ruhe dauerhaft hoch: ' ~ states('sensor.byd_zellspreizung_ruhe') ~ ' mV (>50 mV seit 1 h, gemessen im flachen Kennlinienbereich) - Balancing-Bedarf pruefen.',
+              'stale': 'Keine BYD-BMU-Daten seit >15 min - bydlogc-Container/MQTT-Strecke pruefen.'
+            } %}{{ t.get(trigger.id, 'BYD-Alarm: ' ~ trigger.id) }}
+      - alias: "Push"
+        choose:
+          - conditions:
+              - condition: trigger
+                id:
+                  - zell_kritisch
+                  - zell_bms_grenze
+                  - temp_kritisch
+            sequence:
+              - action: notify.notify
+                data:
+                  title: "🔋🚨 BYD Akku-Alarm"
+                  message: "{{ alarm_text }}"
+                  data:
+                    push:
+                      sound:
+                        name: default
+                        critical: 1
+                        volume: 1
+        default:
+          - action: notify.notify
+            data:
+              title: "🔋 BYD Akku-Alarm"
+              message: "{{ alarm_text }}"
+      - alias: "KI-Lagebild anstossen (fire-and-forget, Skript existiert nur live)"
+        action: script.turn_on
+        continue_on_error: true
+        target:
+          entity_id: script.ki_alarm_kontext
+        data:
+          variables:
+            alarm_titel: "BYD Akku-Alarm"
+            hinweis: >-
+              BYD Battery-Box Premium HVS (LFP, 5 Module, 12,8 kWh) am SMA WR.
+              Datenquelle: bydlogc via MQTT (Abtastung ~60 s). BMS-Schutzgrenzen
+              2,75/3,65 V - die Alarme liegen bewusst davor. Zellspannungs-Alarme
+              sind SoC-gegated (<90 %), am Ladeschluss zaehlt nur die BMS-Grenze.
+              Zellspreizung ist nur in Ruhe und bei SoC 15-85 % vergleichbar.
+            daten: >-
+              Ausgeloest durch Regel: {{ trigger.id }}
+              {{ alarm_text }}
+
+              Zellspannung min/max: {{ states('sensor.byd_zellspannung_min') }} / {{ states('sensor.byd_zellspannung_max') }} V
+              Zellspreizung: {{ states('sensor.byd_zellspreizung') }} mV (Ruhe: {{ states('sensor.byd_zellspreizung_ruhe') }} mV)
+              SoC: {{ states('sensor.byd_soc') }} %, Leistung: {{ states('sensor.byd_leistung') }} W
+              Modul-Temp max (1-5): {{ states('sensor.byd_modul_1_temp_max') }} / {{ states('sensor.byd_modul_2_temp_max') }} / {{ states('sensor.byd_modul_3_temp_max') }} / {{ states('sensor.byd_modul_4_temp_max') }} / {{ states('sensor.byd_modul_5_temp_max') }} C
+              Temperatur-Spreizung: {{ states('sensor.byd_temperatur_spreizung') }} K
+              Balancing aktiv: {{ states('binary_sensor.byd_balancing_aktiv') }}
+              Steuerungs-Modus: {{ states('input_select.akkusteuerung_modus') }}

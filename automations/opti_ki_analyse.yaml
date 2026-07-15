@@ -97,12 +97,14 @@
           gewinnt; der grund_code benennt den aktiven Zweig): 1. MinSOC-Schutz
           -> nur Laden. 2. Negativpreis-Laden -> Netzladen. 3. Peak-Vorladen
           -> Netzladen. 4. Peak-Leiter L1/L2 (sehr teure Stunden) -> nur
-          Entladen. 5. Balancing-Watchdog -> Vollladung. 6. Prognose-Zweige
-          (Score unter 3) -> nur Laden. 7. PV-Ueberschuss -> Dynamisch.
-          8. Akku voll -> Dynamisch. 9. Peak-Leiter L3/L4 (halten) -> nur
-          Laden. 10. Unter Ziel-SoC tags -> Dynamisch. 11. Ueber Ziel-SoC ->
-          nur Entladen (preisunabhaengig, Ziel-SoC enthaelt die
-          Wirtschaftlichkeit). 12. Default -> Dynamisch.
+          Entladen (entfaellt bei aktiver EV-Sperre). 5. Balancing-Watchdog
+          -> Vollladung. 6. Prognose-Zweige (Score unter 3) -> nur Laden.
+          7. EV-Schnelllade-Sperre (evcc laedt now/minpv) -> nur Laden
+          (reine Entladesperre, PV-Laden bleibt moeglich). 8. PV-Ueberschuss
+          -> Dynamisch. 9. Akku voll -> Dynamisch. 10. Peak-Leiter L3/L4
+          (halten) -> nur Laden. 11. Unter Ziel-SoC tags -> Dynamisch.
+          12. Ueber Ziel-SoC -> nur Entladen (preisunabhaengig, Ziel-SoC
+          enthaelt die Wirtschaftlichkeit). 13. Default -> Dynamisch.
 
           REGELN: Nutze nur die gelieferten Zahlen, ergaenze keine Fakten.
           unavailable-Minuten sind Datenluecken, kein Anlagenverhalten -

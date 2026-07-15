@@ -107,6 +107,20 @@
       entity_id:
         - sensor.opti_balancing_watchdog
       id: "Balancing-Watchdog geändert"
+    # EV-Schnelllade-Sperre (optionales Feature): beide Flanken + Toggle,
+    # sonst bliebe der Modus nach Ladebeginn/-ende stale. Fehlen die
+    # Entitaeten (kein evcc), feuern die Trigger schlicht nie.
+    - trigger: state
+      entity_id:
+        - binary_sensor.opti_ev_schnellladung
+      to:
+        - "on"
+        - "off"
+      id: "EV-Schnellladung geändert"
+    - trigger: state
+      entity_id:
+        - input_boolean.opti_ev_akku_pause
+      id: "EV-Sperre-Toggle geändert"
   conditions:
     - condition: state
       entity_id: input_boolean.akku_opti_automatik
@@ -219,6 +233,11 @@
             - condition: state
               entity_id: sensor.opti_price_level
               state: "VERY_EXPENSIVE"
+            - alias: "EV-Sperre inaktiv (Schnellladung sperrt Entladung)"
+              condition: template
+              value_template: >-
+                {{ not (is_state('input_boolean.opti_ev_akku_pause', 'on')
+                        and is_state('binary_sensor.opti_ev_schnellladung', 'on')) }}
           sequence:
             - action: input_select.select_option
               data:
@@ -241,6 +260,11 @@
                 {% set ve = state_attr('sensor.opti_peak_reserve_soc', 'reserve_ve_soc') | float(none) %}
                 {% set band = 5 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden') else 3 %}
                 {{ soc is not none and ve is not none and soc > ve + band }}
+            - alias: "EV-Sperre inaktiv (Schnellladung sperrt Entladung)"
+              condition: template
+              value_template: >-
+                {{ not (is_state('input_boolean.opti_ev_akku_pause', 'on')
+                        and is_state('binary_sensor.opti_ev_schnellladung', 'on')) }}
           sequence:
             - action: input_select.select_option
               data:
@@ -489,6 +513,35 @@
             - stop: "fertig"
 
         # ENTFERNT: Zweig zur Umleitung bei drohender Erzeugungskappung (aufgeschoben, Paket >3).
+
+        # ---------------------------------------------------------------------
+        # EV-Schnelllade-Sperre (optional, Spec 2026-07-11): evcc laedt im
+        # Modus now/minpv -> Hausakku darf nicht entladen. Sperr-Modus ist
+        # "Akku nur Laden" (reine Entladesperre: PV-/Ueberschussladen bleibt
+        # moeglich, Hysterese-Gedaechtnis band=5 bleibt konsistent).
+        # Position: NACH den Lade-Zweigen (Netzladen/Balancing/Prognose
+        # schlagen die Sperre - sie ziehen aus dem Netz und stoeren die
+        # Autoladung nicht), VOR allen Zweigen, die Dynamisch/Entladen
+        # liefern koennen (inkl. "Akku voll", sonst entlaedt der volle Akku
+        # ins Auto). L1/L2 stehen weiter oben und tragen die Sperr-Bedingung
+        # explizit. Fehlen die EV-Entitaeten, greifen die state-Bedingungen
+        # nie (fail-safe fuer Setups ohne evcc).
+        # ---------------------------------------------------------------------
+        - alias: "Modus 'nur Laden' (EV-Sperre): evcc-Schnellladung aktiv, Entladung gesperrt"
+          conditions:
+            - condition: state
+              entity_id: input_boolean.opti_ev_akku_pause
+              state: "on"
+            - condition: state
+              entity_id: binary_sensor.opti_ev_schnellladung
+              state: "on"
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+            - stop: "fertig"
 
         # Überschuss-Block: 70%-Einspeise-Überschuss in den Akku (nur tagsüber).
         - alias: "Modus 'Dynamisch': 70% PV-Überschuss in den Akku (nur tagsüber)"

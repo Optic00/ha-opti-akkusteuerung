@@ -106,6 +106,7 @@ Der Minimalpfad. Voller Ablauf mit beiden Einspiel-Varianten, allen Erststart-We
 | `packages/sma_statistik.yaml` | Gleitende Mittelwert-Sensoren für Verbrauch & Batterielast |
 | `packages/opti_ki_analyse.yaml` | **optional** - täglicher KI-Tagesreport (rein lesend) |
 | `packages/byd_bmu.yaml` | **optional** - BYD-Zell-Monitoring via bydlogc→MQTT (→ [docs/byd-bmu-monitoring.md](docs/byd-bmu-monitoring.md)) |
+| `packages/opti_ev_sperre.yaml` | **optional** - EV-Schnelllade-Entladesperre (Hausakku entlädt nicht ins Auto, wenn evcc im Modus now/minpv lädt); braucht HACS `evcc_intg` + Ladepunkt-Block im Mapping → [docs/strategie-logik.md](docs/strategie-logik.md) (Option 13) |
 | `automations/opti_strategie.yaml` | Strategie-Automation (editierbar, kein Blueprint) |
 
 Der frühere manuelle Weg mit Flachdateien liegt zur Referenz unter [`old/README.md`](old/README.md) - für Neuaufbauten nicht empfohlen. Vollständige Datei-Liste und Legacy-Namens-Mapping: **[docs/installation.md](docs/installation.md#legacy-setup-referenz)**.

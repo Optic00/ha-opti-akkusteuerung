@@ -171,8 +171,8 @@ Stufe gegen die Roh-`ratio` festhält.
 Die Modus-Automation vergleicht den realen SoC mit `sensor.opti_target_soc` — mit einem
 zusätzlichen **Band H = 3 %** als zweiter Schutzschicht gegen Pendeln direkt an der Ziel-Kante:
 
-- **SoC < Ziel − 3** → *Akku Dynamisch* (lädt Richtung Ziel, Option 16)
-- **SoC > Ziel + 3** → *Akku nur Entladen* (genug Reserve, Option 17)
+- **SoC < Ziel − 3** → *Akku Dynamisch* (lädt Richtung Ziel, Option 19)
+- **SoC > Ziel + 3** → *Akku nur Entladen* (genug Reserve, Option 20)
 - **innerhalb ±3 % um das Ziel** → neutrale Zone → Default *Akku Dynamisch*
 
 ### Nachbauen über die zwei Repos
@@ -502,7 +502,7 @@ Reserve ja da. Details zur Leiter (L1-L4) und zum Freigabeband stehen im Abschni
 
 **Warum vor den alten Ladeblöcken (Ben-Entscheidung 2026-07-02):** L1/L2 stehen jetzt direkt
 nach der Peak-Vorladeregel und damit vor den alten SOC-gestuften Ladeblöcken (Option 8-12):
-Peak-Entladen schlägt Winterladen. Die Halte-Stufen L3/L4 (Option 16/17) bleiben hinter den
+Peak-Entladen schlägt Winterladen. Die Halte-Stufen L3/L4 (Option 17/18) bleiben hinter den
 Ladeblöcken stehen — günstiges Laden schlägt Halten. Dazwischen (Option 6/7) sitzt der
 Balancing-Watchdog: er lädt vor den Prognoseblöcken, aber hinter einem aktiven Peak.
 
@@ -638,7 +638,34 @@ Stunden rechtfertigen das Netzladen bei diesem SoC-Niveau.
 
 ---
 
-#### Option 13 — Bei 70%-Überschuss laden (nur tagsüber)
+#### Option 13 - EV-Schnelllade-Sperre: Entladung gesperrt (Tag und Nacht, optional)
+
+| Was | Wert |
+|---|---|
+| Bedingungen | `input_boolean.opti_ev_akku_pause` an **und** `binary_sensor.opti_ev_schnellladung` an |
+| Gesetzter Modus | **Akku nur Laden** |
+
+**Warum:** Lädt evcc das Auto im Modus `now` oder `minpv`, würde der SMA-Wechselrichter im Modus Dynamisch am Netzpunkt ausregeln und den Hausakku in die Wallbox entladen.
+Das ist unerwünscht - der Hausakku soll das Auto nicht laden.
+Der Sperr-Modus ist bewusst „Akku nur Laden" (reine Entladesperre): PV-/Überschussladen bleibt möglich, und das Hysterese-Gedächtnis der Halte-Zweige (Band +5) bleibt konsistent.
+Der evcc-Modus `pv` sperrt nie (lädt per Definition nur Überschuss).
+
+**Position:** Nach den Lade-Zweigen (Netzladen, Balancing und Prognose-Laden schlagen die Sperre - sie ziehen aus dem Netz und stören die Autoladung nicht), vor allen Zweigen, die Dynamisch oder Entladen liefern können (inklusive „Akku voll", sonst entlädt der volle Akku ins Auto).
+Die Entlade-Stufen L1/L2 (Option 4/5) stehen weiter oben und tragen die Sperr-Bedingung explizit als Zusatz-Condition.
+
+**Erkennung (optionales Package `packages/opti_ev_sperre.yaml`):** `binary_sensor.opti_ev_schnellladung` aggregiert die kanonischen Ladepunkt-Sensoren `opti_ev_lp1_schnell`/`opti_ev_lp2_schnell` (Mapping-Schicht, Quelle: HACS-Integration `evcc_intg`) per ODER und hält den Zustand als Latch:
+Eintritt sofort, Austritt erst nach 300 s validem „aus" (Fahrzeug-Regelpausen), bei invaliden evcc-Daten (z. B. evcc-Neustart) wird der Zustand gehalten statt fallengelassen.
+Nach einem HA-Kaltstart ohne Vorzustand startet der Sensor aus (fail-open, bewusst akzeptiert).
+Der Feature-Schalter `input_boolean.opti_ev_akku_pause` ist der Sofort-Notausstieg und wird von keinem delay verzögert; ohne evcc/Mapping bleibt die Sperre dauerhaft inaktiv (fehlende Entitäten zählen in den `state`-Bedingungen als aus).
+Wichtig: die evcc-seitige Batteriesperre muss AUS bleiben - der Akku wird nur von dieser Leiter gesteuert, nie von zwei Systemen.
+
+**Dokumentierte Nebenwirkung:** Der Sperr-Modus erhält das L3/L4-Haltegedächtnis (Band +5), aber nicht ein zuvor aktives Ziel-SoC-Entladegedächtnis.
+Endet die Sperre bei SoC zwischen Ziel und Ziel+3, läuft die Entladung erst ab Ziel+3 wieder an (konservativ).
+Netzladen parallel zur Schnellladung ist bewusst erlaubt (Anschlussleistung reicht).
+
+---
+
+#### Option 14 — Bei 70%-Überschuss laden (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -658,7 +685,7 @@ Entprellung 30 s beidseitig plus Hysterese-Band, wie in der bewährten Opti-2.0-
 
 ---
 
-#### Option 14 — Bei AC-Überschuss laden (nur tagsüber)
+#### Option 15 — Bei AC-Überschuss laden (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -673,7 +700,7 @@ der Netzeinspeisung. Nutzt verfügbare PV-Energie aktiv, bevor sie verschwendet 
 
 ---
 
-#### Option 15 — Bei vollem Akku auf Dynamisch schalten
+#### Option 16 — Bei vollem Akku auf Dynamisch schalten
 
 | Eigenschaft | Wert |
 |---|---|
@@ -688,7 +715,7 @@ einspeisen, bei Verbrauch den Akku nutzen — je nach aktuellem Systemzustand.
 
 ---
 
-#### Option 16 - Peak-Leiter L3: Halten bei EXPENSIVE unter VE-Reserve (Tag und Nacht)
+#### Option 17 - Peak-Leiter L3: Halten bei EXPENSIVE unter VE-Reserve (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -705,7 +732,7 @@ preislich kaum über der aktuellen EXPENSIVE-Stunde, kostet die Entladesperre nu
 
 ---
 
-#### Option 17 - Peak-Leiter L4: Halten bei NORMAL oder billiger unter Gesamt-Reserve (Tag und Nacht)
+#### Option 18 - Peak-Leiter L4: Halten bei NORMAL oder billiger unter Gesamt-Reserve (Tag und Nacht)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -717,11 +744,11 @@ preislich kaum über der aktuellen EXPENSIVE-Stunde, kostet die Entladesperre nu
 **Warum:** Auch bei günstigem Preis wird nicht in die für Peaks reservierte Energie
 entladen, solange der SoC die Gesamt-Reserve noch nicht deutlich übersteigt.
 Trifft keine der vier Leiter-Stufen zu, fällt die Prüfung durch zu den normalen
-Ziel-SoC-Optionen (Option 18/19).
+Ziel-SoC-Optionen (Option 19/20).
 
 ---
 
-#### Option 18 — Dynamisch laden wenn SoC zwischen MinSOC und Ziel-SoC (nur tagsüber)
+#### Option 19 — Dynamisch laden wenn SoC zwischen MinSOC und Ziel-SoC (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -738,7 +765,7 @@ erklärt. Das **−3 %-Band** (H) verhindert Modus-Pendeln direkt an der Ziel-Ka
 
 ---
 
-#### Option 19 — Nur Entladen wenn SoC über Ziel-SoC
+#### Option 20 — Nur Entladen wenn SoC über Ziel-SoC
 
 | Eigenschaft | Wert |
 |---|---|

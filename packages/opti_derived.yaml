@@ -637,7 +637,16 @@ template:
           {% set price = states('sensor.opti_price_level') %}
           {% set day = is_state('sun.sun','above_horizon') %}
           {% set bal_netz = states('input_boolean.opti_balancing_netzladen') == 'on' %}
-          {% set faellig = intervall > 0 and soc >= 0 and soc < 100 and counter >= intervall %}
+          {% set spreiz = states('sensor.byd_zellspreizung_ruhe')|float(-1) %}
+          {% set schwelle = states('input_number.opti_balancing_spreizungs_schwelle')|float(0) %}
+          {% set cooldown = states('input_number.opti_balancing_bedarf_cooldown_tage')|int(0) %}
+          {# Bedarf: Ruhe-Zellspreizung ueber Schwelle UND Mindestabstand (cooldown)
+             seit letztem Vollzyklus -> zieht das Balancing vor. schwelle=0 = aus. #}
+          {% set bedarf = schwelle > 0 and spreiz >= 0 and spreiz >= schwelle and counter >= cooldown %}
+          {# soc<100 bewusst NICHT mehr in faellig: der Watchdog haelt bis zum
+             counter-Reset (30min stabil >done_soc) oben - sonst kappt der maxsoc-
+             Ladedeckel bei 100% zu frueh und der Balancing-Zyklus wird nie fertig. #}
+          {% set faellig = intervall > 0 and soc >= 0 and (counter >= intervall or bedarf) %}
           {# 'netz' hat einen EIGENEN Schalter opti_balancing_netzladen (Default aus),
              entkoppelt vom allgemeinen opti_prognose_netzladen. So bleibt die harte
              Netzlade-Garantie (docs/canonical-layer.md #26) erhalten: Balancing zieht
@@ -661,12 +670,15 @@ template:
             {% set price = states('sensor.opti_price_level') %}
             {% set day = is_state('sun.sun','above_horizon') %}
             {% set bal_netz = states('input_boolean.opti_balancing_netzladen') == 'on' %}
-            {% set faellig = intervall > 0 and soc >= 0 and soc < 100 and counter >= intervall %}
+            {% set spreiz = states('sensor.byd_zellspreizung_ruhe')|float(-1) %}
+            {% set schwelle = states('input_number.opti_balancing_spreizungs_schwelle')|float(0) %}
+            {% set cooldown = states('input_number.opti_balancing_bedarf_cooldown_tage')|int(0) %}
+            {% set bedarf = schwelle > 0 and spreiz >= 0 and spreiz >= schwelle and counter >= cooldown %}
+            {% set faellig = intervall > 0 and soc >= 0 and (counter >= intervall or bedarf) %}
             {% if intervall <= 0 %}Watchdog aus (Intervall 0)
             {%- elif soc < 0 %}opti_soc fehlt
-            {%- elif soc >= 100 %}Akku voll (soc>=100)
-            {%- elif not faellig %}nicht faellig ({{counter}}/{{intervall}} Tage)
-            {%- elif day %}PV-Vollladung (tag, {{counter}} Tage seit voll)
+            {%- elif not faellig %}nicht faellig ({{counter}}/{{intervall}} Tage, Spreizung {{spreiz}}/{{schwelle}}mV)
+            {%- elif day %}PV-Vollladung ({{ 'Zeit' if counter>=intervall else 'Spreizung '~spreiz~'mV' }}, {{counter}} Tage seit voll)
             {%- elif bal_netz and hv_cur and cur < eeg %}Gratis-Netz ({{cur}}ct < EEG {{eeg}}ct)
             {%- elif bal_netz and counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct %}Bezahltes Netz ({{cur}}ct <= Deckel {{maxct}}ct, nach Karenz)
             {%- elif not bal_netz and (hv_cur and cur < eeg or counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct) %}Netz-Balancing gesperrt (opti_balancing_netzladen aus)
@@ -674,6 +686,17 @@ template:
           soc: "{{ states('sensor.opti_soc') }}"
           tage_seit_voll: "{{ states('counter.tage_seit_akku100') }}"
           intervall_tage: "{{ states('input_number.opti_balancing_intervall_tage') }}"
+          faellig_grund: >
+            {% set counter = states('counter.tage_seit_akku100')|int(0) %}
+            {% set intervall = states('input_number.opti_balancing_intervall_tage')|int(0) %}
+            {% set spreiz = states('sensor.byd_zellspreizung_ruhe')|float(-1) %}
+            {% set schwelle = states('input_number.opti_balancing_spreizungs_schwelle')|float(0) %}
+            {% set cooldown = states('input_number.opti_balancing_bedarf_cooldown_tage')|int(0) %}
+            {% set bedarf = schwelle > 0 and spreiz >= 0 and spreiz >= schwelle and counter >= cooldown %}
+            {% set faellig = intervall > 0 and (counter >= intervall or bedarf) %}
+            {% if not faellig %}keiner{% elif counter >= intervall %}zeit{% else %}spreizung{% endif %}
+          ruhe_spreizung_mv: "{{ states('sensor.byd_zellspreizung_ruhe') }}"
+          schwelle_mv: "{{ states('input_number.opti_balancing_spreizungs_schwelle') }}"
 
       # -----------------------------------------------------------------------
       # 8. Strategie-Vorschau (Soll-Modus, READ-ONLY) — spiegelt die Entscheidungs-
@@ -729,6 +752,7 @@ template:
           {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev %}Akku nur Entladen
           {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Akku nur Laden
           {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Akku Netzladen
+          {%- elif not aktiv and not ev and soc >= 0 and soc >= (states('input_number.maxsoc')|float(95) - (3 if states('input_select.akkusteuerung_modus') == 'Akku nur Entladen' else 0)) %}Akku nur Entladen
           {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden
           {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden
@@ -794,6 +818,7 @@ template:
             {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%)
             {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Balancing-Watchdog (PV-Vollladung)
             {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Balancing-Watchdog (Netz-Vollladung)
+            {%- elif not aktiv and not ev and soc >= 0 and soc >= (states('input_number.maxsoc')|float(95) - (3 if states('input_select.akkusteuerung_modus') == 'Akku nur Entladen' else 0)) %}Ladedeckel (maxsoc erreicht)
             {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht)
             {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL)
             {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus

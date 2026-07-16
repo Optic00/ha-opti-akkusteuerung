@@ -482,9 +482,16 @@ def test_watchdog_nicht_faellig():
 
 
 # (g) soc >= 100 -> Watchdog aus (auch bei Tag/faelligem Counter)
-def test_watchdog_akku_voll_aus():
+def test_watchdog_akku_voll_haelt_pv():
+    # SoC 100, Counter noch nicht resettet -> Watchdog haelt 'pv'. Das fruehere
+    # soc<100-Gate ist bewusst weg: sonst kappte der maxsoc-Deckel bei 100 % zu
+    # frueh und der Balancing-Zyklus (Counter-Reset braucht 30 min > done_soc)
+    # wurde nie fertig.
     assert watchdog(**{"sensor.opti_soc": "100",
-                       "sun.sun": "above_horizon"}) == "aus"
+                       "sun.sun": "above_horizon"}) == "pv"
+    # Erst der Counter-Reset beendet den Zyklus wirklich.
+    assert watchdog(**{"sensor.opti_soc": "100", "sun.sun": "above_horizon",
+                       "counter.tage_seit_akku100": "0"}) == "aus"
 
 
 # (h) L1/L2-Peak schlaegt den Watchdog (Watchdog steht in der Kaskade dahinter)

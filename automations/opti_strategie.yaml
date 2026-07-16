@@ -316,13 +316,21 @@
         # Haltelogik (L3/L4) bei anstehender Preisspitze Vorrang behaelt.
         # Ohne diesen Zweig setzte die neutrale Zone um den Ziel-SoC (bzw. der
         # Default) den Modus auf 'Akku Dynamisch', worauf der WR freien PV-
-        # Ueberschuss ueber maxsoc trickelt (beobachtet 2026-07-13: 96 % bei
+        # Ueberschuss ueber maxsoc trickelt (beobachtet 2026-07-13: 99 % bei
         # maxsoc 95). 'Akku nur Entladen' zwingt den Adapter auf Ladeleistung 0.
         # Asymmetrische Hysterese (rein bei >= maxsoc, drin bis < maxsoc-3) gegen
         # Modus-Flattern an der Kante - selbe Philosophie wie der Ziel-SoC-Zweig.
         # ---------------------------------------------------------------------
         - alias: "Modus 'nur Entladen' (Ladedeckel): SoC >= maxsoc, kein Balancing/Peak faellig"
           conditions:
+            # EV-Sperre inaktiv: waehrend evcc-Schnellladung darf der Deckel den
+            # Akku NICHT entladen (sonst speist der Akku in die Wallbox). Gleicher
+            # Guard wie Peak-Leiter L1/L2.
+            - alias: "EV-Sperre inaktiv (Schnellladung sperrt Entladung)"
+              condition: template
+              value_template: >-
+                {{ not (is_state('input_boolean.opti_ev_akku_pause', 'on')
+                        and is_state('binary_sensor.opti_ev_schnellladung', 'on')) }}
             - condition: state
               entity_id: binary_sensor.opti_peak_reserve_aktiv
               state: "off"

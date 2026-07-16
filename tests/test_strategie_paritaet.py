@@ -1,14 +1,14 @@
 """Paritaets-Test: echte Steuer-Automation vs. Spiegel-Sensor.
 
 Die Steuerung lebt in automations/opti_strategie.yaml (action-Alias
-"Zwischen Speicherszenarien waehlen": choose-Kette mit 19 Optionen + default).
+"Zwischen Speicherszenarien waehlen": choose-Kette mit 21 Optionen + default).
 Ihr Spiegel ist der Vorschau-Sensor opti_strategie_vorschau in
 packages/opti_derived.yaml (state-if/elif-Kette + grund-Attribut). Der
 YAML-Kommentar verlangt manuelle Spiegelung ("MUSS mitgespiegelt werden") -
 ohne diesen Test laesst eine Aenderung an der Automation alle Tests gruen,
 obwohl die Steuerung von der Vorschau abweicht.
 
-Der Test baut fuer JEDE der 19 choose-Optionen + den Default eine Fixture
+Der Test baut fuer JEDE der 21 choose-Optionen + den Default eine Fixture
 (FakeHass-Zustand), die genau diesen Zweig trifft, und prueft:
   (i)   Automation-choose-Kette (eigener Evaluator) -> getroffener Zweig-Index
         + gesetzter Modus.
@@ -16,7 +16,7 @@ Der Test baut fuer JEDE der 19 choose-Optionen + den Default eine Fixture
   Assert: Modus identisch UND der getroffene Zweig ist der beabsichtigte
   (Index der choose-Option == Position des grund-Labels).
 Ein Struktur-Assert koppelt die Zahl der choose-Optionen an die Zahl der vom
-Test abgedeckten Zweige: wer eine 20. Option ergaenzt, ohne den Test zu
+Test abgedeckten Zweige: wer eine weitere Option ergaenzt, ohne den Test zu
 erweitern, bricht hier hart.
 
 Bewusst ignoriert: Trigger und die Top-Level-condition der Automation
@@ -24,7 +24,7 @@ Bewusst ignoriert: Trigger und die Top-Level-condition der Automation
 Booster-Aus). Fuer die Paritaet zaehlt ausschliesslich die Modus-Wahl in der
 choose-Kette der Action "Zwischen Speicherszenarien waehlen".
 
-Bekannte, GEWOLLTE Aequivalenz (kein Fail): die Vorschau-L3 (Zweig 15) laesst
+Bekannte, GEWOLLTE Aequivalenz (kein Fail): die Vorschau-L3 (Zweig 17) laesst
 die Bedingung 'soc <= ve_res + band' weg, die in der Automation-L3 explizit
 steht. Das ist aequivalent, weil fuer soc > ve_res + band bei EXPENSIVE bereits
 der davorstehende L2-Zweig (Index 4) in BEIDEN Seiten entladen haette; die
@@ -137,27 +137,33 @@ BRANCHES = [
     (6, "balancing_watchdog_netz",
      {"sensor.opti_balancing_watchdog": "netz"},
      "Akku Netzladen", "Balancing-Watchdog (Netz"),
-    (7, "soc20_prognose",
+    (7, "ladedeckel",
+     # BASIS: maxsoc 95, peak_reserve_aktiv off, watchdog aus, EV-Sperre aus ->
+     # soc 96 >= maxsoc trifft den Deckel. Der EV-Guard-Fall (Sperre an ->
+     # Deckel uebersprungen) liegt in test_ev_sperre.py (akku_voll_gesperrt).
+     {"sensor.opti_soc": "96"},
+     "Akku nur Entladen", "Ladedeckel"),
+    (8, "soc20_prognose",
      {"sensor.opti_soc": "18", "sensor.opti_forecast_score": "1",
       "sensor.opti_forecast_score_tomorrow": "1", "sensor.opti_price_level": "NORMAL"},
      "Akku nur Laden", "SOC<20"),
-    (8, "soc75_prognose",
+    (9, "soc75_prognose",
      {"sensor.opti_soc": "50", "sensor.opti_forecast_score": "1",
       "sensor.opti_forecast_score_tomorrow": "1", "sensor.opti_price_level": "NORMAL"},
      "Akku nur Laden", "SOC<75"),
-    (9, "soc80_wintermodus",
+    (10, "soc80_wintermodus",
      {"sensor.opti_soc": "78", "sensor.opti_forecast_score": "1",
       "sensor.opti_forecast_score_tomorrow": "1", "sensor.opti_price_level": "EXPENSIVE"},
      "Akku nur Laden", "SOC<80 Wintermodus"),
-    (10, "soc15_notfall",
+    (11, "soc15_notfall",
      {"sensor.opti_soc": "12", "sensor.opti_forecast_score": "1",
       "sensor.opti_price_level": "NORMAL"},
      "Akku nur Laden", "SOC<15 Notfall"),
-    (11, "soc45_sehr_guenstig",
+    (12, "soc45_sehr_guenstig",
      {"sensor.opti_soc": "30", "sensor.opti_forecast_score": "1",
       "sensor.opti_price_level": "CHEAP"},
      "Akku nur Laden", "SOC<45"),
-    (12, "ev_sperre_schattet_ueberschuss",
+    (13, "ev_sperre_schattet_ueberschuss",
      # Fixture wuerde ohne Sperre den 70%-Ueberschuss-Zweig treffen (wie
      # ueberschuss_70) - mit Sperre muss der EV-Zweig davor greifen und
      # 'Akku nur Laden' liefern (PV-Laden bleibt im Sperr-Modus moeglich).
@@ -166,32 +172,37 @@ BRANCHES = [
       "input_boolean.opti_ev_akku_pause": "on",
       "binary_sensor.opti_ev_schnellladung": "on"},
      "Akku nur Laden", "EV-Sperre"),
-    (13, "ueberschuss_70",
+    (14, "ueberschuss_70",
      {"sun.sun": "above_horizon", "sensor.opti_soc": "70", "sensor.opti_target_soc": "50",
       "binary_sensor.opti_ueberschuss_70_aktiv": "on"},
      "Akku Dynamisch", "70% Ueberschuss"),
-    (14, "ueberschuss_ac",
+    (15, "ueberschuss_ac",
      {"sun.sun": "above_horizon", "sensor.opti_soc": "70", "sensor.opti_target_soc": "50",
       "binary_sensor.opti_ueberschuss_ac_aktiv": "on"},
      "Akku Dynamisch", "AC Ueberschuss"),
-    (15, "akku_voll",
-     {"sensor.opti_soc": "100"},
+    (16, "akku_voll",
+     # Seit dem Ladedeckel ist 'Akku voll' bei soc >= maxsoc geschattet (der
+     # Deckel bei Index 7 gewinnt und entlaedt). Erreichbar bleibt der Zweig,
+     # wenn der Deckel gegated ist - hier via aktiver Peak-Reserve (L1-L4
+     # greifen bei NORMAL-Preis nicht).
+     {"sensor.opti_soc": "100", "binary_sensor.opti_peak_reserve_aktiv": "on",
+      "_attrs": reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0)},
      "Akku Dynamisch", "Akku voll"),
-    (16, "leiter_l3_halten",
+    (17, "leiter_l3_halten",
      {**LEITER_BASE, "sensor.opti_soc": "31", "sensor.opti_price_level": "EXPENSIVE",
       "input_boolean.opti_prognose_netzladen": "off",
       "input_number.opti_halte_spread_ct": "3",
       "_attrs": reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0, ve_avg=55.0)},
      "Akku nur Laden", "Peak-Leiter L3"),
-    (17, "leiter_l4_halten",
+    (18, "leiter_l4_halten",
      {**LEITER_BASE, "sensor.opti_soc": "40", "sensor.opti_price_level": "NORMAL",
       "input_boolean.opti_prognose_netzladen": "off",
       "_attrs": reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0)},
      "Akku nur Laden", "Peak-Leiter L4"),
-    (18, "dyn_bis_ziel",
+    (19, "dyn_bis_ziel",
      {"sun.sun": "above_horizon", "sensor.opti_soc": "40", "sensor.opti_target_soc": "60"},
      "Akku Dynamisch", "dyn bis Ziel"),
-    (19, "ueber_ziel_soc",
+    (20, "ueber_ziel_soc",
      {"sensor.opti_soc": "70", "sensor.opti_target_soc": "60"},
      "Akku nur Entladen", "ueber Ziel-SoC"),
 ]

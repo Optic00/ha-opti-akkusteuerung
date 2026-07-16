@@ -45,8 +45,8 @@ Ein Modul-Ausbau (Turm läuft offiziell auch mit 4 Modulen) ist erst sinnvoll, w
 
 ## Design-Historie
 
-Das ursprüngliche, Codex-adversarial gehärtete Design samt Umsetzungsplan liegt unter [docs/superpowers/specs/2026-07-15-byd-modul2-fruehwarnung-design.md](superpowers/specs/2026-07-15-byd-modul2-fruehwarnung-design.md) und [docs/superpowers/plans/2026-07-15-byd-modul2-fruehwarnung.md](superpowers/plans/2026-07-15-byd-modul2-fruehwarnung.md).
-Abweichung zum dortigen Stand: das Package liegt separat (nicht in `byd_bmu.yaml` gebündelt, Live-Parität) und die Helfer tragen kein `initial:` mehr (Neustart-Reset-Bug, Codex-Review 16.7.).
+Das ursprüngliche, Codex-adversarial gehärtete Design liegt unter [byd-modul2-fruehwarnung-design.md](byd-modul2-fruehwarnung-design.md).
+Abweichungen zum dortigen Stand: das Package liegt separat (nicht in `byd_bmu.yaml` gebündelt, Live-Parität) und die Helfer tragen kein `initial:` mehr (Neustart-Reset-Bug, Codex-Review 16.7.).
 
 ## Status und offene Punkte
 

@@ -43,6 +43,11 @@ Stabiler Offset bei Metrik A plus stabile kWh bei Metrik B bedeutet Fertigungsst
 Wachsende Absackung im gleichen Betriebspunkt oder sinkende Nettoenergie-bis-Knie über Monate bedeutet beschleunigte Alterung, dann die Messreihe sichern und den Garantiefall mit Daten belegen (BYD Battery-Box Premium: 10 Jahre mit Kapazitätszusage).
 Ein Modul-Ausbau (Turm läuft offiziell auch mit 4 Modulen) ist erst sinnvoll, wenn das Modul effektiv mehr als seine eigene Kapazität kostet oder aktiv stört, und damit klar hinter Beobachten und Garantiefall die dritte Option.
 
+## Design-Historie
+
+Das ursprüngliche, Codex-adversarial gehärtete Design samt Umsetzungsplan liegt unter [docs/superpowers/specs/2026-07-15-byd-modul2-fruehwarnung-design.md](superpowers/specs/2026-07-15-byd-modul2-fruehwarnung-design.md) und [docs/superpowers/plans/2026-07-15-byd-modul2-fruehwarnung.md](superpowers/plans/2026-07-15-byd-modul2-fruehwarnung.md).
+Abweichung zum dortigen Stand: das Package liegt separat (nicht in `byd_bmu.yaml` gebündelt, Live-Parität) und die Helfer tragen kein `initial:` mehr (Neustart-Reset-Bug, Codex-Review 16.7.).
+
 ## Status und offene Punkte
 
 - Live seit 15.07.2026, die Absackungs-Metrik liefert seitdem Daten.

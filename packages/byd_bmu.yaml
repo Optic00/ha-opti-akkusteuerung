@@ -364,10 +364,11 @@ template:
   # ---------------------------------------------------------------------------
   # Ruhe-Spreizung: aktualisiert NUR, wenn der Akku (nahezu) lastfrei ist
   # (|Leistung| < 300 W) UND der SoC im flachen Teil der LFP-Kennlinie liegt
-  # (15-85 %). Unter Last steigt die Spreizung durch Innenwiderstands-
+  # (25-85 %). Unter Last steigt die Spreizung durch Innenwiderstands-
   # Unterschiede, am oberen/unteren Kennlinien-Knie (Ladeschluss/Tiefentladung)
   # laeuft sie kennlinienbedingt hoch (beobachtet 11.7.: 292 mV bei SoC 99 %,
-  # 1-4 mV bei Mittel-SoC) - beides ist nicht vergleichbar. Erst dieser
+  # 1-4 mV bei Mittel-SoC; 16.7.: 34-38 mV bei SoC ~17 % am unteren Knie -
+  # deshalb unteres Gate von 15 auf 25 % angehoben) - beides ist nicht vergleichbar. Erst dieser
   # gefilterte Sensor macht Wochen-Trends und den spaeteren Bedarfs-Balancing-
   # Trigger moeglich. Haelt zwischen Ruhephasen den letzten Wert (RestoreEntity).
   # ---------------------------------------------------------------------------
@@ -381,7 +382,7 @@ template:
         below: 300
       - condition: numeric_state
         entity_id: sensor.byd_soc
-        above: 15
+        above: 25
         below: 85
       - condition: template
         value_template: "{{ has_value('sensor.byd_zellspreizung') }}"
@@ -558,7 +559,7 @@ automation:
               Datenquelle: bydlogc via MQTT (Abtastung ~60 s). BMS-Schutzgrenzen
               2,75/3,65 V - die Alarme liegen bewusst davor. Zellspannungs-Alarme
               sind SoC-gegated (<90 %), am Ladeschluss zaehlt nur die BMS-Grenze.
-              Zellspreizung ist nur in Ruhe und bei SoC 15-85 % vergleichbar.
+              Zellspreizung ist nur in Ruhe und bei SoC 25-85 % vergleichbar.
             daten: >-
               Ausgeloest durch Regel: {{ trigger.id }}
               {{ alarm_text }}

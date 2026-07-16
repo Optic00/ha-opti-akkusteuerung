@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import pathlib
+import statistics
 import types
 from ast import literal_eval
 from zoneinfo import ZoneInfo
@@ -96,6 +97,9 @@ def _setup(env, hass):
         "float": _float, "int": _int,
         "as_datetime": _as_datetime, "as_local": _as_local,
         "round": lambda v, n=0: round(float(v), n),
+        # HA-median: ungerade Anzahl -> mittleres Element, gerade -> Mittelwert
+        # der beiden mittleren (wie statistics.median).
+        "median": lambda v: statistics.median(float(x) for x in v),
     })
     return env
 

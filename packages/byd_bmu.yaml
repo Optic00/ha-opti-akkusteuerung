@@ -313,6 +313,71 @@ mqtt:
       state_class: measurement
       expire_after: 300
 
+    # ---- Schwaechste/staerkste Zell-Nummer je Modul (MinVoltID/MaxVoltID) ----
+    # Von der Modul-2-Fruehwarnung (packages/byd_modul2_fruehwarnung.yaml) als
+    # Attribut referenziert; auch solo nuetzlich, um zu sehen, ob immer DIESELBE
+    # Zelle das Modul-Minimum stellt (Zell-Problem) oder es wandert (Streuung).
+    - name: "BYD Modul 1 Min-Zell-ID"
+      unique_id: byd_bmu_m1_min_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_1/MinVoltID"
+      icon: mdi:battery-arrow-down
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 1 Max-Zell-ID"
+      unique_id: byd_bmu_m1_max_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_1/MaxVoltID"
+      icon: mdi:battery-arrow-up
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 2 Min-Zell-ID"
+      unique_id: byd_bmu_m2_min_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_2/MinVoltID"
+      icon: mdi:battery-arrow-down
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 2 Max-Zell-ID"
+      unique_id: byd_bmu_m2_max_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_2/MaxVoltID"
+      icon: mdi:battery-arrow-up
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 3 Min-Zell-ID"
+      unique_id: byd_bmu_m3_min_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_3/MinVoltID"
+      icon: mdi:battery-arrow-down
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 3 Max-Zell-ID"
+      unique_id: byd_bmu_m3_max_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_3/MaxVoltID"
+      icon: mdi:battery-arrow-up
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 4 Min-Zell-ID"
+      unique_id: byd_bmu_m4_min_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_4/MinVoltID"
+      icon: mdi:battery-arrow-down
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 4 Max-Zell-ID"
+      unique_id: byd_bmu_m4_max_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_4/MaxVoltID"
+      icon: mdi:battery-arrow-up
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 5 Min-Zell-ID"
+      unique_id: byd_bmu_m5_min_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_5/MinVoltID"
+      icon: mdi:battery-arrow-down
+      entity_category: diagnostic
+      expire_after: 300
+    - name: "BYD Modul 5 Max-Zell-ID"
+      unique_id: byd_bmu_m5_max_volt_id
+      state_topic: "Battery/BYD/BMS_1/Module_5/MaxVoltID"
+      icon: mdi:battery-arrow-up
+      entity_category: diagnostic
+      expire_after: 300
+
   binary_sensor:
     - name: "BYD Balancing aktiv"
       unique_id: byd_bmu_balancing
@@ -331,8 +396,8 @@ template:
       # Min/Max kommen als getrennte MQTT-Topics ~60 s versetzt an - kurz nach
       # einem Update kann max-min deshalb verzerrt oder sogar negativ sein
       # (Artefakt, kein Zellzustand). Negative Werte werden auf 0 geklemmt;
-      # gegen die positiven Transienten schuetzen die Ruhe-/SoC-Gates des
-      # Ruhe-Sensors und die for:-Haltezeiten der Alarme.
+      # gegen die positiven Transienten schuetzen der Median des Ruhe-Sensors
+      # und die for:-Haltezeiten der Alarme.
       - unique_id: byd_bmu_zellspreizung_mv
         name: "BYD Zellspreizung"
         unit_of_measurement: "mV"
@@ -350,8 +415,12 @@ template:
         unit_of_measurement: "K"
         state_class: measurement
         icon: mdi:thermometer-alert
+        # Availability prueft min UND max (stichprobenartig Modul 1/5 - die
+        # Topics fallen praktisch nur gemeinsam aus); Negativ-Klemme wie bei
+        # der Zellspreizung gegen Artefakte bei Teil-Ausfaellen.
         availability: >
-          {{ has_value('sensor.byd_modul_1_temp_max') and has_value('sensor.byd_modul_5_temp_max') }}
+          {{ has_value('sensor.byd_modul_1_temp_max') and has_value('sensor.byd_modul_5_temp_max')
+             and has_value('sensor.byd_modul_1_temp_min') and has_value('sensor.byd_modul_5_temp_min') }}
         state: >
           {% set tmax = [states('sensor.byd_modul_1_temp_max')|float(0), states('sensor.byd_modul_2_temp_max')|float(0),
                          states('sensor.byd_modul_3_temp_max')|float(0), states('sensor.byd_modul_4_temp_max')|float(0),
@@ -359,7 +428,7 @@ template:
           {% set tmin = [states('sensor.byd_modul_1_temp_min')|float(99), states('sensor.byd_modul_2_temp_min')|float(99),
                          states('sensor.byd_modul_3_temp_min')|float(99), states('sensor.byd_modul_4_temp_min')|float(99),
                          states('sensor.byd_modul_5_temp_min')|float(99)] | min %}
-          {{ (tmax - tmin) | round(0) }}
+          {{ [0, (tmax - tmin) | round(0)] | max }}
 
   # ---------------------------------------------------------------------------
   # Ruhe-Spreizung: aktualisiert NUR, wenn der Akku (nahezu) lastfrei ist
@@ -371,6 +440,12 @@ template:
   # deshalb unteres Gate von 15 auf 25 % angehoben) - beides ist nicht vergleichbar. Erst dieser
   # gefilterte Sensor macht Wochen-Trends und den spaeteren Bedarfs-Balancing-
   # Trigger moeglich. Haelt zwischen Ruhephasen den letzten Wert (RestoreEntity).
+  #
+  # Median statt Rohwert (16.7.): Min/Max-Topics kommen ~60 s versetzt an - ein
+  # einzelner verzerrter Spreizungswert im Ruhefenster wuerde sonst gelatcht und
+  # koennte, wenn der Akku das Fenster direkt danach verlaesst, die 1-h-for-Zeit
+  # des Alarms per Stagnation erfuellen. Der Median der letzten 5 Gate-Messungen
+  # (Artefakte betreffen max. 1-2 aufeinanderfolgende Samples) kappt das.
   # ---------------------------------------------------------------------------
   - triggers:
       - trigger: state
@@ -392,8 +467,13 @@ template:
         unit_of_measurement: "mV"
         state_class: measurement
         icon: mdi:arrow-collapse-vertical
-        state: "{{ states('sensor.byd_zellspreizung') }}"
+        state: >
+          {% set reihe = (this.attributes.get('messreihe') or [])[-4:] + [states('sensor.byd_zellspreizung')|float(0)] %}
+          {{ reihe | median | round(0) }}
         attributes:
+          # Rollierende Messreihe der letzten 5 Gate-Messungen (Median-Basis).
+          messreihe: >
+            {{ (this.attributes.get('messreihe') or [])[-4:] + [states('sensor.byd_zellspreizung')|float(0)] }}
           soc: "{{ states('sensor.byd_soc') }}"
           leistung_w: "{{ states('sensor.byd_leistung') }}"
           gemessen: "{{ now().isoformat() }}"
@@ -519,7 +599,7 @@ automation:
               'temp_hoch': 'Zelltemperatur hoch: ' ~ trigger.to_state.state ~ ' C (>45 C, ' ~ trigger.to_state.name ~ ').',
               'temp_kritisch': 'Zelltemperatur KRITISCH: ' ~ trigger.to_state.state ~ ' C (>50 C, ' ~ trigger.to_state.name ~ ') - sofort pruefen!',
               'temp_delta': 'Temperatur-Spreizung zwischen Modulen: ' ~ states('sensor.byd_temperatur_spreizung') ~ ' K (>10 K seit 15 min) - ein Modul weicht ab.',
-              'ruhe_spreizung': 'Zellspreizung in Ruhe dauerhaft hoch: ' ~ states('sensor.byd_zellspreizung_ruhe') ~ ' mV (>50 mV seit 1 h, gemessen im flachen Kennlinienbereich) - Balancing-Bedarf pruefen.',
+              'ruhe_spreizung': 'Zellspreizung in Ruhe dauerhaft hoch: ' ~ states('sensor.byd_zellspreizung_ruhe') ~ ' mV (>50 mV seit 1 h, Median der letzten 5 Ruhe-Messungen im flachen Kennlinienbereich) - Balancing-Bedarf pruefen.',
               'stale': 'Keine BYD-BMU-Daten seit >15 min - bydlogc-Container/MQTT-Strecke pruefen.'
             } %}{{ t.get(trigger.id, 'BYD-Alarm: ' ~ trigger.id) }}
       - alias: "Push"

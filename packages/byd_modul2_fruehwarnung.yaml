@@ -1,0 +1,364 @@
+# =============================================================================
+# BYD Modul-2 Fruehwarnung (OPTIONAL, setzt packages/byd_bmu.yaml voraus)
+# -----------------------------------------------------------------------------
+# Beobachtet das schwaechste Modul des Turms (hier: Modul 2 mit Zelle 23) auf
+# schleichende Degradation - rein beobachtend, KEINE Steuerwirkung.
+# Fuer andere Tuerme die Modul-Nummer in den Templates/Triggern anpassen.
+#
+# Zwei Metriken (Doku/Design: docs/byd-modul2-fruehwarnung.md):
+#   A) sensor.byd_modul_2_absackung - relative Zell-Absackung in mV gegenueber
+#      dem Peer-Median der 4 Nachbarmodule (laufend).
+#   B) sensor.byd_modul_2_netto_bis_knie - Nettoenergie in kWh von der letzten
+#      Vollladung bis zum LFP-Knie der schwaechsten Zelle (pro Vollzyklus ein
+#      Messwert; DIE Trend-Metrik fuer Kapazitaets-Degradation).
+#
+# Zustandsmaschine (input_select.byd_knie_zyklus_status):
+#   idle -> armed (Voll-Anker nach Ladeschluss) -> latched (Knie erreicht,
+#   Snapshot) bzw. invalid (Messqualitaet unzureichend).
+#
+# Referenzierte Roh-Entitaeten (alle aus packages/byd_bmu.yaml):
+#   sensor.byd_soc / byd_leistung / byd_zellspannung_max /
+#   byd_modul_1..5_zellspannung_min / byd_modul_2_min_zell_id /
+#   byd_modul_2_max_zell_id / byd_modul_2_temp_max /
+#   byd_geladen_gesamt / byd_entladen_gesamt
+# =============================================================================
+
+# KEIN initial: auf den Helfern - HA wendet initial bei JEDEM Neustart an
+# (nicht nur beim ersten Setup) und wuerde Referenzspannung und Zyklus-Status
+# ueberschreiben; ohne initial restored HA den letzten Wert. Erstinstallation:
+# byd_knie_referenzspannung einmalig auf 3,20 V stellen (ohne gespeicherten
+# Wert startet der Helfer am unteren Skalenende).
+input_number:
+  byd_knie_referenzspannung:
+    name: "BYD Knie-Referenzspannung"
+    min: 3.05
+    max: 3.35
+    step: 0.005
+    unit_of_measurement: "V"
+    mode: box
+    icon: mdi:sine-wave
+  byd_knie_ref_frozen:
+    name: "BYD Knie-Referenz (eingefroren)"
+    min: 3.05
+    max: 3.35
+    step: 0.001
+    unit_of_measurement: "V"
+    mode: box
+    icon: mdi:snowflake
+
+input_boolean:
+  byd_knie_armed:
+    name: "BYD Knie scharf"
+    icon: mdi:target
+  byd_knie_ueberschwelle_gesehen:
+    name: "BYD Knie Ueberschwelle gesehen"
+    icon: mdi:arrow-up-bold
+  byd_top_erreicht:
+    name: "BYD Ladeschluss erreicht"
+    icon: mdi:arrow-collapse-up
+
+input_select:
+  byd_knie_zyklus_status:
+    name: "BYD Knie Zyklus-Status"
+    # Erste Option = Startwert bei Erstinstallation; danach restore.
+    options: ["idle", "armed", "latched", "invalid"]
+    icon: mdi:state-machine
+
+input_text:
+  byd_knie_cycle_id:
+    name: "BYD Knie Cycle-ID"
+    max: 40
+  byd_knie_invalid_grund:
+    name: "BYD Knie Invalid-Grund"
+    max: 120
+
+input_datetime:
+  byd_voll_anker_zeit:
+    name: "BYD Voll-Anker Zeit"
+    has_date: true
+    has_time: true
+
+utility_meter:
+  byd_geladen_seit_voll:
+    source: sensor.byd_geladen_gesamt
+    name: "BYD geladen seit Voll"
+    periodically_resetting: false      # Quelle ist total_increasing, kein Zyklus-Reset
+  byd_entladen_seit_voll:
+    source: sensor.byd_entladen_gesamt
+    name: "BYD entladen seit Voll"
+    periodically_resetting: false
+
+template:
+  - binary_sensor:
+      - unique_id: byd_daten_frisch
+        name: "BYD Daten frisch"
+        device_class: connectivity
+        icon: mdi:database-check
+        state: >
+          {{ has_value('sensor.byd_soc') and has_value('sensor.byd_leistung')
+             and has_value('sensor.byd_modul_1_zellspannung_min')
+             and has_value('sensor.byd_modul_2_zellspannung_min')
+             and has_value('sensor.byd_modul_3_zellspannung_min')
+             and has_value('sensor.byd_modul_4_zellspannung_min')
+             and has_value('sensor.byd_modul_5_zellspannung_min')
+             and has_value('sensor.byd_geladen_seit_voll')
+             and has_value('sensor.byd_entladen_seit_voll') }}
+      - unique_id: byd_entladeband
+        name: "BYD Entladeband"
+        icon: mdi:speedometer-slow
+        state: >
+          {% set p = states('sensor.byd_leistung')|float(0) %}
+          {{ has_value('sensor.byd_leistung') and 500 <= p <= 1500 }}
+
+  - sensor:
+      # Nettoenergie seit dem letzten Voll-Anker (entladen - geladen, kWh).
+      # measurement statt total_increasing (darf bei PV-Ladung sinken).
+      - unique_id: byd_netto_energie_seit_voll
+        name: "BYD Nettoenergie seit Voll"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: measurement
+        icon: mdi:battery-minus-outline
+        availability: >
+          {{ has_value('sensor.byd_entladen_seit_voll') and has_value('sensor.byd_geladen_seit_voll') }}
+        state: >
+          {{ (states('sensor.byd_entladen_seit_voll')|float
+              - states('sensor.byd_geladen_seit_voll')|float) | round(3) }}
+
+      # Sensor A: relative Zell-Absackung (mV, Peer-Median der 4 Nachbarmodule
+      # ggue. Modul 2). availability nur an die 5 Modul-Minima gekoppelt.
+      - unique_id: byd_modul2_absackung
+        name: "BYD Modul-2 Absackung"
+        unit_of_measurement: "mV"
+        state_class: measurement
+        icon: mdi:arrow-down-bold-box
+        availability: >
+          {{ has_value('sensor.byd_modul_1_zellspannung_min') and has_value('sensor.byd_modul_2_zellspannung_min')
+             and has_value('sensor.byd_modul_3_zellspannung_min') and has_value('sensor.byd_modul_4_zellspannung_min')
+             and has_value('sensor.byd_modul_5_zellspannung_min') }}
+        state: >
+          {% set peers = [states('sensor.byd_modul_1_zellspannung_min')|float,
+                          states('sensor.byd_modul_3_zellspannung_min')|float,
+                          states('sensor.byd_modul_4_zellspannung_min')|float,
+                          states('sensor.byd_modul_5_zellspannung_min')|float] | sort %}
+          {% set peer_median = (peers[1] + peers[2]) / 2 %}
+          {% set m2 = states('sensor.byd_modul_2_zellspannung_min')|float %}
+          {{ ((peer_median - m2) * 1000) | round(1) }}
+        attributes:
+          soc: "{{ states('sensor.byd_soc') }}"
+          leistung_w: "{{ states('sensor.byd_leistung') }}"
+          modul2_volt: "{{ states('sensor.byd_modul_2_zellspannung_min') }}"
+          schwaechste_zelle_id: "{{ states('sensor.byd_modul_2_min_zell_id') }}"
+          peer_median_volt: >
+            {% set peers = [states('sensor.byd_modul_1_zellspannung_min')|float,
+                            states('sensor.byd_modul_3_zellspannung_min')|float,
+                            states('sensor.byd_modul_4_zellspannung_min')|float,
+                            states('sensor.byd_modul_5_zellspannung_min')|float] | sort %}
+            {{ ((peers[1] + peers[2]) / 2) | round(3) }}
+          schwaechstes_modul: >
+            {% set ns = namespace(min_v=99, idx='?') %}
+            {% for i in [1,2,3,4,5] %}
+              {% set v = states('sensor.byd_modul_' ~ i ~ '_zellspannung_min')|float(99) %}
+              {% if v < ns.min_v %}{% set ns.min_v = v %}{% set ns.idx = i|string %}{% endif %}
+            {% endfor %}
+            {{ ns.idx }}
+
+  # Latch-Sensor: snapshottet Nettoenergie + Begleitwerte im Moment, in dem der
+  # Knie-Zyklus-Status nach "latched" wechselt.
+  - triggers:
+      - trigger: state
+        entity_id: input_select.byd_knie_zyklus_status
+        to: "latched"
+    sensor:
+      - unique_id: byd_modul2_netto_bis_knie
+        name: "BYD Modul-2 Nettoenergie bis Knie"
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: measurement
+        icon: mdi:battery-alert-variant-outline
+        state: "{{ states('sensor.byd_nettoenergie_seit_voll') }}"
+        attributes:
+          netto_kwh: "{{ states('sensor.byd_nettoenergie_seit_voll') }}"
+          geladen_inkrement_kwh: "{{ states('sensor.byd_geladen_seit_voll') }}"
+          entladen_inkrement_kwh: "{{ states('sensor.byd_entladen_seit_voll') }}"
+          a_absackung_mv: "{{ states('sensor.byd_modul_2_absackung') }}"
+          soc: "{{ states('sensor.byd_soc') }}"
+          leistung_w: "{{ states('sensor.byd_leistung') }}"
+          modul2_volt: "{{ states('sensor.byd_modul_2_zellspannung_min') }}"
+          modul2_schwaechste_zelle_id: "{{ states('sensor.byd_modul_2_min_zell_id') }}"
+          modul2_staerkste_zelle_id: "{{ states('sensor.byd_modul_2_max_zell_id') }}"
+          modul_temp_c: "{{ states('sensor.byd_modul_2_temp_max') }}"
+          ref_verwendet_v: "{{ states('input_number.byd_knie_ref_frozen') }}"
+          cycle_id: "{{ states('input_text.byd_knie_cycle_id') }}"
+          sauberer_zyklus: "{{ states('sensor.byd_geladen_seit_voll')|float(0) < 0.5 }}"
+          gemessen: "{{ now().isoformat() }}"
+
+automation:
+  - id: byd_top_erreicht_merker
+    alias: "BYD | Ladeschluss-Merker setzen"
+    description: "Merkt sich, dass im laufenden Ladevorgang die Ladeschluss-Zellspannung erreicht wurde (Voll-Anker-Evidenz)."
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.byd_zellspannung_max
+        above: 3.55
+        for: "00:02:00"
+    conditions: []
+    actions:
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.byd_top_erreicht }
+
+  - id: byd_voll_anker
+    alias: "BYD | Voll-Anker (Ladeabschluss)"
+    description: >-
+      Ladeabschluss-Event: Zellmax war >=3,55 V (Merker), danach Ladeende
+      (Leistung > -300 W = nicht mehr nennenswert Laden) fuer 5 min. Setzt den
+      Knie-Zyklus neu auf. Re-Arm-Sperre: nur wenn idle ODER seit letztem Anker
+      >=0,5 kWh netto entnommen (verhindert Mehrfach-Reset im Ladeschluss-Flattern).
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.byd_leistung
+        above: -300
+        for: "00:05:00"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.byd_top_erreicht
+        state: "on"
+      - condition: numeric_state
+        entity_id: sensor.byd_soc
+        above: 94
+      - condition: state
+        entity_id: binary_sensor.byd_daten_frisch
+        state: "on"
+      - condition: template
+        value_template: >
+          {{ is_state('input_select.byd_knie_zyklus_status','idle')
+             or states('sensor.byd_nettoenergie_seit_voll')|float(0) >= 0.5 }}
+    actions:
+      - action: utility_meter.reset
+        target:
+          entity_id:
+            - sensor.byd_geladen_seit_voll
+            - sensor.byd_entladen_seit_voll
+      - action: input_number.set_value
+        target: { entity_id: input_number.byd_knie_ref_frozen }
+        data:
+          value: "{{ states('input_number.byd_knie_referenzspannung')|float(3.20) }}"
+      - action: input_boolean.turn_on   # am Anker ist Modul 2 verifiziert hoch -> Flag direkt setzen (Guard-Automation ist redundanter Backup)
+        target: { entity_id: input_boolean.byd_knie_ueberschwelle_gesehen }
+      - action: input_text.set_value
+        target: { entity_id: input_text.byd_knie_cycle_id }
+        data: { value: "{{ now().isoformat() }}" }
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.byd_voll_anker_zeit }
+        data: { datetime: "{{ now().isoformat() }}" }
+      - action: input_select.select_option
+        target: { entity_id: input_select.byd_knie_zyklus_status }
+        data: { option: "armed" }
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.byd_knie_armed }
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.byd_top_erreicht }
+
+  - id: byd_knie_ueberschwelle_gesehen
+    alias: "BYD | Knie Ueberschwelle gesehen"
+    description: "Setzt das Guard-Flag, sobald Modul-2-min seit dem Anker klar (>= ref+30 mV) oberhalb der Schwelle war."
+    mode: single
+    triggers:
+      - trigger: template
+        value_template: >
+          {{ states('sensor.byd_modul_2_zellspannung_min')|float(0)
+             > states('input_number.byd_knie_ref_frozen')|float(3.20) + 0.03 }}
+    conditions:
+      - condition: state
+        entity_id: input_boolean.byd_knie_armed
+        state: "on"
+    actions:
+      - action: input_boolean.turn_on
+        target: { entity_id: input_boolean.byd_knie_ueberschwelle_gesehen }
+
+  - id: byd_knie_latch
+    alias: "BYD | Knie-Latch (Nettoenergie festhalten)"
+    description: >-
+      Latcht, wenn Modul-2-min zum ersten Mal seit Voll die eingefrorene Referenz
+      (Default 3,20 V) 3 min lang unterschreitet, im standardisierten Entladeband
+      (+500..1500 W ueber die Haltezeit), bei frischen Daten und gesehener Ueberschwelle.
+      Die 3-min-Haltezeit ersetzt eine explizite mV-Hysterese (starke Entprellung).
+    mode: single
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.byd_modul_2_zellspannung_min
+        below: input_number.byd_knie_ref_frozen
+        for: "00:03:00"
+    conditions:
+      - condition: state
+        entity_id: input_select.byd_knie_zyklus_status
+        state: "armed"
+      - condition: state
+        entity_id: input_boolean.byd_knie_ueberschwelle_gesehen
+        state: "on"
+      - condition: state
+        entity_id: binary_sensor.byd_entladeband
+        state: "on"
+        for: "00:03:00"
+      - condition: state
+        entity_id: binary_sensor.byd_daten_frisch
+        state: "on"
+      - condition: template
+        value_template: "{{ has_value('sensor.byd_nettoenergie_seit_voll') }}"
+    actions:
+      - action: input_select.select_option
+        target: { entity_id: input_select.byd_knie_zyklus_status }
+        data: { option: "latched" }        # der Latch-Sensor snapshottet hierauf
+      - action: input_boolean.turn_off
+        target: { entity_id: input_boolean.byd_knie_armed }
+
+  - id: byd_knie_invalid
+    alias: "BYD | Knie-Zyklus ungueltig markieren"
+    description: >-
+      Markiert den laufenden armed-Zyklus als invalid bei Mess-Qualitaetsproblemen:
+      Datenluecke nahe Knie, Neustart nahe Knie, unplausibler Netto-Sprung.
+    mode: queued
+    max: 5
+    triggers:
+      - trigger: state
+        id: datenluecke
+        entity_id: binary_sensor.byd_daten_frisch
+        to: "off"
+        for: "00:02:00"
+      - trigger: homeassistant
+        id: neustart
+        event: start
+      - trigger: state
+        id: zaehlersprung
+        entity_id: sensor.byd_nettoenergie_seit_voll
+    conditions:
+      - condition: state
+        entity_id: input_select.byd_knie_zyklus_status
+        state: "armed"
+      - condition: or
+        conditions:
+          - condition: and
+            conditions:
+              - condition: trigger
+                id: ["datenluecke", "neustart"]
+              - condition: template
+                value_template: >
+                  {{ states('sensor.byd_modul_2_zellspannung_min')|float(9)
+                     <= states('input_number.byd_knie_ref_frozen')|float(3.20) + 0.01 }}
+          - condition: template
+            value_template: >
+              {{ trigger.id == 'zaehlersprung'
+                 and trigger.from_state is not none and trigger.to_state is not none
+                 and trigger.from_state.state not in ['unknown','unavailable']
+                 and trigger.to_state.state not in ['unknown','unavailable']
+                 and (trigger.to_state.state|float - trigger.from_state.state|float) > 3
+                 and (now().timestamp() - state_attr('input_datetime.byd_voll_anker_zeit','timestamp')|float(0)) > 120 }}
+    actions:
+      - action: input_select.select_option
+        target: { entity_id: input_select.byd_knie_zyklus_status }
+        data: { option: "invalid" }
+      - action: input_text.set_value
+        target: { entity_id: input_text.byd_knie_invalid_grund }
+        data: { value: "{{ trigger.id }} @ {{ now().strftime('%Y-%m-%d %H:%M') }}" }

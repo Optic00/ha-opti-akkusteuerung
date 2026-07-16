@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import pathlib
+import statistics
 import types
 from ast import literal_eval
 from zoneinfo import ZoneInfo
@@ -73,6 +74,13 @@ def _as_local(value):
     return value.astimezone(TZ) if isinstance(value, dt.datetime) else value
 
 
+def _median(values):
+    values = list(values)
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values):
+        raise TypeError(f"median: nicht-numerische Elemente in {values!r}")
+    return statistics.median(values)
+
+
 def _as_timestamp(value, default=None):
     try:
         parsed = dt.datetime.fromisoformat(str(value))
@@ -96,6 +104,11 @@ def _setup(env, hass):
         "float": _float, "int": _int,
         "as_datetime": _as_datetime, "as_local": _as_local,
         "round": lambda v, n=0: round(float(v), n),
+        # HA-median: ungerade Anzahl -> mittleres Element, gerade -> Mittelwert
+        # der beiden mittleren (wie statistics.median). Bewusst OHNE stille
+        # float-Konvertierung: nicht-numerische Elemente sollen wie in HA
+        # krachen statt false-green durchzurutschen.
+        "median": _median,
     })
     return env
 

@@ -133,19 +133,25 @@ Be-Connect-App oder BYD-Logger-GUI nie parallel zum Container laufen lassen; fü
 
 ## MQTT-Topics und HA-Package
 
-Das Tool publisht unter `Battery/BYD/BMS_1/...`: SOC, SOH, Min/Max/AvCellVolt, Power, Status1/2, Balancing, BalanceData, ChargedkWh/DischargedkWh sowie je Modul MinCellVolt/MaxCellVolt/ModuleVolt/MinTemp/MaxTemp.
-`packages/byd_bmu.yaml` mappt diese Topics auf `sensor.byd_*`-Entities (`expire_after: 300` als Ausfall-Erkennung) und ergänzt zwei abgeleitete Sensoren:
+Das Tool publisht unter `Battery/BYD/BMS_1/...`: SOC, SOH, Min/Max/AvCellVolt, Power, Status1/2, Balancing, BalanceData, ChargedkWh/DischargedkWh sowie je Modul MinCellVolt/MaxCellVolt/MinVoltID/MaxVoltID/ModuleVolt/MinTemp/MaxTemp.
+`packages/byd_bmu.yaml` mappt diese Topics auf `sensor.byd_*`-Entities (`expire_after: 300` als Ausfall-Erkennung; die VoltID-Topics als Zell-Nummern-Diagnose je Modul) und ergänzt abgeleitete Sensoren:
 
 - `sensor.byd_zellspreizung` (mV, max - min über den ganzen Turm),
-- `sensor.byd_zellspreizung_ruhe` (aktualisiert nur bei |Leistung| < 300 W - unter Last ist die Spreizung durch Innenwiderstands-Unterschiede nicht vergleichbar; erst dieser Wert taugt für Wochen-Trends),
-- `sensor.byd_temperatur_spreizung` (K, über die Module).
+- `sensor.byd_zellspreizung_ruhe` - aktualisiert nur, wenn der Akku nahezu lastfrei ist (|Leistung| < 300 W) UND der SoC im flachen Teil der LFP-Kennlinie liegt (25-85 %).
+  Unter Last verzerren Innenwiderstands-Unterschiede die Spreizung, am oberen wie unteren Kennlinien-Knie läuft sie kennlinienbedingt hoch; beides ist nicht vergleichbar.
+  Der Zustand ist der Median der letzten 5 Gate-Messungen (Attribut `messreihe`), damit ein einzelner verzerrter Wert (die Min/Max-Topics kommen ~60 s versetzt an) nicht gelatcht wird.
+  Erst dieser Wert taugt für Wochen-Trends,
+- `sensor.byd_temperatur_spreizung` (K, über die Module, negativ auf 0 geklemmt).
+
+Auf diesen Sensoren baut optional die Modul-2-Frühwarnung auf (Degradations-Monitoring des schwächsten Moduls, eigenes Package): siehe [byd-modul2-fruehwarnung.md](byd-modul2-fruehwarnung.md).
 
 Package nach `packages/` kopieren (Packages-Include vorausgesetzt, siehe README) und HA neu starten.
 Hinweis für Setups mit bestehendem top-level `mqtt: !include`: siehe Einbau-Hinweis im Package-Kopf.
 
 ## Interpretations-Hinweise (LFP)
 
-- Die Zellspreizung ist nur im Ruhezustand und bei hohem SoC aussagekräftig; im LFP-Flachplateau (ca. 30-70 % SoC) sagt sie wenig über echte Ladungs-Imbalance.
+- Die Zellspreizung ist nur im Ruhezustand und im flachen Kennlinienbereich (ca. 25-85 % SoC) über die Zeit vergleichbar.
+  Am Ladeschluss und am unteren Knie läuft sie kennlinienbedingt hoch (beobachtet: 292 mV bei SoC 99 %, 34-38 mV bei SoC ~17 %, 1-4 mV bei Mittel-SoC) - das ist kein Balancing-Befund.
 - SoH-Änderungen von Tag zu Tag sind Rauschen - nur der Langzeittrend zählt.
 - Das Verhältnis der kWh-Lebenszähler ist KEIN Wirkungsgrad (Standby- und Wandlungsverluste stecken mit drin).
 - Sinnvolle Alarm-Startwerte (keine Herstellerangaben): Zellspannung >3,55 V bzw. <2,90 V, Zelltemperatur >45 °C, Modul-Temperaturdifferenz >10 K, Ruhe-Spreizung dauerhaft >50 mV.

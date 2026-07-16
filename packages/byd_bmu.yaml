@@ -559,7 +559,7 @@ automation:
               Datenquelle: bydlogc via MQTT (Abtastung ~60 s). BMS-Schutzgrenzen
               2,75/3,65 V - die Alarme liegen bewusst davor. Zellspannungs-Alarme
               sind SoC-gegated (<90 %), am Ladeschluss zaehlt nur die BMS-Grenze.
-              Zellspreizung ist nur in Ruhe und bei SoC 15-85 % vergleichbar.
+              Zellspreizung ist nur in Ruhe und bei SoC 25-85 % vergleichbar.
             daten: >-
               Ausgeloest durch Regel: {{ trigger.id }}
               {{ alarm_text }}

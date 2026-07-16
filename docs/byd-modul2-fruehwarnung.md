@@ -2,6 +2,7 @@
 
 Dieses optionale Package ([`packages/byd_modul2_fruehwarnung.yaml`](../packages/byd_modul2_fruehwarnung.yaml)) beobachtet das schwächste Modul eines BYD-HVS-Turms auf schleichende Degradation.
 Es baut auf dem BMU-Monitoring ([`packages/byd_bmu.yaml`](../packages/byd_bmu.yaml), Doku: [byd-bmu-monitoring.md](byd-bmu-monitoring.md)) auf und ist rein beobachtend, ohne jede Steuerwirkung.
+Nach der Erstinstallation einmalig `input_number.byd_knie_referenzspannung` auf 3,20 V stellen; die Helfer tragen bewusst kein `initial:`, weil HA das bei jedem Neustart anwenden und Referenz wie Zyklus-Status überschreiben würde.
 
 ## Ausgangslage
 

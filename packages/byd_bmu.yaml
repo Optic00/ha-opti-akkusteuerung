@@ -415,12 +415,18 @@ template:
         unit_of_measurement: "K"
         state_class: measurement
         icon: mdi:thermometer-alert
-        # Availability prueft min UND max (stichprobenartig Modul 1/5 - die
-        # Topics fallen praktisch nur gemeinsam aus); Negativ-Klemme wie bei
-        # der Zellspreizung gegen Artefakte bei Teil-Ausfaellen.
+        # Availability prueft ALLE 10 Temp-Sensoren: ein einzelnes unavailable
+        # Modul wuerde sonst mit float-Default eingehen und die Spreizung
+        # verfaelschen. Negativ-Klemme wie bei der Zellspreizung.
         availability: >
-          {{ has_value('sensor.byd_modul_1_temp_max') and has_value('sensor.byd_modul_5_temp_max')
-             and has_value('sensor.byd_modul_1_temp_min') and has_value('sensor.byd_modul_5_temp_min') }}
+          {% set ns = namespace(ok=true) %}
+          {% for i in [1, 2, 3, 4, 5] %}
+            {% if not has_value('sensor.byd_modul_' ~ i ~ '_temp_max')
+               or not has_value('sensor.byd_modul_' ~ i ~ '_temp_min') %}
+              {% set ns.ok = false %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.ok }}
         state: >
           {% set tmax = [states('sensor.byd_modul_1_temp_max')|float(0), states('sensor.byd_modul_2_temp_max')|float(0),
                          states('sensor.byd_modul_3_temp_max')|float(0), states('sensor.byd_modul_4_temp_max')|float(0),

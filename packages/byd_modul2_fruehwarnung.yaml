@@ -23,13 +23,17 @@
 #   byd_geladen_gesamt / byd_entladen_gesamt
 # =============================================================================
 
+# KEIN initial: auf den Helfern - HA wendet initial bei JEDEM Neustart an
+# (nicht nur beim ersten Setup) und wuerde Referenzspannung und Zyklus-Status
+# ueberschreiben; ohne initial restored HA den letzten Wert. Erstinstallation:
+# byd_knie_referenzspannung einmalig auf 3,20 V stellen (ohne gespeicherten
+# Wert startet der Helfer am unteren Skalenende).
 input_number:
   byd_knie_referenzspannung:
     name: "BYD Knie-Referenzspannung"
     min: 3.05
     max: 3.35
     step: 0.005
-    initial: 3.20          # nur beim allerersten Start; danach restore
     unit_of_measurement: "V"
     mode: box
     icon: mdi:sine-wave
@@ -38,7 +42,6 @@ input_number:
     min: 3.05
     max: 3.35
     step: 0.001
-    initial: 3.20
     unit_of_measurement: "V"
     mode: box
     icon: mdi:snowflake
@@ -57,8 +60,8 @@ input_boolean:
 input_select:
   byd_knie_zyklus_status:
     name: "BYD Knie Zyklus-Status"
+    # Erste Option = Startwert bei Erstinstallation; danach restore.
     options: ["idle", "armed", "latched", "invalid"]
-    initial: idle
     icon: mdi:state-machine
 
 input_text:

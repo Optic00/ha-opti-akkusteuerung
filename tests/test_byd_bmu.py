@@ -1,7 +1,8 @@
 """Tests fuer die BYD-Monitoring-Templates (byd_bmu.yaml + byd_modul2_fruehwarnung.yaml):
 Zellspreizung-Klemme, Ruhe-Median gegen Einzel-Ausreisser, Temp-Spreizung, Absackung."""
 
-from .ha_harness import REPO, FakeHass, find_template_entity, load_yaml, render
+from .ha_harness import (REPO, FakeHass, find_template_entity, load_yaml, render,
+                         render_native)
 
 
 def _bmu_entity(kind, unique_id):
@@ -74,6 +75,26 @@ def test_ruhe_messreihe_rolliert_auf_fuenf():
     assert reihe == "[2.0, 3.0, 4.0, 5.0, 6.0]"
 
 
+def test_ruhe_median_ueber_mehrere_trigger_zyklen():
+    # Simuliert aufeinanderfolgende Gate-Updates: das messreihe-Attribut des
+    # Zyklus n wird (wie HAs this-Snapshot) zum Input von Zyklus n+1.
+    entity = _ruhe_entity()
+    messreihe = []
+    verlauf = []
+    for roh in ["2", "3", "40", "3", "2", "2", "2", "2"]:
+        hass = FakeHass(states={"sensor.byd_zellspreizung": roh},
+                        this_attributes={"messreihe": messreihe})
+        verlauf.append(float(render(hass, entity["state"])))
+        messreihe = render_native(hass, entity["attributes"]["messreihe"])
+        assert isinstance(messreihe, list)
+        assert all(isinstance(v, float) for v in messreihe)
+    # Der 40er-Ausreisser drueckt nie durch (max. Median des echten Umfelds);
+    # nach 5 weiteren Messungen ist er aus dem Fenster. round(0) = Bankers
+    # wie in HA (2.5 -> 2.0).
+    assert verlauf == [2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 2.0, 2.0]
+    assert messreihe == [3.0, 2.0, 2.0, 2.0, 2.0]
+
+
 # ---------------------------------------------------------------------------
 # Temperatur-Spreizung: Klemme + Availability auf min UND max
 # ---------------------------------------------------------------------------
@@ -103,6 +124,16 @@ def test_temp_spreizung_negativ_geklemmt():
 def test_temp_spreizung_unavailable_ohne_min_sensoren():
     states = _temp_states(33, 27)
     del states["sensor.byd_modul_1_temp_min"]
+    hass = FakeHass(states=states)
+    entity = _bmu_entity("sensor", "byd_bmu_temp_spreizung_k")
+    assert render(hass, entity["availability"]) == "False"
+
+
+def test_temp_spreizung_unavailable_bei_mittlerem_modul():
+    # Teil-Ausfall eines mittleren Moduls darf nicht mit float-Default
+    # weitergerechnet werden (Codex-Review-Finding).
+    states = _temp_states(33, 27)
+    del states["sensor.byd_modul_3_temp_max"]
     hass = FakeHass(states=states)
     entity = _bmu_entity("sensor", "byd_bmu_temp_spreizung_k")
     assert render(hass, entity["availability"]) == "False"

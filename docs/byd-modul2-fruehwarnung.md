@@ -1,7 +1,13 @@
 # BYD Modul-2-Frühwarnung: Degradations-Monitoring für das schwächste Modul
 
-Dieses optionale Package ([`packages/byd_modul2_fruehwarnung.yaml`](../packages/byd_modul2_fruehwarnung.yaml)) beobachtet das schwächste Modul eines BYD-HVS-Turms auf schleichende Degradation.
-Es baut auf dem BMU-Monitoring ([`packages/byd_bmu.yaml`](../packages/byd_bmu.yaml), Doku: [byd-bmu-monitoring.md](byd-bmu-monitoring.md)) auf und ist rein beobachtend, ohne jede Steuerwirkung.
+> ⛔ **Überholt seit 17.7.2026 - Neubau als Phase 2 eingeplant.**
+> Dieses Package hängt komplett an den MQTT-Sensoren des abgelösten bydlogc-Wegs und ist seit dem bydlogc-Stopp am 17.7.2026 funktionslos.
+> Es liegt nur noch unter [`legacy/byd_modul2_fruehwarnung.yaml`](../legacy/byd_modul2_fruehwarnung.yaml).
+> Der Neubau auf die nativen Zelldaten ist skizziert in [byd-monitoring-nativ.md](byd-monitoring-nativ.md) (Abschnitt „Phase 2").
+> Fachlich (Metrik-Definitionen, Zustandsmaschine, Interpretations-Hinweise) gilt diese Doku als Vorlage weiter.
+
+Dieses optionale Package ([`legacy/byd_modul2_fruehwarnung.yaml`](../legacy/byd_modul2_fruehwarnung.yaml)) beobachtet das schwächste Modul eines BYD-HVS-Turms auf schleichende Degradation.
+Es baut auf dem BMU-Monitoring ([`legacy/byd_bmu.yaml`](../legacy/byd_bmu.yaml), Doku: [byd-bmu-monitoring.md](byd-bmu-monitoring.md)) auf und ist rein beobachtend, ohne jede Steuerwirkung.
 Nach der Erstinstallation einmalig `input_number.byd_knie_referenzspannung` auf 3,20 V stellen; die Helfer tragen bewusst kein `initial:`, weil HA das bei jedem Neustart anwenden und Referenz wie Zyklus-Status überschreiben würde.
 
 ## Ausgangslage

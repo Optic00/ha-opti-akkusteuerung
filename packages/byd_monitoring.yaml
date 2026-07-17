@@ -1,0 +1,703 @@
+# =============================================================================
+# BYD Battery-Box Monitoring + Alarme (nativ ueber Modbus)
+# -----------------------------------------------------------------------------
+# Loest das alte bydlogc-/MQTT-Package (legacy/byd_bmu.yaml) ab. Datenquelle ist
+# jetzt die HACS-Integration "byd_battery_box" (Fork TimWeyand/byd_battery_box
+# v0.1.34, Commit 2cc5762), die die BMU direkt per Modbus liest. Rein
+# beobachtend/alarmierend - KEINE Steuerlogik.
+# Doku: docs/byd-monitoring-nativ.md (gepinnter Entity-Vertrag!)
+#
+# ---------------------------------------------------------------------------
+# KADENZ + AUFLOESUNG (die zwei Datenebenen der Integration)
+# ---------------------------------------------------------------------------
+# | Ebene | Entities                              | Kadenz | Aufloesung       |
+# |-------|---------------------------------------|--------|------------------|
+# | BMU   | sensor.bmu_*, battery_management_unit_*| 30 s  | 10 mV / 1 C / ~2 W|
+# | BMS   | ..._bms_1_*, sensor.bms_1_*           | ~630 s | 1 mV             |
+#
+# Grundprinzip 1: alle ZEITKRITISCHEN Alarme laufen auf der 30-s-BMU-Ebene.
+# Die 10,5-min-BMS-Ebene traegt Spreizung, Diagnose und den mV-genauen
+# Grenzwaechter-Backstop.
+#
+# Grundprinzip 2 (DIE zentrale Randbedingung): die Integration setzt Entities
+# bei Modbus-Abbruch NIE auf unavailable - hub.data friert einfach ein. Ein
+# eingefrorener Wert erfuellt jede for:-Haltezeit per Stagnation. Deshalb prueft
+# jeder physikalische Alarm zusaetzlich ein Frische-Binary (byd_bmu_frisch /
+# byd_zelldaten_frisch); for: allein beweist keine frischen Samples.
+#
+# ---------------------------------------------------------------------------
+# ENTITY-NAMENS-FALLE (live verifiziert 17.7., nicht "aufraeumen"!)
+# ---------------------------------------------------------------------------
+# Die Integration vergibt die entity_ids asymmetrisch - max und min heissen
+# NICHT gleich aufgebaut:
+#   sensor.bmu_cell_voltage_max                        (kurz!)
+#   sensor.battery_management_unit_bmu_cell_voltage_min (lang!)
+#   sensor.bmu_power                                   (kurz)
+#   sensor.battery_management_unit_state_of_charge     (lang)
+# Ebenso auf der BMS-Ebene: sensor.battery_management_system_1_bms_1_* neben
+# sensor.bms_1_*. Alle hier verwendeten IDs sind live gegengeprueft.
+#
+# ---------------------------------------------------------------------------
+# VORZEICHEN / TIMESTAMPS
+# ---------------------------------------------------------------------------
+# - sensor.bmu_power: NEGATIV = Laden (gleiche Konvention wie das alte
+#   sensor.byd_leistung).
+# - Die *_updated-Sensoren liefern einen NAIVEN Lokalzeit-String
+#   ("2026-07-17 11:45:34.207325"). as_timestamp(states(...), 0) interpretiert
+#   ihn korrekt als Lokalzeit -> now().timestamp() - as_timestamp(...) = Alter
+#   in Sekunden. Bei Muell/unavailable liefert as_timestamp(x, 0) = 0 -> Alter
+#   riesig -> "nicht frisch". Das ist die gewuenschte Fail-Safe-Richtung.
+#   KEIN as_datetime/TZ-Umbau noetig (live verifiziert 17.7.).
+#
+# ---------------------------------------------------------------------------
+# BEKANNTE INTEGRATIONS-MAENGEL (bewusst gemieden)
+# ---------------------------------------------------------------------------
+# - average_latency/last_latency: Einheiten-Bug (Sekunden gemessen, als ms
+#   deklariert) -> NICHT fuer Alarme verwenden.
+# - cell_voltages_max_history/_min_history und sensor.bms_1_max/min_history_-
+#   cell_voltage: zeigen ueberlappende, zwischen den Modulen verschobene
+#   Wertereihen (Sliding-Window-Artefakt) -> NICHT verwenden.
+# - Setup-Fehlschlag nach HA-Neustart ohne Retry (Fork-Issues #14/#15): die
+#   Entities starten dann unavailable OHNE State-Uebergang, edge-Trigger feuern
+#   nie -> dafuer gibt es den zeitbasierten Dead-Man-Watchdog unten.
+#
+# ---------------------------------------------------------------------------
+# LIVE-ABWEICHUNGEN (dokumentiert, wandern beim Deploy mit)
+# ---------------------------------------------------------------------------
+# - notify.notify wird live durch den echten Mobile-App-Service ersetzt
+#   (kein Geraetename im oeffentlichen Repo).
+# - script.ki_alarm_kontext (KI-Lagebild) existiert nur live - der Aufruf ist
+#   mit continue_on_error abgesichert.
+# =============================================================================
+
+template:
+  # ---------------------------------------------------------------------------
+  # Zustandslose Binaries + Spreizungen (zeitgesteuert reevaluiert)
+  # ---------------------------------------------------------------------------
+  - binary_sensor:
+      # Gate fuer die Ruhe-Sensoren: Akku (nahezu) lastfrei UND SoC im flachen
+      # Teil der LFP-Kennlinie. Unter Last verzerren Innenwiderstands-
+      # Unterschiede die Spreizung, an den Kennlinien-Knien (Ladeschluss /
+      # Tiefentladung) laeuft sie kennlinienbedingt hoch - beides ist mit
+      # Ruhewerten nicht vergleichbar (beobachtet: 292 mV bei SoC 99 %,
+      # 34-38 mV bei SoC ~17 %, 1-4 mV bei Mittel-SoC).
+      # Fehlende Werte -> off (kein Sample statt falschem Sample).
+      #
+      # FRISCHE-BEDINGUNG (Driver-Haertung 17.7., ueber den Plan hinaus):
+      # Die Quellen dieses Gates (bmu_power, SoC) liegen auf der BMU-Ebene
+      # (30-s-Poll), der Ruhe-Sensor triggert aber auf BMS-Zyklen (~630 s).
+      # Faellt NUR der BMU-Poll aus, frieren power/SoC ein und ein stale
+      # "0 W / 53 %" haelt das Fenster offen - der Ruhe-Sensor wuerde dann ein
+      # frisches Delta UNTER LAST als Ruhewert latchen. Das traegt Steuerwirkung
+      # (Bedarfs-Balancing kann eine Vollladung vorziehen) und den 1-h-Alarm.
+      # Entities werden bei Modbus-Abbruch nie unavailable (s. Kopf), deshalb
+      # reicht has_value hier NICHT - es braucht das Frische-Binary.
+      - unique_id: byd_ruhefenster
+        name: "BYD Ruhefenster"
+        icon: mdi:sleep
+        state: >
+          {{ is_state('binary_sensor.byd_bmu_frisch', 'on')
+             and has_value('sensor.bmu_power')
+             and has_value('sensor.battery_management_unit_state_of_charge')
+             and (states('sensor.bmu_power')|float(9999))|abs < 300
+             and 25 < states('sensor.battery_management_unit_state_of_charge')|float(-1) < 85 }}
+
+      # Frische-Binary BMU (Poll 30 s, gemessen knochenstabil): 90 s = 3
+      # verpasste Polls.
+      #
+      # WARUM 90 UND NICHT 180 (Codex-Review 17.7.):
+      # Das Fenster muss SCHMALER sein als die Haltezeit der Regel, die es
+      # schuetzt - sonst ist der Guard wirkungslos. Friert die BMU ein waehrend
+      # der for:-Timer laeuft, ist bei einer 2-min-Regel das Alter erst 120 s;
+      # mit 180 s Fenster waere das Binary noch "on" und der Alarm feuert auf
+      # eingefrorenen Daten. Mit 90 s greift der Guard ab 2 min sauber.
+      # Untergrenze: das Fenster muss BREITER als das Poll-Intervall (30 s)
+      # sein, sonst flattert es im Normalbetrieb. 90 s ist das Optimum.
+      #
+      # PRINZIPBEDINGT UNGESCHUETZT bleiben Regeln mit for: <= 90 s, also
+      # zell_kritisch (30 s) und temp_kritisch (60 s): ihr Fenster muesste
+      # kleiner als das Poll-Intervall sein, das geht nicht. Entschaerfend:
+      # numeric_state feuert nur beim UEBERSCHREITEN - das erste Sample ist
+      # also immer echt, der Alarm stuetzt sich dann auf 1 echtes Sample plus
+      # eingefrorene Bestaetigung. Das irrt Richtung "lieber alarmieren" und
+      # ist fuer kritische Regeln die sichere Fehlerrichtung.
+      # NAME BESTIMMT DIE ENTITY_ID (slug), NICHT die unique_id! (Fable-Review
+      # 17.7.) "BYD BMU frisch" -> binary_sensor.byd_bmu_frisch, wie in allen
+      # Alarm-Bedingungen referenziert. Ein Name mit Bindestrich/Extra-Wort
+      # ("BYD BMU-Daten frisch" -> ...byd_bmu_daten_frisch) wuerde die Referenz
+      # ins Leere laufen lassen und ALLE Alarme still lahmlegen.
+      - unique_id: byd_bmu_frisch
+        name: "BYD BMU frisch"
+        icon: mdi:clock-check-outline
+        state: >
+          {{ (now().timestamp()
+              - as_timestamp(states('sensor.battery_management_unit_updated'), 0)) < 90 }}
+
+      # Frische-Binary BMS-Detail (Poll ~630 s): 15 min.
+      # Gleiche Logik wie oben: muss schmaler sein als die 21-min-Haltezeit von
+      # zell_bms_grenze_praezise (sonst Guard wirkungslos) und breiter als der
+      # 630-s-Poll plus Marge (sonst Flattern). 900 s trifft beides.
+      # Bedingung fuer die praezise BMS-Grenzregel und die Ruhe-/Diagnose-
+      # Sensoren. Ein einzelner verpasster Detail-Zyklus (Alter bis 21 min)
+      # markiert bewusst "nicht frisch" - dann meldet der Watchdog.
+      - unique_id: byd_zelldaten_frisch
+        name: "BYD Zelldaten frisch"
+        icon: mdi:clock-check-outline
+        state: >
+          {{ (now().timestamp()
+              - as_timestamp(states('sensor.battery_management_system_1_bms_1_updated'), 0)) < 900 }}
+
+      # history_stats-Quelle fuer die KI-Analyse (braucht on/off, keinen
+      # Zaehlwert). Der native Sensor zaehlt die aktuell balancierenden Zellen.
+      # Name -> entity_id: "BYD Balancing aktiv nativ" ->
+      # binary_sensor.byd_balancing_aktiv_nativ (wie in opti_ki_analyse
+      # referenziert). Das "nativ" im Namen ist zwingend - ohne wuerde der Slug
+      # byd_balancing_aktiv und die history_stats-Quelle ins Leere laufen; zudem
+      # koennte eine Registry-Leiche des alten MQTT-byd_balancing_aktiv ein
+      # _2-Suffix erzwingen.
+      # Availability zusaetzlich an die Zelldaten-Frische (Codex-Review 17.7.):
+      # ein eingefrorener Balancing-Zaehler > 0 wuerde die history_stats-Uhr
+      # sonst durch einen Datenausfall weiterlaufen lassen.
+      - unique_id: byd_balancing_aktiv_nativ
+        name: "BYD Balancing aktiv nativ"
+        icon: mdi:scale-balance
+        availability: >
+          {{ has_value('sensor.bms_1_cells_balancing')
+             and is_state('binary_sensor.byd_zelldaten_frisch', 'on') }}
+        state: "{{ states('sensor.bms_1_cells_balancing')|int(0) > 0 }}"
+
+  - sensor:
+      # Temperatur-Spreizung ueber den Turm (max - min aus EINEM BMU-Poll, 30 s).
+      # Dauerhaft >10 K = ein Modul weicht ab (Kuehlung/Kontakt/Zelle pruefen).
+      # Carry der unique_id aus legacy/byd_bmu.yaml -> entity_id
+      # sensor.byd_temperatur_spreizung bleibt registry- und historienstabil.
+      # Anders als frueher kommen max/min aus demselben atomaren Modbus-Read,
+      # die Negativ-Klemme ist damit nur noch Verteidigung gegen Grenzfaelle.
+      - unique_id: byd_bmu_temp_spreizung_k
+        name: "BYD Temperatur-Spreizung"
+        unit_of_measurement: "K"
+        state_class: measurement
+        icon: mdi:thermometer-alert
+        availability: >
+          {{ has_value('sensor.battery_management_unit_bmu_cell_temperature_max')
+             and has_value('sensor.battery_management_unit_bmu_cell_temperature_min') }}
+        state: >
+          {% set tmax = states('sensor.battery_management_unit_bmu_cell_temperature_max')|float(0) %}
+          {% set tmin = states('sensor.battery_management_unit_bmu_cell_temperature_min')|float(0) %}
+          {{ [0, (tmax - tmin) | round(0)] | max }}
+
+  # ---------------------------------------------------------------------------
+  # Ruhe-Spreizung + Zell-Ausreisser: nur echte, im Ruhefenster gemessene
+  # BMS-Detail-Zyklen kommen rein.
+  #
+  # Trigger auf bms_1_updated (feuert JEDEN Detail-Zyklus, auch wenn das Delta
+  # numerisch gleich bleibt) UND auf das Delta selbst.
+  # Gate: Ruhefenster muss seit >= 10 min an sein - damit ist jedes uebernommene
+  # Sample innerhalb des Ruhefensters gemessen und Relaxations-Transienten nach
+  # Lastende sind draussen (ein Latch des letzten Lastphasen-Werts ist damit
+  # ausgeschlossen, weil nur frisch gepollte Zyklen im gehaltenen Fenster
+  # durchkommen).
+  #
+  # Median-3 statt Rohwert: sensor.byd_zellspreizung_ruhe hat STEUERWIRKUNG
+  # (Bedarfs-Balancing in opti_derived kann eine Vollladung vorziehen) und der
+  # Alarm haelt gelatchte Werte ueber Stunden. Ein einzelnes Sample soll weder
+  # eine Vollladung noch einen 1-h-Alarm allein tragen.
+  # (Die alte Median-5-Begruendung - MQTT-Min/Max ~60 s versetzt - ist mit
+  # atomaren Modbus-Reads obsolet; der kleinere Median-3 bleibt als
+  # Einzel-Sample-Robustheit fuer die Steuer-Konsumenten.)
+  #
+  # Trigger NUR auf ..._updated, NICHT zusaetzlich auf ..._cells_voltage_delta
+  # (Codex-Review 17.7.): updated aendert sich bei JEDEM Detail-Zyklus (auch bei
+  # numerisch gleichem Delta), reicht also als alleiniger Zyklus-Trigger. Ein
+  # zweiter Trigger auf delta wuerde bei gleichzeitiger Aenderung im selben
+  # Zyklus das Sample DOPPELT anhaengen ([alt, neu, neu]) und den 3er-Median
+  # aushebeln.
+  # Restrisiko (dokumentiert): startet Last zwischen dem letzten BMU-Poll (30 s)
+  # und dem BMS-Sample, kann ein einzelnes Last-Sample durch das Ruhefenster
+  # rutschen. Der 3er-Median kappt genau solche Einzelfaelle.
+  # ---------------------------------------------------------------------------
+  - triggers:
+      - trigger: state
+        entity_id: sensor.battery_management_system_1_bms_1_updated
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.byd_ruhefenster
+        state: "on"
+        for: "00:10:00"
+      - condition: state
+        entity_id: binary_sensor.byd_zelldaten_frisch
+        state: "on"
+      - condition: template
+        value_template: "{{ has_value('sensor.battery_management_system_1_bms_1_cells_voltage_delta') }}"
+    sensor:
+      # Carry der unique_id aus legacy/byd_bmu.yaml -> entity_id
+      # sensor.byd_zellspreizung_ruhe bleibt stabil (Konsumenten: opti_derived
+      # Bedarfs-Balancing, KI-Analyse, ruhe_spreizung-Alarm).
+      # Zaesur 17.7.: Quelle MQTT->Modbus, Median-5->Median-3 (docs/).
+      - unique_id: byd_bmu_zellspreizung_ruhe_mv
+        name: "BYD Zellspreizung Ruhe"
+        unit_of_measurement: "mV"
+        state_class: measurement
+        icon: mdi:arrow-collapse-vertical
+        state: >
+          {% set reihe = (this.attributes.get('messreihe') or [])[-2:]
+             + [states('sensor.battery_management_system_1_bms_1_cells_voltage_delta')|float(0)] %}
+          {{ reihe | median | round(0) }}
+        attributes:
+          # Rollierende Messreihe der letzten 3 Gate-Messungen (Median-Basis).
+          messreihe: >
+            {{ (this.attributes.get('messreihe') or [])[-2:]
+               + [states('sensor.battery_management_system_1_bms_1_cells_voltage_delta')|float(0)] }}
+          soc: "{{ states('sensor.battery_management_unit_state_of_charge') }}"
+          leistung_w: "{{ states('sensor.bmu_power') }}"
+          gemessen: "{{ now().isoformat() }}"
+
+      # Diagnose (KEIN Alarm): groesste absolute Abweichung einer Einzelzelle
+      # vom Median aller 160 Zellen, plus Zell-Identifikation - genau das, was
+      # dem Spreizungs-Alarm fehlt. Kein eigener Push, weil ruhe_spreizung
+      # physikalisch dieselbe Anomalie meldet (Doppel-Rauschen vermeiden);
+      # Revisit nach Wochen: treibt IMMER dieselbe Zelle das Delta, kann eine
+      # gezielte Einzelzell-Regel den Spreizungs-Alarm ersetzen.
+      # Attribut zelle = Nummer 1..32 INNERHALB des Moduls (nicht die globale
+      # 1..160-Zaehlung der nativen *_number-Sensoren).
+      - unique_id: byd_zell_ausreisser
+        name: "BYD Zell-Ausreisser"
+        unit_of_measurement: "mV"
+        state_class: measurement
+        icon: mdi:battery-alert-variant-outline
+        availability: >
+          {{ state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') is not none }}
+        state: >
+          {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+          {% set alle = namespace(v=[]) %}
+          {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+          {% set med = alle.v | median %}
+          {% set ns = namespace(max_abw=0.0) %}
+          {% for wert in alle.v %}
+            {% if (wert - med) | abs > ns.max_abw %}{% set ns.max_abw = (wert - med) | abs %}{% endif %}
+          {% endfor %}
+          {{ ns.max_abw | round(1) }}
+        attributes:
+          modul: >
+            {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+            {% set alle = namespace(v=[]) %}
+            {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+            {% set med = alle.v | median %}
+            {% set ns = namespace(max_abw=0.0, modul=0) %}
+            {% for modul in daten %}
+              {% for wert in modul['v'] %}
+                {% if (wert - med) | abs > ns.max_abw %}
+                  {% set ns.max_abw = (wert - med) | abs %}
+                  {% set ns.modul = modul['m'] %}
+                {% endif %}
+              {% endfor %}
+            {% endfor %}
+            {{ ns.modul }}
+          zelle: >
+            {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+            {% set alle = namespace(v=[]) %}
+            {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+            {% set med = alle.v | median %}
+            {% set ns = namespace(max_abw=0.0, zelle=0) %}
+            {% for modul in daten %}
+              {% for wert in modul['v'] %}
+                {% if (wert - med) | abs > ns.max_abw %}
+                  {% set ns.max_abw = (wert - med) | abs %}
+                  {% set ns.zelle = loop.index %}
+                {% endif %}
+              {% endfor %}
+            {% endfor %}
+            {{ ns.zelle }}
+          richtung: >
+            {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+            {% set alle = namespace(v=[]) %}
+            {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+            {% set med = alle.v | median %}
+            {% set ns = namespace(max_abw=0.0, richtung='keiner') %}
+            {% for wert in alle.v %}
+              {% if (wert - med) | abs > ns.max_abw %}
+                {% set ns.max_abw = (wert - med) | abs %}
+                {% set ns.richtung = 'hoch' if wert > med else 'tief' %}
+              {% endif %}
+            {% endfor %}
+            {{ ns.richtung }}
+          median_mv: >
+            {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+            {% set alle = namespace(v=[]) %}
+            {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+            {{ alle.v | median }}
+
+# ---------------------------------------------------------------------------
+# Alarme: deterministische Gesundheits-Alarme aus den nativen Modbus-Daten.
+# Schwellen liegen bewusst VOR den BMS-Schutzgrenzen (2,75/3,65 V).
+#
+# SoC-Gating (Befund 2026-07-11): Am Ladeschluss (SoC >= 90 %, LFP-Kennlinien-
+# Knie, Balancing aktiv) laufen Max-Zellspannung und Spreizung kurzzeitig hoch
+# (beobachtet: 3,659 V Peak bei 0 W Ladeleistung) - das ist top-of-charge-
+# normal und feuert sonst bei JEDER Vollladung (der Balancing-Watchdog
+# erzwingt regelmaessige Vollladungen). Deshalb gelten zell_hoch/zell_kritisch
+# nur bei SoC < 90 %; bei hohem SoC alarmiert nur der Grenzwaechter.
+#
+# Grenzwaechter ZWEISTUFIG (die 10-mV-Aufloesung der BMU-Ebene verschiebt das
+# effektive Ausloesen um max. 10 mV nach oben):
+#   - zell_bms_grenze (schnell, BMU 30 s): faengt eindeutige Ueberschreitungen
+#     ab 3,66 V in Minuten.
+#   - zell_bms_grenze_praezise (BMS, 1 mV): faengt anhaltendes 3,651-3,659 V,
+#     das die 10-mV-Ebene gar nicht sieht. for: 21 min = 2 Detail-Zyklen
+#     muessen bestaetigen.
+# Der normale Kalibrier-Peak (3,659 V, kurz) uebersteht beide Haltezeiten
+# nicht - die Kalibrierung bleibt ungestoert.
+#
+# Bekannte, bewusst uebernommene Alt-Schwaeche: numeric_state-Trigger feuern
+# nicht nach, wenn die Schwelle schon ueberschritten ist und erst danach das
+# Gate wahr wird oder HA neu laedt (for:-Timer werden verworfen). War im alten
+# Design identisch; der Watchdog deckt die Staleness-Klasse ab, fuer die
+# physikalischen Regeln bleibt es ein akzeptiertes Restrisiko.
+# ---------------------------------------------------------------------------
+automation:
+  - id: byd_akku_alarme_nativ
+    alias: "BYD | Akku-Alarme (nativ)"
+    description: >-
+      Deterministische Alarme aus den nativen BMU/BMS-Modbus-Daten: Zellspannung
+      absolut (SoC-gegated, plus zweistufiger BMS-Grenzwaechter), Zelltemperatur,
+      Temperatur-Spreizung, persistierende Ruhe-Spreizung, native BMS/BMU-
+      Fehlerbits und Verbindungsverlust. Jeder physikalische Alarm prueft
+      zusaetzlich die Frische seiner Datenquelle (eingefrorene Werte alarmieren
+      sonst per Stagnation). Schwellen liegen VOR den BMS-Schutzgrenzen.
+    mode: queued
+    max: 5
+    triggers:
+      - trigger: numeric_state
+        id: zell_hoch
+        entity_id: sensor.bmu_cell_voltage_max
+        above: 3.55
+        for: "00:02:00"
+      - trigger: numeric_state
+        id: zell_kritisch
+        entity_id: sensor.bmu_cell_voltage_max
+        above: 3.6
+        for: "00:00:30"
+      - trigger: numeric_state
+        id: zell_bms_grenze
+        entity_id: sensor.bmu_cell_voltage_max
+        above: 3.65
+        for: "00:05:00"
+      - trigger: numeric_state
+        id: zell_bms_grenze_praezise
+        entity_id: sensor.battery_management_system_1_bms_1_cell_voltage_max
+        above: 3.65
+        for: "00:21:00"
+      - trigger: numeric_state
+        id: zell_niedrig
+        entity_id: sensor.battery_management_unit_bmu_cell_voltage_min
+        below: 2.9
+        for: "00:05:00"
+      - trigger: numeric_state
+        id: temp_hoch
+        entity_id: sensor.battery_management_unit_bmu_cell_temperature_max
+        above: 45
+        for: "00:05:00"
+      - trigger: numeric_state
+        id: temp_kritisch
+        entity_id: sensor.battery_management_unit_bmu_cell_temperature_max
+        above: 50
+        for: "00:01:00"
+      - trigger: numeric_state
+        id: temp_delta
+        entity_id: sensor.byd_temperatur_spreizung
+        above: 10
+        for: "00:15:00"
+      - trigger: numeric_state
+        id: ruhe_spreizung
+        entity_id: sensor.byd_zellspreizung_ruhe
+        above: 50
+        for: "01:00:00"
+      # Native Fehler-/Warnbits: State-String, "Normal" wenn nichts anliegt.
+      # Die Bitmaske wird integrationsseitig zu kommaseparierten Klartexten
+      # dekodiert; unbekannte Bits erscheinen als "bit N undefined" und
+      # alarmieren mit (fail-visible). Bewusst KEIN from:-Filter - nach einem
+      # Restart (unknown -> aktiver Fehler) muss es feuern.
+      - trigger: state
+        id: bms_warnung
+        entity_id: sensor.battery_management_system_1_bms_1_warnings
+      - trigger: state
+        id: bms_fehler
+        entity_id: sensor.battery_management_system_1_bms_1_errors
+      - trigger: state
+        id: bmu_fehler
+        entity_id: sensor.battery_management_unit_errors
+      - trigger: state
+        id: verbindung
+        entity_id: sensor.battery_management_unit_connection_health
+        to: "unhealthy"
+        for: "00:10:00"
+    conditions:
+      - condition: or
+        conditions:
+          # verbindung IST die Ausfallmeldung selbst - keine Frische-Bedingung.
+          - condition: trigger
+            id: verbindung
+          # ruhe_spreizung: der Ruhe-Sensor gated zwar SEINEN Update (Ruhefenster
+          # + Zelldaten-Frische), haelt aber gelatchte Werte ueber Stunden
+          # (RestoreEntity). Faellt DANACH der BMS-Poll aus, koennte ein stale
+          # >50-mV-Wert die 1-h-Haltezeit per Stagnation erfuellen. Deshalb hier
+          # zusaetzlich die Zelldaten-Frische (Codex-Review 17.7.) - konsistent
+          # mit dem Prinzip: physikalische Alarme werden bei Datenausfall
+          # unterdrueckt, der Watchdog meldet den Ausfall selbst.
+          - condition: and
+            conditions:
+              - condition: trigger
+                id: ruhe_spreizung
+              - condition: state
+                entity_id: binary_sensor.byd_zelldaten_frisch
+                state: "on"
+          # Native Fehler-/Warnbits: alles ausser Normal/unknown/unavailable.
+          - condition: and
+            conditions:
+              - condition: trigger
+                id:
+                  - bms_warnung
+                  - bms_fehler
+                  - bmu_fehler
+              - condition: template
+                value_template: >-
+                  {{ trigger.to_state.state not in ['Normal', 'unknown', 'unavailable'] }}
+          # BMU-Regeln ohne SoC-Gate: nur Frische.
+          - condition: and
+            conditions:
+              - condition: trigger
+                id:
+                  - zell_bms_grenze
+                  - zell_niedrig
+                  - temp_hoch
+                  - temp_kritisch
+                  - temp_delta
+              - condition: state
+                entity_id: binary_sensor.byd_bmu_frisch
+                state: "on"
+          # BMU-Regeln mit SoC-Gate (siehe Kopfkommentar).
+          - condition: and
+            conditions:
+              - condition: trigger
+                id:
+                  - zell_hoch
+                  - zell_kritisch
+              - condition: state
+                entity_id: binary_sensor.byd_bmu_frisch
+                state: "on"
+              - condition: numeric_state
+                entity_id: sensor.battery_management_unit_state_of_charge
+                below: 90
+          # Praezise BMS-Grenzregel: braucht frische Zelldaten.
+          - condition: and
+            conditions:
+              - condition: trigger
+                id: zell_bms_grenze_praezise
+              - condition: state
+                entity_id: binary_sensor.byd_zelldaten_frisch
+                state: "on"
+    actions:
+      - alias: "Alarmtext je Regel"
+        variables:
+          # REIHENFOLGE IST BINDEND: HA rendert variables: sequenziell und
+          # reicht nur die bereits gerenderten Variablen weiter. modul_hinweis
+          # MUSS vor alarm_text stehen, sonst rendert es dort still zu einem
+          # Leerstring (kein Fehler - nur ein kaputter Alarmtext).
+          #
+          # Modul-Identifikation fuer die Temperatur-Alarme: best-effort aus den
+          # BMS-Zelltemperaturen (cell_temps, bis 10,5 min alt - im Alarmtext
+          # als solches gekennzeichnet). Bewusster Rueckschritt gegenueber dem
+          # alten trigger.to_state.name, dafuer 30-s-Alarm-Latenz statt 10,5 min.
+          modul_hinweis: >-
+            {% set temps = state_attr('sensor.bms_1_cells_average_temperature', 'cell_temps') %}
+            {% if temps %}
+              {% set ns = namespace(tmax=-99, modul=0) %}
+              {% for modul in temps %}
+                {% if (modul['t'] | max) > ns.tmax %}
+                  {% set ns.tmax = modul['t'] | max %}
+                  {% set ns.modul = modul['m'] %}
+                {% endif %}
+              {% endfor %}
+              Modul {{ ns.modul }} mit {{ ns.tmax }} C
+            {% else %}unbekannt{% endif %}
+          alarm_text: >-
+            {% set t = {
+              'zell_hoch': 'Zellspannung hoch: ' ~ states('sensor.bmu_cell_voltage_max') ~ ' V (>3,55 V seit 2 min bei SoC ' ~ states('sensor.battery_management_unit_state_of_charge') ~ ' % - unter 90 % eine echte Anomalie). Ladeleistung beobachten/drosseln.',
+              'zell_kritisch': 'Zellspannung KRITISCH: ' ~ states('sensor.bmu_cell_voltage_max') ~ ' V (>3,60 V bei SoC ' ~ states('sensor.battery_management_unit_state_of_charge') ~ ' % - unter 90 %!) - Laden sofort stoppen/pruefen!',
+              'zell_bms_grenze': 'Zellspannung UEBER BMS-GRENZE: ' ~ states('sensor.bmu_cell_voltage_max') ~ ' V (>3,65 V seit 5 min anhaltend, BMU-Ebene - das BMS kappt nicht!) - sofort pruefen!',
+              'zell_bms_grenze_praezise': 'Zellspannung UEBER BMS-GRENZE (mV-genau): ' ~ states('sensor.battery_management_system_1_bms_1_cell_voltage_max') ~ ' V (>3,65 V ueber 2 Detail-Zyklen bestaetigt) - sofort pruefen!',
+              'zell_niedrig': 'Zellspannung niedrig: ' ~ states('sensor.battery_management_unit_bmu_cell_voltage_min') ~ ' V (<2,90 V seit 5 min). Entladung beobachten.',
+              'temp_hoch': 'Zelltemperatur hoch: ' ~ states('sensor.battery_management_unit_bmu_cell_temperature_max') ~ ' C (>45 C seit 5 min). Waermstes Modul (Zelldaten bis 10,5 min alt): ' ~ modul_hinweis ~ '.',
+              'temp_kritisch': 'Zelltemperatur KRITISCH: ' ~ states('sensor.battery_management_unit_bmu_cell_temperature_max') ~ ' C (>50 C) - sofort pruefen! Waermstes Modul (Zelldaten bis 10,5 min alt): ' ~ modul_hinweis ~ '.',
+              'temp_delta': 'Temperatur-Spreizung zwischen Modulen: ' ~ states('sensor.byd_temperatur_spreizung') ~ ' K (>10 K seit 15 min) - ein Modul weicht ab.',
+              'ruhe_spreizung': 'Zellspreizung in Ruhe dauerhaft hoch: ' ~ states('sensor.byd_zellspreizung_ruhe') ~ ' mV (>50 mV seit 1 h, Median der letzten 3 Ruhe-Messungen im flachen Kennlinienbereich) - Balancing-Bedarf pruefen.',
+              'bms_warnung': 'BMS meldet Warnung: ' ~ states('sensor.battery_management_system_1_bms_1_warnings') ~ ' (nativer Warn-Bit-Klartext).',
+              'bms_fehler': 'BMS meldet FEHLER: ' ~ states('sensor.battery_management_system_1_bms_1_errors') ~ ' (nativer Fehler-Bit-Klartext) - sofort pruefen!',
+              'bmu_fehler': 'BMU meldet FEHLER: ' ~ states('sensor.battery_management_unit_errors') ~ ' (nativer Fehler-Bit-Klartext) - sofort pruefen!',
+              'verbindung': 'BYD-Verbindung ungesund seit 10 min (connection_health=' ~ states('sensor.battery_management_unit_connection_health') ~ ') - Modbus-Strecke/Netz zur BMU pruefen.'
+            } %}{{ t.get(trigger.id, 'BYD-Alarm: ' ~ trigger.id) }}
+      - alias: "Push"
+        choose:
+          # Kennenlern-Phase: BMS-Warnungen laufen im SCHATTENBETRIEB - nur
+          # persistent_notification in der HA-UI + Logbuch, KEIN Mobile-Push.
+          # Ob das BMS am Ladeschluss/Balancing routinemaessig Warn-Bits setzt
+          # (z. B. "Cells imbalance"), ist unbekannt.
+          # TODO (nach mindestens einer sauberen Vollladung ohne Warn-Rauschen):
+          # bms_warnung aus dieser Option entfernen -> faellt in den default-
+          # Zweig und pusht dann normal.
+          - alias: "BMS-Warnung: Schattenbetrieb (kein Push)"
+            conditions:
+              - condition: trigger
+                id: bms_warnung
+            sequence:
+              - action: persistent_notification.create
+                data:
+                  notification_id: "byd_bms_warnung"
+                  title: "BYD BMS-Warnung (Schattenbetrieb)"
+                  message: "{{ alarm_text }}"
+          # Schwere Regeln: eigener Titel (🚨) zur schnellen Triage, aber KEIN
+          # iOS-Critical-Override (Ben-Entscheidung 17.7.): kein Durchdringen von
+          # Stumm/Fokus/Nachtruhe. Begruendung: aus der Ferne/nachts ist ohnehin
+          # nichts zu tun, und bei einer echten Zell-Eskalation kappt das BMS
+          # selbst (~3,65 V) VOR jeder Handlungsmoeglichkeit. Normaler Push,
+          # respektiert Stumm/DND. (Falls je gewuenscht, laesst sich ein
+          # Critical-Override per Regel gezielt wieder ergaenzen.)
+          - alias: "Schwerer Alarm (eigener Titel, normaler Push)"
+            conditions:
+              - condition: trigger
+                id:
+                  - zell_kritisch
+                  - zell_bms_grenze
+                  - zell_bms_grenze_praezise
+                  - temp_kritisch
+                  - bms_fehler
+                  - bmu_fehler
+            sequence:
+              - action: notify.notify
+                data:
+                  title: "🔋🚨 BYD Akku-Alarm"
+                  message: "{{ alarm_text }}"
+        default:
+          - action: notify.notify
+            data:
+              title: "🔋 BYD Akku-Alarm"
+              message: "{{ alarm_text }}"
+      - alias: "KI-Lagebild anstossen (fire-and-forget, Skript existiert nur live)"
+        action: script.turn_on
+        continue_on_error: true
+        target:
+          entity_id: script.ki_alarm_kontext
+        data:
+          variables:
+            alarm_titel: "BYD Akku-Alarm"
+            hinweis: >-
+              BYD Battery-Box Premium HVS (LFP, 5 Module, 32 Zellen/Modul =
+              160 Zellen, 12,8 kWh) am SMA WR. Datenquelle: Integration
+              byd_battery_box, Modbus nativ - zwei Ebenen: BMU-Poll alle 30 s
+              (Spannungen 10 mV granular, Temperatur 1 C) und BMS-Detail alle
+              ~10,5 min (Spannungen 1 mV granular). Zeitkritische Alarme laufen
+              auf der 30-s-Ebene, die 10-mV-Aufloesung verschiebt deren
+              Ausloesepunkt um bis zu 10 mV nach oben; der mV-genaue
+              Grenzwaechter auf der BMS-Ebene faengt das Fenster
+              3,651-3,659 V ab. BMS-Schutzgrenzen 2,75/3,65 V - die Alarme
+              liegen bewusst davor. Zellspannungs-Alarme sind SoC-gegated
+              (<90 %), am Ladeschluss zaehlt nur die BMS-Grenze. Zellspreizung
+              ist nur in Ruhe und bei SoC 25-85 % vergleichbar. Die Integration
+              setzt Entities bei Modbus-Abbruch NICHT auf unavailable, sondern
+              friert sie ein - deshalb pruefen die Alarme zusaetzlich
+              Frische-Binaries.
+            daten: >-
+              Ausgeloest durch Regel: {{ trigger.id }}
+              {{ alarm_text }}
+
+              Zellspannung min/max (BMU, 30 s): {{ states('sensor.battery_management_unit_bmu_cell_voltage_min') }} / {{ states('sensor.bmu_cell_voltage_max') }} V
+              Zellspannung min/max (BMS, mV-genau, ~10,5 min): {{ states('sensor.battery_management_system_1_bms_1_cell_voltage_min') }} / {{ states('sensor.battery_management_system_1_bms_1_cell_voltage_max') }} V
+              Zellspreizung: {{ states('sensor.battery_management_system_1_bms_1_cells_voltage_delta') }} mV (Ruhe-Median: {{ states('sensor.byd_zellspreizung_ruhe') }} mV)
+              Zell-Ausreisser: {{ states('sensor.byd_zell_ausreisser') }} mV vom Median ({{ state_attr('sensor.byd_zell_ausreisser', 'richtung') }}, Modul {{ state_attr('sensor.byd_zell_ausreisser', 'modul') }} Zelle {{ state_attr('sensor.byd_zell_ausreisser', 'zelle') }})
+              SoC: {{ states('sensor.battery_management_unit_state_of_charge') }} %, Leistung: {{ states('sensor.bmu_power') }} W (negativ = Laden)
+              Zelltemperatur min/max: {{ states('sensor.battery_management_unit_bmu_cell_temperature_min') }} / {{ states('sensor.battery_management_unit_bmu_cell_temperature_max') }} C
+              Temperatur-Spreizung: {{ states('sensor.byd_temperatur_spreizung') }} K
+              Balancing: {{ states('sensor.bms_1_cells_balancing') }} Zellen aktiv
+              SoH: {{ states('sensor.bms_1_state_of_health') }} %
+              BMS warnings/errors: {{ states('sensor.battery_management_system_1_bms_1_warnings') }} / {{ states('sensor.battery_management_system_1_bms_1_errors') }}
+              BMU errors: {{ states('sensor.battery_management_unit_errors') }}
+              Verbindung: {{ states('sensor.battery_management_unit_connection_health') }}
+              Daten frisch (BMU/Zelldaten): {{ states('binary_sensor.byd_bmu_frisch') }} / {{ states('binary_sensor.byd_zelldaten_frisch') }}
+              Steuerungs-Modus: {{ states('input_select.akkusteuerung_modus') }}
+
+  # -------------------------------------------------------------------------
+  # Dead-Man-Watchdog: ZEITbasiert, nicht edge-basiert.
+  # Ersetzt den alten stale-Trigger (der auf den unavailable-Uebergang der
+  # MQTT-Sensoren horchte). Zwei Gruende:
+  #   1. Die Integration setzt bei Modbus-Abbruch NIE unavailable (Werte
+  #      frieren ein) - es gibt gar keinen Uebergang, auf den man horchen kann.
+  #   2. Beim Fork-Setup-Fehlschlag nach HA-Neustart (Issues #14/#15) starten
+  #      die Entities OHNE State-Uebergang unavailable - edge-Trigger feuern
+  #      dann nie. Ein zeitbasierter Check sieht auch diesen Boot-Fehlschlag.
+  # Drossel 6 h: Reminder statt Spam (der Zustand haelt bis zum Eingriff an).
+  # Bewusste Konsequenz: die Frische-Bedingungen unterdruecken die
+  # physikalischen Alarme waehrend eines Datenausfalls - dann weiss man ohnehin
+  # nichts Neues, und dieser Watchdog meldet den Ausfall selbst
+  # (fail-notified statt fail-silent).
+  # -------------------------------------------------------------------------
+  - id: byd_daten_watchdog
+    alias: "BYD | Daten-Watchdog"
+    description: >-
+      Dead-Man-Watchdog fuer die BYD-Datenstrecke: meldet alle 30 min, wenn die
+      BMU- oder Zelldaten nicht mehr frisch sind oder die Verbindung nicht
+      gesund ist. Zeitbasiert, damit auch der Boot-Setup-Fehlschlag ohne
+      State-Uebergang erkannt wird. Drossel: hoechstens alle 6 h.
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        minutes: "/30"
+    conditions:
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: binary_sensor.byd_bmu_frisch
+            state: "off"
+          - condition: state
+            entity_id: binary_sensor.byd_zelldaten_frisch
+            state: "off"
+          # BEWUSST NICHT: connection_health != healthy.
+          # Live-Befund 17.7.: nach einem reload_config_entry stand
+          # connection_health auf "unhealthy", waehrend consecutive_failures 0
+          # war und BMU/BMS frische Timestamps lieferten. Der Health-Ping ist
+          # ein eigener Kanal (60 s auf Register 0x0000); beim Reload
+          # konkurrieren alter und neuer Client um das 1-Verbindungs-Limit der
+          # BMU und der Ping faellt aus, waehrend die Polls schon wieder laufen.
+          # Als Watchdog-Bedingung waere das ein reiner Fehlalarm-Pfad OHNE
+          # Erkennungsgewinn: die Frische-Binaries sind die Grundwahrheit
+          # (updated rueckt nur bei ERFOLGREICHEM Poll vor) und decken jeden
+          # Datenausfall bereits ab. connection_health bleibt als eigener,
+          # entprellter verbindung-Alarm (for: 10 min) erhalten.
+      # Drossel 6 h. last_triggered wird erst gesetzt, wenn die Bedingungen
+      # durch sind - also beim letzten echten Alarm. Nie gelaufen ->
+      # as_timestamp(none, 0) = 0 -> Differenz riesig -> meldet (fail-safe).
+      - condition: template
+        value_template: >-
+          {{ (now().timestamp()
+              - as_timestamp(state_attr('automation.byd_daten_watchdog', 'last_triggered'), 0)) > 21600 }}
+    actions:
+      - action: notify.notify
+        data:
+          title: "🔋⚠️ BYD-Daten ausgefallen"
+          message: >-
+            Keine frischen BYD-Daten: BMU frisch={{ states('binary_sensor.byd_bmu_frisch') }},
+            Zelldaten frisch={{ states('binary_sensor.byd_zelldaten_frisch') }},
+            Verbindung={{ states('sensor.battery_management_unit_connection_health') }}.
+            Letzter BMU-Poll: {{ states('sensor.battery_management_unit_updated') }}.
+            Die Akku-Alarme sind waehrenddessen blind - Integration/Modbus-Strecke pruefen.
+      - action: persistent_notification.create
+        data:
+          notification_id: byd_daten_watchdog
+          title: "BYD-Daten ausgefallen"
+          message: >-
+            BMU frisch={{ states('binary_sensor.byd_bmu_frisch') }},
+            Zelldaten frisch={{ states('binary_sensor.byd_zelldaten_frisch') }},
+            Verbindung={{ states('sensor.battery_management_unit_connection_health') }}.
+            Letzter BMU-Poll: {{ states('sensor.battery_management_unit_updated') }},
+            letzter BMS-Detail-Poll: {{ states('sensor.battery_management_system_1_bms_1_updated') }}.
+            Integration byd_battery_box neu laden (Fork-Issues #14/#15: Setup-Fehlschlag
+            nach Neustart ohne Retry) und Netz/Modbus zur BMU pruefen.

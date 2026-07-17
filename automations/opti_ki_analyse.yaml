@@ -31,7 +31,12 @@
           {% macro num(eid, digits=1) -%}
             {{ (states(eid) | float(0) | round(digits)) if has_value(eid) else ('"' ~ nv ~ '"') }}
           {%- endmacro %}
-          {% set byd_da = has_value('sensor.byd_zellspreizung_ruhe') %}
+          {# byd_da nicht nur has_value: sensor.byd_zellspreizung_ruhe haelt
+             seinen letzten Wert (RestoreEntity) auch bei Datenausfall. Zusaetzlich
+             die Zelldaten-Frische, sonst meldet der Report eingefrorene
+             SoH/Spreizungs-Werte als aktuell (Codex-Review 17.7.). #}
+          {% set byd_da = has_value('sensor.byd_zellspreizung_ruhe')
+             and is_state('binary_sensor.byd_zelldaten_frisch', 'on') %}
           {
             "datum": "{{ now().strftime('%Y-%m-%d') }}",
             "modi": {
@@ -76,7 +81,7 @@
               "ruhe_spreizung_mv": {{ num('sensor.byd_zellspreizung_ruhe', 0) }},
               "ruhe_spreizung_max_24h_mv": {{ num('sensor.opti_ki_ruhe_spreizung_max_24h', 0) }},
               "temp_spreizung_k": {{ num('sensor.byd_temperatur_spreizung', 0) }},
-              "soh_prozent": {{ num('sensor.byd_soh', 0) }},
+              "soh_prozent": {{ num('sensor.bms_1_state_of_health', 0) }},
               "balancing_dauer_h": {{ num('sensor.opti_ki_balancing_dauer_h', 2) }}
             }
           }

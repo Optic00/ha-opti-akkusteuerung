@@ -1,4 +1,26 @@
 # =============================================================================
+# +++ DEPRECATED (17.7.2026) - NICHT MEHR EINBAUEN +++
+# -----------------------------------------------------------------------------
+# Abgeloest durch packages/byd_monitoring.yaml (Datenquelle: Integration
+# byd_battery_box, Modbus nativ statt bydlogc + MQTT).
+# Doku: docs/byd-monitoring-nativ.md
+#
+# Diese Datei liegt nur noch fuer die Beobachtungsphase / einen Rollback hier
+# und wird im Abbau-PR geloescht.
+#
+# ACHTUNG - NICHT PARALLEL zu packages/byd_monitoring.yaml betreiben: beide
+# definieren dieselben unique_ids (byd_bmu_zellspreizung_ruhe_mv,
+# byd_bmu_temp_spreizung_k). Gleichzeitig aktiv erzeugt HA _2-Suffixe an den
+# entity_ids - und sensor.byd_zellspreizung_ruhe hat STEUERWIRKUNG
+# (Bedarfs-Balancing in packages/opti_derived.yaml kann eine Vollladung
+# ausloesen). Deshalb liegt diese Datei ausserhalb von packages/.
+#
+# byd_modul2_fruehwarnung.yaml (ebenfalls in legacy/) baut auf diesem Package
+# auf und ist seit dem bydlogc-Stopp am 17.7. funktionslos; ihr Neubau auf die
+# nativen Zelldaten ist als Phase 2 eingeplant.
+# =============================================================================
+
+# =============================================================================
 # BYD Battery-Box BMU-Monitoring via bydlogc + MQTT (OPTIONAL)
 # -----------------------------------------------------------------------------
 # Quelle: BYD-Logger cmdline (bydlogc, "olli" im Photovoltaikforum) laeuft als
@@ -314,7 +336,7 @@ mqtt:
       expire_after: 300
 
     # ---- Schwaechste/staerkste Zell-Nummer je Modul (MinVoltID/MaxVoltID) ----
-    # Von der Modul-2-Fruehwarnung (packages/byd_modul2_fruehwarnung.yaml) als
+    # Von der Modul-2-Fruehwarnung (legacy/byd_modul2_fruehwarnung.yaml) als
     # Attribut referenziert; auch solo nuetzlich, um zu sehen, ob immer DIESELBE
     # Zelle das Modul-Minimum stellt (Zell-Problem) oder es wandert (Streuung).
     - name: "BYD Modul 1 Min-Zell-ID"

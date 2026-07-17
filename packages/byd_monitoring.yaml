@@ -630,12 +630,18 @@ automation:
           - condition: state
             entity_id: binary_sensor.byd_zelldaten_frisch
             state: "off"
-          # not/state deckt auch unavailable + unknown ab.
-          - condition: not
-            conditions:
-              - condition: state
-                entity_id: sensor.battery_management_unit_connection_health
-                state: "healthy"
+          # BEWUSST NICHT: connection_health != healthy.
+          # Live-Befund 17.7.: nach einem reload_config_entry stand
+          # connection_health auf "unhealthy", waehrend consecutive_failures 0
+          # war und BMU/BMS frische Timestamps lieferten. Der Health-Ping ist
+          # ein eigener Kanal (60 s auf Register 0x0000); beim Reload
+          # konkurrieren alter und neuer Client um das 1-Verbindungs-Limit der
+          # BMU und der Ping faellt aus, waehrend die Polls schon wieder laufen.
+          # Als Watchdog-Bedingung waere das ein reiner Fehlalarm-Pfad OHNE
+          # Erkennungsgewinn: die Frische-Binaries sind die Grundwahrheit
+          # (updated rueckt nur bei ERFOLGREICHEM Poll vor) und decken jeden
+          # Datenausfall bereits ab. connection_health bleibt als eigener,
+          # entprellter verbindung-Alarm (for: 10 min) erhalten.
       # Drossel 6 h. last_triggered wird erst gesetzt, wenn die Bedingungen
       # durch sind - also beim letzten echten Alarm. Nie gelaufen ->
       # as_timestamp(none, 0) = 0 -> Differenz riesig -> meldet (fail-safe).

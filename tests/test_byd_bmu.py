@@ -1,17 +1,24 @@
-"""Tests fuer die BYD-Monitoring-Templates (byd_bmu.yaml + byd_modul2_fruehwarnung.yaml):
-Zellspreizung-Klemme, Ruhe-Median gegen Einzel-Ausreisser, Temp-Spreizung, Absackung."""
+"""Tests fuer die DEPRECATED MQTT-Templates (legacy/byd_bmu.yaml +
+legacy/byd_modul2_fruehwarnung.yaml): Zellspreizung-Klemme, Ruhe-Median gegen
+Einzel-Ausreisser, Temp-Spreizung, Absackung.
+
+Der aktive Nachfolger ist packages/byd_monitoring.yaml (Modbus nativ), getestet
+in tests/test_byd_monitoring.py. Diese Datei haelt die Legacy-Templates nur
+waehrend der Beobachtungsphase gruen (Rollback-Option) und faellt mit dem
+Abbau-PR zusammen mit legacy/ weg.
+"""
 
 from .ha_harness import (REPO, FakeHass, find_template_entity, load_yaml, render,
                          render_native)
 
 
 def _bmu_entity(kind, unique_id):
-    return find_template_entity(load_yaml(REPO / "packages" / "byd_bmu.yaml"), kind, unique_id)
+    return find_template_entity(load_yaml(REPO / "legacy" / "byd_bmu.yaml"), kind, unique_id)
 
 
 def _fw_entity(kind, unique_id):
     return find_template_entity(
-        load_yaml(REPO / "packages" / "byd_modul2_fruehwarnung.yaml"), kind, unique_id)
+        load_yaml(REPO / "legacy" / "byd_modul2_fruehwarnung.yaml"), kind, unique_id)
 
 
 # ---------------------------------------------------------------------------

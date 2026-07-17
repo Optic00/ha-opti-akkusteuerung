@@ -84,10 +84,13 @@ STATES_VOLL = {
     "input_number.opti_halte_spread_ct": "5",
     "input_number.minsoc": "10",
     "input_number.maxsoc": "95",
+    # byd_zellspreizung_ruhe/byd_temperatur_spreizung behalten ihre entity_id
+    # ueber den Modbus-Cutover (unique_id-Carry); der SoH kommt seit 17.7. vom
+    # nativen sensor.bms_1_state_of_health statt vom MQTT-sensor.byd_soh.
     "sensor.byd_zellspreizung_ruhe": "2",
     "sensor.opti_ki_ruhe_spreizung_max_24h": "4",
     "sensor.byd_temperatur_spreizung": "3",
-    "sensor.byd_soh": "96",
+    "sensor.bms_1_state_of_health": "96",
     "sensor.opti_ki_balancing_dauer_h": "1.2",
 }
 
@@ -104,9 +107,13 @@ def test_datenpaket_rendert_valides_json():
 
 
 def test_datenpaket_markiert_fehlende_quellen():
+    # "sensor.bms_1_" muss mit raus, sonst bleibt der SoH nach dem Cutover als
+    # einzige BYD-Quelle stehen und der Fall "BYD komplett weg" waere nicht mehr
+    # getestet.
     ohne_optionales = {k: v for k, v in STATES_VOLL.items()
                        if not k.startswith(("sensor.opti_price_spread", "sensor.opti_grid_import",
-                                            "sensor.opti_pv_yield", "sensor.byd_"))}
+                                            "sensor.opti_pv_yield", "sensor.byd_",
+                                            "sensor.bms_1_"))}
     hass = FakeHass(states=ohne_optionales,
                     attrs={"sensor.opti_strategie_vorschau": {"grund": "Default (Nacht/keine Aktion)"}})
     ergebnis = json.loads(render(hass, _datenpaket_template()))

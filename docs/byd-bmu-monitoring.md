@@ -1,8 +1,13 @@
 # BYD-BMU-Monitoring (optional): Zellspannungen, Spreizung und Balancing in Home Assistant
 
+> ⛔ **Überholt seit 17.7.2026.**
+> Dieser bydlogc-/MQTT-Weg ist durch die native Modbus-Integration abgelöst: **[byd-monitoring-nativ.md](byd-monitoring-nativ.md)** (Package [`packages/byd_monitoring.yaml`](../packages/byd_monitoring.yaml)).
+> Das Package liegt nur noch als Rollback-Option unter [`legacy/byd_bmu.yaml`](../legacy/byd_bmu.yaml) und wird im Abbau-PR gelöscht.
+> Diese Datei bleibt erhalten, weil die Abschnitte zur **Hairpin-Falle** und zu den **LFP-Interpretations-Hinweisen** weiterhin gelten - die Netz-Route zur Box braucht auch die native Integration.
+
 Dieses optionale Modul liest die BMU/BMS-Daten einer BYD Battery-Box Premium HVS aus und macht sie in Home Assistant sichtbar: Einzelmodul-Zellspannungen, Zell-Spreizung, Temperaturen, SoH, Balancing-Status.
 Es ist rein beobachtend und hat keinerlei Steuerfunktion.
-Das zugehörige HA-Package ist [`packages/byd_bmu.yaml`](../packages/byd_bmu.yaml).
+Das zugehörige HA-Package ist [`legacy/byd_bmu.yaml`](../legacy/byd_bmu.yaml).
 
 Die Datenquelle ist das Windows-/Linux-Tool **BYD-Logger** (`bydlogc`) von "olli" aus dem Photovoltaikforum.
 Das Tool wird hier **nicht** mitverteilt - die Binaries gibt es beim Autor im entsprechenden Forums-Thread.
@@ -20,7 +25,7 @@ bydlogc (Linux-Binary) in Docker-Container oder VM
 MQTT-Broker (z. B. Mosquitto-App in HA)
         │
         ▼
-packages/byd_bmu.yaml  →  sensor.byd_* in Home Assistant
+legacy/byd_bmu.yaml  →  sensor.byd_* in Home Assistant
 ```
 
 ## Voraussetzungen
@@ -134,7 +139,7 @@ Be-Connect-App oder BYD-Logger-GUI nie parallel zum Container laufen lassen; fü
 ## MQTT-Topics und HA-Package
 
 Das Tool publisht unter `Battery/BYD/BMS_1/...`: SOC, SOH, Min/Max/AvCellVolt, Power, Status1/2, Balancing, BalanceData, ChargedkWh/DischargedkWh sowie je Modul MinCellVolt/MaxCellVolt/MinVoltID/MaxVoltID/ModuleVolt/MinTemp/MaxTemp.
-`packages/byd_bmu.yaml` mappt diese Topics auf `sensor.byd_*`-Entities (`expire_after: 300` als Ausfall-Erkennung; die VoltID-Topics als Zell-Nummern-Diagnose je Modul) und ergänzt abgeleitete Sensoren:
+`legacy/byd_bmu.yaml` mappt diese Topics auf `sensor.byd_*`-Entities (`expire_after: 300` als Ausfall-Erkennung; die VoltID-Topics als Zell-Nummern-Diagnose je Modul) und ergänzt abgeleitete Sensoren:
 
 - `sensor.byd_zellspreizung` (mV, max - min über den ganzen Turm),
 - `sensor.byd_zellspreizung_ruhe` - aktualisiert nur, wenn der Akku nahezu lastfrei ist (|Leistung| < 300 W) UND der SoC im flachen Teil der LFP-Kennlinie liegt (25-85 %).

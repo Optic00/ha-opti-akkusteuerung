@@ -1,5 +1,27 @@
 # =============================================================================
-# BYD Modul-2 Fruehwarnung (OPTIONAL, setzt packages/byd_bmu.yaml voraus)
+# +++ DEPRECATED (17.7.2026) - NICHT MEHR EINBAUEN +++
+# -----------------------------------------------------------------------------
+# Diese Fruehwarnung haengt komplett an den MQTT-Sensoren aus legacy/byd_bmu.yaml
+# (sensor.byd_soc, byd_leistung, byd_modul_*_zellspannung_min, ...) und ist seit
+# dem bydlogc-Stopp am 17.7.2026 funktionslos - der Cutover auf die native
+# Modbus-Integration (packages/byd_monitoring.yaml) macht das nur noch formell.
+#
+# Der Neubau auf die nativen Zelldaten ist als PHASE 2 fest eingeplant
+# (Skizze: docs/byd-monitoring-nativ.md, Abschnitt "Phase 2"):
+#   - Metrik A praeziser: schwaechste Zelle von Modul 2 gegen den Median aller
+#     160 Zellen (Attribut cell_voltages) statt gegen den Peer-Median.
+#   - Metrik B portierbar: utility_meter auf sensor.bms_1_charge_total_energy /
+#     _discharge_total_energy, Leistung sensor.bmu_power (Vorzeichen identisch);
+#     der Knie-Latch braucht dann eine Zelldaten-Frische-Bedingung und eine
+#     Haltezeit >= 21 min (2 bestaetigende Detail-Zyklen).
+#
+# VOR dem Loeschen im Abbau-PR: die Helfer-Werte notieren (Cutover-Protokoll) -
+# input_number.byd_knie_referenzspannung, byd_knie_ref_frozen und
+# input_select.byd_knie_zyklus_status tragen den bisherigen Trend-Zustand.
+# =============================================================================
+
+# =============================================================================
+# BYD Modul-2 Fruehwarnung (OPTIONAL, setzt legacy/byd_bmu.yaml voraus)
 # -----------------------------------------------------------------------------
 # Beobachtet das schwaechste Modul des Turms (hier: Modul 2 mit Zelle 23) auf
 # schleichende Degradation - rein beobachtend, KEINE Steuerwirkung.
@@ -16,7 +38,7 @@
 #   idle -> armed (Voll-Anker nach Ladeschluss) -> latched (Knie erreicht,
 #   Snapshot) bzw. invalid (Messqualitaet unzureichend).
 #
-# Referenzierte Roh-Entitaeten (alle aus packages/byd_bmu.yaml):
+# Referenzierte Roh-Entitaeten (alle aus legacy/byd_bmu.yaml):
 #   sensor.byd_soc / byd_leistung / byd_zellspannung_max /
 #   byd_modul_1..5_zellspannung_min / byd_modul_2_min_zell_id /
 #   byd_modul_2_max_zell_id / byd_modul_2_temp_max /

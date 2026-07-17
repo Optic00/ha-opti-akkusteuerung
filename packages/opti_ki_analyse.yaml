@@ -112,10 +112,16 @@ sensor:
     end: "{{ now() }}"
 
   # ---- BYD-Gesundheit: Balancing-Dauer heute (optional, s. Spec-Delta) -----
+  # Quelle seit dem Modbus-Cutover (17.7.): binary_sensor.byd_balancing_aktiv_nativ
+  # aus packages/byd_monitoring.yaml (an = sensor.bms_1_cells_balancing > 0).
+  # Der native Sensor ist ein ZAEHLWERT - history_stats braucht einen on/off-
+  # State, deshalb der Umweg ueber den Template-Binary. Bewusst NEUE entity_id:
+  # die alte MQTT-ID wird nicht wiederverwendet (Registry-Leichen koennten
+  # sonst _2-Suffixe erzwingen).
   - platform: history_stats
     name: "Opti KI Balancing Dauer H"
     unique_id: opti_ki_balancing_dauer_h
-    entity_id: binary_sensor.byd_balancing_aktiv
+    entity_id: binary_sensor.byd_balancing_aktiv_nativ
     state: "on"
     type: time
     start: "{{ today_at() }}"
@@ -138,6 +144,10 @@ sensor:
     max_age:
       hours: 24
     sampling_size: 3000
+  # sensor.byd_zellspreizung_ruhe behaelt seine entity_id ueber den Cutover
+  # (unique_id-Carry byd_bmu_zellspreizung_ruhe_mv) - hier ist nichts
+  # umzustellen. Zaesur in der Zeitreihe am 17.7.: Quelle MQTT -> Modbus,
+  # Median-5 -> Median-3 (docs/byd-monitoring-nativ.md).
   - platform: statistics
     name: "Opti KI Ruhe Spreizung Max 24h"
     unique_id: opti_ki_ruhe_spreizung_max_24h

@@ -76,7 +76,7 @@
               "ruhe_spreizung_mv": {{ num('sensor.byd_zellspreizung_ruhe', 0) }},
               "ruhe_spreizung_max_24h_mv": {{ num('sensor.opti_ki_ruhe_spreizung_max_24h', 0) }},
               "temp_spreizung_k": {{ num('sensor.byd_temperatur_spreizung', 0) }},
-              "soh_prozent": {{ num('sensor.byd_soh', 0) }},
+              "soh_prozent": {{ num('sensor.bms_1_state_of_health', 0) }},
               "balancing_dauer_h": {{ num('sensor.opti_ki_balancing_dauer_h', 2) }}
             }
           }

@@ -79,7 +79,7 @@ Der Minimalpfad. Voller Ablauf mit beiden Einspiel-Varianten, allen Erststart-We
      packages: !include_dir_named packages/
    ```
 2. **Hardware-Mapping:** `opti_mapping.example.yaml` → `packages/opti_mapping.yaml` kopieren, alle `DEIN_*`-Platzhalter durch echte Entitäts-IDs ersetzen (→ [docs/canonical-layer.md](docs/canonical-layer.md)).
-3. **Package-Dateien** aus [`packages/`](packages/) ins HA-`packages/`-Verzeichnis kopieren (Überblick unter [Dateien](#dateien); `sma_templates.yaml`/`opti_ki_analyse.yaml`/`byd_bmu.yaml` sind optional). In `sma_modbus.yaml` die **WR-IP** anpassen - oder die Datei weglassen, falls der Modbus-Hub schon aus dem Adapter-Repo kommt (siehe „Nur aus einer Quelle" unten).
+3. **Package-Dateien** aus [`packages/`](packages/) ins HA-`packages/`-Verzeichnis kopieren (Überblick unter [Dateien](#dateien); `sma_templates.yaml`/`opti_ki_analyse.yaml`/`byd_monitoring.yaml` sind optional; `legacy/` bleibt draußen). In `sma_modbus.yaml` die **WR-IP** anpassen - oder die Datei weglassen, falls der Modbus-Hub schon aus dem Adapter-Repo kommt (siehe „Nur aus einer Quelle" unten).
 4. **Home Assistant neu starten.**
 5. ✅ **Verify-Gate - erst prüfen, dann scharf schalten:** In den Entwicklertools sicherstellen, dass `sensor.opti_target_soc`, `sensor.opti_charge_power_w` und `sensor.opti_price_level` plausible Werte zeigen und **nicht** `unavailable`/`unknown` sind. Stimmt etwas nicht → zuerst das Mapping korrigieren, nicht weitergehen.
 6. **Adapter-Blueprint importieren** aus [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter) und die Eingaben auf deine Entitäten mappen (Modbus-Hub, WR-Status, `input_select.akkusteuerung_modus`, `sensor.opti_charge_power_w`, dazu `battery_capacity_sensor` und `inverter_ok_states` - die Blueprint-Vorschlagswerte prüfen, nicht ungeprüft übernehmen).
@@ -105,8 +105,8 @@ Der Minimalpfad. Voller Ablauf mit beiden Einspiel-Varianten, allen Erststart-We
 | `packages/sma_templates.yaml` | Legacy-Template-Sensoren - teils durch `opti_derived.yaml` abgelöst, teils noch ohne Canonical-Äquivalent (Sollkurve/P-Regler, Abregelung) |
 | `packages/sma_statistik.yaml` | Gleitende Mittelwert-Sensoren für Verbrauch & Batterielast |
 | `packages/opti_ki_analyse.yaml` | **optional** - täglicher KI-Tagesreport (rein lesend) |
-| `packages/byd_bmu.yaml` | **optional** - BYD-Zell-Monitoring via bydlogc→MQTT (→ [docs/byd-bmu-monitoring.md](docs/byd-bmu-monitoring.md)) |
-| `packages/byd_modul2_fruehwarnung.yaml` | **optional** - Degradations-Frühwarnung fürs schwächste BYD-Modul, setzt `byd_bmu.yaml` voraus (→ [docs/byd-modul2-fruehwarnung.md](docs/byd-modul2-fruehwarnung.md)) |
+| `packages/byd_monitoring.yaml` | **optional** - BYD-Zell-Monitoring + Akku-Alarme über die native Modbus-Integration (→ [docs/byd-monitoring-nativ.md](docs/byd-monitoring-nativ.md)) |
+| `legacy/` | Abgelöste Packages (BYD via bydlogc→MQTT, Modul-2-Frühwarnung) - **nicht mehr einbauen**, siehe Deprecation-Header in den Dateien |
 | `packages/opti_ev_sperre.yaml` | **optional** - EV-Schnelllade-Entladesperre (Hausakku entlädt nicht ins Auto, wenn evcc im Modus now/minpv lädt); braucht HACS `evcc_intg` + Ladepunkt-Block im Mapping → [docs/strategie-logik.md](docs/strategie-logik.md) (Option 13) |
 | `automations/opti_strategie.yaml` | Strategie-Automation (editierbar, kein Blueprint) |
 

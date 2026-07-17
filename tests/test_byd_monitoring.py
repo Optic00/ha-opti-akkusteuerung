@@ -149,13 +149,20 @@ def _zelldaten_frisch(updated):
 def test_bmu_frisch_bei_normalem_poll():
     # Poll alle 30 s - typisches Alter live 17,5 s.
     assert _bmu_frisch("2026-07-17 11:44:42.207325") == "True"
-    assert _bmu_frisch("2026-07-17 11:42:01.000000") == "True"
+    # 60 s = 2 verpasste Polls, noch frisch.
+    assert _bmu_frisch("2026-07-17 11:44:00.000000") == "True"
 
 
-def test_bmu_frisch_stale_nach_drei_minuten():
-    # 3 min = 6 verpasste Polls.
+def test_bmu_frisch_grenze_90_sekunden():
+    # Das Fenster MUSS schmaler sein als die kuerzeste Haltezeit, die es
+    # schuetzt (zell_hoch: for 2 min) - sonst ist der Guard wirkungslos:
+    # eingefrorene Daten haetten nach 2 min erst 120 s Alter und wuerden mit
+    # einem 180-s-Fenster noch als "frisch" durchgehen (Codex-Review 17.7.).
+    # Untergrenze: breiter als der 30-s-Poll, sonst Flattern im Normalbetrieb.
+    assert _bmu_frisch("2026-07-17 11:43:31.000000") == "True"   # 89 s
+    assert _bmu_frisch("2026-07-17 11:43:30.000000") == "False"  # 90 s exakt
+    assert _bmu_frisch("2026-07-17 11:43:00.000000") == "False"  # 120 s = zell_hoch-Fall
     assert _bmu_frisch("2026-07-17 11:41:59.000000") == "False"
-    assert _bmu_frisch("2026-07-17 11:30:00.000000") == "False"
 
 
 def test_bmu_frisch_unavailable_und_muell_sind_nicht_frisch():
@@ -168,11 +175,15 @@ def test_bmu_frisch_unavailable_und_muell_sind_nicht_frisch():
     assert _bmu_frisch(None) == "False"
 
 
-def test_zelldaten_frisch_25_minuten_fenster():
-    # Detail-Zyklus ~630 s: 2 verpasste Zyklen + Marge. Live-Stichprobe 162 s.
-    assert _zelldaten_frisch("2026-07-17 11:42:18.000000") == "True"
-    assert _zelldaten_frisch("2026-07-17 11:20:01.000000") == "True"
-    assert _zelldaten_frisch("2026-07-17 11:19:59.000000") == "False"
+def test_zelldaten_frisch_grenze_15_minuten():
+    # Gleiche Logik wie beim BMU-Fenster: 900 s muss schmaler sein als die
+    # 21-min-Haltezeit von zell_bms_grenze_praezise (sonst Guard wirkungslos)
+    # und breiter als der 630-s-Detail-Zyklus (sonst Flattern).
+    assert _zelldaten_frisch("2026-07-17 11:42:18.000000") == "True"   # 162 s, live
+    assert _zelldaten_frisch("2026-07-17 11:34:30.000000") == "True"   # 630 s = 1 Zyklus
+    assert _zelldaten_frisch("2026-07-17 11:30:01.000000") == "True"   # 899 s
+    assert _zelldaten_frisch("2026-07-17 11:30:00.000000") == "False"  # 900 s exakt
+    assert _zelldaten_frisch("2026-07-17 11:24:00.000000") == "False"  # 21 min = praezise-Fall
     assert _zelldaten_frisch("unavailable") == "False"
 
 

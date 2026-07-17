@@ -102,25 +102,45 @@ template:
              and (states('sensor.bmu_power')|float(9999))|abs < 300
              and 25 < states('sensor.battery_management_unit_state_of_charge')|float(-1) < 85 }}
 
-      # Frische-Binary BMU (Poll 30 s): 3 min = 6 verpasste Polls.
-      # Bedingung in ALLEN BMU-basierten Alarmen - ein eingefrorener 3,66-V-Wert
-      # kann so keinen Fehlalarm per Stagnation ausloesen.
+      # Frische-Binary BMU (Poll 30 s, gemessen knochenstabil): 90 s = 3
+      # verpasste Polls.
+      #
+      # WARUM 90 UND NICHT 180 (Codex-Review 17.7.):
+      # Das Fenster muss SCHMALER sein als die Haltezeit der Regel, die es
+      # schuetzt - sonst ist der Guard wirkungslos. Friert die BMU ein waehrend
+      # der for:-Timer laeuft, ist bei einer 2-min-Regel das Alter erst 120 s;
+      # mit 180 s Fenster waere das Binary noch "on" und der Alarm feuert auf
+      # eingefrorenen Daten. Mit 90 s greift der Guard ab 2 min sauber.
+      # Untergrenze: das Fenster muss BREITER als das Poll-Intervall (30 s)
+      # sein, sonst flattert es im Normalbetrieb. 90 s ist das Optimum.
+      #
+      # PRINZIPBEDINGT UNGESCHUETZT bleiben Regeln mit for: <= 90 s, also
+      # zell_kritisch (30 s) und temp_kritisch (60 s): ihr Fenster muesste
+      # kleiner als das Poll-Intervall sein, das geht nicht. Entschaerfend:
+      # numeric_state feuert nur beim UEBERSCHREITEN - das erste Sample ist
+      # also immer echt, der Alarm stuetzt sich dann auf 1 echtes Sample plus
+      # eingefrorene Bestaetigung. Das irrt Richtung "lieber alarmieren" und
+      # ist fuer kritische Regeln die sichere Fehlerrichtung.
       - unique_id: byd_bmu_frisch
         name: "BYD BMU-Daten frisch"
         icon: mdi:clock-check-outline
         state: >
           {{ (now().timestamp()
-              - as_timestamp(states('sensor.battery_management_unit_updated'), 0)) < 180 }}
+              - as_timestamp(states('sensor.battery_management_unit_updated'), 0)) < 90 }}
 
-      # Frische-Binary BMS-Detail (Poll ~630 s): 25 min = 2 verpasste Zyklen
-      # plus Marge. Bedingung fuer die praezise BMS-Grenzregel und die
-      # Ruhe-/Diagnose-Sensoren.
+      # Frische-Binary BMS-Detail (Poll ~630 s): 15 min.
+      # Gleiche Logik wie oben: muss schmaler sein als die 21-min-Haltezeit von
+      # zell_bms_grenze_praezise (sonst Guard wirkungslos) und breiter als der
+      # 630-s-Poll plus Marge (sonst Flattern). 900 s trifft beides.
+      # Bedingung fuer die praezise BMS-Grenzregel und die Ruhe-/Diagnose-
+      # Sensoren. Ein einzelner verpasster Detail-Zyklus (Alter bis 21 min)
+      # markiert bewusst "nicht frisch" - dann meldet der Watchdog.
       - unique_id: byd_zelldaten_frisch
         name: "BYD Zelldaten frisch"
         icon: mdi:clock-check-outline
         state: >
           {{ (now().timestamp()
-              - as_timestamp(states('sensor.battery_management_system_1_bms_1_updated'), 0)) < 1500 }}
+              - as_timestamp(states('sensor.battery_management_system_1_bms_1_updated'), 0)) < 900 }}
 
       # history_stats-Quelle fuer die KI-Analyse (braucht on/off, keinen
       # Zaehlwert). Der native Sensor zaehlt die aktuell balancierenden Zellen.

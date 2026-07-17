@@ -297,6 +297,15 @@ def test_zaehler_qual_ohne_netto_zaehlt_nicht():
     assert _count(prev="1", seen="C1", cycle="C1", abstand=630, netto="unavailable") == "0"
 
 
+def test_zaehler_plausibilitaets_floor():
+    # Meta-Review-Haertung: ein implausibel niedriges m2min (Garbage/Stoerung,
+    # z.B. ~31 mV) darf NICHT als "unter Knie" qualifizieren - echtes Tiefstvolt
+    # ist Sache des Alarm-Layers. Floor m2min > 2,5 V macht Garbage inert.
+    assert _count(prev="1", seen="C1", cycle="C1", abstand=630, m2min_mv=31) == "0"
+    # Regressionsschutz: plausibler Wert knapp ueber dem Floor zaehlt weiter.
+    assert _count(prev="1", seen="C1", cycle="C1", abstand=630, m2min_mv=2600) == "2"
+
+
 def test_zaehler_band_bruch_nullt():
     assert _count(prev="1", seen="C1", cycle="C1", abstand=630, band="off") == "0"
 

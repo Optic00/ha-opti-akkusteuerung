@@ -178,6 +178,12 @@ Spalte „Frische" = zusätzliche Bedingung auf das jeweilige Frische-Binary.
 
 Jeder Alarm stößt wie bisher `script.ki_alarm_kontext` an (`continue_on_error`, existiert nur live).
 
+### Push-Kanäle: kein iOS-Critical-Override (bewusster Trade-off, 17.7.)
+
+Die Spalte "Critical" in der Tabelle meint nur den **Titel `🔋🚨`** zur schnellen Triage - alle Alarme senden einen **normalen Push** (`notify.mobile_app_iphone_15_ben`), der Stumm/Fokus/Nachtruhe respektiert. Der frühere iOS-Critical-Override (`sound.critical: 1`, durchdringt DND) wurde auf Nutzerwunsch entfernt: aus der Ferne bzw. nachts ist bei einer Zell-Eskalation ohnehin nichts zu tun, und das BMS kappt selbst bei ~3,65 V vor jeder Handlungsmöglichkeit.
+
+**Bewusster Rest-Trade-off:** Der eine Fall, in dem `zell_bms_grenze` wirklich zählt (BMS kappt NICHT trotz > 3,65 V), tritt bevorzugt nachts am Ladeschluss auf - ohne Critical-Ton kann er in DND untergehen. Falls je gewünscht, lässt sich ein Override per Regel gezielt für genau `zell_bms_grenze`/`bms_fehler`/`bmu_fehler` wieder ergänzen.
+
 ### SoC-Gating der Zellspannungs-Alarme
 
 Am Ladeschluss (SoC ≥ 90 %, LFP-Knie, Balancing aktiv) laufen Max-Zellspannung und Spreizung kurzzeitig hoch - beobachtet: **3,659 V Peak bei 0 W Ladeleistung**.
@@ -224,7 +230,10 @@ Zeitbasiert statt edge-basiert, weil er genau die zwei Fälle abdecken muss, die
 - **Modul-Identifikation im Temperatur-Alarm** ist best-effort aus `cell_temps` und damit bis zu 10,5 min alt (im Alarmtext gekennzeichnet).
   Bewusster Trade-off für 30-s-Alarm-Latenz statt 10,5 min.
 - **BMU- vs. BMS-SoC** können ~1 % divergieren; für die 90-%- und 25-85-%-Gates egal.
-- Die Integration ist ein **0.1.x-Fork mit 3 Stars**. Mittelfristig sinnvoll: `ConfigEntryNotReady`-Issue beim Fork melden (Setup-Retry).
+- Die Integration ist ein **0.1.x-Fork mit 3 Stars** - das realste Ausfallszenario ist der Setup-Fehlschlag nach HA-Neustart ohne Retry (gemeldet als Fork-Issue #14, `ConfigEntryNotReady`). Genau dafür ist der Dead-Man-Watchdog da.
+- **HACS-Update-Disziplin (wichtig):** Der cells/temps-Fix (Fork-Issue #16 / PR #17) ist derzeit nur **lokal** in `/config/custom_components/byd_battery_box/bydboxclient.py` gepatcht (Backup `.bak-cellswap-20260717`). Ein HACS-Update auf `byd_battery_box` **überschreibt den Patch** und stellt die Vertauschung wieder her, bis PR #17 gemergt ist. HACS updatet nicht ungefragt (manuell) - also bis zum Merge **kein Update auf diese Integration**, und nach jedem doch erfolgten Update prüfen: `sensor.<...>_cells_per_module` muss **32** sein. (Der Bug betrifft nur die zwei Zähler-Sensoren, nicht die `cell_voltages`-Arrays - die Frühwarnung ist gegen die Vertauschung isoliert, plus Plausibilitäts-Floor `m2min > 2,5 V`.)
+- **Live-vor-Merge-Stand:** Alarm-Package (`feat/byd-alarme-nativ` / PR #51) und Frühwarnung (`feat/byd-modul2-nativ`) laufen live, bevor sie auf `main` gemergt sind - plus der Lokalpatch. Drei gleichzeitige Live-vs-Repo-Abweichungen; Fenster klein halten (PR #51 bald mergen). **Schneller Rückfall:** der bydlogc-Container (Docker-VM 192.168.10.6) ist nur gestoppt, nicht entfernt - `docker start bydlogger` reaktiviert die alte MQTT-Datenquelle; HA-Backups `20c04425`/`5075f782`/`668ffd3c` decken die drei Cutover-Stufen ab.
+- **BMU spricht unauthentifiziertes Modbus**, und die komplette Alarmkette hängt jetzt an diesem Port. Die VLAN-Isolation der BMU (IoT-VLAN, nur Reader-Host -> BMU:8080 + BMU -> 443/1883) sollte nicht beliebig weit nach hinten geschoben werden.
 
 ## Bewusste Auslassungen
 

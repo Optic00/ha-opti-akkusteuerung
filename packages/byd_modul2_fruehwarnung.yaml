@@ -74,6 +74,14 @@
 # 3-kWh-Sprung setzt eine >39-min-Datenluecke voraus - und die zu verwerfen ist
 # genau richtig konservativ.
 #
+# PLAUSIBILITAETS-FLOOR (Meta-Review 17.7., Fable+Codex): die qual-Bedingung
+# verlangt zusaetzlich m2min > 2,5 V. Ein implausibel niedriger Wert (Garbage,
+# Sensor-Stoerung, oder eine kuenftige Integrations-Regression, die die
+# Attribute verschoebe) zaehlt so NICHT als "unter Knie" - echtes Tiefstvolt
+# ist Sache des Alarm-Layers, nicht der Fruehwarnung. Belt-and-suspenders:
+# macht Garbage inert statt latch-faehig; der Watchdog prueft nur Frische,
+# nicht Plausibilitaet.
+#
 # HELFER OHNE initial: HA wendet initial bei JEDEM Neustart an (nicht nur beim
 # ersten Setup) und wuerde Referenz und Zyklus-Status ueberschreiben; ohne
 # initial restored HA den letzten Wert. Deploy-Re-Seed (der Zyklus vom 16.7.
@@ -322,7 +330,7 @@ template:
              and is_state('binary_sensor.byd_entladeband', 'on')
              and has_value('sensor.byd_nettoenergie_seit_voll')
              and m2min is not none
-             and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
+             and m2min > 2.5 and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
           {% set cur_cycle = states('input_text.byd_knie_cycle_id') %}
           {% set neuer_zyklus = cur_cycle != this.attributes.get('cycle_id_gesehen') %}
           {% set prev = this.state | int(0) %}
@@ -349,7 +357,7 @@ template:
                and is_state('binary_sensor.byd_entladeband', 'on')
                and has_value('sensor.byd_nettoenergie_seit_voll')
                and m2min is not none
-               and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
+               and m2min > 2.5 and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
             {% set neuer_zyklus = states('input_text.byd_knie_cycle_id') != this.attributes.get('cycle_id_gesehen') %}
             {% set letzter = this.attributes.get('letzter_zyklus') | float(0) %}
             {% set jetzt = now().timestamp() %}
@@ -374,7 +382,7 @@ template:
                and is_state('binary_sensor.byd_entladeband', 'on')
                and has_value('sensor.byd_nettoenergie_seit_voll')
                and m2min is not none
-               and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
+               and m2min > 2.5 and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
             {% set neuer_zyklus = states('input_text.byd_knie_cycle_id') != this.attributes.get('cycle_id_gesehen') %}
             {% set abstand = now().timestamp() - (this.attributes.get('letzter_zyklus') | float(0)) %}
             {% set erstes = qual and not neuer_zyklus and abstand > 1500 %}
@@ -390,7 +398,7 @@ template:
                and is_state('binary_sensor.byd_entladeband', 'on')
                and has_value('sensor.byd_nettoenergie_seit_voll')
                and m2min is not none
-               and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
+               and m2min > 2.5 and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
             {% set neuer_zyklus = states('input_text.byd_knie_cycle_id') != this.attributes.get('cycle_id_gesehen') %}
             {% set abstand = now().timestamp() - (this.attributes.get('letzter_zyklus') | float(0)) %}
             {% set erstes = qual and not neuer_zyklus and abstand > 1500 %}
@@ -409,7 +417,7 @@ template:
                and is_state('binary_sensor.byd_entladeband', 'on')
                and has_value('sensor.byd_nettoenergie_seit_voll')
                and m2min is not none
-               and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
+               and m2min > 2.5 and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
             {% set neuer_zyklus = states('input_text.byd_knie_cycle_id') != this.attributes.get('cycle_id_gesehen') %}
             {% set abstand = now().timestamp() - (this.attributes.get('letzter_zyklus') | float(0)) %}
             {% set erstes = qual and not neuer_zyklus and abstand > 1500 %}
@@ -430,7 +438,7 @@ template:
                and is_state('binary_sensor.byd_entladeband', 'on')
                and has_value('sensor.byd_nettoenergie_seit_voll')
                and m2min is not none
-               and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
+               and m2min > 2.5 and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
             {% set neuer_zyklus = states('input_text.byd_knie_cycle_id') != this.attributes.get('cycle_id_gesehen') %}
             {% set abstand = now().timestamp() - (this.attributes.get('letzter_zyklus') | float(0)) %}
             {% set erstes = qual and not neuer_zyklus and abstand > 1500 %}

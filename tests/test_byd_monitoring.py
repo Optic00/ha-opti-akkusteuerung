@@ -69,8 +69,10 @@ def test_unique_id_carries_vorhanden():
 # Ruhefenster: |bmu_power| < 300 W UND 25 < SoC < 85
 # ---------------------------------------------------------------------------
 
-def _ruhefenster(power=None, soc=None):
-    states = {}
+def _ruhefenster(power=None, soc=None, bmu_frisch="on"):
+    # bmu_frisch defaultet auf "on": die Frische ist eine eigene Bedingung und
+    # wird gezielt in test_ruhefenster_ohne_frische_bmu geprueft.
+    states = {"binary_sensor.byd_bmu_frisch": bmu_frisch}
     if power is not None:
         states["sensor.bmu_power"] = power
     if soc is not None:
@@ -89,6 +91,17 @@ def test_ruhefenster_leistungs_grenzen():
     assert _ruhefenster(power="300", soc="53") == "False"
     assert _ruhefenster(power="-300", soc="53") == "False"
     assert _ruhefenster(power="-2600", soc="53") == "False"
+
+
+def test_ruhefenster_ohne_frische_bmu():
+    # Driver-Haertung: BMU-Poll eingefroren, BMS pollt weiter. power/SoC zeigen
+    # dann stale "Ruhe"-Werte, obwohl der Akku unter Last stehen kann. Ohne
+    # diese Bedingung wuerde der Ruhe-Sensor ein Last-Delta als Ruhewert latchen
+    # - mit Steuerwirkung (Bedarfs-Balancing) und 1-h-Alarm.
+    assert _ruhefenster(power="0.0", soc="53", bmu_frisch="off") == "False"
+    # unknown/unavailable des Binaries zaehlt ebenfalls als nicht frisch.
+    assert _ruhefenster(power="0.0", soc="53", bmu_frisch="unavailable") == "False"
+    assert _ruhefenster(power="0.0", soc="53", bmu_frisch="unknown") == "False"
 
 
 def test_ruhefenster_soc_grenzen():

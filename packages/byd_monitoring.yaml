@@ -82,11 +82,22 @@ template:
       # Ruhewerten nicht vergleichbar (beobachtet: 292 mV bei SoC 99 %,
       # 34-38 mV bei SoC ~17 %, 1-4 mV bei Mittel-SoC).
       # Fehlende Werte -> off (kein Sample statt falschem Sample).
+      #
+      # FRISCHE-BEDINGUNG (Driver-Haertung 17.7., ueber den Plan hinaus):
+      # Die Quellen dieses Gates (bmu_power, SoC) liegen auf der BMU-Ebene
+      # (30-s-Poll), der Ruhe-Sensor triggert aber auf BMS-Zyklen (~630 s).
+      # Faellt NUR der BMU-Poll aus, frieren power/SoC ein und ein stale
+      # "0 W / 53 %" haelt das Fenster offen - der Ruhe-Sensor wuerde dann ein
+      # frisches Delta UNTER LAST als Ruhewert latchen. Das traegt Steuerwirkung
+      # (Bedarfs-Balancing kann eine Vollladung vorziehen) und den 1-h-Alarm.
+      # Entities werden bei Modbus-Abbruch nie unavailable (s. Kopf), deshalb
+      # reicht has_value hier NICHT - es braucht das Frische-Binary.
       - unique_id: byd_ruhefenster
         name: "BYD Ruhefenster"
         icon: mdi:sleep
         state: >
-          {{ has_value('sensor.bmu_power')
+          {{ is_state('binary_sensor.byd_bmu_frisch', 'on')
+             and has_value('sensor.bmu_power')
              and has_value('sensor.battery_management_unit_state_of_charge')
              and (states('sensor.bmu_power')|float(9999))|abs < 300
              and 25 < states('sensor.battery_management_unit_state_of_charge')|float(-1) < 85 }}

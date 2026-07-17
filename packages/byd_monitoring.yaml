@@ -555,7 +555,14 @@ automation:
                   notification_id: "byd_bms_warnung"
                   title: "BYD BMS-Warnung (Schattenbetrieb)"
                   message: "{{ alarm_text }}"
-          - alias: "Critical-Push"
+          # Schwere Regeln: eigener Titel (🚨) zur schnellen Triage, aber KEIN
+          # iOS-Critical-Override (Ben-Entscheidung 17.7.): kein Durchdringen von
+          # Stumm/Fokus/Nachtruhe. Begruendung: aus der Ferne/nachts ist ohnehin
+          # nichts zu tun, und bei einer echten Zell-Eskalation kappt das BMS
+          # selbst (~3,65 V) VOR jeder Handlungsmoeglichkeit. Normaler Push,
+          # respektiert Stumm/DND. (Falls je gewuenscht, laesst sich ein
+          # Critical-Override per Regel gezielt wieder ergaenzen.)
+          - alias: "Schwerer Alarm (eigener Titel, normaler Push)"
             conditions:
               - condition: trigger
                 id:
@@ -570,12 +577,6 @@ automation:
                 data:
                   title: "🔋🚨 BYD Akku-Alarm"
                   message: "{{ alarm_text }}"
-                  data:
-                    push:
-                      sound:
-                        name: default
-                        critical: 1
-                        volume: 1
         default:
           - action: notify.notify
             data:

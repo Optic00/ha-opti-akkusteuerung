@@ -24,6 +24,38 @@ def _entity(kind, unique_id):
     return find_template_entity(load_yaml(PACKAGE), kind, unique_id)
 
 
+def _slug(name):
+    # HA leitet die entity_id aus dem NAMEN ab (slugify), nicht aus der
+    # unique_id: lowercase, nicht-alphanumerische Laeufe -> "_", getrimmt.
+    import re
+    return re.sub(r"_+", "_", re.sub(r"[^a-z0-9]+", "_", name.lower())).strip("_")
+
+
+# unique_id -> (domain, erwartete entity_id-Objektkennung). Die ID ist die, die
+# von den Alarmen / Consumern referenziert wird. Faengt die Fehlerklasse
+# "Name slugt nicht zur referenzierten entity_id" (Fable-Review 17.7.), die alle
+# Alarme still lahmlegen wuerde und von der Template-Render-Harness NICHT
+# gesehen wird. Fuer die Carry-Sensoren stellt der Test sicher, dass auch eine
+# Frischinstallation OHNE Registry-Carry die richtige entity_id bekommt.
+NAMING = [
+    ("binary_sensor", "byd_ruhefenster", "byd_ruhefenster"),
+    ("binary_sensor", "byd_bmu_frisch", "byd_bmu_frisch"),
+    ("binary_sensor", "byd_zelldaten_frisch", "byd_zelldaten_frisch"),
+    ("binary_sensor", "byd_balancing_aktiv_nativ", "byd_balancing_aktiv_nativ"),
+    ("sensor", "byd_zell_ausreisser", "byd_zell_ausreisser"),
+    ("sensor", "byd_bmu_temp_spreizung_k", "byd_temperatur_spreizung"),
+    ("sensor", "byd_bmu_zellspreizung_ruhe_mv", "byd_zellspreizung_ruhe"),
+]
+
+
+def test_name_slugt_zur_referenzierten_entity_id():
+    for domain, unique_id, erwartet in NAMING:
+        name = _entity(domain, unique_id)["name"]
+        assert _slug(name) == erwartet, (
+            f"{domain}/{unique_id}: name '{name}' -> {domain}.{_slug(name)}, "
+            f"aber referenziert wird {domain}.{erwartet}")
+
+
 # ---------------------------------------------------------------------------
 # Jinja-Parse-Check ueber die ganze Package-Struktur (Repo-Konvention)
 # ---------------------------------------------------------------------------
@@ -303,10 +335,19 @@ def test_balancing_binary_aus_zaehlwert():
     assert render(FakeHass(states={BAL: "6"}), _balancing()["state"]) == "True"
 
 
+FRESH = "binary_sensor.byd_zelldaten_frisch"
+
+
 def test_balancing_binary_availability():
-    assert render(FakeHass(states={BAL: "0"}), _balancing()["availability"]) == "True"
-    assert render(FakeHass(states={}), _balancing()["availability"]) == "False"
-    assert render(FakeHass(states={BAL: "unavailable"}),
+    # Verfuegbar nur bei vorhandenem Zaehler UND frischen Zelldaten - sonst
+    # liefe die history_stats-Uhr durch einen Datenausfall weiter.
+    assert render(FakeHass(states={BAL: "0", FRESH: "on"}),
+                  _balancing()["availability"]) == "True"
+    assert render(FakeHass(states={BAL: "0", FRESH: "off"}),
+                  _balancing()["availability"]) == "False"
+    assert render(FakeHass(states={BAL: "0"}), _balancing()["availability"]) == "False"
+    assert render(FakeHass(states={FRESH: "on"}), _balancing()["availability"]) == "False"
+    assert render(FakeHass(states={BAL: "unavailable", FRESH: "on"}),
                   _balancing()["availability"]) == "False"
 
 

@@ -121,8 +121,13 @@ template:
       # also immer echt, der Alarm stuetzt sich dann auf 1 echtes Sample plus
       # eingefrorene Bestaetigung. Das irrt Richtung "lieber alarmieren" und
       # ist fuer kritische Regeln die sichere Fehlerrichtung.
+      # NAME BESTIMMT DIE ENTITY_ID (slug), NICHT die unique_id! (Fable-Review
+      # 17.7.) "BYD BMU frisch" -> binary_sensor.byd_bmu_frisch, wie in allen
+      # Alarm-Bedingungen referenziert. Ein Name mit Bindestrich/Extra-Wort
+      # ("BYD BMU-Daten frisch" -> ...byd_bmu_daten_frisch) wuerde die Referenz
+      # ins Leere laufen lassen und ALLE Alarme still lahmlegen.
       - unique_id: byd_bmu_frisch
-        name: "BYD BMU-Daten frisch"
+        name: "BYD BMU frisch"
         icon: mdi:clock-check-outline
         state: >
           {{ (now().timestamp()
@@ -144,10 +149,21 @@ template:
 
       # history_stats-Quelle fuer die KI-Analyse (braucht on/off, keinen
       # Zaehlwert). Der native Sensor zaehlt die aktuell balancierenden Zellen.
+      # Name -> entity_id: "BYD Balancing aktiv nativ" ->
+      # binary_sensor.byd_balancing_aktiv_nativ (wie in opti_ki_analyse
+      # referenziert). Das "nativ" im Namen ist zwingend - ohne wuerde der Slug
+      # byd_balancing_aktiv und die history_stats-Quelle ins Leere laufen; zudem
+      # koennte eine Registry-Leiche des alten MQTT-byd_balancing_aktiv ein
+      # _2-Suffix erzwingen.
+      # Availability zusaetzlich an die Zelldaten-Frische (Codex-Review 17.7.):
+      # ein eingefrorener Balancing-Zaehler > 0 wuerde die history_stats-Uhr
+      # sonst durch einen Datenausfall weiterlaufen lassen.
       - unique_id: byd_balancing_aktiv_nativ
-        name: "BYD Balancing aktiv"
+        name: "BYD Balancing aktiv nativ"
         icon: mdi:scale-balance
-        availability: "{{ has_value('sensor.bms_1_cells_balancing') }}"
+        availability: >
+          {{ has_value('sensor.bms_1_cells_balancing')
+             and is_state('binary_sensor.byd_zelldaten_frisch', 'on') }}
         state: "{{ states('sensor.bms_1_cells_balancing')|int(0) > 0 }}"
 
   - sensor:
@@ -190,16 +206,19 @@ template:
   # atomaren Modbus-Reads obsolet; der kleinere Median-3 bleibt als
   # Einzel-Sample-Robustheit fuer die Steuer-Konsumenten.)
   #
-  # Restrisiko (dokumentiert): die Schreib-Reihenfolge updated vs. delta
-  # innerhalb eines Poll-Zyklus ist nicht garantiert; im schlimmsten Fall geht
-  # ein Sample mit dem Wert des Vorzyklus ein. Der 3er-Median kappt genau
-  # solche Einzelfaelle.
+  # Trigger NUR auf ..._updated, NICHT zusaetzlich auf ..._cells_voltage_delta
+  # (Codex-Review 17.7.): updated aendert sich bei JEDEM Detail-Zyklus (auch bei
+  # numerisch gleichem Delta), reicht also als alleiniger Zyklus-Trigger. Ein
+  # zweiter Trigger auf delta wuerde bei gleichzeitiger Aenderung im selben
+  # Zyklus das Sample DOPPELT anhaengen ([alt, neu, neu]) und den 3er-Median
+  # aushebeln.
+  # Restrisiko (dokumentiert): startet Last zwischen dem letzten BMU-Poll (30 s)
+  # und dem BMS-Sample, kann ein einzelnes Last-Sample durch das Ruhefenster
+  # rutschen. Der 3er-Median kappt genau solche Einzelfaelle.
   # ---------------------------------------------------------------------------
   - triggers:
       - trigger: state
         entity_id: sensor.battery_management_system_1_bms_1_updated
-      - trigger: state
-        entity_id: sensor.battery_management_system_1_bms_1_cells_voltage_delta
     conditions:
       - condition: state
         entity_id: binary_sensor.byd_ruhefenster
@@ -415,13 +434,23 @@ automation:
     conditions:
       - condition: or
         conditions:
-          # Regeln ohne Frische-Bedingung: ruhe_spreizung ist bereits im Sensor
-          # gegated (Ruhefenster + Zelldaten-Frische), verbindung IST die
-          # Ausfallmeldung selbst.
+          # verbindung IST die Ausfallmeldung selbst - keine Frische-Bedingung.
           - condition: trigger
-            id:
-              - ruhe_spreizung
-              - verbindung
+            id: verbindung
+          # ruhe_spreizung: der Ruhe-Sensor gated zwar SEINEN Update (Ruhefenster
+          # + Zelldaten-Frische), haelt aber gelatchte Werte ueber Stunden
+          # (RestoreEntity). Faellt DANACH der BMS-Poll aus, koennte ein stale
+          # >50-mV-Wert die 1-h-Haltezeit per Stagnation erfuellen. Deshalb hier
+          # zusaetzlich die Zelldaten-Frische (Codex-Review 17.7.) - konsistent
+          # mit dem Prinzip: physikalische Alarme werden bei Datenausfall
+          # unterdrueckt, der Watchdog meldet den Ausfall selbst.
+          - condition: and
+            conditions:
+              - condition: trigger
+                id: ruhe_spreizung
+              - condition: state
+                entity_id: binary_sensor.byd_zelldaten_frisch
+                state: "on"
           # Native Fehler-/Warnbits: alles ausser Normal/unknown/unavailable.
           - condition: and
             conditions:

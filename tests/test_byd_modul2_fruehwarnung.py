@@ -174,9 +174,14 @@ def test_absackung_kontext_attribute():
     assert _render_absackung("leistung_w", daten) == "800"
 
 
-def test_absackung_availability_ohne_attribut():
-    hass = FakeHass(states={AVG: "3.300"})
-    assert render(hass, _absackung()["availability"]) == "False"
+def test_absackung_availability_ohne_attribut_oder_ohne_m2():
+    # Finding 6: ohne Attribut UND ohne m:2-Eintrag unavailable (sonst laeuft
+    # min() im State auf einer leeren Liste in einen Template-Error).
+    assert render(FakeHass(states={AVG: "3.300"}), _absackung()["availability"]) == "False"
+    hass_m2 = FakeHass(states={AVG: "3.300"}, attrs={AVG: {"cell_voltages": _cv_ohne_m2()}})
+    assert render(hass_m2, _absackung()["availability"]) == "False"
+    hass_ok = FakeHass(states={AVG: "3.300"}, attrs={AVG: {"cell_voltages": _cv()}})
+    assert render(hass_ok, _absackung()["availability"]) == "True"
 
 
 # ---------------------------------------------------------------------------
@@ -261,13 +266,35 @@ def _count_attr(feld, **kw):
 
 
 def test_zaehler_erstes_qualifizierendes_sample():
-    # Neue cycle_id (seen != cycle) und qualifizierend -> Start bei 1.
-    assert _count(prev="0", seen="C0", cycle="C1") == "1"
+    # Selber Zyklus (seen == cycle), noch kein Streak (letzter fehlt -> Abstand
+    # riesig), qualifizierend -> Streak-Start bei 1.
+    assert _count(prev="0", seen="C1", cycle="C1", abstand=None) == "1"
 
 
 def test_zaehler_zweites_qualifizierendes_sample():
     # Gleiche cycle_id, Abstand im gueltigen Fenster -> Inkrement auf 2.
     assert _count(prev="1", seen="C1", cycle="C1", abstand=630) == "2"
+
+
+def test_zaehler_cycle_id_wechsel_nullt_bedingungslos():
+    # Finding 3: der cycle_id-Wechsel ist das Reset-Event, KEIN Sample. Auch
+    # qualifizierend darf er nicht auf 1 zaehlen (sonst latcht das erste echte
+    # Folge-Sample bereits bei Stand 2).
+    assert _count(prev="2", seen="C1", cycle="C2", abstand=630) == "0"
+    # ... und selbst mit riesigem Abstand bleibt es beim Reset auf 0.
+    assert _count(prev="0", seen="C1", cycle="C2", abstand=None) == "0"
+
+
+def test_zaehler_reset_dann_erstes_echtes_sample_ist_eins():
+    # Nach dem Reset (seen wurde auf C2 gesetzt, letzter=0) erzeugt das erste
+    # echte cells_average_voltage-Sample im selben Zyklus Stand 1 - nicht mehr.
+    assert _count(prev="0", seen="C2", cycle="C2", abstand=None) == "1"
+
+
+def test_zaehler_qual_ohne_netto_zaehlt_nicht():
+    # Finding 2: ist der Netto-Sensor unavailable, ist das Sample nicht
+    # qualifizierend (kein gueltiger Mess-Anker moeglich) -> 0.
+    assert _count(prev="1", seen="C1", cycle="C1", abstand=630, netto="unavailable") == "0"
 
 
 def test_zaehler_band_bruch_nullt():
@@ -281,11 +308,6 @@ def test_zaehler_frisch_off_nullt():
 def test_zaehler_ueber_referenz_nullt():
     # m2min 3250 mV = 3,25 V >= ref 3,20 V -> nicht qualifizierend.
     assert _count(prev="1", seen="C1", cycle="C1", abstand=630, m2min_mv=3250) == "0"
-
-
-def test_zaehler_neue_cycle_id_startet_neu():
-    # Re-Arm / neuer Voll-Anker: cycle_id wechselt -> Neustart bei 1.
-    assert _count(prev="2", seen="C1", cycle="C2", abstand=630) == "1"
 
 
 def test_zaehler_doppel_event_dedupe():
@@ -304,22 +326,35 @@ def test_zaehler_cycle_id_gesehen_immer_aktuell():
 
 
 def test_mess_anker_wird_bei_stand_eins_gesetzt():
-    # Erstes Sample (neue cycle_id, qualifizierend): netto/absackung geankert.
-    assert _count_attr("netto_bei_erstem_sample",
-                       prev="0", seen="C0", cycle="C1", netto="5.0") == "5.0"
-    assert _count_attr("absackung_bei_erstem_sample",
-                       prev="0", seen="C0", cycle="C1", absackung="30.0") == "30.0"
+    # Frischer Uebergang auf 1 (selber Zyklus, letzter=0): netto aus dem
+    # Momentanwert, Absackung/Zell-Nr/Modul aus DEMSELBEN cell_voltages-Attribut.
+    kw = dict(prev="0", seen="C1", cycle="C1", abstand=None, netto="5.0", m2min_mv=3190)
+    assert _count_attr("netto_bei_erstem_sample", **kw) == "5.0"
+    # Median(160)=3300, min(m:2)=3190 -> 110 mV; Zelle 23 (Default-Fixture); Modul 2.
+    assert float(_count_attr("absackung_bei_erstem_sample", **kw)) == 110.0
+    assert _count_attr("zelle_bei_erstem_sample", **kw) == "23"
+    assert _count_attr("schwaechstes_modul_bei_erstem_sample", **kw) == "2"
+
+
+def test_mess_anker_absackung_aus_attribut_nicht_aus_gegatetem_sensor():
+    # Finding 1: der Anker rechnet die Absackung aus dem eigenen Attribut, nicht
+    # aus states('sensor.byd_modul_2_zell_absackung'). Der (bewusst abweichende)
+    # Momentanwert des gegateten Sensors darf keine Rolle spielen.
+    # m2min 3195 mV = 3,195 V < ref 3,20 -> qualifiziert; Absackung = 3300-3195.
+    assert float(_count_attr("absackung_bei_erstem_sample",
+                             prev="0", seen="C1", cycle="C1", abstand=None,
+                             m2min_mv=3195, absackung="999")) == 105.0
 
 
 def test_mess_anker_wird_bei_stand_zwei_nicht_ueberschrieben():
-    # Inkrement auf 2: der momentane netto/absackung-Wert (9.9/44.0) darf den
-    # am ersten Sample geankerten (5.0/30.0) NICHT ueberschreiben.
+    # Inkrement auf 2: die Momentanwerte duerfen die am ersten Sample geankerten
+    # Werte NICHT ueberschreiben.
     assert _count_attr("netto_bei_erstem_sample",
                        prev="1", seen="C1", cycle="C1", abstand=630,
                        netto="9.9", netto_anker="5.0") == "5.0"
     assert _count_attr("absackung_bei_erstem_sample",
                        prev="1", seen="C1", cycle="C1", abstand=630,
-                       absackung="44.0", absackung_anker="30.0") == "30.0"
+                       m2min_mv=3100, absackung_anker="30.0") == "30.0"
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +405,9 @@ def _latch_hass():
         "input_number.byd_knie_ref_frozen": "3.20",
         "input_text.byd_knie_cycle_id": "C1",
     }, attrs={COUNTER: {"netto_bei_erstem_sample": "5.8",
-                        "absackung_bei_erstem_sample": "38.0"}}, now=NOW)
+                        "absackung_bei_erstem_sample": "38.0",
+                        "zelle_bei_erstem_sample": "23",
+                        "schwaechstes_modul_bei_erstem_sample": "2"}}, now=NOW)
 
 
 def test_latch_state_aus_mess_anker():
@@ -383,6 +420,10 @@ def test_latch_attribute_aus_mess_anker():
     attrs = _latch()["attributes"]
     assert render(hass, attrs["netto_kwh"]) == "5.8"
     assert render(hass, attrs["a_absackung_mv"]) == "38.0"
+    # Zell-Nr und Modul kommen ebenfalls aus dem Anker (gleicher Zyklus wie die
+    # Absackung), nicht vom gegateten Momentan-Sensor.
+    assert render(hass, attrs["modul2_schwaechste_zelle"]) == "23"
+    assert render(hass, attrs["schwaechstes_modul"]) == "2"
     # Kontext kommt weiter aus den Momentanwerten.
     assert render(hass, attrs["entladen_inkrement_kwh"]) == "6.1"
     assert render(hass, attrs["sauberer_zyklus"]) == "True"   # geladen 0.2 < 0.5
@@ -443,7 +484,25 @@ def test_voll_anker_prueft_beide_frische_binaries_und_meter_has_value():
         assert f"has_value('{meter}')" in joined, meter
 
 
-def test_latch_ist_state_trigger_auf_zaehler_mit_ge_zwei():
+def _turn_off_targets(node):
+    """entity_ids aller input_boolean.turn_off-Aktionen unter node."""
+    gefunden = []
+
+    def walk(n):
+        if isinstance(n, dict):
+            if n.get("action") == "input_boolean.turn_off":
+                gefunden.extend(_entities_in(n.get("target", {})))
+            for v in n.values():
+                walk(v)
+        elif isinstance(n, list):
+            for v in n:
+                walk(v)
+
+    walk(node)
+    return gefunden
+
+
+def test_latch_ist_state_trigger_auf_zaehler_mit_ge_zwei_und_anker_guard():
     latch = _auto("byd_knie_latch")
     trigger = latch["triggers"]
     assert any(t.get("trigger") == "state"
@@ -452,14 +511,56 @@ def test_latch_ist_state_trigger_auf_zaehler_mit_ge_zwei():
     assert all(t.get("trigger") != "numeric_state" for t in trigger)
     cond_texts = " ".join(_templates_in(latch["conditions"]))
     assert ">= 2" in cond_texts
+    # Finding 2: der Mess-Anker muss numerisch sein, sonst kein Latch.
+    assert "netto_bei_erstem_sample" in cond_texts and "|float(none)) is not none" in cond_texts
+
+
+def test_latch_setzt_ueberschwelle_guard_zurueck():
+    # Finding 7: sonst bliebe der Guard dauerhaft an (vestigial).
+    assert "input_boolean.byd_knie_ueberschwelle_gesehen" in _turn_off_targets(_auto("byd_knie_latch")["actions"])
 
 
 def test_invalid_naehe_check_ist_fail_safe_float_null():
     inv = _auto("byd_knie_invalid")
-    texts = " ".join(_templates_in(inv["conditions"]))
+    # Naehe-Check liegt jetzt in den Aktionen (choose-Sequenz), nicht in conditions.
+    texts = " ".join(_templates_in(inv["actions"]))
     # float(0) statt float(9): unbekannt zaehlt als nah am Knie -> verwerfen.
     assert "sensor.byd_modul_2_zellmin')|float(0)" in texts
     assert "float(9)" not in texts
+
+
+def test_invalid_neustart_wartet_auf_frische_zelldaten():
+    # Finding 5: der neustart-Zweig darf den Naehe-Check nicht sofort werten
+    # (zellmin nach Boot unavailable -> float(0) invalidierte jeden Restart).
+    inv = _auto("byd_knie_invalid")
+
+    def find_waits(node):
+        found = []
+
+        def walk(n):
+            if isinstance(n, dict):
+                if "wait_template" in n:
+                    found.append(n)
+                for v in n.values():
+                    walk(v)
+            elif isinstance(n, list):
+                for v in n:
+                    walk(v)
+
+        walk(node)
+        return found
+
+    waits = find_waits(inv["actions"])
+    assert any("has_value('sensor.byd_modul_2_zellmin')" in w["wait_template"]
+               and w.get("continue_on_timeout") is True for w in waits)
+
+
+def test_invalid_schaltet_armed_und_ueberschwelle_ab():
+    # Finding 4 + 7: status=invalid muss armed loeschen (Zustandswiderspruch)
+    # und den Ueberschwelle-Guard zuruecksetzen - in BEIDEN choose-Zweigen.
+    off = _turn_off_targets(_auto("byd_knie_invalid")["actions"])
+    assert off.count("input_boolean.byd_knie_armed") >= 2
+    assert off.count("input_boolean.byd_knie_ueberschwelle_gesehen") >= 2
 
 
 def test_invalid_datenluecke_deckt_beide_frische_binaries_ab():

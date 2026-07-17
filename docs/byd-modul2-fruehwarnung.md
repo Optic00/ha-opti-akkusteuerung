@@ -46,7 +46,8 @@ Der Messzyklus läuft als Zustandsmaschine (`input_select.byd_knie_zyklus_status
 2. **armed → latched (Knie-Latch):** Wenn der Bestätigungszähler `sensor.byd_knie_bestaetigungen` **≥ 2 konsekutive qualifizierende BMS-Zyklen** erreicht (Zellmin von Modul 2 unter der eingefrorenen Referenz, im Entladeband, bei frischen Daten), und die Spannung seit dem Anker klar über der Schwelle war (Überschwelle-Guard, ref + 30 mV).
    Der Latch-Sensor snapshottet in diesem Moment die **Mess-Anker-Werte** (Nettoenergie und Absackung am ersten Unterschreitungs-Sample, siehe unten) plus Begleitwerte (SoC, Zellmin, schwächste Zelle, Cycle-ID) als Attribute.
 3. **armed → invalid:** Bei Messqualitäts-Problemen wird der Zyklus verworfen statt falsch gemessen: Datenlücke (eines der beiden Frische-Binaries ≥ 2 min aus) oder HA-Neustart, jeweils **nahe am Knie** (Zellmin ≤ ref + 10 mV, fail-safe: unbekannt zählt als nah → verwerfen), oder ein unplausibler Nettoenergie-Sprung (> 3 kWh zwischen zwei Updates, außerhalb der Anker-Sekunden).
-   Der Grund landet in `input_text.byd_knie_invalid_grund`.
+   Beim HA-Neustart wartet der Pfad **bis zu 15 min auf frische Zelldaten**, bevor der Nähe-Check greift - direkt nach dem Boot ist Zellmin noch `unavailable`, und `float(0)` würde sonst **jeden** Routine-Restart im armed-Zustand als knie-nah invalidieren und gesunde Plateau-Zyklen verwerfen; erst nach dem Timeout (Integration wirklich tot) greift `float(0)` korrekt als „verwerfen".
+   Mit `invalid` werden `armed` und der Überschwelle-Guard zurückgesetzt (kein Zustandswiderspruch), der Grund landet in `input_text.byd_knie_invalid_grund`.
 
 Das Attribut `sauberer_zyklus` markiert Zyklen ohne nennenswerte Zwischenladung (< 0,5 kWh geladen seit Voll); nur diese sind untereinander streng vergleichbar.
 
@@ -58,16 +59,16 @@ Ein `for:` von z. B. ≥ 21 min würde (a) Latch-Ausbeute an Haushaltslast-Flatt
 Stattdessen zählt `sensor.byd_knie_bestaetigungen` konsekutive qualifizierende BMS-Detail-Zyklen.
 Er ist trigger-basiert (auf den Attribut-Träger **und** auf die Cycle-ID als Reset-Signal) und **zustands- statt flankensicher** - alle Entscheidungen fallen im Template gegen die eigenen Vorwerte (`this.attributes`):
 
-- **Reset über die Cycle-ID:** ist die gespeicherte Cycle-ID ≠ der aktuellen, startet der Zähler neu. Das fängt auch ein Re-Arm `armed → armed` ab, weil der Voll-Anker **immer** eine neue Cycle-ID vergibt.
+- **Reset über die Cycle-ID:** ist die gespeicherte Cycle-ID ≠ der aktuellen, wird der Zähler **bedingungslos auf 0** gesetzt - das reine Reset-Event ist kein qualifizierendes Sample. Erst der nächste `cells_average_voltage`-Trigger im laufenden Zyklus kann Stand 1 erzeugen (sonst könnte das erste echte Folge-Sample bereits Stand 2 und damit einen verfrühten Latch auslösen). Das fängt auch ein Re-Arm `armed → armed` ab, weil der Voll-Anker **immer** eine neue Cycle-ID vergibt.
 - **Dedupe (300 s):** liegt der Abstand zum letzten gezählten Sample unter 300 s, ist es ein Doppel-Event desselben BMS-Samples und wird nicht gezählt.
-- **Lücken-Guard (1500 s):** liegt der Abstand über 1500 s, ist die Kontinuität gebrochen (Datenlücke zwischen den Samples) und der Zähler startet bei 1 neu.
+- **Lücken-Guard / Streak-Start (1500 s):** liegt der Abstand über 1500 s (auch: kein laufender Streak, `letzter_zyklus` = 0 nach Reset), ist es das erste Sample eines Streaks und der Zähler startet bei 1.
 - Ein nicht-qualifizierendes Sample nullt den Zähler.
 
-**Mess-Anker:** Beim Übergang auf Zählerstand 1 snapshottet der Zähler den aktuellen `sensor.byd_nettoenergie_seit_voll` als `netto_bei_erstem_sample` und die aktuelle Absackung als `absackung_bei_erstem_sample`.
-Der Latch übernimmt **diese** Werte, nicht die zum Latch-Zeitpunkt: gemessen wird am ersten Unterschreitungs-Sample (Lag zum echten Knie ≤ 1 Zyklus, ~0-0,26 kWh bandbegrenzt), die zweite Bestätigung validiert nur noch.
-Damit verschwindet der Wartezeit-Offset aus der Messung.
+**Mess-Anker:** Beim frischen Übergang auf Zählerstand 1 snapshottet der Zähler den aktuellen `sensor.byd_nettoenergie_seit_voll` als `netto_bei_erstem_sample` sowie - **aus demselben `cell_voltages`-Attribut, das die Qualifikation gerechnet hat** - `absackung_bei_erstem_sample`, `zelle_bei_erstem_sample` und `schwaechstes_modul_bei_erstem_sample`.
+Der Latch übernimmt **diese** geankerten Werte, nicht die zum Latch-Zeitpunkt und nicht den (gegateten, ggf. veralteten) Momentanwert des Absackungs-Sensors - so passen Absackungswert und Zell-Nummer garantiert zusammen.
+Gemessen wird am ersten Unterschreitungs-Sample (Lag zum echten Knie ≤ 1 Zyklus, ~0-0,26 kWh bandbegrenzt), die zweite Bestätigung validiert nur noch; der Wartezeit-Offset verschwindet aus der Messung.
 
-Der Latch selbst hängt an einem **state-Trigger** auf den Zähler mit der Bedingung Wert ≥ 2 (kein `numeric_state`, das nur die steigende Flanke sähe): scheitert der erste Latch-Versuch (Bedingung, Crash, Neustart mit restauriertem Zähler), feuert der nächste Zyklus (2 → 3) erneut.
+Der Latch selbst hängt an einem **state-Trigger** auf den Zähler mit der Bedingung Wert ≥ 2 **und** einem numerischen Mess-Anker (kein `numeric_state`, das nur die steigende Flanke sähe): scheitert der erste Latch-Versuch (Bedingung, ungültiger Anker, Crash, Neustart mit restauriertem Zähler), feuert der nächste Zyklus (2 → 3) erneut.
 
 ## Interpretation
 

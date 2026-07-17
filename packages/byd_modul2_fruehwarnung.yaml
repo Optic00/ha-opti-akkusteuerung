@@ -233,8 +233,16 @@ template:
         unit_of_measurement: "mV"
         state_class: measurement
         icon: mdi:arrow-down-bold-box
+        # Availability wie beim zellmin-Sensor: Attribut da UND ein m:2-Eintrag
+        # vorhanden - sonst laeuft min() auf einer leeren Liste in einen
+        # Template-Error.
         availability: >
-          {{ state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') is not none }}
+          {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+          {% set ns = namespace(hat=false) %}
+          {% for modul in daten or [] %}
+            {% if modul['m'] == 2 and (modul['v'] | length) > 0 %}{% set ns.hat = true %}{% endif %}
+          {% endfor %}
+          {{ ns.hat }}
         state: >
           {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
           {% set alle = namespace(v=[]) %}
@@ -281,14 +289,17 @@ template:
   # eingefrorenen Referenz. Trigger auf den Attribut-Traeger (jeder Detail-
   # Zyklus) UND auf die cycle_id (Reset-Signal des Voll-Ankers). Zustandssicher
   # ueber this.attributes:
-  #   - cycle_id_gesehen: gespeicherte != aktuelle -> Zaehler startet neu (faengt
-  #     auch Re-Arm armed->armed ab, der Voll-Anker vergibt IMMER eine neue
-  #     cycle_id).
-  #   - letzter_zyklus (Timestamp des letzten GEZAEHLTEN Samples):
+  #   - cycle_id_gesehen: gespeicherte != aktuelle -> Zaehler BEDINGUNGSLOS auf 0
+  #     (das reine Reset-Event ist KEIN qualifizierendes Sample; faengt auch
+  #     Re-Arm armed->armed ab, der Voll-Anker vergibt IMMER eine neue cycle_id).
+  #     Erst ein cells_average_voltage-Trigger im laufenden Zyklus kann Stand 1
+  #     erzeugen - sonst koennte das erste echte Sample schon Stand 2 latchen.
+  #   - letzter_zyklus (Timestamp des letzten GEZAEHLTEN Samples, 0 = kein Streak):
   #       Abstand < 300 s  -> Doppel-Event, nicht zaehlen (Dedupe)
-  #       Abstand > 1500 s -> Kontinuitaet gebrochen (Datenluecke), Neustart bei 1
-  #   - erstes Sample (Uebergang auf 1) snapshottet netto_bei_erstem_sample und
-  #     absackung_bei_erstem_sample; Stand 2 ueberschreibt sie NICHT.
+  #       Abstand > 1500 s -> Streak-Start (erstes Sample nach Reset/Luecke) -> 1
+  #   - erstes Sample (frischer Uebergang auf 1) snapshottet die Mess-Anker
+  #     netto/absackung/zelle/schwaechstes_modul; Stand 2 ueberschreibt sie NICHT.
+  #     Absackung/Zell-Nr/Modul aus DEMSELBEN Attribut wie die Qualifikation.
   # min(m:2) direkt aus dem Attribut (nicht ueber den zellmin-Sensor -
   # Render-Race).
   # ---------------------------------------------------------------------------
@@ -309,14 +320,15 @@ template:
           {% set qual = is_state('input_select.byd_knie_zyklus_status', 'armed')
              and is_state('binary_sensor.byd_zelldaten_frisch', 'on')
              and is_state('binary_sensor.byd_entladeband', 'on')
+             and has_value('sensor.byd_nettoenergie_seit_voll')
              and m2min is not none
              and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
           {% set cur_cycle = states('input_text.byd_knie_cycle_id') %}
-          {% set seen = this.attributes.get('cycle_id_gesehen') %}
+          {% set neuer_zyklus = cur_cycle != this.attributes.get('cycle_id_gesehen') %}
           {% set prev = this.state | int(0) %}
           {% set abstand = now().timestamp() - (this.attributes.get('letzter_zyklus') | float(0)) %}
-          {% if not qual %}0
-          {% elif cur_cycle != seen %}1
+          {% if neuer_zyklus %}0
+          {% elif not qual %}0
           {% elif abstand < 300 %}{{ prev }}
           {% elif abstand > 1500 %}1
           {% else %}{{ prev + 1 }}{% endif %}
@@ -325,6 +337,8 @@ template:
           # damit der Reset-Vergleich im Folge-Zyklus korrekt greift.
           cycle_id_gesehen: "{{ states('input_text.byd_knie_cycle_id') }}"
           # Timestamp des letzten gezaehlten Samples (0 = kein laufender Streak).
+          # cycle_id-Wechsel setzt bedingungslos 0 (Reset-Event ist KEIN Sample);
+          # nur ein cells_average_voltage-Trigger im laufenden Zyklus zaehlt.
           letzter_zyklus: >
             {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
             {% set mns = namespace(m2=none) %}
@@ -333,20 +347,23 @@ template:
             {% set qual = is_state('input_select.byd_knie_zyklus_status', 'armed')
                and is_state('binary_sensor.byd_zelldaten_frisch', 'on')
                and is_state('binary_sensor.byd_entladeband', 'on')
+               and has_value('sensor.byd_nettoenergie_seit_voll')
                and m2min is not none
                and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
-            {% set cur_cycle = states('input_text.byd_knie_cycle_id') %}
-            {% set seen = this.attributes.get('cycle_id_gesehen') %}
+            {% set neuer_zyklus = states('input_text.byd_knie_cycle_id') != this.attributes.get('cycle_id_gesehen') %}
             {% set letzter = this.attributes.get('letzter_zyklus') | float(0) %}
             {% set jetzt = now().timestamp() %}
             {% set abstand = jetzt - letzter %}
-            {% if not qual %}0
-            {% elif cur_cycle != seen %}{{ jetzt }}
+            {% if neuer_zyklus %}0
+            {% elif not qual %}0
             {% elif abstand < 300 %}{{ letzter }}
             {% else %}{{ jetzt }}{% endif %}
-          # Mess-Anker: nur beim Uebergang auf Stand 1 (frisches erstes Sample)
-          # gesetzt, sonst carry. erstes_sample = qual UND (neue cycle_id ODER
-          # Luecken-Neustart).
+          # Mess-Anker: nur beim frischen Uebergang auf Stand 1 gesetzt (qual,
+          # SELBER Zyklus, Streak-Start via Luecken-/Boot-Abstand), sonst carry.
+          # Der cycle_id-Wechsel selbst ankert NICHT (er nullt nur).
+          # Absackung/Zell-Nr/Modul werden aus DEMSELBEN cell_voltages-Attribut
+          # gerechnet wie die Qualifikation - der Latch darf nicht den gegateten,
+          # ggf. veralteten Sensor lesen (Wert und Zell-Nr muessen zusammenpassen).
           netto_bei_erstem_sample: >
             {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
             {% set mns = namespace(m2=none) %}
@@ -355,12 +372,12 @@ template:
             {% set qual = is_state('input_select.byd_knie_zyklus_status', 'armed')
                and is_state('binary_sensor.byd_zelldaten_frisch', 'on')
                and is_state('binary_sensor.byd_entladeband', 'on')
+               and has_value('sensor.byd_nettoenergie_seit_voll')
                and m2min is not none
                and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
-            {% set cur_cycle = states('input_text.byd_knie_cycle_id') %}
-            {% set seen = this.attributes.get('cycle_id_gesehen') %}
+            {% set neuer_zyklus = states('input_text.byd_knie_cycle_id') != this.attributes.get('cycle_id_gesehen') %}
             {% set abstand = now().timestamp() - (this.attributes.get('letzter_zyklus') | float(0)) %}
-            {% set erstes = qual and (cur_cycle != seen or abstand > 1500) %}
+            {% set erstes = qual and not neuer_zyklus and abstand > 1500 %}
             {{ states('sensor.byd_nettoenergie_seit_voll') if erstes
                else this.attributes.get('netto_bei_erstem_sample') }}
           absackung_bei_erstem_sample: >
@@ -371,14 +388,61 @@ template:
             {% set qual = is_state('input_select.byd_knie_zyklus_status', 'armed')
                and is_state('binary_sensor.byd_zelldaten_frisch', 'on')
                and is_state('binary_sensor.byd_entladeband', 'on')
+               and has_value('sensor.byd_nettoenergie_seit_voll')
                and m2min is not none
                and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
-            {% set cur_cycle = states('input_text.byd_knie_cycle_id') %}
-            {% set seen = this.attributes.get('cycle_id_gesehen') %}
+            {% set neuer_zyklus = states('input_text.byd_knie_cycle_id') != this.attributes.get('cycle_id_gesehen') %}
             {% set abstand = now().timestamp() - (this.attributes.get('letzter_zyklus') | float(0)) %}
-            {% set erstes = qual and (cur_cycle != seen or abstand > 1500) %}
-            {{ states('sensor.byd_modul_2_zell_absackung') if erstes
-               else this.attributes.get('absackung_bei_erstem_sample') }}
+            {% set erstes = qual and not neuer_zyklus and abstand > 1500 %}
+            {% if erstes %}
+              {% set alle = namespace(v=[]) %}
+              {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+              {{ ((alle.v | median) - (mns.m2 | min)) | round(1) }}
+            {% else %}{{ this.attributes.get('absackung_bei_erstem_sample') }}{% endif %}
+          zelle_bei_erstem_sample: >
+            {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+            {% set mns = namespace(m2=none) %}
+            {% for modul in daten or [] %}{% if modul['m'] == 2 %}{% set mns.m2 = modul['v'] %}{% endif %}{% endfor %}
+            {% set m2min = ((mns.m2 | min) / 1000) if mns.m2 else none %}
+            {% set qual = is_state('input_select.byd_knie_zyklus_status', 'armed')
+               and is_state('binary_sensor.byd_zelldaten_frisch', 'on')
+               and is_state('binary_sensor.byd_entladeband', 'on')
+               and has_value('sensor.byd_nettoenergie_seit_voll')
+               and m2min is not none
+               and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
+            {% set neuer_zyklus = states('input_text.byd_knie_cycle_id') != this.attributes.get('cycle_id_gesehen') %}
+            {% set abstand = now().timestamp() - (this.attributes.get('letzter_zyklus') | float(0)) %}
+            {% set erstes = qual and not neuer_zyklus and abstand > 1500 %}
+            {% if erstes %}
+              {% set zns = namespace(minv=99999, zelle=0) %}
+              {% for wert in mns.m2 %}
+                {% if wert < zns.minv %}{% set zns.minv = wert %}{% set zns.zelle = loop.index %}{% endif %}
+              {% endfor %}
+              {{ zns.zelle }}
+            {% else %}{{ this.attributes.get('zelle_bei_erstem_sample') }}{% endif %}
+          schwaechstes_modul_bei_erstem_sample: >
+            {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+            {% set mns = namespace(m2=none) %}
+            {% for modul in daten or [] %}{% if modul['m'] == 2 %}{% set mns.m2 = modul['v'] %}{% endif %}{% endfor %}
+            {% set m2min = ((mns.m2 | min) / 1000) if mns.m2 else none %}
+            {% set qual = is_state('input_select.byd_knie_zyklus_status', 'armed')
+               and is_state('binary_sensor.byd_zelldaten_frisch', 'on')
+               and is_state('binary_sensor.byd_entladeband', 'on')
+               and has_value('sensor.byd_nettoenergie_seit_voll')
+               and m2min is not none
+               and m2min < states('input_number.byd_knie_ref_frozen')|float(3.20) %}
+            {% set neuer_zyklus = states('input_text.byd_knie_cycle_id') != this.attributes.get('cycle_id_gesehen') %}
+            {% set abstand = now().timestamp() - (this.attributes.get('letzter_zyklus') | float(0)) %}
+            {% set erstes = qual and not neuer_zyklus and abstand > 1500 %}
+            {% if erstes %}
+              {% set gns = namespace(minv=99999, modul=0) %}
+              {% for modul in daten %}
+                {% for wert in modul['v'] %}
+                  {% if wert < gns.minv %}{% set gns.minv = wert %}{% set gns.modul = modul['m'] %}{% endif %}
+                {% endfor %}
+              {% endfor %}
+              {{ gns.modul }}
+            {% else %}{{ this.attributes.get('schwaechstes_modul_bei_erstem_sample') }}{% endif %}
 
   # ---------------------------------------------------------------------------
   # Metrik B - Latch-Snapshot: snapshottet beim Uebergang nach "latched" die
@@ -405,8 +469,10 @@ template:
           soc: "{{ states('sensor.battery_management_unit_state_of_charge') }}"
           leistung_w: "{{ states('sensor.bmu_power') }}"
           modul2_volt: "{{ states('sensor.byd_modul_2_zellmin') }}"
-          modul2_schwaechste_zelle: "{{ state_attr('sensor.byd_modul_2_zell_absackung', 'zelle') }}"
-          schwaechstes_modul: "{{ state_attr('sensor.byd_modul_2_zell_absackung', 'schwaechstes_modul') }}"
+          # Zell-Nr und Modul aus DEM Zaehler-Anker (gleicher Zyklus wie die
+          # geankerte Absackung), NICHT vom gegateten Momentan-Sensor.
+          modul2_schwaechste_zelle: "{{ state_attr('sensor.byd_knie_bestaetigungen', 'zelle_bei_erstem_sample') }}"
+          schwaechstes_modul: "{{ state_attr('sensor.byd_knie_bestaetigungen', 'schwaechstes_modul_bei_erstem_sample') }}"
           ref_verwendet_v: "{{ states('input_number.byd_knie_ref_frozen') }}"
           cycle_id: "{{ states('input_text.byd_knie_cycle_id') }}"
           sauberer_zyklus: "{{ states('sensor.byd_geladen_seit_voll')|float(0) < 0.5 }}"
@@ -469,6 +535,14 @@ automation:
           {{ is_state('input_select.byd_knie_zyklus_status','idle')
              or states('sensor.byd_nettoenergie_seit_voll')|float(0) >= 0.5 }}
     actions:
+      # ZUERST den Anker-Zeitstempel setzen: der 120-s-Naehe-Guard der
+      # Invalid-Automation (zaehlersprung) blockt sonst nicht das ganze
+      # Reset-Fenster - der Meter-Reset unten erzeugt einen Netto-Sprung, der
+      # ohne aktualisierten voll_anker_zeit als unplausibel gewertet wuerde
+      # (Re-Arm-Race).
+      - action: input_datetime.set_datetime
+        target: { entity_id: input_datetime.byd_voll_anker_zeit }
+        data: { datetime: "{{ now().isoformat() }}" }
       - action: utility_meter.reset
         target:
           entity_id:
@@ -483,9 +557,6 @@ automation:
       - action: input_text.set_value
         target: { entity_id: input_text.byd_knie_cycle_id }
         data: { value: "{{ now().isoformat() }}" }   # neue cycle_id resettet den Bestaetigungszaehler
-      - action: input_datetime.set_datetime
-        target: { entity_id: input_datetime.byd_voll_anker_zeit }
-        data: { datetime: "{{ now().isoformat() }}" }
       - action: input_select.select_option
         target: { entity_id: input_select.byd_knie_zyklus_status }
         data: { option: "armed" }
@@ -531,14 +602,21 @@ automation:
       - condition: state
         entity_id: input_boolean.byd_knie_ueberschwelle_gesehen
         state: "on"
+      # Zaehler >= 2 UND der Mess-Anker ist numerisch (nicht unavailable/None) -
+      # sonst latcht die Maschine mit ungueltigem Snapshot und die Retry-Faehigkeit
+      # (2 -> 3) griffe nicht, weil der Zaehler schon >= 2 stuende.
       - condition: template
-        value_template: "{{ states('sensor.byd_knie_bestaetigungen')|int(0) >= 2 }}"
+        value_template: >
+          {{ states('sensor.byd_knie_bestaetigungen')|int(0) >= 2
+             and (state_attr('sensor.byd_knie_bestaetigungen', 'netto_bei_erstem_sample')|float(none)) is not none }}
     actions:
       - action: input_select.select_option
         target: { entity_id: input_select.byd_knie_zyklus_status }
         data: { option: "latched" }        # der Latch-Sensor snapshottet hierauf
       - action: input_boolean.turn_off
         target: { entity_id: input_boolean.byd_knie_armed }
+      - action: input_boolean.turn_off   # Guard zuruecksetzen (naechster Anker setzt ihn neu)
+        target: { entity_id: input_boolean.byd_knie_ueberschwelle_gesehen }
 
   - id: byd_knie_invalid
     alias: "BYD | Knie-Zyklus ungueltig markieren"
@@ -568,31 +646,65 @@ automation:
       - condition: state
         entity_id: input_select.byd_knie_zyklus_status
         state: "armed"
-      - condition: or
-        conditions:
-          - condition: and
-            conditions:
+    actions:
+      - choose:
+          # Datenluecke ODER Neustart nahe Knie.
+          - conditions:
               - condition: trigger
                 id: ["datenluecke", "neustart"]
+            sequence:
+              # Beim Neustart erst auf frische Zelldaten warten (bis 15 min):
+              # zellmin ist nach dem Boot noch unavailable (erste BMS-Detail-
+              # Runde bis 630 s spaeter), float(0) wuerde sonst JEDEN Routine-
+              # Restart im armed-Zustand als "nah am Knie" invalidieren und
+              # gesunde Plateau-Zyklen verwerfen. Nach Timeout (Integration
+              # wirklich tot, Fork-Setup-Fehlschlag) greift float(0) korrekt =
+              # verwerfen. Datenluecke wartet NICHT (sie IST das Ausfall-Signal).
+              - if:
+                  - condition: trigger
+                    id: neustart
+                then:
+                  - wait_template: "{{ has_value('sensor.byd_modul_2_zellmin') }}"
+                    timeout: "00:15:00"
+                    continue_on_timeout: true
+              # Nach dem evtl. langen Warten muss der Zyklus noch armed sein.
+              - condition: state
+                entity_id: input_select.byd_knie_zyklus_status
+                state: "armed"
               # Naehe-Check fail-safe (Codex-P2): float(0) statt float(9) -
-              # unbekannt/unavailable (z. B. Boot-Setup-Fehlschlag) zaehlt als
-              # NAH am Knie -> invalid (unbekannt heisst verwerfen, nicht durchwinken).
+              # unbekannt/unavailable zaehlt als NAH am Knie -> invalid.
               - condition: template
                 value_template: >
                   {{ states('sensor.byd_modul_2_zellmin')|float(0)
                      <= states('input_number.byd_knie_ref_frozen')|float(3.20) + 0.01 }}
-          - condition: template
-            value_template: >
-              {{ trigger.id == 'zaehlersprung'
-                 and trigger.from_state is not none and trigger.to_state is not none
-                 and trigger.from_state.state not in ['unknown','unavailable']
-                 and trigger.to_state.state not in ['unknown','unavailable']
-                 and (trigger.to_state.state|float - trigger.from_state.state|float) > 3
-                 and (now().timestamp() - state_attr('input_datetime.byd_voll_anker_zeit','timestamp')|float(0)) > 120 }}
-    actions:
-      - action: input_select.select_option
-        target: { entity_id: input_select.byd_knie_zyklus_status }
-        data: { option: "invalid" }
-      - action: input_text.set_value
-        target: { entity_id: input_text.byd_knie_invalid_grund }
-        data: { value: "{{ trigger.id }} @ {{ now().strftime('%Y-%m-%d %H:%M') }}" }
+              - action: input_select.select_option
+                target: { entity_id: input_select.byd_knie_zyklus_status }
+                data: { option: "invalid" }
+              - action: input_boolean.turn_off   # armed aus (sonst Zustandswiderspruch)
+                target: { entity_id: input_boolean.byd_knie_armed }
+              - action: input_boolean.turn_off   # Guard zuruecksetzen
+                target: { entity_id: input_boolean.byd_knie_ueberschwelle_gesehen }
+              - action: input_text.set_value
+                target: { entity_id: input_text.byd_knie_invalid_grund }
+                data: { value: "{{ trigger.id }} @ {{ now().strftime('%Y-%m-%d %H:%M') }}" }
+          # Unplausibler Netto-Sprung (> 3 kWh, ausserhalb der Anker-Sekunden).
+          - conditions:
+              - condition: template
+                value_template: >
+                  {{ trigger.id == 'zaehlersprung'
+                     and trigger.from_state is not none and trigger.to_state is not none
+                     and trigger.from_state.state not in ['unknown','unavailable']
+                     and trigger.to_state.state not in ['unknown','unavailable']
+                     and (trigger.to_state.state|float - trigger.from_state.state|float) > 3
+                     and (now().timestamp() - state_attr('input_datetime.byd_voll_anker_zeit','timestamp')|float(0)) > 120 }}
+            sequence:
+              - action: input_select.select_option
+                target: { entity_id: input_select.byd_knie_zyklus_status }
+                data: { option: "invalid" }
+              - action: input_boolean.turn_off   # armed aus (sonst Zustandswiderspruch)
+                target: { entity_id: input_boolean.byd_knie_armed }
+              - action: input_boolean.turn_off   # Guard zuruecksetzen
+                target: { entity_id: input_boolean.byd_knie_ueberschwelle_gesehen }
+              - action: input_text.set_value
+                target: { entity_id: input_text.byd_knie_invalid_grund }
+                data: { value: "{{ trigger.id }} @ {{ now().strftime('%Y-%m-%d %H:%M') }}" }

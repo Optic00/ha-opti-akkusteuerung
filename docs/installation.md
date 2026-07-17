@@ -78,6 +78,7 @@ kopieren und alle `DEIN_*`-Platzhalter durch echte Entitäts-IDs ersetzen.
 | `sma_statistik.yaml` | gleitende Mittelwerte (Verbrauch, Batterielast) |
 | `opti_ki_analyse.yaml` | **optional** - täglicher KI-Tagesreport per `ai_task.generate_data`, rein lesend; Details siehe [docs/canonical-layer.md](canonical-layer.md#ki-analyse-schicht-optional-phase-1) |
 | `byd_monitoring.yaml` | **optional** - BYD-Zell-Monitoring + Akku-Alarme (Spreizung, Temperaturen, Balancing, native Fehlerbits, Daten-Watchdog); braucht die HACS-Integration [`byd_battery_box`](https://github.com/TimWeyand/byd_battery_box) und eine Route/SNAT-Regel zur Box → **[docs/byd-monitoring-nativ.md](byd-monitoring-nativ.md)** |
+| `byd_modul2_fruehwarnung.yaml` | **optional** - BYD Modul-2-Frühwarnung (Degradations-Trend des schwächsten Moduls, rein beobachtend, kein Alarm); setzt `byd_monitoring.yaml` voraus → **[docs/byd-modul2-fruehwarnung.md](byd-modul2-fruehwarnung.md)** |
 | `opti_ev_sperre.yaml` | **optional** - EV-Schnelllade-Entladesperre (evcc im Modus now/minpv); braucht HACS `evcc_intg` + Ladepunkt-Block im Mapping → [docs/strategie-logik.md](strategie-logik.md) (Option 13) |
 
 **4. Home Assistant neu starten** → Helfer, Templates, Statistik & Modbus sind da.

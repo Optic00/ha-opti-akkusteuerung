@@ -106,7 +106,8 @@ Der Minimalpfad. Voller Ablauf mit beiden Einspiel-Varianten, allen Erststart-We
 | `packages/sma_statistik.yaml` | Gleitende Mittelwert-Sensoren für Verbrauch & Batterielast |
 | `packages/opti_ki_analyse.yaml` | **optional** - täglicher KI-Tagesreport (rein lesend) |
 | `packages/byd_monitoring.yaml` | **optional** - BYD-Zell-Monitoring + Akku-Alarme über die native Modbus-Integration (→ [docs/byd-monitoring-nativ.md](docs/byd-monitoring-nativ.md)) |
-| `legacy/` | Abgelöste Packages (BYD via bydlogc→MQTT, Modul-2-Frühwarnung) - **nicht mehr einbauen**, siehe Deprecation-Header in den Dateien |
+| `packages/byd_modul2_fruehwarnung.yaml` | **optional** - BYD Modul-2-Frühwarnung (Degradations-Trend des schwächsten Moduls, rein beobachtend, kein Alarm); setzt `byd_monitoring.yaml` voraus (→ [docs/byd-modul2-fruehwarnung.md](docs/byd-modul2-fruehwarnung.md)) |
+| `legacy/` | Abgelöste Packages (BYD via bydlogc→MQTT, alte Modul-2-Frühwarnung) - **nicht mehr einbauen**, siehe Deprecation-Header in den Dateien |
 | `packages/opti_ev_sperre.yaml` | **optional** - EV-Schnelllade-Entladesperre (Hausakku entlädt nicht ins Auto, wenn evcc im Modus now/minpv lädt); braucht HACS `evcc_intg` + Ladepunkt-Block im Mapping → [docs/strategie-logik.md](docs/strategie-logik.md) (Option 13) |
 | `automations/opti_strategie.yaml` | Strategie-Automation (editierbar, kein Blueprint) |
 

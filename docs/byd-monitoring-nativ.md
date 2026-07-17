@@ -107,8 +107,8 @@ Dann weiß man ohnehin nichts Neues - und `verbindung`/Watchdog melden den Ausfa
 | Entity | unique_id | Quelle | Zweck |
 |---|---|---|---|
 | `binary_sensor.byd_ruhefenster` | `byd_ruhefenster` | \|`bmu_power`\| < 300 W UND 25 < SoC < 85 | Gate für die Ruhe-Sensoren |
-| `binary_sensor.byd_bmu_frisch` | `byd_bmu_frisch` | Alter von `..._updated` < 3 min (= 6 verpasste Polls) | Frische-Bedingung BMU-Alarme, Watchdog |
-| `binary_sensor.byd_zelldaten_frisch` | `byd_zelldaten_frisch` | Alter von `..._bms_1_updated` < 25 min (2 verpasste Zyklen + Marge) | Frische-Bedingung BMS-Regeln, Ruhe-Sensoren, Watchdog |
+| `binary_sensor.byd_bmu_frisch` | `byd_bmu_frisch` | Alter von `..._updated` < 90 s (= 3 verpasste Polls) | Frische-Bedingung BMU-Alarme, Watchdog |
+| `binary_sensor.byd_zelldaten_frisch` | `byd_zelldaten_frisch` | Alter von `..._bms_1_updated` < 15 min (900 s; schmaler als die 21-min-Haltezeit der Präzisionsregel, breiter als der 630-s-Zyklus) | Frische-Bedingung BMS-Regeln, Ruhe-Sensoren, Watchdog |
 | `binary_sensor.byd_balancing_aktiv_nativ` | `byd_balancing_aktiv_nativ` | `bms_1_cells_balancing` > 0 | history_stats-Quelle der KI-Analyse |
 | `sensor.byd_zellspreizung_ruhe` | `byd_bmu_zellspreizung_ruhe_mv` (**Carry**) | Median-3 des nativen `cells_voltage_delta`, im Ruhefenster | **Bedarfs-Balancing (Steuerwirkung!)**, KI-Analyse, Alarm |
 | `sensor.byd_temperatur_spreizung` | `byd_bmu_temp_spreizung_k` (**Carry**) | BMU-Temp max - min (ein Poll) | KI-Analyse, `temp_delta`-Alarm |
@@ -219,7 +219,7 @@ Zeitbasiert statt edge-basiert, weil er genau die zwei Fälle abdecken muss, die
 - **`numeric_state`-Nachfeuer-Schwäche:** Ist die Schwelle bereits überschritten und wird erst danach das Gate wahr (oder lädt HA neu, wodurch `for:`-Timer verworfen werden), feuert der Trigger nicht nach.
   War im alten Design identisch, bleibt ein akzeptiertes Restrisiko.
   Option für später: den Watchdog um Schwellen-Checks erweitern.
-- **Watchdog-Latenz:** Detail-Staleness wird schlimmstenfalls erst nach ~30-55 min gemeldet (25-min-Fenster + 30-min-Raster).
+- **Watchdog-Latenz:** Detail-Staleness wird schlimmstenfalls erst nach ~30-45 min gemeldet (15-min-Fenster + 30-min-Raster).
   Für reine Zelldaten akzeptabel, weil alle zeitkritischen Alarme auf der BMU-Ebene mit 3-min-Frische laufen.
 - **Modul-Identifikation im Temperatur-Alarm** ist best-effort aus `cell_temps` und damit bis zu 10,5 min alt (im Alarmtext gekennzeichnet).
   Bewusster Trade-off für 30-s-Alarm-Latenz statt 10,5 min.
@@ -268,17 +268,17 @@ Grund: alte und neue Definition teilen sich zwei unique_ids - gleichzeitig aktiv
 
 **Danach (Abbau-PR nach mehreren Beobachtungstagen):** `legacy/`, `tests/test_byd_bmu.py` und die Doku-Reste löschen, live die `.bak`-Dateien und die MQTT-Registry-Leichen (UI) entfernen.
 
-## Phase 2: Modul-Frühwarnung neu bauen
+## Phase 2: Modul-Frühwarnung neu bauen (umgesetzt)
 
-Die Modul-2-Frühwarnung ([byd-modul2-fruehwarnung.md](byd-modul2-fruehwarnung.md)) ist bewusst **nicht** Teil dieses Umbaus: die Alarm-Lücke war akut, die Frühwarnung ist Trend-Monitoring.
-Ehrlich benannt: sie ist seit dem bydlogc-Stopp am 17.7. ohnehin funktionslos, der Cutover macht das nur formell.
-Damit kein schleichender Feature-Verlust entsteht, ist der Neubau fest für die nächsten 1-2 Wochen eingeplant (vor der nächsten Referenzdaten-Kampagne).
+Die Modul-2-Frühwarnung war bewusst **nicht** Teil des Alarm-Umbaus (die Alarm-Lücke war akut, die Frühwarnung ist Trend-Monitoring) und ist seit dem bydlogc-Stopp am 17.7. ohnehin funktionslos gewesen.
+Der native Neubau ist inzwischen umgesetzt: Package [`packages/byd_modul2_fruehwarnung.yaml`](../packages/byd_modul2_fruehwarnung.yaml), Doku [byd-modul2-fruehwarnung.md](byd-modul2-fruehwarnung.md), Tests [`tests/test_byd_modul2_fruehwarnung.py`](../tests/test_byd_modul2_fruehwarnung.py).
 
-Skizze:
+Kernpunkte der Umsetzung (Details in der Frühwarnungs-Doku):
 
-- **Metrik A präziser:** schwächste Zelle von Modul 2 gegen den Median aller 160 Zellen (aus `cell_voltages`), im Entladeband - identifiziert zusätzlich, ob es noch Zelle 23 ist.
-- **Metrik B (Netto-kWh bis Knie):** Zustandsmaschine portierbar; `utility_meter` auf `sensor.bms_1_charge_total_energy`/`_discharge_total_energy`, Leistung `sensor.bmu_power` (Vorzeichen identisch).
-  Das Modul-Minimum kommt per Template aus dem Attribut (10,5-min-Kadenz), der Knie-Latch braucht deshalb eine Zelldaten-Frische-Bedingung **und** eine Haltezeit ≥ 21 min (2 bestätigende Zyklen - `for:` allein zählt keine Samples).
+- **Metrik A präziser:** schwächste Zelle von Modul 2 gegen den Median aller 160 Zellen (aus `cell_voltages`), nur in standardisierten Betriebspunkten gesampelt (Entladeband ≥ 3 min, SoC 25-85, Zelldaten frisch) - identifiziert zusätzlich, ob es noch Zelle 23 ist.
+- **Metrik B (Netto-kWh bis Knie):** Zustandsmaschine portiert; `utility_meter` auf `sensor.bms_1_charge_total_energy`/`_discharge_total_energy`, Leistung `sensor.bmu_power` (Vorzeichen identisch).
+  Die Knie-Erkennung läuft statt über `for:` (das sich per Stagnation auch auf eingefrorenen Werten erfüllt) über einen **Bestätigungszähler** (2 konsekutive qualifizierende BMS-Zyklen) mit **Mess-Anker** am ersten Unterschreitungs-Sample, damit der Wartezeit-Offset aus der Messung fällt.
+- Das Package hat bewusst **keinen Alarm/Push** (Trend-Metriken ohne Baseline haben keinen sinnvollen Schwellwert) und teilt sich Helfer-/Meter-IDs mit `legacy/byd_modul2_fruehwarnung.yaml` - beide nie parallel betreiben, Orphan-Purge vor dem Deploy (Liste im Package-Header).
 
 ## Tests
 

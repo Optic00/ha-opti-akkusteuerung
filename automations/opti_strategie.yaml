@@ -1,9 +1,10 @@
 - id: "opti_canonical_strategie"
   alias: "Akku Opti Strategie"
   description: >-
-    Strategie auf dem Canonical-opti_*-Layer (Paket 3). Setzt ausschliesslich
-    input_select.akkusteuerung_modus. Prognosebasierte SOC-Ladeblöcke
-    (Score+Preis), PV-/AC-Überschussblöcke, MinSOC-Schutz und Cleanup.
+    Strategie auf dem Canonical-opti_*-Layer (Paket 3). Waehlt den Akkumodus;
+    der nachgelagerte Cleanup pflegt nur Booster und Ladepreis.
+    Prognosebasierte SOC-Ladeblöcke (Score+Preis), PV-/AC-Überschussblöcke,
+    MinSOC-Schutz und Cleanup.
     Quellen/Gates getauscht; aufgeschobene und arbitrage-basierte Zweige entfernt.
     id/Alias sind der Live-Realität angeglichen (2026-07-01): id war zuvor eine
     HA-generierte Zahl ohne Bedeutung, Alias hieß zuvor "Akku Lade-
@@ -13,8 +14,9 @@
     # Neustart-Absicherung (2026-07-18): nach HA-Start einmal neu bewerten.
     # Zweite Verteidigungslinie zur entfernten initial:-Falle am Modus-Select
     # (initial: "Akku Automatisch" resettete den Modus bei jedem Restart).
-    # Fail-safe: sind die opti_*-Sensoren beim Start noch unavailable, tut
-    # die Aktion nichts; die Sensor-State-Trigger unten feuern dann nach.
+    # Sind die opti_*-Sensoren beim Start noch unavailable, setzt der separate
+    # Safety-Layer Pause; die Sensor-State-Trigger unten übernehmen nach
+    # vollständiger Daten-Recovery wieder.
     - trigger: homeassistant
       event: start
       id: "HA-Start"
@@ -33,6 +35,13 @@
       entity_id:
         - sensor.opti_soc
       id: "SoC Änderung"
+    # Die Kapazitaet ist neben dem SoC ein Core-Eingang. Ihre Rueckkehr muss
+    # die Strategie neu auswerten, damit ein zuvor gesetztes Akku Pause nicht
+    # bis zum naechsten beliebigen Sensorereignis stehen bleibt.
+    - trigger: state
+      entity_id:
+        - sensor.opti_battery_capacity_kwh
+      id: "Batteriekapazität geändert"
     # Entladeschwelle: beide Werte jetzt ct/kWh (Canonical)
     - trigger: numeric_state
       entity_id:
@@ -133,6 +142,15 @@
     - condition: state
       entity_id: input_boolean.akku_opti_automatik
       state: "on"
+    # Fail closed: keine Strategieentscheidung mit ungueltigen Core-Daten.
+    # Native numeric_state-Gates verhindern zugleich nichtnumerische Werte.
+    - condition: numeric_state
+      entity_id: sensor.opti_soc
+      above: -0.1
+      below: 100.1
+    - condition: numeric_state
+      entity_id: sensor.opti_battery_capacity_kwh
+      above: 0
   actions:
     # Hinweis: Der Counter-Reset (counter.tage_seit_akku100) fuers Balancing liegt
     # bewusst NICHT hier als per-Execution-Cleanup, sondern als eigene, trigger-
@@ -155,7 +173,6 @@
                 option: "Akku nur Laden"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "MinSOC Schutz aktiv – Entladen gesperrt"
 
         # Negativpreis-Laderegel mit Ladefenster-Wahl: Preis unter der eigenen
         # Einspeiseverguetung (deckt negative Preise ab) + schlechte Prognose ->
@@ -188,7 +205,6 @@
                 option: "Akku Netzladen"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # Peak-Vorladeregel (spread-basiert): kommende Spitzen sind deutlich teurer
         # als jetzt -> gezielt bis reserve_gesamt_soc nachladen (nicht bis maxsoc).
@@ -221,13 +237,12 @@
                 option: "Akku Netzladen"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # ---------------------------------------------------------------------
         # Peak-Leiter L1/L2 (Entlade-Stufen der Entlade-Allokation): nur aktiv
         # wenn das Gate an ist (= Peaks im Wiederauflade-Horizont, Reserve-
         # Sensor gueltig). Die Entlade-Stufen der Leiter stehen VOR den alten
-        # Ladebloecken (Ben-Entscheidung 2026-07-02): Peak-Entladen schlaegt
+        # Ladebloecken (Nutzerentscheidung 2026-07-02): Peak-Entladen schlaegt
         # Winterladen; die Halte-Stufen L3/L4 bleiben hinter den Ladebloecken
         # (guenstiges Laden schlaegt Halten).
         # ---------------------------------------------------------------------
@@ -252,7 +267,6 @@
                 option: "Akku nur Entladen"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         - alias: "Peak-Leiter L2 'nur Entladen': EXPENSIVE, SoC ueber VE-Reserve"
           conditions:
@@ -279,7 +293,6 @@
                 option: "Akku nur Entladen"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # ---------------------------------------------------------------------
         # Balancing-/Deep-Charge-Watchdog (Feature #31): laedt den Akku gezielt
@@ -301,7 +314,6 @@
                 option: "Akku nur Laden"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         - alias: "Modus 'Netzladen' (Balancing-Watchdog): guenstiges/gratis Netzladen fuers BMS-Balancing"
           conditions:
@@ -314,7 +326,6 @@
                 option: "Akku Netzladen"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # ---------------------------------------------------------------------
         # Ladedeckel maxsoc: oberhalb der konfigurierten Obergrenze NICHT weiter
@@ -354,7 +365,6 @@
                 option: "Akku nur Entladen"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "Ladedeckel maxsoc erreicht - kein Laden ueber Obergrenze"
 
         # Winter-/Prognose-Ladeblock (SOC < 20 %).
         # Quelle: heute+morgen schlecht → Score<3 (beide); Preis VERY_CHEAP..EXPENSIVE.
@@ -401,7 +411,6 @@
                 option: "Akku nur Laden"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # Winter-/Prognose-Ladeblock (SOC < 75 %). Preis nur bis NORMAL.
         # opti_winter_charging_allowed hier NICHT — opportunistischer Block, soll ganzjährig greifen.
@@ -441,7 +450,6 @@
                 option: "Akku nur Laden"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # Winter-/Prognose-Ladeblock (SOC < 80 %, Wintermodus-Gate).
         # Sommermodus-Gate der Quelle → binary_sensor.opti_winter_charging_allowed.
@@ -487,7 +495,6 @@
                 option: "Akku nur Laden"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # Winter-/Prognose-Ladeblock (SOC < 15 %, Notfall). Nur heute-Score.
         # KEIN opti_winter_charging_allowed-Gate — Notfall-Netzladen DARF NIE durch das
@@ -526,7 +533,6 @@
                 option: "Akku nur Laden"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # Winter-/Prognose-Ladeblock (SOC < 45 %, nur sehr günstig). Nur heute-Score.
         # opti_winter_charging_allowed hier NICHT — Opportunistik-Block, soll ganzjährig greifen.
@@ -558,7 +564,6 @@
                 option: "Akku nur Laden"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # ENTFERNT: Zweig zur Umleitung bei drohender Erzeugungskappung (aufgeschoben, Paket >3).
 
@@ -589,7 +594,6 @@
                 option: "Akku nur Laden"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # Überschuss-Block: 70%-Einspeise-Überschuss in den Akku (nur tagsüber).
         - alias: "Modus 'Dynamisch': 70% PV-Überschuss in den Akku (nur tagsüber)"
@@ -615,7 +619,6 @@
                 option: "Akku Dynamisch"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # Überschuss-Block: AC-Überschuss (PV-Leistung über Grenze) in den Akku (nur tagsüber).
         - alias: "Modus 'Dynamisch': AC-PV-Überschuss in den Akku (nur tagsüber)"
@@ -639,7 +642,6 @@
                 option: "Akku Dynamisch"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # Modus-Set-Zweig: voller Akku → Dynamisch.
         - alias: "Modus 'Dynamisch': Akku voll (SOC über 99%)"
@@ -657,7 +659,6 @@
                 option: "Akku Dynamisch"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # ---------------------------------------------------------------------
         # Peak-Leiter L3/L4 (Halte-Stufen der Entlade-Allokation): nur aktiv
@@ -665,7 +666,7 @@
         # Sensor gueltig). MUSS vor den Ziel-SoC-Optionen stehen, sonst
         # verheizt "nur Entladen ueber Ziel-SoC" die Reserve bei NORMAL-Preis.
         # Die Entlade-Stufen der Leiter stehen VOR den alten Ladebloecken
-        # (Ben-Entscheidung 2026-07-02): Peak-Entladen schlaegt Winterladen;
+        # (Nutzerentscheidung 2026-07-02): Peak-Entladen schlaegt Winterladen;
         # die Halte-Stufen L3/L4 bleiben hinter den Ladebloecken (guenstiges
         # Laden schlaegt Halten).
         # Freigabeband asymmetrisch: aus dem Halten erst bei Reserve+5 wieder
@@ -703,7 +704,6 @@
                 option: "Akku nur Laden"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         - alias: "Peak-Leiter L4 'nur Laden' (halten): Preis normal/billig, Reserve fuer Peaks"
           conditions:
@@ -734,7 +734,6 @@
                 option: "Akku nur Laden"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # Modus-Set-Zweig: dynamisch laden zwischen MinSoC und Ziel-SoC (nur tagsüber).
         - alias: "Modus 'Dynamisch': SOC zwischen MinSoC und Ziel-SoC (nur tagsüber)"
@@ -757,7 +756,6 @@
                 option: "Akku Dynamisch"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
         # Modus-Set-Zweig: nur Entladen wenn SOC über Ziel-SoC.
         - alias: "Modus 'nur Entladen': SOC über Ziel-SoC"
@@ -780,7 +778,6 @@
                 option: "Akku nur Entladen"
               target:
                 entity_id: input_select.akkusteuerung_modus
-            - stop: "fertig"
 
       # Default (Modus-Set): nur setzen wenn opti_soc UND opti_battery_capacity_kwh
       # verfügbar sind – sonst tut die Strategie nichts (fail-safe).
@@ -819,8 +816,81 @@
                 value: "{{ states('sensor.opti_price_current_ct_kwh') | float(0) / 100 }}"
               target:
                 entity_id: input_number.ladepreis
+
+# =============================================================================
+# Separater Safety-Layer: Core-Datenverlust oder deaktivierte Automatik darf
+# niemals in den nativen WR-Modus "Akku Automatisch" fallen. Geraetetest und
+# Recorder zeigen dort ungedeckeltes PV-Laden. "Akku Pause" schreibt dagegen
+# Lade- und Entladegrenzen auf 0.
+# =============================================================================
+- id: "opti_canonical_strategie_fail_safe"
+  alias: "Akku Opti Strategie Fail-safe"
+  description: >-
+    Setzt den Akku bei deaktivierter Opti-Automatik oder ungueltigen Core-Daten
+    sicher auf Pause. Beim HA-Start sofort, im laufenden Betrieb nach zehn
+    Sekunden stabil unplausibler Kerndaten. Nach einem Automation-Reload werden
+    bereits ungueltige Kerndaten ebenfalls sofort geprueft. Die Hauptstrategie
+    uebernimmt nach Daten-Recovery durch ihre SoC-/Kapazitaets-Trigger wieder.
+  mode: restart
+  triggers:
+    - trigger: state
+      entity_id: input_boolean.akku_opti_automatik
+      to: "off"
+      id: "master_aus"
+    # Zusammengesetzter Fehlerzustand statt restartbarer Delay-Kette: der
+    # for:-Timer laeuft weiter, solange der Gesamtzustand ungueltig bleibt,
+    # auch wenn einer der beiden Sensoren zwischendurch weitere Werte liefert.
+    - trigger: template
+      value_template: &opti_core_ungueltig >-
+        {% set soc = states('sensor.opti_soc') | float(none) %}
+        {% set kapazitaet =
+           states('sensor.opti_battery_capacity_kwh') | float(none) %}
+        {{ soc is none or soc <= -0.1 or soc >= 100.1
+           or kapazitaet is none or kapazitaet <= 0 }}
+      for: "00:00:10"
+      id: "core_ungueltig"
+    - trigger: homeassistant
+      event: start
+      id: "ha_start"
+    - trigger: event
+      event_type: automation_reloaded
+      id: "automationen_neu_geladen"
+  actions:
+    - alias: "Unsicheren Zustand auf Akku Pause abbilden"
+      choose:
+        - conditions:
+            - condition: trigger
+              id: "master_aus"
+          sequence:
             - action: input_select.select_option
-              data:
-                option: "Akku nur Laden"
               target:
                 entity_id: input_select.akkusteuerung_modus
+              data:
+                option: "Akku Pause"
+        - conditions:
+            - condition: trigger
+              id: "core_ungueltig"
+          sequence:
+            - action: input_select.select_option
+              target:
+                entity_id: input_select.akkusteuerung_modus
+              data:
+                option: "Akku Pause"
+        - conditions:
+            - condition: trigger
+              id:
+                - "ha_start"
+                - "automationen_neu_geladen"
+            - condition: or
+              conditions:
+                - condition: state
+                  entity_id: input_boolean.akku_opti_automatik
+                  state: "off"
+                - condition: template
+                  value_template: *opti_core_ungueltig
+          sequence:
+            - action: input_select.select_option
+              target:
+                entity_id: input_select.akkusteuerung_modus
+              data:
+                option: "Akku Pause"

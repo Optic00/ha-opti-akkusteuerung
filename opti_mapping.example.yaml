@@ -276,16 +276,20 @@ template:
         name: "Opti Grid Import Today kWh"
         unit_of_measurement: "kWh"
         device_class: energy
+        state_class: total_increasing
         availability: "{{ has_value('sensor.DEIN_NETZBEZUG_HEUTE') }}"
         state: "{{ states('sensor.DEIN_NETZBEZUG_HEUTE') | float(0) }}"
 
-      # PV-Ertrag heute (kWh, Ist-Erzeugung fuer Forecast-vs-Ist)
+      # PV-Ertrag heute (kWh, Ist-Erzeugung fuer Forecast-vs-Ist).
+      # Bei mehreren Wechselrichtern muss diese Quelle bereits deren GESAMTEN
+      # Tagesertrag liefern. Tagesaggregate mit zeitversetzten Quell-Resets
+      # bekommen hier bewusst keine state_class: total_increasing.
       - unique_id: opti_mapping_pv_yield_today
         name: "Opti PV Yield Today kWh"
         unit_of_measurement: "kWh"
         device_class: energy
-        availability: "{{ has_value('sensor.DEIN_PV_ERTRAG_HEUTE') }}"
-        state: "{{ states('sensor.DEIN_PV_ERTRAG_HEUTE') | float(0) }}"
+        availability: "{{ has_value('sensor.DEIN_PV_ERTRAG_HEUTE_GESAMT') }}"
+        state: "{{ states('sensor.DEIN_PV_ERTRAG_HEUTE_GESAMT') | float(0) }}"
 
   # ---------------------------------------------------------------------------
   # OPTIONAL: EV-Ladepunkte (evcc via HACS-Integration evcc_intg).

@@ -1,9 +1,10 @@
 """Tests fuer das KI-Analyse-Paket (Phase 1)."""
+import datetime as dt
 import json
 
 import jinja2
 
-from .ha_harness import REPO, FakeHass, load_yaml, render
+from .ha_harness import REPO, TZ, FakeHass, load_yaml, render
 
 KI_PACKAGE = REPO / "packages" / "opti_ki_analyse.yaml"
 KI_AUTOMATIONS = REPO / "automations" / "opti_ki_analyse.yaml"
@@ -92,11 +93,15 @@ STATES_VOLL = {
     "sensor.byd_temperatur_spreizung": "3",
     "sensor.bms_1_state_of_health": "96",
     "sensor.opti_ki_balancing_dauer_h": "1.2",
+    "input_datetime.opti_balancing_letzter_abschluss": "2026-07-18T11:30:00+02:00",
+    "input_boolean.opti_balancing_abschluss_gueltig": "on",
 }
+
+NOW = dt.datetime(2026, 7, 18, 21, 0, tzinfo=TZ)
 
 
 def test_datenpaket_rendert_valides_json():
-    hass = FakeHass(states=STATES_VOLL,
+    hass = FakeHass(states=STATES_VOLL, now=NOW,
                     attrs={"sensor.opti_strategie_vorschau": {"grund": "Default (Nacht/keine Aktion)"}})
     ergebnis = json.loads(render(hass, _datenpaket_template()))
     assert ergebnis["modi"]["nur_entladen"]["stunden"] == 6.25
@@ -104,6 +109,8 @@ def test_datenpaket_rendert_valides_json():
     assert ergebnis["datenqualitaet"]["preis_unavailable_min"] == 6
     assert ergebnis["akku"]["soc_min"] == 38.0
     assert ergebnis["byd"]["ruhe_spreizung_max_24h_mv"] == 4
+    assert ergebnis["byd"]["balancing_abschluss_verfuegbar"] is True
+    assert ergebnis["byd"]["balancing_heute_abgeschlossen"] is True
 
 
 def test_datenpaket_markiert_fehlende_quellen():
@@ -114,11 +121,77 @@ def test_datenpaket_markiert_fehlende_quellen():
                        if not k.startswith(("sensor.opti_price_spread", "sensor.opti_grid_import",
                                             "sensor.opti_pv_yield", "sensor.byd_",
                                             "sensor.bms_1_"))}
-    hass = FakeHass(states=ohne_optionales,
+    hass = FakeHass(states=ohne_optionales, now=NOW,
                     attrs={"sensor.opti_strategie_vorschau": {"grund": "Default (Nacht/keine Aktion)"}})
     ergebnis = json.loads(render(hass, _datenpaket_template()))
     assert ergebnis["tag"]["preisspanne_ct"] == "nicht verfuegbar"
     assert ergebnis["byd"]["verfuegbar"] is False
+
+
+def test_balancing_abschluss_unterscheidet_gestern_und_unbekannt():
+    gestern_states = {
+        **STATES_VOLL,
+        "input_datetime.opti_balancing_letzter_abschluss":
+            "2026-07-17T23:59:00+02:00",
+    }
+    gestern = json.loads(render(
+        FakeHass(states=gestern_states, now=NOW),
+        _datenpaket_template(),
+    ))
+    assert gestern["byd"]["balancing_abschluss_verfuegbar"] is True
+    assert gestern["byd"]["balancing_heute_abgeschlossen"] is False
+
+    unbekannt_states = {
+        **STATES_VOLL,
+        "input_datetime.opti_balancing_letzter_abschluss": "unknown",
+    }
+    unbekannt = json.loads(render(
+        FakeHass(states=unbekannt_states, now=NOW),
+        _datenpaket_template(),
+    ))
+    assert unbekannt["byd"]["balancing_abschluss_verfuegbar"] is False
+    assert unbekannt["byd"]["balancing_heute_abgeschlossen"] is False
+
+
+def test_balancing_abschluss_braucht_explizite_gueltigkeit():
+    erststart_states = {
+        **STATES_VOLL,
+        "input_datetime.opti_balancing_letzter_abschluss":
+            "2026-07-18 00:00:00",
+        "input_boolean.opti_balancing_abschluss_gueltig": "off",
+    }
+    erststart = json.loads(render(
+        FakeHass(states=erststart_states, now=NOW),
+        _datenpaket_template(),
+    ))
+    assert erststart["byd"]["balancing_abschluss_verfuegbar"] is False
+    assert erststart["byd"]["balancing_heute_abgeschlossen"] is False
+
+
+def test_prompt_nutzt_abschluss_als_primaere_balancing_evidenz():
+    auto = _analyse_automation()
+    ai_action = next(
+        action for action in auto["actions"]
+        if action.get("action") == "ai_task.generate_data"
+    )
+    instructions = ai_action["data"]["instructions"]
+    assert "balancing_heute_abgeschlossen" in instructions
+    assert "balancing_abschluss_verfuegbar" in instructions
+    assert "balancing_dauer_h" in instructions
+
+
+def test_prompt_prioritaetsleiter_enthaelt_maxsoc_ladedeckel():
+    auto = _analyse_automation()
+    ai_action = next(
+        action for action in auto["actions"]
+        if action.get("action") == "ai_task.generate_data"
+    )
+    instructions = ai_action["data"]["instructions"]
+    assert (
+        instructions.index("Balancing-Watchdog")
+        < instructions.index("MaxSOC-Ladedeckel")
+        < instructions.index("Prognose-Zweige")
+    )
 
 
 def _watchdog_condition():

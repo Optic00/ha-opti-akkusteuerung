@@ -216,7 +216,7 @@ def test_l2_expensive_ueber_ve_reserve_entlaedt():
 
 def test_l3_expensive_unter_ve_reserve_haelt():
     # L3/L4 stehen weiterhin HINTER den alten Ladebloecken (nur L1/L2 wurden
-    # vor sie gezogen, Ben-Entscheidung 2026-07-02). Bei soc 31 wuerde ohne
+    # vor sie gezogen, Nutzerentscheidung 2026-07-02). Bei soc 31 wuerde ohne
     # prognose_netzladen=off der alte SOC<80-Winterblock VOR L3 greifen
     # (gleicher Modus, aber falscher Zweig) - grund pinnt den Zweig fest.
     fall = {**LEITER, "sensor.opti_price_level": "EXPENSIVE",

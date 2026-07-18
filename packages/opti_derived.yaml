@@ -397,7 +397,9 @@ template:
       # -----------------------------------------------------------------------
       # 4. Dynamische Ladestärke (W) — übersetzt aus
       #    akku_dynamische_ladestaerke_akku (SMA-Templates Z.82-136).
-      #    SoC-Taper, Temp-Schutz und Deckel UNVERÄNDERT übernommen.
+      #    SoC-Taper, Temp-Schutz und Helfer-Deckel aus der Quelle übernommen.
+      #    ZUSATZ: Bei aktiver Balancing-Vollladung oberhalb 92/96 % auf
+      #    0,05C/0,02C deckeln, damit das BMS das obere CV-Fenster halten kann.
       #    BEWUSSTE ÄNDERUNG: Forecast-Label-Verzweigung der Quelle → opti_forecast_score-Bänder
       #      score <=1 → aggressiv (vormals Kritisch/Mangelhaft)
       #      score 2-4 → moderat   (vormals Ausreichend)
@@ -419,6 +421,11 @@ template:
           {% set cap       = states('sensor.opti_battery_capacity_kwh') | float(12.8) * 1000 %}
           {% set max_helper = states('input_number.akkusteuerung_max_ladestaerke') | float(3000) %}
           {% set score     = states('sensor.opti_forecast_score') | int(10) %} {# fehlender Forecast → konservativ/schonend (Score≥5 = GENTLE) #}
+          {% set strategie_grund = state_attr('sensor.opti_strategie_vorschau', 'grund') | default('', true) %}
+          {# Watchdog allein bedeutet nur "faellig". Erst der paritaetsgetestete
+             Vorschau-Grund bestaetigt, dass kein hoeherer Strategie-Zweig gewann. #}
+          {% set balancing = states('sensor.opti_balancing_watchdog') in ['pv', 'netz']
+                             and strategie_grund[0:18] == 'Balancing-Watchdog' %}
 
           {% if temp >= 50 or temp <= -5 %}
             0
@@ -456,7 +463,16 @@ template:
               {% endif %}
             {% endif %}
 
-            {{ ([c * temp_faktor, max_helper] | min) | round(0) }}
+            {% set ladeleistung = [c * temp_faktor, max_helper] | min %}
+            {# Balancing-spezifischer Vollladungs-Taper: nur zusaetzlich deckeln,
+               niemals den regulaeren SoC-/Temperatur-Taper erhoehen. #}
+            {% if balancing and soc >= 96 %}
+              {% set ladeleistung = [ladeleistung, cap * 0.02] | min %}
+            {% elif balancing and soc >= 92 %}
+              {% set ladeleistung = [ladeleistung, cap * 0.05] | min %}
+            {% endif %}
+
+            {{ ladeleistung | round(0) }}
           {% endif %}
 
       # -----------------------------------------------------------------------

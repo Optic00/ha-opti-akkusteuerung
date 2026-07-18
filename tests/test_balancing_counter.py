@@ -136,10 +136,13 @@ def test_restart_mit_hohem_soc_setzt_nach_restlichen_minuten_zurueck():
     assert lauf.tage == 14
 
     # HA-Restart: der alte for:-Timer waere weg. Der neue Helper restauriert
-    # dagegen 21 Bestaetigungen; der SoC ist beim Boot bereits wieder hoch.
+    # dagegen 21 Bestaetigungen. Wie bei Template-Sensoren ueblich, ist der SoC
+    # am start-Event noch unavailable und kommt danach direkt oberhalb zurueck.
     nach_restart = BalancingAutomationHarness(
-        soc="99", tage=lauf.tage, bestaetigungen=lauf.bestaetigungen)
+        soc="unavailable", tage=lauf.tage, bestaetigungen=lauf.bestaetigungen)
     nach_restart.fire("ha_start")
+    assert nach_restart.bestaetigungen == 21
+    nach_restart.set_soc("99")
     for _ in range(8):
         nach_restart.minute()
     assert nach_restart.bestaetigungen == 29

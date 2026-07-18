@@ -69,22 +69,39 @@
     - alias: "Done-SoC minutenweise bestaetigen"
       choose:
         # Rueckfall, Schwellenaenderung oder Sensorfehler verwerfen den Lauf
-        # sofort. Beim HA-Start gilt dasselbe, falls noch kein gueltiger SoC
-        # vorliegt; kommt der SoC bereits gueltig und hoch zurueck, bleibt der
-        # restaurierte Bestaetigungsstand erhalten.
+        # waehrend des Betriebs sofort.
         - alias: "Bestaetigungen bei nicht erreichtem Done-SoC verwerfen"
           conditions:
             - condition: trigger
               id:
                 - soc_geaendert
                 - schwelle_geaendert
-                - ha_start
             - condition: template
               value_template: >-
                 {{ not has_value('sensor.opti_soc')
                    or not has_value('input_number.opti_balancing_done_soc')
                    or (states('sensor.opti_soc') | float(0))
                       <= (states('input_number.opti_balancing_done_soc') | float(100)) }}
+          sequence:
+            - action: counter.reset
+              target:
+                entity_id: counter.opti_balancing_done_minuten
+
+        # Beim HA-Start sind Template-Sensoren oft kurz unavailable. Dieser
+        # Initialisierungszustand darf den restaurierten Minutenstand nicht
+        # loeschen. Ist der SoC bereits gueltig und nicht ueber der Schwelle,
+        # wird ein alter Stand dagegen sofort verworfen. Kommt der Sensor erst
+        # danach zurueck, entscheidet sein State-Trigger wie oben.
+        - alias: "Restaurierten Stand beim HA-Start plausibilisieren"
+          conditions:
+            - condition: trigger
+              id: ha_start
+            - condition: template
+              value_template: >-
+                {{ has_value('sensor.opti_soc')
+                   and has_value('input_number.opti_balancing_done_soc')
+                   and (states('sensor.opti_soc') | float(0))
+                       <= (states('input_number.opti_balancing_done_soc') | float(100)) }}
           sequence:
             - action: counter.reset
               target:

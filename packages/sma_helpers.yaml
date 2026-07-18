@@ -387,6 +387,18 @@ counter:
     step: 1
     icon: mdi:counter
 
+  opti_balancing_done_minuten:
+    name: "Opti Balancing Done-Minuten"
+    # Persistente Bestaetigungen fuer den restart-festen Done-SoC-Reset.
+    # Bewusst KEIN `initial:`: HA restauriert so den letzten Stand nach einem
+    # Neustart, statt ihn bei jedem Start zu ueberschreiben.
+    # ERSTSTART: Ohne gespeicherten Zustand beginnt der Counter bei Minimum 0;
+    # es ist kein manueller Startwert noetig.
+    minimum: 0
+    maximum: 30
+    step: 1
+    icon: mdi:timer-check-outline
+
 # --- Write-on-Change-Helfer für ha-modbus-akku-adapter (ab v1.2.0) ---
 # Werden vom Adapter automatisch gepflegt, nicht manuell befüllen.
 input_text:

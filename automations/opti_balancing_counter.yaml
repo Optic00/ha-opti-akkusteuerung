@@ -36,29 +36,84 @@
         entity_id: counter.tage_seit_akku100
 
 # -----------------------------------------------------------------------------
-# Counter-Reset bei erreichtem Done-SoC. Bewusst als eigene, TRIGGER-basierte
-# Automation: ein numeric_state-Trigger mit for: haelt zuverlaessig 30 min
-# (im Gegensatz zu for: auf einer numeric_state-CONDITION, das HA nicht
-# belastbar auswertet). 30 min stabil >= Done-SoC = Balancing-Zyklus erledigt
-# -> counter.tage_seit_akku100 = 0 -> sensor.opti_balancing_watchdog faellt auf
-# 'aus'. Loest den semantischen Widerspruch (Watchdog laedt bis 100 / CV-Phase,
-# Reset bereits ab Done-SoC 98.5%) sauber auf: der Watchdog haelt, bis dieser
-# Trigger nach stabilem Stand ueber Done-SoC feuert.
+# Counter-Reset bei erreichtem Done-SoC. Ein numeric_state-Trigger mit for:
+# waere nicht restart-fest: HA verwirft dessen Laufzeit bei jedem Neustart.
+# Deshalb bestaetigt ein persistenter Counter jede Minute oberhalb der Schwelle.
+# Rueckfall oder Sensorfehler loeschen die Bestaetigungen sofort. Nach 30
+# bestaetigten Minuten gilt der Balancing-Zyklus als erledigt:
+# counter.tage_seit_akku100 = 0 -> sensor.opti_balancing_watchdog faellt auf
+# 'aus'. Ein Neustart pausiert die Bestaetigung nur; ein restaurierter Stand
+# laeuft beim naechsten gueltigen Minuten-Tick weiter.
 # -----------------------------------------------------------------------------
 - id: opti_balancing_counter_reset
   alias: "Opti Balancing: Counter zuruecksetzen bei erreichtem Done-SoC"
   description: >-
-    Setzt counter.tage_seit_akku100 auf 0, sobald der Akku 30 min stabil ueber
-    dem Done-SoC (input_number.opti_balancing_done_soc) steht. Beendet damit
-    einen faelligen Balancing-Zyklus des Watchdogs.
+    Setzt counter.tage_seit_akku100 nach 30 bestaetigten Minuten ueber dem
+    Done-SoC (input_number.opti_balancing_done_soc) auf 0. Der persistente
+    Bestaetigungs-Counter ueberlebt HA-Neustarts und verwirft kurze Spitzen.
   mode: single
   triggers:
-    - trigger: numeric_state
+    - trigger: time_pattern
+      minutes: "/1"
+      id: minute
+    - trigger: state
       entity_id: sensor.opti_soc
-      above: input_number.opti_balancing_done_soc
-      for:
-        minutes: 30
+      id: soc_geaendert
+    - trigger: state
+      entity_id: input_number.opti_balancing_done_soc
+      id: schwelle_geaendert
+    - trigger: homeassistant
+      event: start
+      id: ha_start
   actions:
-    - action: counter.reset
-      target:
-        entity_id: counter.tage_seit_akku100
+    - alias: "Done-SoC minutenweise bestaetigen"
+      choose:
+        # Rueckfall, Schwellenaenderung oder Sensorfehler verwerfen den Lauf
+        # sofort. Beim HA-Start gilt dasselbe, falls noch kein gueltiger SoC
+        # vorliegt; kommt der SoC bereits gueltig und hoch zurueck, bleibt der
+        # restaurierte Bestaetigungsstand erhalten.
+        - alias: "Bestaetigungen bei nicht erreichtem Done-SoC verwerfen"
+          conditions:
+            - condition: trigger
+              id:
+                - soc_geaendert
+                - schwelle_geaendert
+                - ha_start
+            - condition: template
+              value_template: >-
+                {{ not has_value('sensor.opti_soc')
+                   or not has_value('input_number.opti_balancing_done_soc')
+                   or (states('sensor.opti_soc') | float(0))
+                      <= (states('input_number.opti_balancing_done_soc') | float(100)) }}
+          sequence:
+            - action: counter.reset
+              target:
+                entity_id: counter.opti_balancing_done_minuten
+
+        # Nur der Minuten-Tick darf zaehlen. Beliebig viele SoC-Updates
+        # oberhalb der Schwelle koennen die Haltezeit dadurch nicht abkuerzen.
+        - alias: "Gueltige Minute oberhalb des Done-SoC bestaetigen"
+          conditions:
+            - condition: trigger
+              id: minute
+            - condition: numeric_state
+              entity_id: sensor.opti_soc
+              above: input_number.opti_balancing_done_soc
+          sequence:
+            - choose:
+                - alias: "Dreissigste Minute bestaetigt - Zyklus abschliessen"
+                  conditions:
+                    - condition: numeric_state
+                      entity_id: counter.opti_balancing_done_minuten
+                      above: 28
+                  sequence:
+                    - action: counter.reset
+                      target:
+                        entity_id: counter.tage_seit_akku100
+                    - action: counter.reset
+                      target:
+                        entity_id: counter.opti_balancing_done_minuten
+              default:
+                - action: counter.increment
+                  target:
+                    entity_id: counter.opti_balancing_done_minuten

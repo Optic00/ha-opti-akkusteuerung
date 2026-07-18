@@ -101,7 +101,11 @@ class BalancingAutomationHarness:
         value = str(value)
         if value != self.states["sensor.opti_soc"]:
             self.states["sensor.opti_soc"] = value
-            self.fire("soc_geaendert")
+            if value in ("unknown", "unavailable"):
+                self.fire("sensorfehler")
+            elif float(value) <= float(
+                    self.states["input_number.opti_balancing_done_soc"]):
+                self.fire("rueckfall")
 
 
 def test_bestaetigungs_counter_wird_ohne_initial_restauriert():
@@ -123,9 +127,28 @@ def test_reset_automation_hat_restartfeste_trigger_ohne_for_timer():
     assert any(trigger.get("trigger") == "homeassistant"
                and trigger.get("event") == "start"
                and trigger.get("id") == "ha_start" for trigger in triggers)
+    assert any(trigger.get("trigger") == "template"
+               and trigger.get("id") == "rueckfall" for trigger in triggers)
+
+
+def test_rueckfall_und_sensorfehler_werden_ereignissicher_eingereiht():
+    _helper, automation = _require_restartfestes_design()
+    assert automation["mode"] == "queued"
+
+    triggers = automation["triggers"]
     assert any(trigger.get("trigger") == "state"
                and trigger.get("entity_id") == "sensor.opti_soc"
-               and trigger.get("id") == "soc_geaendert" for trigger in triggers)
+               and trigger.get("to") == ["unknown", "unavailable"]
+               and trigger.get("id") == "sensorfehler" for trigger in triggers)
+
+    # Der Reset darf bei spaeterer Ausfuehrung nicht nochmals den dann
+    # aktuellen SoC pruefen: das bereits eingereihte Rueckfall-/Fehler-Ereignis
+    # ist die Wahrheit, auch wenn der Sensor inzwischen wieder hoch steht.
+    reset_option = automation["actions"][0]["choose"][0]
+    assert reset_option["conditions"] == [{
+        "condition": "trigger",
+        "id": ["rueckfall", "sensorfehler"],
+    }]
 
 
 def test_restart_mit_hohem_soc_setzt_nach_restlichen_minuten_zurueck():

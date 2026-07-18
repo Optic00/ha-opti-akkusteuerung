@@ -51,37 +51,50 @@
     Setzt counter.tage_seit_akku100 nach 30 bestaetigten Minuten ueber dem
     Done-SoC (input_number.opti_balancing_done_soc) auf 0. Der persistente
     Bestaetigungs-Counter ueberlebt HA-Neustarts und verwirft kurze Spitzen.
-  mode: single
+  # Rueckfall-/Fehler-Ereignisse duerfen nicht verloren gehen, falls gerade
+  # ein Minuten-Tick den Counter schreibt. queued arbeitet sie danach in der
+  # urspruenglichen Reihenfolge ab.
+  mode: queued
   triggers:
     - trigger: time_pattern
       minutes: "/1"
       id: minute
+    # Ereignissicherer Rueckfall-Trigger: queued merkt sich die Wahr-Flanke,
+    # auch wenn der SoC bis zur Aktionsausfuehrung schon wieder hoch steht.
+    - trigger: template
+      value_template: >-
+        {% set soc = states('sensor.opti_soc') | float(none) %}
+        {% set done = states('input_number.opti_balancing_done_soc') | float(none) %}
+        {{ soc is not none and done is not none and soc <= done }}
+      id: rueckfall
     - trigger: state
       entity_id: sensor.opti_soc
-      id: soc_geaendert
+      to:
+        - "unknown"
+        - "unavailable"
+      id: sensorfehler
     - trigger: state
       entity_id: input_number.opti_balancing_done_soc
-      id: schwelle_geaendert
+      to:
+        - "unknown"
+        - "unavailable"
+      id: sensorfehler
     - trigger: homeassistant
       event: start
       id: ha_start
   actions:
     - alias: "Done-SoC minutenweise bestaetigen"
       choose:
-        # Rueckfall, Schwellenaenderung oder Sensorfehler verwerfen den Lauf
-        # waehrend des Betriebs sofort.
+        # Der Trigger selbst ist die Wahrheit: nicht erneut den aktuellen SoC
+        # pruefen, denn er koennte beim Abarbeiten der Queue schon wieder hoch
+        # sein. So koennen auch sehr kurze Spitzen nicht zusammengestueckelt
+        # werden.
         - alias: "Bestaetigungen bei nicht erreichtem Done-SoC verwerfen"
           conditions:
             - condition: trigger
               id:
-                - soc_geaendert
-                - schwelle_geaendert
-            - condition: template
-              value_template: >-
-                {{ not has_value('sensor.opti_soc')
-                   or not has_value('input_number.opti_balancing_done_soc')
-                   or (states('sensor.opti_soc') | float(0))
-                      <= (states('input_number.opti_balancing_done_soc') | float(100)) }}
+                - rueckfall
+                - sensorfehler
           sequence:
             - action: counter.reset
               target:
@@ -102,6 +115,24 @@
                    and has_value('input_number.opti_balancing_done_soc')
                    and (states('sensor.opti_soc') | float(0))
                        <= (states('input_number.opti_balancing_done_soc') | float(100)) }}
+          sequence:
+            - action: counter.reset
+              target:
+                entity_id: counter.opti_balancing_done_minuten
+
+        # Selbstheilender Backup-Pfad fuer Automation-Reloads oder bereits vor
+        # dem Listener-Start bestehende Fehler: spaetestens der naechste Tick
+        # verwirft einen ungueltigen oder zu niedrigen Zustand.
+        - alias: "Bestaetigungen beim Minuten-Tick plausibilisieren"
+          conditions:
+            - condition: trigger
+              id: minute
+            - condition: template
+              value_template: >-
+                {{ not has_value('sensor.opti_soc')
+                   or not has_value('input_number.opti_balancing_done_soc')
+                   or (states('sensor.opti_soc') | float(0))
+                      <= (states('input_number.opti_balancing_done_soc') | float(100)) }}
           sequence:
             - action: counter.reset
               target:

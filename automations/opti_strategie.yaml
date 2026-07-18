@@ -10,6 +10,14 @@
     Entladesteuerung Opti 2.0" bzw. live "Akku Opti Canonical (opti_*-Layer)".
   mode: single
   triggers:
+    # Neustart-Absicherung (2026-07-18): nach HA-Start einmal neu bewerten.
+    # Zweite Verteidigungslinie zur entfernten initial:-Falle am Modus-Select
+    # (initial: "Akku Automatisch" resettete den Modus bei jedem Restart).
+    # Fail-safe: sind die opti_*-Sensoren beim Start noch unavailable, tut
+    # die Aktion nichts; die Sensor-State-Trigger unten feuern dann nach.
+    - trigger: homeassistant
+      event: start
+      id: "HA-Start"
     # Preisniveau (Enum) statt Tibber-Rohsensor
     - trigger: state
       entity_id:

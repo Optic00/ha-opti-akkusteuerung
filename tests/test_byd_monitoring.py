@@ -11,6 +11,7 @@ Frische-Binaries (als Bedingung in der Automation), der Dead-Man-Watchdog und
 der E2E-Livetest - nicht diese Datei.
 """
 import datetime as dt
+import types
 
 import jinja2
 
@@ -18,6 +19,7 @@ from .ha_harness import (REPO, TZ, FakeHass, find_template_entity, load_yaml,
                          render, render_native)
 
 PACKAGE = REPO / "packages" / "byd_monitoring.yaml"
+HELPERS = REPO / "packages" / "sma_helpers.yaml"
 
 
 def _entity(kind, unique_id):
@@ -502,6 +504,177 @@ def test_frische_bedingung_fuer_jeden_physikalischen_alarm():
             assert "binary_sensor.byd_bmu_frisch" in entities, ids
         if "zell_bms_grenze_praezise" in ids:
             assert "binary_sensor.byd_zelldaten_frisch" in entities, ids
+
+
+def _bms_warnung_bedingung():
+    for zweig in _alarm_automation()["conditions"][0]["conditions"]:
+        if _condition_trigger_ids_von(zweig) == ["bms_warnung"]:
+            for bedingung in zweig["conditions"]:
+                if (
+                    bedingung.get("condition") == "template"
+                    and "byd_bms_warnung_zuletzt_gemeldet"
+                    in bedingung["value_template"]
+                ):
+                    return bedingung["value_template"]
+    return None
+
+
+def _bms_warnung_darf_laufen(von, nach, merker):
+    template = _bms_warnung_bedingung()
+    assert template is not None, "bms_warnung braucht einen eigenen Dedupe-Zweig"
+    trigger = types.SimpleNamespace(
+        from_state=types.SimpleNamespace(state=von),
+        to_state=types.SimpleNamespace(state=nach),
+    )
+    states = lambda entity_id: (
+        merker if entity_id == "input_text.byd_bms_warnung_zuletzt_gemeldet"
+        else "unknown"
+    )
+    return jinja2.Environment().from_string(template).render(
+        trigger=trigger, states=states
+    ).strip()
+
+
+def test_bms_warnung_dekode_duplikat_startet_keinen_lauf():
+    assert _bms_warnung_darf_laufen(
+        "Cells overvoltage,Cells overvoltage",
+        "Cells overvoltage",
+        "",
+    ) == "False"
+
+
+def test_bms_warnung_reine_token_reihenfolge_startet_keinen_lauf():
+    assert _bms_warnung_darf_laufen(
+        "Cells overvoltage, Cells imbalance",
+        "Cells imbalance,Cells overvoltage",
+        "",
+    ) == "False"
+
+
+def test_bms_warnung_restart_refire_mit_gleichem_merker_startet_keinen_lauf():
+    assert _bms_warnung_darf_laufen(
+        "unknown",
+        "Cells overvoltage",
+        "Cells overvoltage",
+    ) == "False"
+
+
+def test_bms_warnung_restart_mit_neuer_warnung_startet_lauf():
+    assert _bms_warnung_darf_laufen(
+        "unknown",
+        "Cells imbalance, Cells overvoltage",
+        "Cells overvoltage",
+    ) == "True"
+
+
+def test_bms_warnung_nach_normal_darf_trotz_altem_merker_erneut_laufen():
+    assert _bms_warnung_darf_laufen(
+        "Normal",
+        "Cells overvoltage",
+        "Cells overvoltage",
+    ) == "True"
+
+
+def _push_action():
+    return next(action for action in _alarm_automation()["actions"]
+                if action.get("alias") == "Push")
+
+
+def _push_choose():
+    return _push_action()["choose"]
+
+
+def _aktionen(node):
+    gefunden = []
+
+    def walk(wert):
+        if isinstance(wert, dict):
+            if "action" in wert:
+                gefunden.append(wert)
+            for teil in wert.values():
+                walk(teil)
+        elif isinstance(wert, list):
+            for teil in wert:
+                walk(teil)
+
+    walk(node)
+    return gefunden
+
+
+def test_bms_warnung_schattenzweig_ruft_keine_ki_auf():
+    automation = _alarm_automation()
+    push_index = next(
+        index for index, action in enumerate(automation["actions"])
+        if action.get("alias") == "Push"
+    )
+    schatten = next(
+        option for option in _push_choose()
+        if _condition_trigger_ids_von(option["conditions"]) == ["bms_warnung"]
+    )
+    # Bei einem Treffer im Schatten-choose laufen danach weiterhin alle
+    # Top-Level-Aktionen der Automation. Genau dort sass der Live-Fehler.
+    actions = _aktionen(schatten["sequence"])
+    actions.extend(_aktionen(automation["actions"][push_index + 1:]))
+    assert all(
+        action.get("target", {}).get("entity_id") != "script.ki_alarm_kontext"
+        for action in actions
+    )
+    assert all(action["action"] != "notify.notify" for action in actions)
+
+
+def test_bms_warnung_schattenzweig_speichert_normalisierte_tokenmenge():
+    schatten = next(
+        option for option in _push_choose()
+        if _condition_trigger_ids_von(option["conditions"]) == ["bms_warnung"]
+    )
+    merker_action = next(
+        (action for action in _aktionen(schatten["sequence"])
+         if action["action"] == "input_text.set_value"),
+        None,
+    )
+    assert merker_action is not None
+    assert merker_action["target"]["entity_id"] == (
+        "input_text.byd_bms_warnung_zuletzt_gemeldet"
+    )
+    trigger = types.SimpleNamespace(
+        to_state=types.SimpleNamespace(
+            state="Cells overvoltage, Cells imbalance,Cells overvoltage"
+        )
+    )
+    wert = jinja2.Environment().from_string(
+        merker_action["data"]["value"]
+    ).render(trigger=trigger).strip()
+    assert wert == "Cells imbalance,Cells overvoltage"
+
+
+def test_ki_lagebild_laeuft_nur_in_tatsaechlichen_pushzweigen():
+    automation = _alarm_automation()
+    assert all(
+        action.get("target", {}).get("entity_id") != "script.ki_alarm_kontext"
+        for action in automation["actions"]
+    )
+
+    push = _push_choose()
+    push_sequenzen = [
+        option["sequence"] for option in push
+        if any(action["action"] == "notify.notify"
+               for action in _aktionen(option["sequence"]))
+    ]
+    push_sequenzen.append(_push_action()["default"])
+    assert len(push_sequenzen) == 2
+    for sequence in push_sequenzen:
+        actions = _aktionen(sequence)
+        assert any(action["action"] == "notify.notify" for action in actions)
+        assert any(
+            action.get("target", {}).get("entity_id") == "script.ki_alarm_kontext"
+            for action in actions
+        )
+
+
+def test_bms_warnungs_merker_ist_persistent_ohne_initial():
+    helper = load_yaml(HELPERS)["input_text"]["byd_bms_warnung_zuletzt_gemeldet"]
+    assert helper["max"] == 255
+    assert "initial" not in helper
 
 
 def _condition_trigger_ids_von(zweig):

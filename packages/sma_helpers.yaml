@@ -411,6 +411,13 @@ input_text:
   akkusteuerung_modbus_letzter_schreibwert:
     name: "Akkusteuerung Modbus Letzter Schreibwert"
     max: 255
+  # Persistenter Dedupe-Merker fuer native BMS-Warnungen. Bewusst KEIN
+  # initial: HA wuerde den Wert bei jedem Neustart ueberschreiben; ohne
+  # initial wird der letzte Wert restauriert. Beim Erststart ist der Merker
+  # leer, die erste aktive Warnung wird daher einmalig verarbeitet.
+  byd_bms_warnung_zuletzt_gemeldet:
+    name: "BYD Zuletzt gemeldete BMS-Warnung"
+    max: 255
 
 input_datetime:
   opti_balancing_letzter_abschluss:

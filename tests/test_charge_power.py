@@ -1,4 +1,4 @@
-"""opti_charge_power_w (packages/opti_derived.yaml, Sensor 4) - bislang ohne Test.
+"""opti_charge_power_w (packages/opti_derived.yaml, Sensor 4).
 
 Modell (Template Zeilen ~386-430):
     soc        = opti_soc | float(50)
@@ -15,7 +15,10 @@ Modell (Template Zeilen ~386-430):
           score<=4 (moderat):   soc<35 .35, <65 .25, <87 .15, <97 .08, sonst .05
           score>=5 (schonend):  soc<30 .30, <60 .20, <85 .15, <97 .08, sonst .05
         c = cap * faktor
-        ergebnis = min(c * temp_faktor, max_helper) | round(0)
+        ergebnis = min(c * temp_faktor, max_helper)
+        gewaehlter Balancing-Zweig und soc>=96 -> min(ergebnis, cap*0.02)
+        gewaehlter Balancing-Zweig und soc>=92 -> min(ergebnis, cap*0.05)
+        danach round(0)
 
 availability: has_value(opti_soc) und has_value(opti_battery_temp)
               und has_value(opti_battery_capacity_kwh).
@@ -48,7 +51,7 @@ def _avail(hass, cfg=None):
     return render(hass, _entity(cfg)["availability"])
 
 
-def _states(soc, temp, score=None, cap="10", max_helper="100000"):
+def _states(soc, temp, score=None, cap="10", max_helper="100000", watchdog=None):
     s = {
         "sensor.opti_soc": soc,
         "sensor.opti_battery_temp": temp,
@@ -57,7 +60,18 @@ def _states(soc, temp, score=None, cap="10", max_helper="100000"):
     }
     if score is not None:
         s["sensor.opti_forecast_score"] = score
+    if watchdog is not None:
+        s["sensor.opti_balancing_watchdog"] = watchdog
     return s
+
+
+def _charge_hass_mit_vorschau(states):
+    """Vorschau-Grund aus denselben States rendern und dem Power-Sensor geben."""
+    hass = FakeHass(states=states)
+    vorschau = find_template_entity(_cfg(), "sensor", "opti_strategie_vorschau")
+    grund = render(hass, vorschau["attributes"]["grund"])
+    hass.attrs_map["sensor.opti_strategie_vorschau"] = {"grund": grund}
+    return hass
 
 
 def _mutant_cfg(old, new):
@@ -135,6 +149,52 @@ def test_max_helper_deckel():
     # score=1, soc=50 -> c=3000, faktor 1.0. max_helper=1500 -> gedeckelt auf 1500.
     hass = FakeHass(states=_states("50", "25", score="1", max_helper="1500"))
     assert float(_state(hass)) == 1500.0
+
+
+# ---------------------------------------------------------------------------
+# Balancing-Vollladung: im oberen SoC-Bereich deutlich langsamer ins LFP-Knie.
+# Der Zusatzdeckel darf die normale dynamische Ladung nicht veraendern.
+# ---------------------------------------------------------------------------
+
+def test_balancing_taper_ab_92_prozent():
+    # 12,8 kWh * 0,05C = 640 W statt regulaer 0,08C = 1024 W.
+    for watchdog in ("pv", "netz"):
+        hass = _charge_hass_mit_vorschau(
+            _states("93", "25", score="5", cap="12.8", watchdog=watchdog)
+        )
+        assert float(_state(hass)) == 640.0
+
+
+def test_balancing_taper_ab_96_prozent():
+    # 12,8 kWh * 0,02C = 256 W statt regulaer 0,05C = 640 W.
+    for watchdog in ("pv", "netz"):
+        hass = _charge_hass_mit_vorschau(
+            _states("97", "25", score="5", cap="12.8", watchdog=watchdog)
+        )
+        assert float(_state(hass)) == 256.0
+
+
+def test_balancing_taper_inaktiv_laesst_regulaeren_taper_unveraendert():
+    hass = FakeHass(states=_states("93", "25", score="5", cap="12.8",
+                                  watchdog="aus"))
+    assert float(_state(hass)) == 1024.0
+
+
+def test_watchdog_faellig_aber_hoeherer_ladezweig_bleibt_unveraendert():
+    # Der Watchdog ist faellig, aber Negativpreis-Laden steht in der Strategie
+    # davor und gewinnt. Dieser normale Ladefall darf nicht gedrosselt werden.
+    states = _states("93", "25", score="1", cap="12.8", watchdog="netz")
+    states.update({
+        "input_boolean.opti_prognose_netzladen": "on",
+        "sensor.opti_price_current_ct_kwh": "3",
+        "input_number.opti_einspeiseverguetung_ct": "8",
+        "input_number.maxsoc": "100",
+    })
+    hass = _charge_hass_mit_vorschau(states)
+    assert hass.attrs_map["sensor.opti_strategie_vorschau"]["grund"].startswith(
+        "Negativpreis-Laden"
+    )
+    assert float(_state(hass)) == 1280.0
 
 
 # ---------------------------------------------------------------------------

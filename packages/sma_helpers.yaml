@@ -5,15 +5,14 @@
 # Diese Datei muss einmalig eingebunden werden – danach werden alle nötigen
 # Entitäten automatisch in HA angelegt.
 #
-# ⚙️  WICHTIG: Diese Helfer haben bewusst KEIN `initial:` (siehe Hinweis unten) -
-#     ohne `initial:` starten frisch angelegte input_number auf ihrem Minimum,
-#     z.B. maxsoc = 0%, akkusteuerung_max_ladestaerke = 0 W. Nach dem ersten
-#     Anlegen daher einmalig die Erststart-Werte aus der Tabelle im README
+# ⚙️  WICHTIG: Die benutzerkonfigurierbaren Helfer haben bewusst KEIN `initial:`.
+#     Ohne `initial:` restauriert HA nach Neustarts den zuletzt gespeicherten
+#     Wert; frisch angelegte input_number starten auf ihrem Minimum. Daher nach
+#     dem ersten Anlegen einmalig die Erststart-Werte aus der Tabelle im README
 #     (Abschnitt "Schnell-Nachbau über Packages") über die HA-Oberfläche setzen.
-# Hinweis: `initial` greift NUR beim allerersten Anlegen eines Helfers.
-#     Danach restauriert HA bei jedem Neustart den zuletzt gespeicherten Wert.
-#     Genau deshalb wurde `initial:` hier bewusst NICHT gesetzt (PR #21) - sonst
-#     würde HA bei jedem Neustart die eigenen, per Hand gesetzten Werte verwerfen.
+#     Ein vorhandenes `initial:` greift dagegen bei JEDEM HA-Start und verhindert
+#     die Wiederherstellung manueller Änderungen. Es wird unten nur dort benutzt,
+#     wo dieses feste Restart-Verhalten ausdrücklich Teil des Vertrags ist.
 # =============================================================================
 
 input_select:
@@ -292,8 +291,10 @@ input_number:
     name: "Opti Balancing Done-SoC"
     # Schwelle (%), ab der ein Balancing-Zyklus als erledigt gilt: der Counter
     # tage_seit_akku100 wird ab hier (30 min stabil) zurueckgesetzt, das
-    # taegliche Increment zaehlt nur unterhalb weiter. HIER ist 0 NICHT
-    # fail-safe, daher expliziter initial-Wert.
+    # taegliche Increment zaehlt nur unterhalb weiter. Das Minimum 90 waere fuer
+    # diesen Sicherheitsvertrag zu niedrig. Der explizite initial-Wert pinnt
+    # die Schwelle daher bewusst bei JEDEM HA-Start auf 98.5 %; UI-Aenderungen
+    # an genau diesem Helfer sind nicht restart-dauerhaft.
     initial: 98.5
     min: 90
     max: 100
@@ -380,12 +381,29 @@ input_boolean:
     # unabhängig davon immer, solange das Intervall > 0 ist.
     icon: mdi:battery-heart-variant
 
+  opti_balancing_abschluss_gueltig:
+    name: "Opti Balancing Abschluss gültig"
+    # Kennzeichnet, dass der Abschluss-Zeitstempel wirklich von der
+    # Balancing-Automation geschrieben wurde. Bewusst KEIN `initial:`:
+    # HA restauriert den Zustand; ein neuer Helper startet sicher auf AUS.
+    icon: mdi:calendar-check
+
 counter:
   tage_seit_akku100:
     name: "Tage seit Akku 100%"
-    initial: 0
+    # Persistiert die Watchdog-Faelligkeit ueber HA-Neustarts.
+    # Erststart ohne gespeicherten Zustand beginnt automatisch bei 0.
     step: 1
     icon: mdi:counter
+
+  opti_balancing_done_minuten:
+    name: "Opti Balancing Done-Minuten"
+    # Persistente Bestaetigungen fuer den restart-festen Done-SoC-Reset.
+    # Bewusst KEIN `initial:`: HA restauriert den Stand nach einem Neustart.
+    minimum: 0
+    maximum: 30
+    step: 1
+    icon: mdi:timer-check-outline
 
 # --- Write-on-Change-Helfer für ha-modbus-akku-adapter (ab v1.2.0) ---
 # Werden vom Adapter automatisch gepflegt, nicht manuell befüllen.
@@ -395,6 +413,13 @@ input_text:
     max: 255
 
 input_datetime:
+  opti_balancing_letzter_abschluss:
+    name: "Opti Balancing letzter Abschluss"
+    # Tages-Latch und belastbarer Verlaufswert fuer Auswertung/KI.
+    # Bewusst KEIN `initial:`: HA restauriert den letzten Abschluss.
+    has_date: true
+    has_time: true
+
   akkusteuerung_modbus_letzter_schreibzeitpunkt:
     name: "Akkusteuerung Modbus Letzter Schreibzeitpunkt"
     has_date: true

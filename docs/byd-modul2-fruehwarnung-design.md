@@ -12,7 +12,7 @@ Entscheidend für die Defekt-Früherkennung ist nicht ein einzelner mV-Wert, son
 
 Ziel dieses Features: zwei abgeleitete Größen dauerhaft und belastbar loggen, sodass eine echte Degradation von normaler Streuung unterscheidbar wird, ohne dass Last, SoC-Drift, MQTT-Aussetzer oder Zähler-Artefakte den Trend verfälschen.
 
-Zwei Kennzahlen (Ben hat "beides, voll gehärtet" gewählt):
+Zwei Kennzahlen (Festlegung: "beides, voll gehärtet"):
 
 - **Sensor A - Relative Zell-Absackung** (mV, Alltags-Diagnose, immer an): wie weit Modul 2 unter dem Feld liegt.
 - **Sensor B - Nettoenergie bis Knie** (kWh, Wochen-Metrik): wie viel Nettoenergie ab Ladeabschluss entnommen wurde, bis Modul 2 unter definierter Last eine Referenzspannung erreicht.

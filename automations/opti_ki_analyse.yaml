@@ -37,6 +37,12 @@
              SoH/Spreizungs-Werte als aktuell (Codex-Review 17.7.). #}
           {% set byd_da = has_value('sensor.byd_zellspreizung_ruhe')
              and is_state('binary_sensor.byd_zelldaten_frisch', 'on') %}
+          {% set balancing_abschluss =
+             states('input_datetime.opti_balancing_letzter_abschluss')
+             | as_datetime %}
+          {% set balancing_abschluss_gueltig =
+             is_state('input_boolean.opti_balancing_abschluss_gueltig', 'on')
+             and balancing_abschluss is not none %}
           {
             "datum": "{{ now().strftime('%Y-%m-%d') }}",
             "modi": {
@@ -82,7 +88,9 @@
               "ruhe_spreizung_max_24h_mv": {{ num('sensor.opti_ki_ruhe_spreizung_max_24h', 0) }},
               "temp_spreizung_k": {{ num('sensor.byd_temperatur_spreizung', 0) }},
               "soh_prozent": {{ num('sensor.bms_1_state_of_health', 0) }},
-              "balancing_dauer_h": {{ num('sensor.opti_ki_balancing_dauer_h', 2) }}
+              "balancing_dauer_h": {{ num('sensor.opti_ki_balancing_dauer_h', 2) }},
+              "balancing_abschluss_verfuegbar": {{ balancing_abschluss_gueltig | lower }},
+              "balancing_heute_abgeschlossen": {{ (balancing_abschluss_gueltig and (balancing_abschluss | as_local).date() == now().date()) | lower }}
             }
           }
 
@@ -103,13 +111,14 @@
           -> nur Laden. 2. Negativpreis-Laden -> Netzladen. 3. Peak-Vorladen
           -> Netzladen. 4. Peak-Leiter L1/L2 (sehr teure Stunden) -> nur
           Entladen (entfaellt bei aktiver EV-Sperre). 5. Balancing-Watchdog
-          -> Vollladung. 6. Prognose-Zweige (Score unter 3) -> nur Laden.
-          7. EV-Schnelllade-Sperre (evcc laedt now/minpv) -> nur Laden
-          (reine Entladesperre, PV-Laden bleibt moeglich). 8. PV-Ueberschuss
-          -> Dynamisch. 9. Akku voll -> Dynamisch. 10. Peak-Leiter L3/L4
-          (halten) -> nur Laden. 11. Unter Ziel-SoC tags -> Dynamisch.
-          12. Ueber Ziel-SoC -> nur Entladen (preisunabhaengig, Ziel-SoC
-          enthaelt die Wirtschaftlichkeit). 13. Default -> Dynamisch.
+          -> Vollladung. 6. MaxSOC-Ladedeckel -> nur Entladen.
+          7. Prognose-Zweige (Score unter 3) -> nur Laden.
+          8. EV-Schnelllade-Sperre (evcc laedt now/minpv) -> nur Laden
+          (reine Entladesperre, PV-Laden bleibt moeglich). 9. PV-Ueberschuss
+          -> Dynamisch. 10. Akku voll -> Dynamisch. 11. Peak-Leiter L3/L4
+          (halten) -> nur Laden. 12. Unter Ziel-SoC tags -> Dynamisch.
+          13. Ueber Ziel-SoC -> nur Entladen (preisunabhaengig, Ziel-SoC
+          enthaelt die Wirtschaftlichkeit). 14. Default -> Dynamisch.
 
           REGELN: Nutze nur die gelieferten Zahlen, ergaenze keine Fakten.
           unavailable-Minuten sind Datenluecken, kein Anlagenverhalten -
@@ -119,7 +128,12 @@
           kleiner Verweildauer je Modus deuten auf Flattern. Zum byd-Block:
           LFP-Zellspreizung ist nur der Ruhe-Wert vergleichbar; SoH-Aenderungen
           von Tag zu Tag sind Rauschen; deterministische Alarme existieren
-          separat, du bewertest nur Trends. meldenswert = true nur bei echten
+          separat, du bewertest nur Trends. Ein SoC ueber MaxSOC ist nur dann
+          durch Balancing erklaert, wenn balancing_heute_abgeschlossen = true.
+          Nur falls balancing_abschluss_verfuegbar = false, darf ersatzweise
+          balancing_dauer_h >= 0.5 als schwache Balancing-Evidenz gelten; eine
+          bekannte false-Angabe darf die Dauer nicht ueberstimmen.
+          meldenswert = true nur bei echten
           Auffaelligkeiten (Flattern, Datenluecken ueber 30 min, SoC-Band
           verletzt MinSOC/MaxSOC, ungewoehnliche Ruhe-Spreizung).
 

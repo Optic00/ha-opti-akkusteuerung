@@ -1,64 +1,176 @@
 # =============================================================================
-# opti_balancing_counter.yaml — Taegliches Increment fuer den Balancing-Watchdog
+# opti_balancing_counter.yaml — restartfester Balancing-Abschluss
 # =============================================================================
-# Zaehlt counter.tage_seit_akku100 einmal pro Tag um 1 hoch, WENN der Akku an
-# diesem Tag NICHT den Done-SoC (input_number.opti_balancing_done_soc, Default
-# 98.5%) erreicht hat. Der Reset des Counters passiert an anderer Stelle
-# (Cleanup-Block in automations/opti_strategie.yaml, sobald der Akku 30 min
-# stabil ueber dem Done-SoC steht) - beide nutzen dieselbe Done-Schwelle.
-#
-# Kanonisierte Repo-Version der bislang nur live vorhandenen (verwaisten)
-# Increment-Automation. Als Top-Level-Automations-Liste im Format von
-# automations.yaml (siehe README, Abschnitt Strategie-Automation einbinden).
-#
-# Downtime-Randfall: ist HA um 23:59 (ueber Mitternacht) down, wird der Tag
-# NICHT nachgeholt. Harmlos/fail-safe: der Watchdog zaehlt dann eher zu wenig
-# und feuert allenfalls einen Tag spaeter - bei einem 14-Tage-Intervall
-# unkritisch.
+# Ein Balancing-Zyklus gilt nach 30 bestaetigten Minuten oberhalb des Done-SoC
+# als abgeschlossen. Der Minutenstand und der letzte Abschluss werden als
+# persistente Helper restauriert. Der Zeitstempel dient zugleich als Tages-
+# Latch: Ein langer Aufenthalt am oberen SoC kann den Abschluss nur einmal pro
+# Kalendertag ausloesen.
 # =============================================================================
 - id: opti_balancing_counter_increment
-  alias: "Opti Balancing: Tage seit Akku 100% täglich hochzählen"
+  alias: "Opti Balancing: Tage seit letztem Abschluss hochzählen"
   description: >-
-    Zaehlt counter.tage_seit_akku100 taeglich um 1 hoch, solange der Akku an
-    diesem Tag nicht den Done-SoC erreicht hat. Speist den Balancing-/Deep-
-    Charge-Watchdog (sensor.opti_balancing_watchdog).
+    Zaehlt counter.tage_seit_akku100 am Tagesende hoch, wenn an diesem
+    Kalendertag kein bestaetigter Balancing-Abschluss stattgefunden hat.
   mode: single
   triggers:
     - trigger: time
       at: "23:59:00"
   conditions:
-    - condition: numeric_state
-      entity_id: sensor.opti_soc
-      below: input_number.opti_balancing_done_soc
+    - condition: template
+      alias: "Heute noch kein Balancing-Abschluss"
+      value_template: >-
+        {% set gueltig =
+           is_state('input_boolean.opti_balancing_abschluss_gueltig', 'on') %}
+        {% set letzter = states('input_datetime.opti_balancing_letzter_abschluss')
+           | as_datetime %}
+        {{ not gueltig
+           or letzter is none
+           or (letzter | as_local).date() != now().date() }}
   actions:
     - action: counter.increment
       target:
         entity_id: counter.tage_seit_akku100
 
-# -----------------------------------------------------------------------------
-# Counter-Reset bei erreichtem Done-SoC. Bewusst als eigene, TRIGGER-basierte
-# Automation: ein numeric_state-Trigger mit for: haelt zuverlaessig 30 min
-# (im Gegensatz zu for: auf einer numeric_state-CONDITION, das HA nicht
-# belastbar auswertet). 30 min stabil >= Done-SoC = Balancing-Zyklus erledigt
-# -> counter.tage_seit_akku100 = 0 -> sensor.opti_balancing_watchdog faellt auf
-# 'aus'. Loest den semantischen Widerspruch (Watchdog laedt bis 100 / CV-Phase,
-# Reset bereits ab Done-SoC 98.5%) sauber auf: der Watchdog haelt, bis dieser
-# Trigger nach stabilem Stand ueber Done-SoC feuert.
-# -----------------------------------------------------------------------------
 - id: opti_balancing_counter_reset
-  alias: "Opti Balancing: Counter zuruecksetzen bei erreichtem Done-SoC"
+  alias: "Opti Balancing: Abschluss nach erreichtem Done-SoC"
   description: >-
-    Setzt counter.tage_seit_akku100 auf 0, sobald der Akku 30 min stabil ueber
-    dem Done-SoC (input_number.opti_balancing_done_soc) steht. Beendet damit
-    einen faelligen Balancing-Zyklus des Watchdogs.
-  mode: single
+    Schliesst einen Balancing-Zyklus nach 30 bestaetigten Minuten oberhalb des
+    Done-SoC ab. Persistente Minuten machen die Bestaetigung restartfest; der
+    Abschluss-Zeitstempel verhindert Mehrfachabschluesse am selben Tag.
+  # Rueckfall-/Fehler-Ereignisse duerfen nicht verloren gehen, falls gerade
+  # ein Minuten-Tick den Counter schreibt.
+  mode: queued
   triggers:
-    - trigger: numeric_state
+    - trigger: time_pattern
+      minutes: "/1"
+      id: minute
+    - trigger: template
+      value_template: >-
+        {% set soc = states('sensor.opti_soc') | float(none) %}
+        {% set done = states('input_number.opti_balancing_done_soc') | float(none) %}
+        {{ soc is not none and done is not none and soc <= done }}
+      id: rueckfall
+    - trigger: state
       entity_id: sensor.opti_soc
-      above: input_number.opti_balancing_done_soc
-      for:
-        minutes: 30
+      to:
+        - "unknown"
+        - "unavailable"
+      id: sensorfehler
+    - trigger: state
+      entity_id: input_number.opti_balancing_done_soc
+      to:
+        - "unknown"
+        - "unavailable"
+      id: sensorfehler
+    - trigger: homeassistant
+      event: start
+      id: ha_start
   actions:
-    - action: counter.reset
-      target:
-        entity_id: counter.tage_seit_akku100
+    - alias: "Done-SoC minutenweise bestaetigen"
+      choose:
+        # Der Trigger selbst ist die Wahrheit. So koennen auch sehr kurze
+        # Spitzen nicht aus getrennten Zeitfenstern zusammengesetzt werden.
+        - alias: "Bestaetigungen bei Rueckfall oder Sensorfehler verwerfen"
+          conditions:
+            - condition: trigger
+              id:
+                - rueckfall
+                - sensorfehler
+          sequence:
+            - action: counter.reset
+              target:
+                entity_id: counter.opti_balancing_done_minuten
+
+        - alias: "Nach heutigem Abschluss nicht erneut bestaetigen"
+          conditions:
+            - condition: state
+              entity_id: input_boolean.opti_balancing_abschluss_gueltig
+              state: "on"
+            - condition: template
+              value_template: >-
+                {% set letzter =
+                   states('input_datetime.opti_balancing_letzter_abschluss')
+                   | as_datetime %}
+                {{ letzter is not none
+                   and (letzter | as_local).date() == now().date() }}
+          sequence:
+            - action: counter.reset
+              target:
+                entity_id: counter.opti_balancing_done_minuten
+
+        # Beim HA-Start sind Template-Sensoren oft kurz unavailable. Dann wird
+        # der restaurierte Stand bewahrt. Ein bereits gueltiger Rueckfall
+        # verwirft ihn dagegen sofort.
+        - alias: "Restaurierten Stand beim HA-Start plausibilisieren"
+          conditions:
+            - condition: trigger
+              id: ha_start
+            - condition: template
+              value_template: >-
+                {{ has_value('sensor.opti_soc')
+                   and has_value('input_number.opti_balancing_done_soc')
+                   and (states('sensor.opti_soc') | float(0))
+                       <= (states('input_number.opti_balancing_done_soc')
+                           | float(100)) }}
+          sequence:
+            - action: counter.reset
+              target:
+                entity_id: counter.opti_balancing_done_minuten
+
+        # Selbstheilender Backup-Pfad fuer Automation-Reloads oder schon vor
+        # dem Listener-Start bestehende Fehler. Dauert die Daten-Recovery nach
+        # einem HA-Start laenger als bis zum naechsten Minuten-Tick, werden bis
+        # zu 29 restaurierte Minuten bewusst verworfen. Das ist fail-safe:
+        # ein Abschluss verspaetet sich, kann aber nie falsch-positiv werden.
+        - alias: "Bestaetigungen beim Minuten-Tick plausibilisieren"
+          conditions:
+            - condition: trigger
+              id: minute
+            - condition: template
+              value_template: >-
+                {{ not has_value('sensor.opti_soc')
+                   or not has_value('input_number.opti_balancing_done_soc')
+                   or (states('sensor.opti_soc') | float(0))
+                      <= (states('input_number.opti_balancing_done_soc')
+                          | float(100)) }}
+          sequence:
+            - action: counter.reset
+              target:
+                entity_id: counter.opti_balancing_done_minuten
+
+        # Nur der Minuten-Tick darf zaehlen; beliebig viele SoC-Updates koennen
+        # die Haltezeit nicht abkuerzen.
+        - alias: "Gueltige Minute oberhalb des Done-SoC bestaetigen"
+          conditions:
+            - condition: trigger
+              id: minute
+            - condition: numeric_state
+              entity_id: sensor.opti_soc
+              above: input_number.opti_balancing_done_soc
+          sequence:
+            - choose:
+                - alias: "Dreissigste Minute bestaetigt"
+                  conditions:
+                    - condition: numeric_state
+                      entity_id: counter.opti_balancing_done_minuten
+                      above: 28
+                  sequence:
+                    - action: counter.reset
+                      target:
+                        entity_id: counter.tage_seit_akku100
+                    - action: counter.reset
+                      target:
+                        entity_id: counter.opti_balancing_done_minuten
+                    - action: input_datetime.set_datetime
+                      target:
+                        entity_id: input_datetime.opti_balancing_letzter_abschluss
+                      data:
+                        datetime: "{{ now().isoformat() }}"
+                    - action: input_boolean.turn_on
+                      target:
+                        entity_id: input_boolean.opti_balancing_abschluss_gueltig
+              default:
+                - action: counter.increment
+                  target:
+                    entity_id: counter.opti_balancing_done_minuten

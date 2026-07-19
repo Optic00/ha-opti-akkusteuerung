@@ -381,7 +381,7 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 | `binary_sensor.opti_winter_charging_allowed` | Saisonales Lade-Gate (Standard: `true`, fail-open) |
 | `sensor.opti_peak_reserve_soc` | Reserve-SoC für kommende Preisspitzen (trigger-basiert, 36h-Horizont) |
 | `binary_sensor.opti_peak_reserve_aktiv` | Gate: Peaks im Wiederauflade-Horizont vorhanden |
-| `sensor.opti_balancing_watchdog` | Balancing-/Deep-Charge-Watchdog (`aus`/`pv`/`netz`): erzwingt einen Voll-Zyklus fürs BMS, wenn `counter.tage_seit_akku100` ≥ `input_number.opti_balancing_intervall_tage` (Default 14; 0 = aus) und SoC < 100 %. Staffelt PV (tagsüber) → Gratis-/Negativ-Netz → bezahltes Netz erst nach `opti_balancing_karenz_tage` und nur ≤ `opti_balancing_max_ct`. Beide `netz`-Zweige hängen am eigenen Schalter `input_boolean.opti_balancing_netzladen` (Default aus, PV ungegatet). Rein abgeleitet → restart-durabel |
+| `sensor.opti_balancing_watchdog` | Balancing-/Deep-Charge-Watchdog (`aus`/`pv`/`netz`): erzwingt einen Voll-Zyklus fürs BMS, wenn `counter.tage_seit_akku100` ≥ `input_number.opti_balancing_intervall_tage` (Default 14; 0 = aus). Staffelt PV (tagsüber) → Gratis-/Negativ-Netz → bezahltes Netz erst nach `opti_balancing_karenz_tage` und nur ≤ `opti_balancing_max_ct`. Beide `netz`-Zweige hängen am eigenen Schalter `input_boolean.opti_balancing_netzladen` (Default aus, PV ungegatet). Die Fälligkeit bleibt bis zu 30 bestätigten Minuten über dem Done-SoC aktiv; persistente Minuten-, Zeitstempel- und Gültigkeits-Helfer machen den Ablauf restartfest, unterscheiden HA-Erstwerte von echten Abschlüssen und begrenzen ihn auf einen Abschluss pro Tag. |
 
 **Baustein `sensor.opti_house_consumption_60min_w` (`packages/sma_statistik.yaml`):**
 Gleitender 60-Minuten-Mittelwert von `sensor.opti_house_consumption_w` (Legacy-Muster, `state_characteristic: mean`).
@@ -426,11 +426,14 @@ Details: `docs/superpowers/specs/2026-07-10-ki-analyse-schicht-design.md` (lokal
 | **Preis-morgen fehlt** | `opti_price_series`-Attribut `tomorrow` leer / < 4 Gesamtwerte | Preisniveau bleibt **NORMAL** | Fail-safe: `< 4 Preise gesamt → NORMAL`. `sensor.opti_peak_reserve_soc` wird bei < 4 Preisen `unavailable` (Peak-Leiter L1-L4 komplett inaktiv) - bewusst anders als der NORMAL-Fallback des Preisniveaus, siehe [strategie-logik.md](strategie-logik.md#fail-safes-und-bekannte-grenzen) |
 | **Forecast fehlt** | `opti_forecast_remaining_today_kwh` → `unavailable` | Prognose-Blöcke inaktiv; MinSOC-Schutz und Cleanup laufen weiter | Default → **Akku Dynamisch** (nur wenn `opti_soc` + `opti_battery_capacity_kwh` verfügbar) |
 | **Voller Akku** | SoC > 99 % | **Akku Dynamisch**; Lade-Booster (Legacy) wird deaktiviert | Option „Bei vollem Akku auf Dynamisch" + Cleanup-Block |
-| **Balancing fällig, tagsüber** | `counter.tage_seit_akku100` ≥ `opti_balancing_intervall_tage`, SoC < 100 %, Tag | **Akku nur Laden** | `sensor.opti_balancing_watchdog` = `pv`; steht hinter der Peak-Leiter L1/L2, vor den Prognoseblöcken — siehe [strategie-logik.md](strategie-logik.md#balancing-deep-charge-watchdog) |
+| **Balancing fällig, tagsüber** | `counter.tage_seit_akku100` ≥ `opti_balancing_intervall_tage`, Tag | **Akku nur Laden** | `sensor.opti_balancing_watchdog` = `pv`; bleibt bis zum bestätigten Abschluss aktiv und steht hinter der Peak-Leiter L1/L2, vor den Prognoseblöcken — siehe [strategie-logik.md](strategie-logik.md#balancing-deep-charge-watchdog) |
 | **Balancing fällig, nachts günstig** | wie oben, Nacht, `opti_balancing_netzladen` = on, Preis gratis/negativ oder (nach Karenz) VERY_CHEAP/CHEAP ≤ `opti_balancing_max_ct` | **Akku Netzladen** | `sensor.opti_balancing_watchdog` = `netz`; eigener Schalter `opti_balancing_netzladen` off → `aus` (kein Netzladen, Default); `opti_balancing_max_ct` = 0 lässt den bezahlten Fallback aus (fail-safe) |
 
-**Fail-safe-Verhalten:** Sind `sensor.opti_soc` oder `sensor.opti_battery_capacity_kwh`
-`unavailable`, setzt die Strategie keinen Modus — der bisherige Modus bleibt aktiv.
+**Fail-safe-Verhalten:** Die Hauptstrategie entscheidet nur mit numerisch plausiblem
+`sensor.opti_soc` und positiver `sensor.opti_battery_capacity_kwh`. Werden diese Kerndaten
+im Betrieb länger als 10 Sekunden ungültig, setzt der separate Safety-Layer
+**Akku Pause**; bei ausgeschalteter Automatik oder ungültigen Startdaten geschieht das
+sofort. **Akku Automatisch** wird nie als Fail-safe verwendet.
 
 ---
 

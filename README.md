@@ -117,7 +117,7 @@ Der frühere manuelle Weg mit Flachdateien liegt zur Referenz unter [`old/README
 
 ## Strategie-Logik
 
-Die Strategie-Automation entscheidet ausschließlich den **Modus** via `input_select.akkusteuerung_modus` - sie berührt keine Hardware direkt. Eine vollständige, laienverständliche Block-für-Block-Erklärung aller Entscheidungsoptionen, der Preisstufenlogik (`sensor.opti_price_level`), des MinSOC-Schutzes, der Wintermodus-Blöcke und der Bausteine (P10-Sicherheitsnetz, Decision-Trace, Balancing-Watchdog):
+Die Strategie-Automation entscheidet den **Modus** via `input_select.akkusteuerung_modus` und berührt keine Hardware direkt; ein nachgelagerter Cleanup pflegt nur Booster und Ladepreis. Eine vollständige, laienverständliche Block-für-Block-Erklärung aller Entscheidungsoptionen, der Preisstufenlogik (`sensor.opti_price_level`), des MinSOC-Schutzes, der Wintermodus-Blöcke und der Bausteine (P10-Sicherheitsnetz, Decision-Trace, Balancing-Watchdog):
 **[docs/strategie-logik.md](docs/strategie-logik.md)**
 
 ---

@@ -493,6 +493,23 @@ def test_voll_anker_prueft_beide_frische_binaries_und_meter_has_value():
         assert f"has_value('{meter}')" in joined, meter
 
 
+def test_voll_anker_loescht_alten_invalid_grund_vor_neuem_armed_zyklus():
+    actions = _auto("byd_voll_anker")["actions"]
+    clear_index = next(
+        i for i, action in enumerate(actions)
+        if action.get("action") == "input_text.set_value"
+        and "input_text.byd_knie_invalid_grund"
+        in _entities_in(action.get("target", {}))
+        and action.get("data", {}).get("value") == ""
+    )
+    armed_index = next(
+        i for i, action in enumerate(actions)
+        if action.get("action") == "input_select.select_option"
+        and action.get("data", {}).get("option") == "armed"
+    )
+    assert clear_index < armed_index
+
+
 def _turn_off_targets(node):
     """entity_ids aller input_boolean.turn_off-Aktionen unter node."""
     gefunden = []
@@ -577,6 +594,25 @@ def test_invalid_datenluecke_deckt_beide_frische_binaries_ab():
     luecke = [t.get("entity_id") for t in inv["triggers"] if t.get("id") == "datenluecke"]
     assert "binary_sensor.byd_bmu_frisch" in luecke
     assert "binary_sensor.byd_zelldaten_frisch" in luecke
+
+
+def test_invalid_filtert_zaehlerspruenge_vor_der_choose_aktion():
+    inv = _auto("byd_knie_invalid")
+    assert inv["conditions"][0] == {
+        "condition": "state",
+        "entity_id": "input_select.byd_knie_zyklus_status",
+        "state": "armed",
+    }
+    prefilter = inv["conditions"][1]
+    assert prefilter["condition"] == "or"
+    assert {
+        "condition": "trigger",
+        "id": ["datenluecke", "neustart"],
+    } in prefilter["conditions"]
+    templates = " ".join(_templates_in(prefilter))
+    assert "trigger.id == 'zaehlersprung'" in templates
+    assert "> 3" in templates
+    assert "> 120" in templates
 
 
 # Selbst-Verdrahtung: jede byd_-prefixte Entity, die das Package referenziert,

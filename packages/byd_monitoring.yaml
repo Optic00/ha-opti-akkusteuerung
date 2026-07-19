@@ -556,7 +556,7 @@ automation:
                   title: "BYD BMS-Warnung (Schattenbetrieb)"
                   message: "{{ alarm_text }}"
           # Schwere Regeln: eigener Titel (🚨) zur schnellen Triage, aber KEIN
-          # iOS-Critical-Override (Ben-Entscheidung 17.7.): kein Durchdringen von
+          # iOS-Critical-Override (Nutzerentscheidung 17.7.): kein Durchdringen von
           # Stumm/Fokus/Nachtruhe. Begruendung: aus der Ferne/nachts ist ohnehin
           # nichts zu tun, und bei einer echten Zell-Eskalation kappt das BMS
           # selbst (~3,65 V) VOR jeder Handlungsmoeglichkeit. Normaler Push,

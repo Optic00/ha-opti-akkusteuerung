@@ -2,15 +2,17 @@
 
 ## Überblick
 
-Die Automation `Akku Opti Strategie` trifft **ausschließlich Modus-Entscheidungen**.
-Sie schreibt einen Wert in `input_select.akkusteuerung_modus` — und nur das.
+Die Automation `Akku Opti Strategie` trifft die Modus-Entscheidung und schreibt
+sie in `input_select.akkusteuerung_modus`. Ein nachgelagerter Cleanup pflegt
+zusätzlich nur den manuellen Netzlade-Booster und dessen Ladepreis-Helfer.
 Welche Hardware-Befehle dieser Modus am Wechselrichter/Speicher auslöst, steuert ein separater
 Hardware-Adapter (ein eigener Automatisierungszweig). Diese Trennung macht die Strategie-Logik
 unabhängig vom konkreten Speicherfabrikat.
 
 Die Automation läuft im Modus `single`: nur eine Instanz gleichzeitig, keine Parallelausführung.
-Trigger sind Preisniveau-Änderungen, BYD/SOC-Änderungen, PV-Prognose-Bewertungsänderungen
-und weitere Zustandswechsel relevanter Helfer.
+Trigger sind Preisniveau-Änderungen, BYD/SOC-Änderungen, PV-Prognose-Bewertungsänderungen,
+die Wiederkehr einer gültigen nutzbaren Batteriekapazität und weitere Zustandswechsel
+relevanter Helfer.
 
 Zentrales Entitäts-Modell (Canonical-`opti_*`-Layer):
 
@@ -316,7 +318,7 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
 
 ### Wechselwirkung mit den alten Ladeblöcken
 
-Die bestehenden SOC-gestuften Ladeblöcke (Optionen 8-12 in der Übersicht unten, siehe [Winter-/Prognose-Ladelogik](#winter-prognose-ladelogik--intent)) stehen weiterhin **hinter** der Negativpreis-/Vorladeregel und **hinter** den Entlade-Stufen der Leiter (L1/L2), aber **vor** deren Halte-Stufen (L3/L4) - Peak-Entladen schlägt Winterladen, günstiges Laden schlägt Halten (Ben-Entscheidung 2026-07-02). Sie kennen die Ladefenster-Wahl **nicht** - sie laden sofort, sobald ihre eigenen SoC-/Preisbedingungen erfüllt sind.
+Die bestehenden SOC-gestuften Ladeblöcke (Optionen 8-12 in der Übersicht unten, siehe [Winter-/Prognose-Ladelogik](#winter-prognose-ladelogik--intent)) stehen weiterhin **hinter** der Negativpreis-/Vorladeregel und **hinter** den Entlade-Stufen der Leiter (L1/L2), aber **vor** deren Halte-Stufen (L3/L4) - Peak-Entladen schlägt Winterladen, günstiges Laden schlägt Halten (Nutzerentscheidung 2026-07-02). Sie kennen die Ladefenster-Wahl **nicht** - sie laden sofort, sobald ihre eigenen SoC-/Preisbedingungen erfüllt sind.
 Das ist bewusst so belassen: Fällt die Peak-Allokation aus (z. B. wegen zu weniger Preise) oder ist ihre Reserve zu knapp bemessen, sorgen die alten Blöcke weiterhin als **Sicherheitsnetz** dafür, dass bei schlechter Prognose überhaupt geladen wird, unabhängig davon, ob gerade das optimale Fenster ist.
 
 ---
@@ -356,14 +358,23 @@ kommt. `intervall = 0` schaltet den Watchdog **komplett** aus (beide Pfade). Das
 > Watchdog bis zum echten `counter`-Reset oben; **erst danach** übernimmt der Deckel.
 
 **Zähler-Pflege (zwei Automationen in `automations/opti_balancing_counter.yaml`):**
-`opti_balancing_counter_increment` zählt `counter.tage_seit_akku100` täglich um 23:59 um 1
-hoch, solange der Akku an dem Tag den Done-SoC nicht erreicht hat.
-`opti_balancing_counter_reset` setzt den Zähler auf 0, sobald der Akku **30 min stabil** über
-`input_number.opti_balancing_done_soc` (Default 98.5 %) steht. Der Reset ist bewusst ein
-numeric_state-**Trigger** mit `for: 30 min` (nicht eine numeric_state-Condition mit `for:` -
-letzteres wertet HA nicht belastbar aus). Beide nutzen dieselbe Done-Schwelle - eine einzige
-Voll-/Done-Definition. Damit hält der Watchdog (Ladeziel 100 %/CV-Phase), bis der Reset-Trigger
-nach stabilem Stand über Done-SoC feuert und `counter = 0` setzt → Watchdog `aus`.
+`opti_balancing_counter_reset` bestätigt jede gültige Minute oberhalb von
+`input_number.opti_balancing_done_soc` (Default 98.5 %) in
+`counter.opti_balancing_done_minuten`. Dieser persistente Helfer überlebt HA-Neustarts;
+ein SoC-Rückfall oder Sensorfehler verwirft die laufende Bestätigung sofort. Nach 30
+bestätigten Minuten setzt die Automation `counter.tage_seit_akku100` auf 0 und stempelt
+`input_datetime.opti_balancing_letzter_abschluss`. Erst danach setzt sie
+`input_boolean.opti_balancing_abschluss_gueltig` auf `on`. Dieses restaurierte Flag
+unterscheidet einen echten Abschluss vom HA-Erstwert eines neu angelegten
+`input_datetime`-Helfers, der sonst bereits auf „heute 00:00“ stehen kann.
+
+Gültigkeits-Flag und Zeitstempel bilden gemeinsam das Tages-Latch: Ein langer Aufenthalt
+am oberen SoC kann nur einmal pro Kalendertag als Abschluss zählen. Um 23:59 erhöht
+`opti_balancing_counter_increment` den Tageszähler nur, wenn an diesem Tag kein solcher
+Abschluss gespeichert wurde. Ein fehlendes oder ausgeschaltetes Gültigkeits-Flag gilt
+beim Erststart bewusst als „noch nicht abgeschlossen“, unabhängig vom initialen
+Zeitstempel. Damit hält der Watchdog bis zum bestätigten Abschluss und fällt danach über
+`counter = 0` auf `aus`.
 
 **Staffelung (Kosten aufsteigend)** - der Zustand entscheidet über den Strategie-Zweig:
 
@@ -421,18 +432,18 @@ Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 20 Optionen und ei
 
 > **Hinweis — Counter-Pflege ausgelagert:** Der Zähler `counter.tage_seit_akku100` (Increment
 > täglich, Reset bei 30 min stabil über Done-SoC) liegt **nicht** in dieser Automation, sondern
-> als zwei eigene, trigger-basierte Automationen in `automations/opti_balancing_counter.yaml` -
-> ein zuverlässiger 30-min-Halt braucht einen numeric_state-**Trigger** mit `for:`, nicht eine
-> gleichnamige Condition. Details siehe [Balancing-/Deep-Charge-Watchdog](#balancing-deep-charge-watchdog).
+> als zwei eigene Automationen in `automations/opti_balancing_counter.yaml`. Persistente
+> Minutenbestätigungen und ein Abschluss-Zeitstempel machen den Ablauf restartfest und
+> verhindern Mehrfachabschlüsse am selben Tag. Details siehe
+> [Balancing-/Deep-Charge-Watchdog](#balancing-deep-charge-watchdog).
 
 ---
 
 ### Aktionsblock 1 — „Zwischen Speicherszenarien wählen" (20 Optionen + Default)
 
 Dies ist das Herzstück. Die Optionen werden **der Reihe nach** geprüft;
-die erste, deren Bedingungen alle erfüllt sind, wird ausgeführt und die weitere Prüfung
-(via `stop`) beendet. Kein nachfolgender Block kann eine bereits getroffene Entscheidung
-überschreiben.
+die erste, deren Bedingungen alle erfüllt sind, wird ausgeführt. Danach läuft die
+gemeinsame Nachbereitung weiter, ohne die Modusentscheidung zu überschreiben.
 
 #### Option 1 — MinSOC-Schutz: Entladen sperren (Tag und Nacht)
 
@@ -500,7 +511,7 @@ Details siehe **[Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-
 Reserve ja da. Details zur Leiter (L1-L4) und zum Freigabeband stehen im Abschnitt
 **[Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden)**.
 
-**Warum vor den alten Ladeblöcken (Ben-Entscheidung 2026-07-02):** L1/L2 stehen jetzt direkt
+**Warum vor den alten Ladeblöcken (Nutzerentscheidung 2026-07-02):** L1/L2 stehen jetzt direkt
 nach der Peak-Vorladeregel und damit vor den alten SOC-gestuften Ladeblöcken (Option 8-12):
 Peak-Entladen schlägt Winterladen. Die Halte-Stufen L3/L4 (Option 17/18) bleiben hinter den
 Ladeblöcken stehen — günstiges Laden schlägt Halten. Dazwischen (Option 6/7) sitzt der
@@ -790,6 +801,22 @@ situationsabhängig, ob leicht geladen oder entladen wird — ein sicherer Mitte
 Der Default-Pfad greift nur wenn `sensor.opti_soc` und `sensor.opti_battery_capacity_kwh`
 verfügbar sind — Fail-safe bei unavailable Quellen.
 
+### Separater Safety-Layer
+
+Die Strategie wird nur mit eingeschalteter Automatik sowie numerisch gültigem SoC
+und positiver nutzbarer Batteriekapazität ausgewertet. Ein separater Safety-Layer
+übernimmt die unmittelbaren Schutzreaktionen:
+
+- wird der Hauptschalter ausgeschaltet, setzt er sofort `Akku Pause`,
+- sind SoC oder nutzbare Kapazität während des Betriebs länger als 10 Sekunden
+  ungültig, setzt er `Akku Pause`,
+- beim Home-Assistant-Start setzt er `Akku Pause`, wenn der Hauptschalter aus
+  ist oder die Kerndaten nicht plausibel sind.
+
+`Akku Automatisch` ist ausdrücklich kein Fail-safe. Dieser native SMA-Modus kann
+PV-Überschuss ohne die von der Optimierung berechnete Ladeleistungsbegrenzung
+laden.
+
 ---
 
 ### Aktionsblock 2 — Cleanup: Netzladen-Booster deaktivieren bei vollem Akku
@@ -797,10 +824,11 @@ verfügbar sind — Fail-safe bei unavailable Quellen.
 **Was passiert:** Wenn SoC > 99 % und der manuelle Netzlade-Booster
 (`input_boolean.hausakku_aus_netz_laden`) aktiv ist, wird dieser automatisch deaktiviert.
 Außerdem wird der Ladepreis-Helfer (`input_number.ladepreis`) auf den aktuellen Strompreis
-gesetzt (Einheit: EUR, `ct/kWh ÷ 100`) und der Modus auf „Akku nur Laden" geschaltet.
+gesetzt (Einheit: EUR, `ct/kWh ÷ 100`).
 
 **Warum:** Ein aktivierter Netzladen-Booster bei vollem Akku wäre sinnlos. Dieser Block
-putzt den Zustand automatisch auf — er läuft immer (kein Toggle-Gate).
+putzt den Zustand automatisch auf — er läuft immer (kein Toggle-Gate). Der zuvor
+ausgewählte Akkumodus wird dabei nicht überschrieben.
 
 ---
 
@@ -818,6 +846,8 @@ Die Strategie-Automation schreibt primär `input_select.akkusteuerung_modus`. Im
 Cleanup-Block (Aktionsblock 2) werden zusätzlich `input_boolean.hausakku_aus_netz_laden`
 und `input_number.ladepreis` gesetzt. Was der Modus am Wechselrichter/Speicher auslöst,
 entscheidet allein der Hardware-Adapter (Blueprint im Repo `ha-modbus-akku-adapter`).
+Der separate Safety-Layer darf zusätzlich ausschließlich den sicheren Modus
+`Akku Pause` setzen.
 Nur eine Automation darf gleichzeitig via Modbus schreiben — keine zweite
 Steuer-Automation parallel aktiv lassen.
 

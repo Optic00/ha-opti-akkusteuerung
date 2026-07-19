@@ -114,10 +114,12 @@ sie an deine Anlage/Strategie anpassen kannst. Zwei Wege, sie einzuspielen:
 
   Auf demselben Weg gehört die Datei `automations/opti_balancing_counter.yaml` eingespielt -
   sie enthält **zwei** Automationen, die den Balancing-Watchdog speisen:
-  `opti_balancing_counter_increment` (zählt `counter.tage_seit_akku100` täglich um 23:59 hoch)
-  und `opti_balancing_counter_reset` (setzt den Zähler auf 0, sobald der Akku 30 min stabil
-  über dem Done-SoC steht - numeric_state-Trigger mit `for:`). Ersetzt eine ggf. bereits live
-  vorhandene, gleichnamige Increment-Automation.
+  `opti_balancing_counter_increment` zählt `counter.tage_seit_akku100` um 23:59 nur an
+  Tagen ohne bestätigten Abschluss hoch. `opti_balancing_counter_reset` bestätigt
+  minutenweise 30 Minuten über dem Done-SoC, setzt den Tageszähler zurück und stempelt
+  den Abschluss. Persistente Helfer machen den Ablauf restartfest und verhindern mehrere
+  Abschlüsse am selben Tag. Ersetzt eine ggf. bereits live vorhandene, gleichnamige
+  Increment-Automation.
 
 **8. Erststart-Werte setzen:** `input_number`-Helfer ohne `initial:` starten beim
 allerersten Anlegen auf ihrem **Minimum** - bei `maxsoc` und den beiden
@@ -151,7 +153,9 @@ der Watchdog fällig wird (0 = aus), `karenz_tage` = zusätzliche Wartezeit vor 
 bezahlten Netz-Fallback, `max_ct` = absoluter Brutto-Preisdeckel fürs bezahlte
 Balancing-Netzladen (0 = fail-safe aus). `input_number.opti_balancing_done_soc` hat als
 einziger ein `initial:` (98.5 %) und muss nicht von Hand gesetzt werden - er definiert die
-„Akku ~voll"-Schwelle für Counter-Reset und tägliches Increment. Der Schalter
+„Akku ~voll"-Schwelle für Counter-Reset und tägliches Increment. Dieser Wert wird bewusst
+bei jedem HA-Start erneut auf 98.5 % gesetzt; eine UI-Änderung dieses einen Helfers ist
+daher nicht restart-dauerhaft. Der Schalter
 `input_boolean.opti_balancing_netzladen` (**Default aus**) entscheidet, ob der Watchdog fürs
 BMS-Balancing auch aus dem **Netz** laden darf; ohne ihn balancet er rein per PV. Er ist
 bewusst von `opti_prognose_netzladen` entkoppelt, damit Balancing-Netzladen unabhängig vom

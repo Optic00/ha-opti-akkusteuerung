@@ -62,7 +62,7 @@ template:
 
 automation:
   # Sichtbarkeit fuer den Dauerhalt-Fall: bleibt die Sperre >60 min nur wegen
-  # invalider evcc-Daten aktiv, Ben informieren (manueller Ausstieg: Feature-
+  # invalider evcc-Daten aktiv, Betreiber informieren (manueller Ausstieg: Feature-
   # Schalter input_boolean.opti_ev_akku_pause aus).
   # Live-Abweichung (dokumentiert): notify.notify wird live ggf. durch den
   # echten Mobile-App-Service ersetzt (Muster wie opti_ki_analyse.yaml).

@@ -1,0 +1,236 @@
+# =============================================================================
+# BYD Knie-Spreizung als Trend-Metrik
+# -----------------------------------------------------------------------------
+# Rein diagnostischer Latch fuer das obere LFP-Spannungsknie. Die Ruhe-
+# Spreizung ist fuer Ladungs-Ungleichgewicht im flachen Kennlinienbereich blind;
+# hier wird deshalb je Vollladungs-Episode der groesste 160-Zell-Abstand
+# festgehalten.
+#
+# Datenquelle ist ausschliesslich der native BYD-BMS-Snapshot:
+#   sensor.bms_1_cells_average_voltage, Attribut cell_voltages
+#   Format: [{"m": 1..5, "v": [32 Zellspannungen in mV]}, ...]
+#
+# EPISODE / HYSTERESE
+# - Start: erster gueltiger BMS-Snapshot bei SoC >= 95 %
+# - Ende:  erster gueltiger BMS-Snapshot bei SoC < 93 %
+# - 93..95 %: Zustand unveraendert (kein Flattern um die Startschwelle)
+#
+# RESTART-SEMANTIK
+# Trigger-basierte Template-Sensoren stellen Zustand und Attribute wieder her.
+# Der Latch lebt daher nur in this.state / this.attributes. Es gibt bewusst
+# KEINE Input-Helfer und insbesondere kein initial:, das restaurierte Werte bei
+# einem Neustart ueberschreiben koennte.
+#
+# ARCHIV-ENTSCHEIDUNG
+# Die abgeschlossene Vorganger-Episode bleibt als letzte_vollladung_*-Attribute
+# am selben Sensor erhalten. Ein zweiter Sensor muesste beim Abschluss den alten
+# Zustand eines parallel gerenderten Sensors lesen (Cross-Entity-Race). Das
+# Eigenarchiv liest dagegen atomar aus dem vorherigen this-Snapshot.
+# =============================================================================
+
+template:
+  # Trigger direkt auf dem Attribut-Traeger: Ein HA-State-Trigger ohne
+  # attribute:-Einschraenkung feuert auch bei Attribut-Aenderungen. Spreizung
+  # und Ausreisser stammen dadurch garantiert aus demselben BMS-Snapshot.
+  - triggers:
+      - trigger: state
+        entity_id: sensor.bms_1_cells_average_voltage
+    conditions:
+      - condition: template
+        value_template: >
+          {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+          {% set ns = namespace(anzahl=0, module32=0, numerisch=true) %}
+          {% for modul in daten or [] %}
+            {% set laenge = (modul.get('v', []) | length) %}
+            {% set ns.anzahl = ns.anzahl + laenge %}
+            {% if laenge == 32 %}{% set ns.module32 = ns.module32 + 1 %}{% endif %}
+            {% for wert in modul.get('v', []) %}
+              {% if (wert | float(none)) is none %}{% set ns.numerisch = false %}{% endif %}
+            {% endfor %}
+          {% endfor %}
+          {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+          {% set alter = now().timestamp()
+             - as_timestamp(states('sensor.battery_management_unit_updated'), 0) %}
+          {{ ns.anzahl == 160 and ns.module32 == 5 and ns.numerisch
+             and 0 <= soc <= 100 and 0 <= alter < 90 }}
+    sensor:
+      - unique_id: byd_knie_spreizung_peak_mv
+        name: "BYD Knie-Spreizung Peak"
+        unit_of_measurement: "mV"
+        state_class: measurement
+        icon: mdi:chart-line
+        state: >
+          {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+          {% set alle = namespace(v=[]) %}
+          {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+          {% set spreizung = (alle.v | max) - (alle.v | min) %}
+          {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+          {% set aktiv = this.attributes.get('episode_aktiv', false) %}
+          {% set alt = this.state | float(none) %}
+          {% set neuer_peak = soc >= 95
+             and (not aktiv or alt is none or spreizung > alt) %}
+          {% if neuer_peak %}{{ spreizung | round(0) }}
+          {% else %}{{ alt }}{% endif %}
+        attributes:
+          # Der Aktiv-Merker implementiert die 95/93-%-Hysterese. Im Zwischen-
+          # band wird exakt der restaurierte Zustand weitergetragen.
+          episode_aktiv: >
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% if soc < 93 %}{{ false }}
+            {% elif soc >= 95 %}{{ true }}
+            {% else %}{{ this.attributes.get('episode_aktiv', false) }}{% endif %}
+
+          episode_gestartet: >
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set aktiv = this.attributes.get('episode_aktiv', false) %}
+            {% if soc >= 95 and not aktiv %}{{ now().isoformat() }}
+            {% else %}{{ this.attributes.get('episode_gestartet') }}{% endif %}
+
+          # Zeitpunkt und Zellkontext werden NUR zusammen mit einem neuen Peak
+          # ersetzt. Relaxation kann daher weder Wert noch Provenienz verwischen.
+          peak_gemessen: >
+            {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+            {% set alle = namespace(v=[]) %}
+            {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+            {% set spreizung = (alle.v | max) - (alle.v | min) %}
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set aktiv = this.attributes.get('episode_aktiv', false) %}
+            {% if soc >= 95 and (not aktiv or spreizung > (this.state | float(-1))) %}
+              {{ now().isoformat() }}
+            {% else %}{{ this.attributes.get('peak_gemessen') }}{% endif %}
+
+          ausreisser_modul: >
+            {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+            {% set alle = namespace(v=[]) %}
+            {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+            {% set med = alle.v | median %}
+            {% set spreizung = (alle.v | max) - (alle.v | min) %}
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set aktiv = this.attributes.get('episode_aktiv', false) %}
+            {% if soc >= 95 and (not aktiv or spreizung > (this.state | float(-1))) %}
+              {% set ns = namespace(max_abw=-1, modul=0) %}
+              {% for modul in daten %}
+                {% for wert in modul['v'] %}
+                  {% if (wert - med) | abs > ns.max_abw %}
+                    {% set ns.max_abw = (wert - med) | abs %}
+                    {% set ns.modul = modul['m'] %}
+                  {% endif %}
+                {% endfor %}
+              {% endfor %}
+              {{ ns.modul }}
+            {% else %}{{ this.attributes.get('ausreisser_modul') }}{% endif %}
+
+          # Zellindex 1..32 INNERHALB des Moduls, nicht globale 1..160.
+          ausreisser_zelle: >
+            {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+            {% set alle = namespace(v=[]) %}
+            {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+            {% set med = alle.v | median %}
+            {% set spreizung = (alle.v | max) - (alle.v | min) %}
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set aktiv = this.attributes.get('episode_aktiv', false) %}
+            {% if soc >= 95 and (not aktiv or spreizung > (this.state | float(-1))) %}
+              {% set ns = namespace(max_abw=-1, zelle=0) %}
+              {% for modul in daten %}
+                {% for wert in modul['v'] %}
+                  {% if (wert - med) | abs > ns.max_abw %}
+                    {% set ns.max_abw = (wert - med) | abs %}
+                    {% set ns.zelle = loop.index %}
+                  {% endif %}
+                {% endfor %}
+              {% endfor %}
+              {{ ns.zelle }}
+            {% else %}{{ this.attributes.get('ausreisser_zelle') }}{% endif %}
+
+          ausreisser_zellspannung_mv: >
+            {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+            {% set alle = namespace(v=[]) %}
+            {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+            {% set med = alle.v | median %}
+            {% set spreizung = (alle.v | max) - (alle.v | min) %}
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set aktiv = this.attributes.get('episode_aktiv', false) %}
+            {% if soc >= 95 and (not aktiv or spreizung > (this.state | float(-1))) %}
+              {% set ns = namespace(max_abw=-1, wert=0) %}
+              {% for wert in alle.v %}
+                {% if (wert - med) | abs > ns.max_abw %}
+                  {% set ns.max_abw = (wert - med) | abs %}
+                  {% set ns.wert = wert %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.wert }}
+            {% else %}{{ this.attributes.get('ausreisser_zellspannung_mv') }}{% endif %}
+
+          median_mv: >
+            {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+            {% set alle = namespace(v=[]) %}
+            {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+            {% set spreizung = (alle.v | max) - (alle.v | min) %}
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set aktiv = this.attributes.get('episode_aktiv', false) %}
+            {% if soc >= 95 and (not aktiv or spreizung > (this.state | float(-1))) %}
+              {{ (alle.v | median) | round(1) }}
+            {% else %}{{ this.attributes.get('median_mv') }}{% endif %}
+
+          # Vorzeichenbehaftet: positiv = Zelle oberhalb des Medians, negativ =
+          # darunter. Damit bleibt sichtbar, welches Kennlinienende den Peak
+          # treibt, statt nur den Betrag zu speichern.
+          delta_zum_median_mv: >
+            {% set daten = state_attr('sensor.bms_1_cells_average_voltage', 'cell_voltages') %}
+            {% set alle = namespace(v=[]) %}
+            {% for modul in daten %}{% set alle.v = alle.v + (modul['v'] | list) %}{% endfor %}
+            {% set med = alle.v | median %}
+            {% set spreizung = (alle.v | max) - (alle.v | min) %}
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set aktiv = this.attributes.get('episode_aktiv', false) %}
+            {% if soc >= 95 and (not aktiv or spreizung > (this.state | float(-1))) %}
+              {% set ns = namespace(max_abw=-1, delta=0) %}
+              {% for wert in alle.v %}
+                {% if (wert - med) | abs > ns.max_abw %}
+                  {% set ns.max_abw = (wert - med) | abs %}
+                  {% set ns.delta = wert - med %}
+                {% endif %}
+              {% endfor %}
+              {{ ns.delta | round(1) }}
+            {% else %}{{ this.attributes.get('delta_zum_median_mv') }}{% endif %}
+
+          # -----------------------------------------------------------------
+          # Archiv der zuletzt ABGESCHLOSSENEN Episode. Beim ersten Snapshot
+          # unter 93 % wird der vorherige this-Peak atomar kopiert. Danach
+          # bleiben diese Felder bis zum Abschluss der naechsten Episode stehen.
+          # -----------------------------------------------------------------
+          letzte_vollladung_peak_mv: >
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set schliesst = soc < 93 and this.attributes.get('episode_aktiv', false) %}
+            {% if schliesst %}{{ this.state }}
+            {% else %}{{ this.attributes.get('letzte_vollladung_peak_mv') }}{% endif %}
+
+          letzte_vollladung_ausreisser_modul: >
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set schliesst = soc < 93 and this.attributes.get('episode_aktiv', false) %}
+            {% if schliesst %}{{ this.attributes.get('ausreisser_modul') }}
+            {% else %}{{ this.attributes.get('letzte_vollladung_ausreisser_modul') }}{% endif %}
+
+          letzte_vollladung_ausreisser_zelle: >
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set schliesst = soc < 93 and this.attributes.get('episode_aktiv', false) %}
+            {% if schliesst %}{{ this.attributes.get('ausreisser_zelle') }}
+            {% else %}{{ this.attributes.get('letzte_vollladung_ausreisser_zelle') }}{% endif %}
+
+          letzte_vollladung_delta_zum_median_mv: >
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set schliesst = soc < 93 and this.attributes.get('episode_aktiv', false) %}
+            {% if schliesst %}{{ this.attributes.get('delta_zum_median_mv') }}
+            {% else %}{{ this.attributes.get('letzte_vollladung_delta_zum_median_mv') }}{% endif %}
+
+          letzte_vollladung_peak_gemessen: >
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set schliesst = soc < 93 and this.attributes.get('episode_aktiv', false) %}
+            {% if schliesst %}{{ this.attributes.get('peak_gemessen') }}
+            {% else %}{{ this.attributes.get('letzte_vollladung_peak_gemessen') }}{% endif %}
+
+          letzte_vollladung_beendet: >
+            {% set soc = states('sensor.battery_management_unit_state_of_charge') | float(-1) %}
+            {% set schliesst = soc < 93 and this.attributes.get('episode_aktiv', false) %}
+            {% if schliesst %}{{ now().isoformat() }}
+            {% else %}{{ this.attributes.get('letzte_vollladung_beendet') }}{% endif %}

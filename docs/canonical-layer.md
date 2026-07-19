@@ -29,6 +29,7 @@ opti_mapping.yaml  →  sensor.opti_*  →  opti_derived.yaml  →  opti_strateg
 | `sensor.opti_pv_power_w` | W | ≥ 0 (AC-Ausgangsleistung) | `sensor.sma_pv_power` | `sensor.huawei_pv_power` | Direkt |
 | `sensor.opti_pv_generation_w` | W | ≥ 0 (DC-Eingangsleistung) | `sensor.sma_pv_generation` | `sensor.huawei_pv_generation` | Direkt |
 | `sensor.opti_grid_export_w` | W | **≥ 0** (positiv = Einspeisung) | `sensor.sma_grid_export_power` | `sensor.huawei_grid_export_power` | Einspeisung positiv: `[0, float(0)] \| max`; Einspeisung negativ: `[0, float(0) * -1] \| max` |
+| `sensor.opti_grid_import_w` | W | **≥ 0** (positiv = Bezug) | `sensor.sma_metering_power_absorbed` | `sensor.huawei_grid_consumption_power` | Bezug positiv: `[0, float(0)] \| max`; Bezug negativ: `[0, float(0) * -1] \| max` |
 | `sensor.opti_house_consumption_w` | W | ≥ 0 | `sensor.sma_house_consumption` | `sensor.huawei_house_consumption` | Direkt |
 | `sensor.opti_price_current_ct_kwh` | ct/kWh | beliebig | `sensor.tibber_electricity_price` (EUR/kWh) | `sensor.nordpool_electricity_price` (EUR/kWh) | `float(0) * 100` |
 | `sensor.opti_price_series` | ct/kWh | Attribut `today`/`tomorrow` = Listen in ct/kWh | `sensor.tibber_electricity_price` | `sensor.nordpool_electricity_price` | EUR-Attribut-Listen × 100 (im Mapping normalisiert) |
@@ -47,6 +48,14 @@ Alle nachgelagerten Sensoren arbeiten intern mit ct/kWh.
 **`opti_grid_export_w`:** Immer ≥ 0. Positiv = Einspeisung ins Netz. Je nach Wechselrichter
 das Vorzeichen im Mapping korrigieren (Kommentare in `opti_mapping.example.yaml` unter
 Sensor 6 beschreiben beide Varianten).
+
+**`opti_grid_import_w` (optional):** Immer ≥ 0. Positiv = Bezug aus dem Netz. Symmetrisch zu
+`opti_grid_export_w`, nur mit umgekehrtem Vorzeichen des Quellzählers (Sensor 6b in
+`opti_mapping.example.yaml`). Wird von der Strategie **nicht** konsumiert - er dient nur der
+Anzeige (z. B. der `power-flow-card-plus` im Übersichts-Dashboard, die Bezug UND Einspeisung als
+Leistung braucht). Bei SMA typischerweise `..._metering_power_absorbed` (positiv = Bezug), bei
+einem signierten Netz-Zähler das Vorzeichen entsprechend drehen. Fehlt eine Bezugsquelle, den
+Sensor einfach ungemappt lassen.
 
 **`opti_battery_power_w`:** Positiv = Batterie lädt (`+=`-Konvention).
 - SMA: Zwei separate Sensoren für Laden/Entladen (beide ≥ 0) → `charge - discharge`
@@ -308,6 +317,7 @@ In `packages/opti_mapping.yaml` alle `DEIN_*`-Platzhalter durch die echten Entit
 | `sensor.DEIN_PV_POWER` | `sensor.sma_pv_power` | `sensor.huawei_pv_power` |
 | `sensor.DEIN_PV_GENERATION` | `sensor.sma_pv_generation` | `sensor.huawei_pv_generation` |
 | `sensor.DEIN_GRID_EXPORT` | `sensor.sma_grid_export_power` | `sensor.huawei_grid_export_power` |
+| `sensor.DEIN_GRID_IMPORT` (optional) | `sensor.sma_metering_power_absorbed` | `sensor.huawei_grid_consumption_power` |
 | `sensor.DEIN_HAUSVERBRAUCH` | `sensor.sma_house_consumption` | `sensor.huawei_house_consumption` |
 | `sensor.DEIN_STROMPREIS` | `sensor.tibber_electricity_price` | `sensor.nordpool_electricity_price` |
 | `sensor.DEIN_PREIS_REIHE` | `sensor.tibber_electricity_price` | `sensor.nordpool_electricity_price` |

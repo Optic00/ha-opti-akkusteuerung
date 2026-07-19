@@ -102,6 +102,27 @@ template:
         # state: "{{ [0, states('sensor.DEIN_GRID_EXPORT') | float(0) * -1] | max }}"
 
       # -----------------------------------------------------------------------
+      # 6b. Netz-Bezug (W) — IMMER >= 0 (positiv = Bezug aus dem Netz)
+      # Symmetrisch zu opti_grid_export_w, nur mit umgekehrtem Vorzeichen.
+      #
+      # Vorzeichen-Rezept:
+      #   Quelle positiv = Netzbezug (SMA metering_power_absorbed, eigener Bezugs-Zähler):
+      #     state: "{{ [0, states('sensor.DEIN_GRID_IMPORT') | float(0)] | max }}"
+      #   Quelle positiv = Einspeisung (Bezug ist negativ, z. B. ein signierter Netz-Zähler):
+      #     state: "{{ [0, states('sensor.DEIN_GRID_IMPORT') | float(0) * -1] | max }}"
+      # -----------------------------------------------------------------------
+      - unique_id: opti_mapping_grid_import_w
+        name: "Opti Grid Import W"
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        availability: "{{ has_value('sensor.DEIN_GRID_IMPORT') }}"
+        # Standard: Quelle positiv = Netzbezug → auf >= 0 clippen
+        state: "{{ [0, states('sensor.DEIN_GRID_IMPORT') | float(0)] | max }}"
+        # Alternative: Quelle positiv = Einspeisung (Bezug negativ) → Vorzeichen drehen:
+        # state: "{{ [0, states('sensor.DEIN_GRID_IMPORT') | float(0) * -1] | max }}"
+
+      # -----------------------------------------------------------------------
       # 7. Hausverbrauch (W)
       # -----------------------------------------------------------------------
       - unique_id: opti_mapping_house_consumption_w

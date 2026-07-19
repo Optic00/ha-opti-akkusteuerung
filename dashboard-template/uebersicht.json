@@ -1,0 +1,596 @@
+{
+  "views": [
+    {
+      "title": "Übersicht",
+      "path": "uebersicht",
+      "type": "sections",
+      "max_columns": 3,
+      "icon": "mdi:battery-heart-variant",
+      "sections": [
+        {
+          "title": "⚡ Energiefluss (Live-Diagramm)",
+          "cards": [
+            {
+              "type": "custom:power-flow-card-plus",
+              "clickable_entities": true,
+              "entities": {
+                "grid": {
+                  "entity": {
+                    "consumption": "sensor.opti_grid_import_w",
+                    "production": "sensor.opti_grid_export_w"
+                  }
+                },
+                "solar": {
+                  "entity": "sensor.opti_pv_generation_w"
+                },
+                "battery": {
+                  "entity": "sensor.opti_battery_power_w",
+                  "state_of_charge": "sensor.opti_soc",
+                  "invert_state": true
+                },
+                "home": {
+                  "entity": "sensor.opti_house_consumption_w"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "title": "🔋 Status jetzt",
+          "cards": [
+            {
+              "type": "custom:mushroom-template-card",
+              "primary": "{{ states('input_select.akkusteuerung_modus') }}",
+              "secondary": "Strategie will: {{ states('sensor.opti_strategie_vorschau') }}",
+              "icon": "mdi:battery-charging-medium",
+              "icon_color": "{% set m = states('input_select.akkusteuerung_modus') %}{% if 'Entladen' in m %}orange{% elif 'Netzladen' in m %}red{% elif 'Laden' in m %}green{% elif m == 'Akku Pause' %}grey{% else %}blue{% endif %}",
+              "entity": "input_select.akkusteuerung_modus",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "card_mod": {
+                "style": "ha-tile-info span { white-space: normal !important; text-overflow: clip !important; overflow: visible !important; }"
+              }
+            },
+            {
+              "type": "gauge",
+              "entity": "sensor.opti_soc",
+              "name": "Akku-SoC",
+              "unit": "%",
+              "min": 0,
+              "max": 100,
+              "needle": true,
+              "severity": {
+                "green": 50,
+                "yellow": 20,
+                "red": 0
+              }
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.opti_battery_power_w",
+              "name": "Batterieleistung",
+              "icon": "mdi:home-battery"
+            },
+            {
+              "type": "custom:mushroom-template-card",
+              "primary": "Strategie-Vorschau: {{ states('sensor.opti_strategie_vorschau') }}",
+              "secondary": "{{ state_attr('sensor.opti_strategie_vorschau','grund') }}",
+              "icon": "mdi:eye-check",
+              "icon_color": "blue",
+              "entity": "sensor.opti_strategie_vorschau",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "card_mod": {
+                "style": "ha-tile-info span { white-space: normal !important; text-overflow: clip !important; overflow: visible !important; }"
+              }
+            },
+            {
+              "type": "button",
+              "entity": "script.ki_opti_warum_erklaerung",
+              "name": "Warum? (KI-Erklärung)",
+              "icon": "mdi:head-question",
+              "show_state": false,
+              "tap_action": {
+                "action": "toggle"
+              }
+            }
+          ]
+        },
+        {
+          "title": "⚡ Energiefluss (Kacheln)",
+          "cards": [
+            {
+              "type": "tile",
+              "entity": "sensor.opti_pv_power_w",
+              "name": "PV",
+              "icon": "mdi:solar-power"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.opti_house_consumption_w",
+              "name": "Hausverbrauch",
+              "icon": "mdi:home-lightning-bolt"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.opti_grid_export_w",
+              "name": "Einspeisung",
+              "icon": "mdi:transmission-tower-export"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.opti_battery_power_w",
+              "name": "Batterie",
+              "icon": "mdi:home-battery"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.opti_battery_temp",
+              "name": "Akku-Temp",
+              "icon": "mdi:thermometer"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.opti_battery_capacity_kwh",
+              "name": "Kapazität",
+              "icon": "mdi:battery-high"
+            }
+          ]
+        },
+        {
+          "title": "🧠 Strategie-Intelligenz",
+          "cards": [
+            {
+              "type": "tile",
+              "entity": "sensor.opti_target_soc",
+              "name": "Ziel-SoC",
+              "icon": "mdi:target"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.opti_price_current_ct_kwh",
+              "name": "Preis jetzt",
+              "icon": "mdi:cash"
+            },
+            {
+              "type": "custom:mushroom-template-card",
+              "primary": "Preisniveau",
+              "secondary": "{{ states('sensor.opti_price_level') }}",
+              "icon": "mdi:cash-clock",
+              "icon_color": "{% set p = states('sensor.opti_price_level') %}{% if p in ['VERY_CHEAP','CHEAP'] %}green{% elif p == 'NORMAL' %}blue{% elif p == 'EXPENSIVE' %}orange{% else %}red{% endif %}",
+              "entity": "sensor.opti_price_level",
+              "card_mod": {
+                "style": "ha-tile-info span { white-space: normal !important; text-overflow: clip !important; overflow: visible !important; }"
+              }
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.opti_mindestentladepreis_ct_kwh",
+              "name": "Mind.-Entladepreis",
+              "icon": "mdi:cash-minus"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.opti_forecast_score",
+              "name": "Prognose heute",
+              "icon": "mdi:weather-sunny"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.opti_forecast_score_tomorrow",
+              "name": "Prognose morgen",
+              "icon": "mdi:weather-partly-cloudy"
+            },
+            {
+              "type": "tile",
+              "entity": "sensor.opti_peak_reserve_soc",
+              "name": "Peak-Reserve SoC",
+              "icon": "mdi:chart-timeline-variant"
+            },
+            {
+              "type": "tile",
+              "entity": "binary_sensor.opti_peak_reserve_aktiv",
+              "name": "Peak-Reserve aktiv",
+              "icon": "mdi:flash-alert"
+            },
+            {
+              "type": "tile",
+              "entity": "binary_sensor.opti_winter_charging_allowed",
+              "name": "Winterladen frei",
+              "icon": "mdi:snowflake"
+            }
+          ]
+        },
+        {
+          "title": "🔮 Prognose-Sicherheit",
+          "cards": [
+            {
+              "type": "custom:mushroom-template-card",
+              "primary": "Heute: {{ state_attr('sensor.opti_forecast_effective_remaining_kwh','p10_kwh')|round(0)|int }} - {{ state_attr('sensor.opti_forecast_effective_remaining_kwh','median_kwh')|round(0)|int }} kWh",
+              "secondary": "Effektiv {{ states('sensor.opti_forecast_effective_remaining_kwh')|round(0)|int }} kWh (α {{ (state_attr('sensor.opti_forecast_effective_remaining_kwh','alpha')|float(0)*100)|round(0)|int }}%) · Score {{ states('sensor.opti_forecast_score') }}",
+              "icon": "mdi:cloud-percent",
+              "icon_color": "{% set p = state_attr('sensor.opti_forecast_effective_remaining_kwh','p10_kwh')|float(0) %}{% set m = state_attr('sensor.opti_forecast_effective_remaining_kwh','median_kwh')|float(1) %}{% set r = (p/m) if m>0 else 0 %}{% if r < 0.3 %}red{% elif r < 0.6 %}orange{% else %}green{% endif %}",
+              "entity": "sensor.opti_forecast_effective_remaining_kwh",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "card_mod": {
+                "style": "ha-tile-info span { white-space: normal !important; text-overflow: clip !important; overflow: visible !important; }"
+              }
+            },
+            {
+              "type": "custom:mushroom-template-card",
+              "primary": "Morgen: {{ state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|round(0)|int }} - {{ states('sensor.opti_forecast_tomorrow_kwh')|round(0)|int }} kWh",
+              "secondary": "Sicherheit {% set p = state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(0) %}{% set m = states('sensor.opti_forecast_tomorrow_kwh')|float(1) %}{{ ((p/m*100) if m>0 else 0)|round(0)|int }}% · Score morgen {{ states('sensor.opti_forecast_score_tomorrow') }}",
+              "icon": "mdi:weather-partly-cloudy",
+              "icon_color": "{% set p = state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(0) %}{% set m = states('sensor.opti_forecast_tomorrow_kwh')|float(1) %}{% set r = (p/m) if m>0 else 0 %}{% if r < 0.3 %}red{% elif r < 0.6 %}orange{% else %}green{% endif %}",
+              "entity": "sensor.opti_forecast_tomorrow_kwh",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "card_mod": {
+                "style": "ha-tile-info span { white-space: normal !important; text-overflow: clip !important; overflow: visible !important; }"
+              }
+            },
+            {
+              "type": "tile",
+              "entity": "input_number.opti_forecast_optimismus",
+              "name": "Forecast-Optimismus (α %)",
+              "icon": "mdi:weather-sunny",
+              "features": [
+                {
+                  "type": "numeric-input"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "🩺 Balancing-Watchdog",
+          "cards": [
+            {
+              "type": "custom:mushroom-template-card",
+              "primary": "Watchdog: {{ states('sensor.opti_balancing_watchdog') | upper }}",
+              "secondary": "{{ state_attr('sensor.opti_balancing_watchdog','grund') }}",
+              "icon": "mdi:battery-heart-variant",
+              "icon_color": "{% set s = states('sensor.opti_balancing_watchdog') %}{% if s == 'pv' %}green{% elif s == 'netz' %}orange{% else %}grey{% endif %}",
+              "entity": "sensor.opti_balancing_watchdog",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "card_mod": {
+                "style": "ha-tile-info span { white-space: normal !important; text-overflow: clip !important; overflow: visible !important; }"
+              }
+            },
+            {
+              "type": "tile",
+              "entity": "counter.tage_seit_akku100",
+              "name": "Tage seit 100%",
+              "icon": "mdi:calendar-refresh",
+              "features": [
+                {
+                  "type": "bar-gauge",
+                  "min": 0,
+                  "max": 14
+                }
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "input_boolean.opti_balancing_netzladen",
+              "name": "Balancing darf ans Netz",
+              "icon": "mdi:transmission-tower",
+              "features": [
+                {
+                  "type": "toggle"
+                }
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "input_number.opti_balancing_intervall_tage",
+              "name": "Intervall (Tage)",
+              "features": [
+                {
+                  "type": "numeric-input"
+                }
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "input_number.opti_balancing_karenz_tage",
+              "name": "Karenz (Tage)",
+              "features": [
+                {
+                  "type": "numeric-input"
+                }
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "input_number.opti_balancing_max_ct",
+              "name": "Preisdeckel ct/kWh",
+              "features": [
+                {
+                  "type": "numeric-input"
+                }
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "input_number.opti_balancing_done_soc",
+              "name": "Done-SoC %",
+              "features": [
+                {
+                  "type": "numeric-input"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "🤖 KI-Tagesanalyse",
+          "cards": [
+            {
+              "type": "custom:mushroom-template-card",
+              "primary": "Report: {{ states('sensor.opti_ki_analyse') }}",
+              "secondary": "{{ state_attr('sensor.opti_ki_analyse','zusammenfassung') }}",
+              "icon": "mdi:robot-outline",
+              "icon_color": "{% set s = states('sensor.opti_ki_analyse') %}{% if s == 'auffaellig' %}orange{% elif s == 'ok' %}green{% else %}grey{% endif %}",
+              "entity": "sensor.opti_ki_analyse",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "multiline_secondary": true,
+              "card_mod": {
+                "style": "ha-tile-info span { white-space: normal !important; text-overflow: clip !important; overflow: visible !important; }"
+              }
+            },
+            {
+              "type": "tile",
+              "entity": "input_boolean.opti_ki_tagesreport_immer",
+              "name": "Report immer senden",
+              "icon": "mdi:message-text-clock",
+              "features": [
+                {
+                  "type": "toggle"
+                }
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "input_datetime.opti_ki_last_success",
+              "name": "Letzter Erfolg",
+              "icon": "mdi:check-circle-outline"
+            }
+          ]
+        },
+        {
+          "title": "🔬 Akku-Gesundheit (BMS, optional)",
+          "cards": [
+            {
+              "type": "custom:mushroom-template-card",
+              "primary": "Zellspreizung: {{ states('__ZELL_SPREIZUNG_MV__') }} mV",
+              "secondary": "min {{ states('__ZELL_SPANNUNG_MIN_V__') }} V · max {{ states('__ZELL_SPANNUNG_MAX_V__') }} V · avg {{ states('__ZELL_SPANNUNG_AVG_V__') }} V",
+              "icon": "mdi:arrow-expand-vertical",
+              "icon_color": "{% set s = states('__ZELL_SPREIZUNG_MV__')|float(-1) %}{% if s < 0 %}grey{% elif s < 30 %}green{% elif s < 60 %}orange{% else %}red{% endif %}",
+              "entity": "__ZELL_SPREIZUNG_MV__",
+              "tap_action": {
+                "action": "more-info"
+              },
+              "card_mod": {
+                "style": "ha-tile-info span { white-space: normal !important; text-overflow: clip !important; overflow: visible !important; }"
+              }
+            },
+            {
+              "type": "tile",
+              "entity": "__BATT_SOH__",
+              "name": "State of Health",
+              "icon": "mdi:battery-heart-variant"
+            },
+            {
+              "type": "tile",
+              "entity": "__BMS_BALANCING_AKTIV__",
+              "name": "Balancing aktiv (BMS)",
+              "icon": "mdi:scale-balance"
+            },
+            {
+              "type": "tile",
+              "entity": "__BMS_SOC__",
+              "name": "SoC laut BMS",
+              "icon": "mdi:battery-medium"
+            }
+          ]
+        },
+        {
+          "title": "🎛️ Steuerung & Regler",
+          "cards": [
+            {
+              "type": "tile",
+              "entity": "input_boolean.akku_opti_automatik",
+              "name": "Opti-Automatik (Master)",
+              "icon": "mdi:robot",
+              "features": [
+                {
+                  "type": "toggle"
+                }
+              ]
+            },
+            {
+              "type": "custom:mushroom-select-card",
+              "entity": "input_select.akkusteuerung_modus",
+              "name": "Modus manuell",
+              "icon": "mdi:tune-variant"
+            },
+            {
+              "type": "tile",
+              "entity": "input_boolean.opti_prognose_netzladen",
+              "name": "Prognose-Netzladen",
+              "icon": "mdi:transmission-tower-import",
+              "features": [
+                {
+                  "type": "toggle"
+                }
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "input_boolean.opti_pv_ueberschuss_ladung",
+              "name": "PV-Überschussladen",
+              "icon": "mdi:solar-power",
+              "features": [
+                {
+                  "type": "toggle"
+                }
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "input_boolean.hausakku_aus_netz_laden",
+              "name": "Manuell Netzladen",
+              "icon": "mdi:transmission-tower",
+              "features": [
+                {
+                  "type": "toggle"
+                }
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "input_number.minsoc",
+              "name": "MinSOC %",
+              "features": [
+                {
+                  "type": "numeric-input"
+                }
+              ]
+            },
+            {
+              "type": "tile",
+              "entity": "input_number.maxsoc",
+              "name": "MaxSOC %",
+              "features": [
+                {
+                  "type": "numeric-input"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "📈 Verlauf (24 h)",
+          "cards": [
+            {
+              "type": "custom:apexcharts-card",
+              "header": {
+                "show": true,
+                "title": "Preis & SoC"
+              },
+              "graph_span": "24h",
+              "yaxis": [
+                {
+                  "id": "ct",
+                  "decimals": 0
+                },
+                {
+                  "id": "soc",
+                  "opposite": true,
+                  "min": 0,
+                  "max": 100,
+                  "decimals": 0
+                }
+              ],
+              "series": [
+                {
+                  "entity": "sensor.opti_price_current_ct_kwh",
+                  "name": "Preis ct/kWh",
+                  "yaxis_id": "ct",
+                  "stroke_width": 2
+                },
+                {
+                  "entity": "sensor.opti_soc",
+                  "name": "SoC %",
+                  "yaxis_id": "soc",
+                  "type": "area",
+                  "stroke_width": 1,
+                  "opacity": 0.2
+                }
+              ]
+            },
+            {
+              "type": "custom:apexcharts-card",
+              "header": {
+                "show": true,
+                "title": "Leistung"
+              },
+              "graph_span": "24h",
+              "series": [
+                {
+                  "entity": "sensor.opti_pv_power_w",
+                  "name": "PV",
+                  "type": "area",
+                  "stroke_width": 1,
+                  "opacity": 0.2
+                },
+                {
+                  "entity": "sensor.opti_house_consumption_w",
+                  "name": "Haus",
+                  "stroke_width": 2
+                },
+                {
+                  "entity": "sensor.opti_battery_power_w",
+                  "name": "Batterie",
+                  "stroke_width": 2
+                }
+              ]
+            },
+            {
+              "type": "custom:apexcharts-card",
+              "header": {
+                "show": true,
+                "title": "Zellspannung & Spreizung (BMS, optional)"
+              },
+              "graph_span": "24h",
+              "yaxis": [
+                {
+                  "id": "volt",
+                  "decimals": 2
+                },
+                {
+                  "id": "mv",
+                  "opposite": true,
+                  "min": 0,
+                  "decimals": 0
+                }
+              ],
+              "series": [
+                {
+                  "entity": "__ZELL_SPANNUNG_MAX_V__",
+                  "name": "Zelle max V",
+                  "yaxis_id": "volt",
+                  "stroke_width": 1
+                },
+                {
+                  "entity": "__ZELL_SPANNUNG_MIN_V__",
+                  "name": "Zelle min V",
+                  "yaxis_id": "volt",
+                  "stroke_width": 1
+                },
+                {
+                  "entity": "__ZELL_SPREIZUNG_MV__",
+                  "name": "Spreizung mV",
+                  "yaxis_id": "mv",
+                  "type": "area",
+                  "stroke_width": 2,
+                  "opacity": 0.2
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -23,28 +23,91 @@ def _git(*args, check=True):
     )
 
 
+def _resolved_commit(ref):
+    result = _git(
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        f"{ref}^{{commit}}",
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Privacy scan rejected an invalid explicit base")
+    return result.stdout.strip()
+
+
+def _merge_base(left, right):
+    result = _git("merge-base", left, right, check=False)
+    if result.returncode != 0 or not result.stdout.strip():
+        raise RuntimeError(
+            "Privacy scan could not establish a complete base-to-head range"
+        )
+    return result.stdout.strip()
+
+
 def _pr_history_commits():
-    configured_base = os.environ.get("PRIVACY_SCAN_BASE")
-    if configured_base:
-        base_ref = configured_base
-        _git("rev-parse", "--verify", f"{base_ref}^{{commit}}")
-    elif _git(
+    if _git("rev-parse", "--is-shallow-repository").stdout.strip() == "true":
+        raise RuntimeError(
+            "Privacy scan requires a non-shallow checkout; configure "
+            "fetch-depth: 0 and fetch full history"
+        )
+
+    configured_value = os.environ.get("PRIVACY_SCAN_BASE")
+    has_explicit_base = configured_value is not None
+    configured_base = configured_value.strip() if configured_value else ""
+    if has_explicit_base and not configured_base:
+        raise RuntimeError("Privacy scan rejected an invalid explicit base")
+
+    origin_main_available = _git(
         "rev-parse",
         "--verify",
         "--quiet",
         "refs/remotes/origin/main^{commit}",
         check=False,
-    ).returncode == 0:
-        base_ref = "refs/remotes/origin/main"
-    else:
+    ).returncode == 0
+    head = _resolved_commit("HEAD")
+
+    if has_explicit_base:
+        explicit_commit = _resolved_commit(configured_base)
+        merge_base = _merge_base(explicit_commit, head)
+        commits = _git(
+            "rev-list", "--reverse", f"{merge_base}..{head}"
+        ).stdout.splitlines()
+        if not commits:
+            raise RuntimeError(
+                "Privacy scan rejected explicit base because it creates an "
+                "empty range"
+            )
+
+        if origin_main_available:
+            origin_merge_base = _merge_base("refs/remotes/origin/main", head)
+            explicit_is_same_or_older = _git(
+                "merge-base",
+                "--is-ancestor",
+                merge_base,
+                origin_merge_base,
+                check=False,
+            )
+            if explicit_is_same_or_older.returncode not in (0, 1):
+                raise RuntimeError(
+                    "Privacy scan could not validate the explicit base"
+                )
+            if explicit_is_same_or_older.returncode == 1:
+                raise RuntimeError(
+                    "Privacy scan rejected explicit base because it would "
+                    "truncate the origin/main range"
+                )
+
+        return commits
+
+    if not origin_main_available:
         # A checkout without the explicit CI base or origin/main cannot identify
         # a PR boundary safely, so scan every commit reachable from HEAD.
-        return _git("rev-list", "--reverse", "HEAD").stdout.splitlines()
+        return _git("rev-list", "--reverse", head).stdout.splitlines()
 
-    merge_base = _git("merge-base", base_ref, "HEAD").stdout.strip()
-    assert merge_base, f"Kein Merge-Base fuer Privacy-Scan mit {base_ref!r}"
+    merge_base = _merge_base("refs/remotes/origin/main", head)
     return _git(
-        "rev-list", "--reverse", f"{merge_base}..HEAD"
+        "rev-list", "--reverse", f"{merge_base}..{head}"
     ).stdout.splitlines()
 
 
@@ -99,6 +162,106 @@ def _worktree_serial_violations():
             for _match in pattern.finditer(line):
                 violations.append(f"WORKTREE:{relative_path}:{line_number}")
     return violations
+
+
+def _test_git(repo, *args):
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _new_history_test_repo(tmp_path):
+    repo = tmp_path / "history-repo"
+    repo.mkdir()
+    _test_git(repo, "init", "-b", "main")
+    _test_git(repo, "config", "user.name", "Privacy Test")
+    _test_git(repo, "config", "user.email", "privacy-test")
+    return repo
+
+
+def _history_test_commit(repo, marker):
+    (repo / "history.txt").write_text(f"{marker}\n", encoding="utf-8")
+    _test_git(repo, "add", "history.txt")
+    _test_git(repo, "commit", "-m", marker)
+    return _test_git(repo, "rev-parse", "HEAD")
+
+
+def _use_history_test_repo(monkeypatch, repo):
+    monkeypatch.setitem(_git.__globals__, "REPO", repo)
+
+
+def test_history_scan_lehnt_shallow_checkout_sanitized_ab(tmp_path, monkeypatch):
+    source = _new_history_test_repo(tmp_path)
+    _history_test_commit(source, "base")
+    _history_test_commit(source, "feature")
+    shallow = tmp_path / "shallow"
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "--depth",
+            "1",
+            "--branch",
+            "main",
+            source.resolve().as_uri(),
+            str(shallow),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert _test_git(shallow, "rev-parse", "--is-shallow-repository") == "true"
+    _use_history_test_repo(monkeypatch, shallow)
+    monkeypatch.delenv("PRIVACY_SCAN_BASE", raising=False)
+
+    with pytest.raises(RuntimeError, match=r"fetch-depth: 0.*full history"):
+        _pr_history_commits()
+
+
+def test_history_scan_lehnt_explizites_head_als_leere_range_ab(
+    tmp_path, monkeypatch
+):
+    repo = _new_history_test_repo(tmp_path)
+    base = _history_test_commit(repo, "base")
+    _test_git(repo, "update-ref", "refs/remotes/origin/main", base)
+    _history_test_commit(repo, "feature")
+    _use_history_test_repo(monkeypatch, repo)
+    monkeypatch.setenv("PRIVACY_SCAN_BASE", "HEAD")
+
+    with pytest.raises(RuntimeError, match=r"explicit base.*empty range"):
+        _pr_history_commits()
+
+
+def test_history_scan_lehnt_spaetere_base_als_origin_main_ab(
+    tmp_path, monkeypatch
+):
+    repo = _new_history_test_repo(tmp_path)
+    origin_base = _history_test_commit(repo, "base")
+    _test_git(repo, "update-ref", "refs/remotes/origin/main", origin_base)
+    later_base = _history_test_commit(repo, "feature-one")
+    _history_test_commit(repo, "feature-two")
+    _use_history_test_repo(monkeypatch, repo)
+    monkeypatch.setenv("PRIVACY_SCAN_BASE", later_base)
+
+    with pytest.raises(RuntimeError, match=r"explicit base.*truncate"):
+        _pr_history_commits()
+
+
+def test_history_scan_erlaubt_auto_leere_range_auf_full_history_main(
+    tmp_path, monkeypatch
+):
+    repo = _new_history_test_repo(tmp_path)
+    main_head = _history_test_commit(repo, "base")
+    _test_git(repo, "update-ref", "refs/remotes/origin/main", main_head)
+    _use_history_test_repo(monkeypatch, repo)
+    monkeypatch.delenv("PRIVACY_SCAN_BASE", raising=False)
+
+    assert _test_git(repo, "rev-parse", "--is-shallow-repository") == "false"
+    assert _pr_history_commits() == []
 
 
 def test_pr_historie_und_worktree_enthalten_keine_wr_seriennummern():

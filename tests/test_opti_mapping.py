@@ -97,8 +97,12 @@ def _pr_history_commits():
                     "Privacy scan rejected explicit base because it would "
                     "truncate the origin/main range"
                 )
+            return commits
 
-        return commits
+        # Without origin/main there is no trusted boundary against which the
+        # explicit base can be checked. Scan all reachable history instead of
+        # risking a silently truncated range.
+        return _git("rev-list", "--reverse", head).stdout.splitlines()
 
     if not origin_main_available:
         # A checkout without the explicit CI base or origin/main cannot identify
@@ -128,7 +132,7 @@ def _commit_serial_violations(commit):
             result.returncode,
             result.args,
             output="<redacted>",
-            stderr=result.stderr,
+            stderr="<redacted>",
         )
 
     violations = []
@@ -136,6 +140,18 @@ def _commit_serial_violations(commit):
         commit_and_path, line_number, _redacted_match = raw_match.rsplit(":", 2)
         _treeish, relative_path = commit_and_path.split(":", 1)
         violations.append(f"{commit[:12]}:{relative_path}:{line_number}")
+
+    message = _git("show", "-s", "--format=%B", commit, check=False)
+    if message.returncode != 0:
+        raise subprocess.CalledProcessError(
+            message.returncode,
+            message.args,
+            output="<redacted>",
+            stderr="<redacted>",
+        )
+    if re.search(PRIVATE_ENTITY_PATTERN, message.stdout):
+        violations.append(f"{commit[:12]}:COMMIT_MESSAGE")
+
     return violations
 
 
@@ -251,6 +267,42 @@ def test_history_scan_lehnt_spaetere_base_als_origin_main_ab(
         _pr_history_commits()
 
 
+def test_history_scan_ohne_origin_main_scannt_trotz_spaeterer_base_alle_commits(
+    tmp_path, monkeypatch
+):
+    repo = _new_history_test_repo(tmp_path)
+    _history_test_commit(repo, "base")
+    later_base = _history_test_commit(repo, "feature-one")
+    _history_test_commit(repo, "feature-two")
+    all_commits = _test_git(
+        repo, "rev-list", "--reverse", "HEAD"
+    ).splitlines()
+    _use_history_test_repo(monkeypatch, repo)
+    monkeypatch.setenv("PRIVACY_SCAN_BASE", later_base)
+
+    assert _pr_history_commits() == all_commits
+
+
+def test_history_scan_redigiert_treffer_im_commit_text(tmp_path, monkeypatch):
+    repo = _new_history_test_repo(tmp_path)
+    base = _history_test_commit(repo, "base")
+    _test_git(repo, "update-ref", "refs/remotes/origin/main", base)
+    protected_value = "".join(("sensor", ".", "sn_", "123456"))
+    (repo / "history.txt").write_text("safe feature\n", encoding="utf-8")
+    _test_git(repo, "add", "history.txt")
+    _test_git(repo, "commit", "-m", protected_value)
+    protected_commit = _test_git(repo, "rev-parse", "HEAD")
+    _use_history_test_repo(monkeypatch, repo)
+    monkeypatch.delenv("PRIVACY_SCAN_BASE", raising=False)
+
+    violations = []
+    for commit in _pr_history_commits():
+        violations.extend(_commit_serial_violations(commit))
+
+    assert violations == [f"{protected_commit[:12]}:COMMIT_MESSAGE"]
+    assert protected_value not in repr(violations)
+
+
 def test_history_scan_erlaubt_auto_leere_range_auf_full_history_main(
     tmp_path, monkeypatch
 ):
@@ -333,6 +385,10 @@ def _assert_grid_import_contract(entity, source):
     hass = FakeHass(states={source: "321"})
     assert render(hass, entity["availability"]) == "True"
     assert float(render(hass, entity["state"])) == 321
+
+    hass = FakeHass(states={source: "0"})
+    assert render(hass, entity["availability"]) == "True"
+    assert float(render(hass, entity["state"])) == 0
 
     hass = FakeHass(states={source: "-12"})
     assert float(render(hass, entity["state"])) == 0

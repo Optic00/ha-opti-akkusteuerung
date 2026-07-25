@@ -309,12 +309,17 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
 
 - **Kurzer Ausfall der Preisquelle:** `sensor.opti_price_series_stable` überbrückt ihn und hält die letzte gültige Tagesreihe (State `gehalten`), Preisniveau und Leiter arbeiten unverändert weiter.
   Das ist zulässig, weil die Tagesreihe ein **Fahrplan** ist: die Viertelstundenpreise für heute stehen am Vortag fest und ändern sich innerhalb des Tages nicht.
-  Das **Haltefenster ist auf 15 Minuten begrenzt**, und zwar bewusst knapp: die beobachteten Ausfälle dauerten 20-80 Sekunden.
-  Ein kurzes Fenster überbrückt sie vollständig und kann eine Tagesgrenze konstruktiv nicht überschreiten - dadurch entfällt jede Datumslogik, die bei einem ganztägigen Halten nötig wäre (Rollover-Erkennung, Ankeralter, Sonderfälle bei wertgleichen Preistagen).
-  Ein Ausfall über 15 Minuten endet **fail-closed**: das Preisniveau wird `unavailable` und alle preisabhängigen Zweige verstummen.
-  Das Gedächtnis des Halters liegt **getrennt von der Nutzlast** auf `anker_today` / `anker_tomorrow` / `anker_ts`: die Anker überleben jeden Zustand, während `today`/`tomorrow` im Zustand `leer` auf `[]` gehen.
+  Das **Haltefenster ist 15 Minuten** und wird minütlich abgetastet - bewusst knapp, denn die beobachteten Ausfälle dauerten 20-80 Sekunden.
+  Ein längerer Ausfall endet **fail-closed**: das Preisniveau wird `unavailable` und alle preisabhängigen Zweige verstummen.
+  Die Morgen-Liste hat einen **eigenen** Zeitstempel, weil bei einem reinen Morgen-Ausfall die `today`-Liste frisch bleibt - ein gemeinsamer Stempel würde bei jedem Tick erneuert und das Fenster liefe nie ab.
+- **Tagesgrenze:** ein 15-Minuten-Fenster kann Mitternacht **sehr wohl** überschreiten (frisch um 23:55, Ausfall um 00:00).
+  Die Tagesgrenze folgt deshalb nicht aus der Fensterlänge, sondern daraus, dass die Preislisten keine Zeitstempel tragen (Zuordnung per Index).
+  Gehalten wird darum nur, wenn der Anker am **heutigen** Kalendertag erfasst wurde; sonst wanderte die gestrige Reihe in den neuen Tag - und ihr `tomorrow` sind die heutigen Preise.
+  Wechselt die `today`-Liste, wird der Morgen-Anker aus demselben Grund verworfen.
+  Bekannte Restgrenze: liefert die Quelle nach Mitternacht noch die gestrige Liste, wird sie übernommen und umdatiert - genau wie vor dem Halter, nur zusätzlich bis zu 15 Minuten haltbar.
+  Ohne Zeitstempel in der Quelle ist das nicht auflösbar.
+- **Gedächtnis getrennt von der Nutzlast:** der Halter führt sein Gedächtnis im Attribut `anker` (Reihe, beide Zeitstempel, Erfassungsdatum), während `today`/`tomorrow` die Nutzlast für die Konsumenten sind und im Zustand `leer` auf `[]` gehen.
   Lägen beide auf denselben Attributen, würde `leer` das Gedächtnis mit löschen und der Halter verlöre es nach einem einzigen Tick.
-  Wechselt die `today`-Liste, ist ein neuer Tag angebrochen: dann wird der Morgen-Anker verworfen, weil das gestrige `tomorrow` die heutigen Preise sind und nicht als „morgen" weiterleben darf.
 - **< 4 Preise gesamt** (`today` + `tomorrow`, auch nach dem Halter): `sensor.opti_peak_reserve_soc` wird `unavailable`, `binary_sensor.opti_peak_reserve_aktiv` fällt auf `off` - die komplette Leiter (L1-L4) ist inaktiv.
   `sensor.opti_price_level` wird bei derselben Datenlage ebenfalls `unavailable` und sperrt damit alle preisabhängigen Zweige.
   Bis 07/2026 lieferte es hier stattdessen `NORMAL`.
@@ -873,7 +878,7 @@ Steuer-Automation parallel aktiv lassen.
 | **Decision-Trace-Attribute** | `sensor.opti_target_soc` hängt Debugging-Attribute an (`branch`, `level`, `ratio`, `net_available_kwh`, `remaining_hours`), lesbar über HA-Entwicklerwerkzeuge |
 | **Forecast-Score-Bänder** | `sensor.opti_charge_power_w` variiert die C-Rate in drei Bändern (score ≤ 1: aggressiv; 2–4: moderat; ≥ 5: schonend) statt starrer Prognose-Labels |
 | **`sensor.opti_price_level`** | Anbieter-agnostisches Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE) auf Basis eines gleitenden Perzentils über `today`/`tomorrow`-Preislisten. Fail-closed: reicht die Preisbasis nicht (< 4 verwertbare Werte), wird der Sensor `unavailable` statt ein Niveau zu erfinden |
-| **Preisreihen-Halter** | `sensor.opti_price_series_stable` überbrückt kurze Ausfälle der Preisquelle, indem er die letzte gültige Tagesreihe hält (State `frisch` / `gehalten` / `leer`, wobei `gehalten` auch den Teilausfall „nur Morgen-Liste weg" umfasst). Haltefenster 15 Minuten, danach fail-closed. Ohne ihn kippte die Strategie bei jedem Provider-Timeout kurzzeitig in den Default-Zweig. Verfällt an der Tagesgrenze, weil die Preislisten keine Zeitstempel tragen. Einzige Preisreihen-Quelle für `opti_price_level` und `opti_peak_reserve_soc` |
+| **Preisreihen-Halter** | `sensor.opti_price_series_stable` überbrückt kurze Ausfälle der Preisquelle, indem er die letzte gültige Tagesreihe hält (State `frisch` / `gehalten` / `leer`, wobei `gehalten` auch den Teilausfall „nur Morgen-Liste weg" umfasst). Haltefenster 15 Minuten (minütlich abgetastet, eigener Stempel für die Morgen-Liste), zusätzlich auf den heutigen Kalendertag begrenzt; danach fail-closed. Ohne ihn kippte die Strategie bei jedem Provider-Timeout kurzzeitig in den Default-Zweig. Verfällt an der Tagesgrenze, weil die Preislisten keine Zeitstempel tragen. Einzige Preisreihen-Quelle für `opti_price_level` und `opti_peak_reserve_soc` |
 | **Midrank-Perzentil** | `sensor.opti_price_level` zählt Preis-Gleichstände seit dem Fix nur noch halb (statt sie wie ein `select('le')` komplett auf die teure Seite zu zählen) - flache Preistage landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE. Dieselbe Klassifikation nutzt auch `sensor.opti_peak_reserve_soc` |
 | **`sensor.opti_peak_reserve_soc`** | Reserve-SoC für kommende Preisspitzen im Wiederauflade-Horizont (36h); steuert die Peak-Leiter L1-L4. Siehe [Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden) |
 | **`binary_sensor.opti_winter_charging_allowed`** | Fail-open Gate für Winterladeblöcke (Standard: `true`); kann mit eigenem Sommermodus-Sensor überschrieben werden |

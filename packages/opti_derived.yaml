@@ -948,41 +948,59 @@ template:
       # Attribut-Aenderungen - genau der Fall hier (today/tomorrow).
       - trigger: state
         entity_id: sensor.opti_price_series
-      # Sicherheitsnetz + Tageswechsel: ohne diesen Tick koennte ein Halter
-      # nach Mitternacht bis zum naechsten Quell-Update stehen bleiben.
+      # Abtastung des Haltefensters: der Trigger bestimmt, wie genau das Fenster
+      # ablaeuft. Bei /5 blieb die Nutzlast bis zu 20 min stehen, obwohl 15 min
+      # dokumentiert sind. Minuetlich, damit Zusage und Verhalten uebereinstimmen.
       - trigger: time_pattern
-        minutes: "/5"
+        minutes: "/1"
     sensor:
       - unique_id: opti_price_series_stable
         name: "Opti Price Series Stable"
         icon: mdi:database-clock
         state: >
           {% set jetzt = now().timestamp() %}
+          {% set heute = now().strftime('%Y-%m-%d') %}
           {% set t = state_attr('sensor.opti_price_series', 'today') %}
           {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
-          {# GEDAECHTNIS getrennt von der NUTZLAST: anker_* ist die letzte uebernommene
-             Reihe, today/tomorrow ist das, was die Konsumenten lesen. Lagen beide auf
-             denselben Attributen, zerstoerte der Zustand 'leer' die Anker und der Halter
-             verlor sein Gedaechtnis nach einem Tick. #}
-          {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
-          {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
-          {% set a_ts = (this.attributes.get('anker_ts') if this is not none else 0) | float(0) %}
+          {# GEDAECHTNIS in EINEM Attribut, getrennt von der Nutzlast: 'anker' haelt die
+             letzte uebernommene Reihe samt Zeitstempeln und Erfassungsdatum,
+             today/tomorrow ist das, was die Konsumenten lesen. Lagen beide auf denselben
+             Attributen, zerstoerte der Zustand 'leer' das Gedaechtnis und der Halter
+             verlor es nach einem Tick. Ein Dict statt fuenf Einzelattribute, weil jedes
+             Attribut die komplette Praeambel dupliziert - 'this' ist in block-level
+             variables trigger-basierter Templates nicht verfuegbar. #}
+          {% set a = (this.attributes.get('anker') if this is not none else none) or {} %}
+          {% set a_t = a.get('today') %}
+          {% set a_m = a.get('tomorrow') %}
+          {% set a_ts = a.get('ts') | float(0) %}
+          {% set a_m_ts = a.get('m_ts') | float(0) %}
+          {% set a_datum = a.get('datum') %}
           {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
+          {% set m_liste = (m | list) if (m is iterable and m is not string) else [] %}
           {% set t_ok = t_liste is not none
              and (t_liste | select('number') | list | length) >= 4 %}
           {% set a_ok = a_t is iterable and a_t is not string
              and (a_t | select('number') | list | length) >= 4 %}
-          {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
+          {% set m_ok = (m_liste | length) > 0 %}
           {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-          {# HALTEFENSTER 15 min. Bewusst kurz: die beobachteten Quellausfaelle dauerten
-             20-80 s, ein 15-min-Fenster ueberbrueckt sie vollstaendig. Und es kann eine
-             Tagesgrenze konstruktiv nicht ueberschreiten - damit entfaellt jede
-             Datumslogik (Rollover-Erkennung, Ankeralter, Notausgang), die bei einem
-             ganztaegigen Halten noetig waere und in vier Review-Runden immer neue
-             Randfaelle produzierte. Ein Ausfall ueber 15 min endet fail-closed: das
-             Preisniveau wird unavailable und alle preisabhaengigen Zweige verstummen. #}
-          {% set haltefenster_s = 900 %}
-          {% set haltbar = a_ts > 0 and (jetzt - a_ts) <= haltefenster_s %}
+          {# HALTEFENSTER 15 min, Abtastung minuetlich. Bewusst knapp: die beobachteten
+             Quellausfaelle dauerten 20-80 s. Untergrenze 0 gegen einen restaurierten
+             Zukunfts-Zeitstempel, der das Fenster sonst dauerhaft erfuellen wuerde.
+             Das Fenster ist minuetlich abgetastet, weil der Trigger die Auflaufgenauigkeit
+             bestimmt: bei /5 blieb die Nutzlast bis zu 20 min stehen. #}
+          {% set fenster_s = 900 %}
+          {% set im_fenster = a_ts > 0 and 0 <= (jetzt - a_ts) <= fenster_s %}
+          {% set m_im_fenster = a_m_ts > 0 and 0 <= (jetzt - a_m_ts) <= fenster_s %}
+          {# TAGESGRENZE. Ein 15-min-Fenster kann Mitternacht sehr wohl ueberschreiten
+             (frisch 23:55, Ausfall 00:00) - die Grenze folgt NICHT aus der Fensterlaenge,
+             sondern daraus, dass die Preislisten keine Zeitstempel tragen. Gehalten wird
+             deshalb nur, wenn der Anker am HEUTIGEN Kalendertag erfasst wurde; sonst
+             wuerde die gestrige Reihe (und ihr 'tomorrow', das die heutigen Preise sind)
+             in den neuen Tag weitergereicht. Restgrenze: liefert die Quelle nach
+             Mitternacht noch die gestrige Liste, wird sie uebernommen und umdatiert -
+             genau wie vor dem Halter, nur zusaetzlich bis zu 15 min haltbar. Ohne
+             Zeitstempel in der Quelle nicht aufloesbar. #}
+          {% set anker_heute = a_datum == heute %}
           {% set frisch = t_ok %}
           {# 'today unveraendert' trennt den Tageswechsel vom reinen Morgen-Ausfall: beim
              Tageswechsel liefert die Quelle eine ANDERE today-Liste, und dann darf das
@@ -991,10 +1009,13 @@ template:
              and t_liste == (a_t | list) %}
           {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
              oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
-             damit die history_stats jeden abgefangenen Quellausfall sehen. #}
-          {% set halte_reihe = (not frisch) and a_ok and haltbar %}
-          {% set halte_morgen = frisch and (not m_ok) and a_m_ok and haltbar
-             and today_unveraendert %}
+             damit die history_stats jeden abgefangenen Quellausfall sehen. Der
+             Morgen-Fall hat seinen EIGENEN Zeitstempel: bei einem reinen Morgen-Ausfall
+             bleibt today frisch und wuerde ts sonst bei jedem Tick erneuern - das Fenster
+             liefe nie ab. #}
+          {% set halte_reihe = (not frisch) and a_ok and anker_heute and im_fenster %}
+          {% set halte_morgen = frisch and (not m_ok) and a_m_ok and anker_heute
+             and m_im_fenster and today_unveraendert %}
           {% if halte_reihe or halte_morgen %}gehalten
           {%- elif frisch %}frisch
           {%- else %}leer{% endif %}
@@ -1002,31 +1023,48 @@ template:
           # --- NUTZLAST: was Preisniveau und Peak-Reserve lesen ---------------
           today: >
             {% set jetzt = now().timestamp() %}
+            {% set heute = now().strftime('%Y-%m-%d') %}
             {% set t = state_attr('sensor.opti_price_series', 'today') %}
             {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
-            {# GEDAECHTNIS getrennt von der NUTZLAST: anker_* ist die letzte uebernommene
-               Reihe, today/tomorrow ist das, was die Konsumenten lesen. Lagen beide auf
-               denselben Attributen, zerstoerte der Zustand 'leer' die Anker und der Halter
-               verlor sein Gedaechtnis nach einem Tick. #}
-            {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
-            {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
-            {% set a_ts = (this.attributes.get('anker_ts') if this is not none else 0) | float(0) %}
+            {# GEDAECHTNIS in EINEM Attribut, getrennt von der Nutzlast: 'anker' haelt die
+               letzte uebernommene Reihe samt Zeitstempeln und Erfassungsdatum,
+               today/tomorrow ist das, was die Konsumenten lesen. Lagen beide auf denselben
+               Attributen, zerstoerte der Zustand 'leer' das Gedaechtnis und der Halter
+               verlor es nach einem Tick. Ein Dict statt fuenf Einzelattribute, weil jedes
+               Attribut die komplette Praeambel dupliziert - 'this' ist in block-level
+               variables trigger-basierter Templates nicht verfuegbar. #}
+            {% set a = (this.attributes.get('anker') if this is not none else none) or {} %}
+            {% set a_t = a.get('today') %}
+            {% set a_m = a.get('tomorrow') %}
+            {% set a_ts = a.get('ts') | float(0) %}
+            {% set a_m_ts = a.get('m_ts') | float(0) %}
+            {% set a_datum = a.get('datum') %}
             {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
+            {% set m_liste = (m | list) if (m is iterable and m is not string) else [] %}
             {% set t_ok = t_liste is not none
                and (t_liste | select('number') | list | length) >= 4 %}
             {% set a_ok = a_t is iterable and a_t is not string
                and (a_t | select('number') | list | length) >= 4 %}
-            {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
+            {% set m_ok = (m_liste | length) > 0 %}
             {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-            {# HALTEFENSTER 15 min. Bewusst kurz: die beobachteten Quellausfaelle dauerten
-               20-80 s, ein 15-min-Fenster ueberbrueckt sie vollstaendig. Und es kann eine
-               Tagesgrenze konstruktiv nicht ueberschreiten - damit entfaellt jede
-               Datumslogik (Rollover-Erkennung, Ankeralter, Notausgang), die bei einem
-               ganztaegigen Halten noetig waere und in vier Review-Runden immer neue
-               Randfaelle produzierte. Ein Ausfall ueber 15 min endet fail-closed: das
-               Preisniveau wird unavailable und alle preisabhaengigen Zweige verstummen. #}
-            {% set haltefenster_s = 900 %}
-            {% set haltbar = a_ts > 0 and (jetzt - a_ts) <= haltefenster_s %}
+            {# HALTEFENSTER 15 min, Abtastung minuetlich. Bewusst knapp: die beobachteten
+               Quellausfaelle dauerten 20-80 s. Untergrenze 0 gegen einen restaurierten
+               Zukunfts-Zeitstempel, der das Fenster sonst dauerhaft erfuellen wuerde.
+               Das Fenster ist minuetlich abgetastet, weil der Trigger die Auflaufgenauigkeit
+               bestimmt: bei /5 blieb die Nutzlast bis zu 20 min stehen. #}
+            {% set fenster_s = 900 %}
+            {% set im_fenster = a_ts > 0 and 0 <= (jetzt - a_ts) <= fenster_s %}
+            {% set m_im_fenster = a_m_ts > 0 and 0 <= (jetzt - a_m_ts) <= fenster_s %}
+            {# TAGESGRENZE. Ein 15-min-Fenster kann Mitternacht sehr wohl ueberschreiten
+               (frisch 23:55, Ausfall 00:00) - die Grenze folgt NICHT aus der Fensterlaenge,
+               sondern daraus, dass die Preislisten keine Zeitstempel tragen. Gehalten wird
+               deshalb nur, wenn der Anker am HEUTIGEN Kalendertag erfasst wurde; sonst
+               wuerde die gestrige Reihe (und ihr 'tomorrow', das die heutigen Preise sind)
+               in den neuen Tag weitergereicht. Restgrenze: liefert die Quelle nach
+               Mitternacht noch die gestrige Liste, wird sie uebernommen und umdatiert -
+               genau wie vor dem Halter, nur zusaetzlich bis zu 15 min haltbar. Ohne
+               Zeitstempel in der Quelle nicht aufloesbar. #}
+            {% set anker_heute = a_datum == heute %}
             {% set frisch = t_ok %}
             {# 'today unveraendert' trennt den Tageswechsel vom reinen Morgen-Ausfall: beim
                Tageswechsel liefert die Quelle eine ANDERE today-Liste, und dann darf das
@@ -1035,40 +1073,60 @@ template:
                and t_liste == (a_t | list) %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
                oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
-               damit die history_stats jeden abgefangenen Quellausfall sehen. #}
-            {% set halte_reihe = (not frisch) and a_ok and haltbar %}
-            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and haltbar
-               and today_unveraendert %}
+               damit die history_stats jeden abgefangenen Quellausfall sehen. Der
+               Morgen-Fall hat seinen EIGENEN Zeitstempel: bei einem reinen Morgen-Ausfall
+               bleibt today frisch und wuerde ts sonst bei jedem Tick erneuern - das Fenster
+               liefe nie ab. #}
+            {% set halte_reihe = (not frisch) and a_ok and anker_heute and im_fenster %}
+            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and anker_heute
+               and m_im_fenster and today_unveraendert %}
             {% if frisch %}{{ t_liste }}
             {%- elif halte_reihe %}{{ a_t | list }}
             {%- else %}[]{% endif %}
           tomorrow: >
             {% set jetzt = now().timestamp() %}
+            {% set heute = now().strftime('%Y-%m-%d') %}
             {% set t = state_attr('sensor.opti_price_series', 'today') %}
             {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
-            {# GEDAECHTNIS getrennt von der NUTZLAST: anker_* ist die letzte uebernommene
-               Reihe, today/tomorrow ist das, was die Konsumenten lesen. Lagen beide auf
-               denselben Attributen, zerstoerte der Zustand 'leer' die Anker und der Halter
-               verlor sein Gedaechtnis nach einem Tick. #}
-            {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
-            {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
-            {% set a_ts = (this.attributes.get('anker_ts') if this is not none else 0) | float(0) %}
+            {# GEDAECHTNIS in EINEM Attribut, getrennt von der Nutzlast: 'anker' haelt die
+               letzte uebernommene Reihe samt Zeitstempeln und Erfassungsdatum,
+               today/tomorrow ist das, was die Konsumenten lesen. Lagen beide auf denselben
+               Attributen, zerstoerte der Zustand 'leer' das Gedaechtnis und der Halter
+               verlor es nach einem Tick. Ein Dict statt fuenf Einzelattribute, weil jedes
+               Attribut die komplette Praeambel dupliziert - 'this' ist in block-level
+               variables trigger-basierter Templates nicht verfuegbar. #}
+            {% set a = (this.attributes.get('anker') if this is not none else none) or {} %}
+            {% set a_t = a.get('today') %}
+            {% set a_m = a.get('tomorrow') %}
+            {% set a_ts = a.get('ts') | float(0) %}
+            {% set a_m_ts = a.get('m_ts') | float(0) %}
+            {% set a_datum = a.get('datum') %}
             {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
+            {% set m_liste = (m | list) if (m is iterable and m is not string) else [] %}
             {% set t_ok = t_liste is not none
                and (t_liste | select('number') | list | length) >= 4 %}
             {% set a_ok = a_t is iterable and a_t is not string
                and (a_t | select('number') | list | length) >= 4 %}
-            {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
+            {% set m_ok = (m_liste | length) > 0 %}
             {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-            {# HALTEFENSTER 15 min. Bewusst kurz: die beobachteten Quellausfaelle dauerten
-               20-80 s, ein 15-min-Fenster ueberbrueckt sie vollstaendig. Und es kann eine
-               Tagesgrenze konstruktiv nicht ueberschreiten - damit entfaellt jede
-               Datumslogik (Rollover-Erkennung, Ankeralter, Notausgang), die bei einem
-               ganztaegigen Halten noetig waere und in vier Review-Runden immer neue
-               Randfaelle produzierte. Ein Ausfall ueber 15 min endet fail-closed: das
-               Preisniveau wird unavailable und alle preisabhaengigen Zweige verstummen. #}
-            {% set haltefenster_s = 900 %}
-            {% set haltbar = a_ts > 0 and (jetzt - a_ts) <= haltefenster_s %}
+            {# HALTEFENSTER 15 min, Abtastung minuetlich. Bewusst knapp: die beobachteten
+               Quellausfaelle dauerten 20-80 s. Untergrenze 0 gegen einen restaurierten
+               Zukunfts-Zeitstempel, der das Fenster sonst dauerhaft erfuellen wuerde.
+               Das Fenster ist minuetlich abgetastet, weil der Trigger die Auflaufgenauigkeit
+               bestimmt: bei /5 blieb die Nutzlast bis zu 20 min stehen. #}
+            {% set fenster_s = 900 %}
+            {% set im_fenster = a_ts > 0 and 0 <= (jetzt - a_ts) <= fenster_s %}
+            {% set m_im_fenster = a_m_ts > 0 and 0 <= (jetzt - a_m_ts) <= fenster_s %}
+            {# TAGESGRENZE. Ein 15-min-Fenster kann Mitternacht sehr wohl ueberschreiten
+               (frisch 23:55, Ausfall 00:00) - die Grenze folgt NICHT aus der Fensterlaenge,
+               sondern daraus, dass die Preislisten keine Zeitstempel tragen. Gehalten wird
+               deshalb nur, wenn der Anker am HEUTIGEN Kalendertag erfasst wurde; sonst
+               wuerde die gestrige Reihe (und ihr 'tomorrow', das die heutigen Preise sind)
+               in den neuen Tag weitergereicht. Restgrenze: liefert die Quelle nach
+               Mitternacht noch die gestrige Liste, wird sie uebernommen und umdatiert -
+               genau wie vor dem Halter, nur zusaetzlich bis zu 15 min haltbar. Ohne
+               Zeitstempel in der Quelle nicht aufloesbar. #}
+            {% set anker_heute = a_datum == heute %}
             {% set frisch = t_ok %}
             {# 'today unveraendert' trennt den Tageswechsel vom reinen Morgen-Ausfall: beim
                Tageswechsel liefert die Quelle eine ANDERE today-Liste, und dann darf das
@@ -1077,49 +1135,64 @@ template:
                and t_liste == (a_t | list) %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
                oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
-               damit die history_stats jeden abgefangenen Quellausfall sehen. #}
-            {% set halte_reihe = (not frisch) and a_ok and haltbar %}
-            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and haltbar
-               and today_unveraendert %}
-            {# tomorrow darf legitim leer sein (vor der Day-Ahead-Veroeffentlichung),
-               deshalb entscheidet today ueber die Frische. Ein bereits bekanntes
-               tomorrow wird aber nicht weggeworfen, wenn nur die Morgen-Liste
-               kurz wegfaellt. #}
+               damit die history_stats jeden abgefangenen Quellausfall sehen. Der
+               Morgen-Fall hat seinen EIGENEN Zeitstempel: bei einem reinen Morgen-Ausfall
+               bleibt today frisch und wuerde ts sonst bei jedem Tick erneuern - das Fenster
+               liefe nie ab. #}
+            {% set halte_reihe = (not frisch) and a_ok and anker_heute and im_fenster %}
+            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and anker_heute
+               and m_im_fenster and today_unveraendert %}
             {% if frisch %}
-              {%- if m_ok %}{{ m | list }}
+              {%- if m_ok %}{{ m_liste }}
               {%- elif halte_morgen %}{{ a_m | list }}
               {%- else %}[]{% endif %}
             {%- elif halte_reihe and a_m_ok %}{{ a_m | list }}
             {%- else %}[]{% endif %}
-          # --- GEDAECHTNIS: ueberlebt jeden Zustand, wird nur beim Uebernehmen
-          #     frischer Daten fortgeschrieben. NICHT von Konsumenten lesen.
-          anker_today: >
+          # --- GEDAECHTNIS: ueberlebt jeden Zustand. NICHT von Konsumenten lesen.
+          anker: >
             {% set jetzt = now().timestamp() %}
+            {% set heute = now().strftime('%Y-%m-%d') %}
             {% set t = state_attr('sensor.opti_price_series', 'today') %}
             {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
-            {# GEDAECHTNIS getrennt von der NUTZLAST: anker_* ist die letzte uebernommene
-               Reihe, today/tomorrow ist das, was die Konsumenten lesen. Lagen beide auf
-               denselben Attributen, zerstoerte der Zustand 'leer' die Anker und der Halter
-               verlor sein Gedaechtnis nach einem Tick. #}
-            {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
-            {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
-            {% set a_ts = (this.attributes.get('anker_ts') if this is not none else 0) | float(0) %}
+            {# GEDAECHTNIS in EINEM Attribut, getrennt von der Nutzlast: 'anker' haelt die
+               letzte uebernommene Reihe samt Zeitstempeln und Erfassungsdatum,
+               today/tomorrow ist das, was die Konsumenten lesen. Lagen beide auf denselben
+               Attributen, zerstoerte der Zustand 'leer' das Gedaechtnis und der Halter
+               verlor es nach einem Tick. Ein Dict statt fuenf Einzelattribute, weil jedes
+               Attribut die komplette Praeambel dupliziert - 'this' ist in block-level
+               variables trigger-basierter Templates nicht verfuegbar. #}
+            {% set a = (this.attributes.get('anker') if this is not none else none) or {} %}
+            {% set a_t = a.get('today') %}
+            {% set a_m = a.get('tomorrow') %}
+            {% set a_ts = a.get('ts') | float(0) %}
+            {% set a_m_ts = a.get('m_ts') | float(0) %}
+            {% set a_datum = a.get('datum') %}
             {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
+            {% set m_liste = (m | list) if (m is iterable and m is not string) else [] %}
             {% set t_ok = t_liste is not none
                and (t_liste | select('number') | list | length) >= 4 %}
             {% set a_ok = a_t is iterable and a_t is not string
                and (a_t | select('number') | list | length) >= 4 %}
-            {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
+            {% set m_ok = (m_liste | length) > 0 %}
             {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-            {# HALTEFENSTER 15 min. Bewusst kurz: die beobachteten Quellausfaelle dauerten
-               20-80 s, ein 15-min-Fenster ueberbrueckt sie vollstaendig. Und es kann eine
-               Tagesgrenze konstruktiv nicht ueberschreiten - damit entfaellt jede
-               Datumslogik (Rollover-Erkennung, Ankeralter, Notausgang), die bei einem
-               ganztaegigen Halten noetig waere und in vier Review-Runden immer neue
-               Randfaelle produzierte. Ein Ausfall ueber 15 min endet fail-closed: das
-               Preisniveau wird unavailable und alle preisabhaengigen Zweige verstummen. #}
-            {% set haltefenster_s = 900 %}
-            {% set haltbar = a_ts > 0 and (jetzt - a_ts) <= haltefenster_s %}
+            {# HALTEFENSTER 15 min, Abtastung minuetlich. Bewusst knapp: die beobachteten
+               Quellausfaelle dauerten 20-80 s. Untergrenze 0 gegen einen restaurierten
+               Zukunfts-Zeitstempel, der das Fenster sonst dauerhaft erfuellen wuerde.
+               Das Fenster ist minuetlich abgetastet, weil der Trigger die Auflaufgenauigkeit
+               bestimmt: bei /5 blieb die Nutzlast bis zu 20 min stehen. #}
+            {% set fenster_s = 900 %}
+            {% set im_fenster = a_ts > 0 and 0 <= (jetzt - a_ts) <= fenster_s %}
+            {% set m_im_fenster = a_m_ts > 0 and 0 <= (jetzt - a_m_ts) <= fenster_s %}
+            {# TAGESGRENZE. Ein 15-min-Fenster kann Mitternacht sehr wohl ueberschreiten
+               (frisch 23:55, Ausfall 00:00) - die Grenze folgt NICHT aus der Fensterlaenge,
+               sondern daraus, dass die Preislisten keine Zeitstempel tragen. Gehalten wird
+               deshalb nur, wenn der Anker am HEUTIGEN Kalendertag erfasst wurde; sonst
+               wuerde die gestrige Reihe (und ihr 'tomorrow', das die heutigen Preise sind)
+               in den neuen Tag weitergereicht. Restgrenze: liefert die Quelle nach
+               Mitternacht noch die gestrige Liste, wird sie uebernommen und umdatiert -
+               genau wie vor dem Halter, nur zusaetzlich bis zu 15 min haltbar. Ohne
+               Zeitstempel in der Quelle nicht aufloesbar. #}
+            {% set anker_heute = a_datum == heute %}
             {% set frisch = t_ok %}
             {# 'today unveraendert' trennt den Tageswechsel vom reinen Morgen-Ausfall: beim
                Tageswechsel liefert die Quelle eine ANDERE today-Liste, und dann darf das
@@ -1128,132 +1201,75 @@ template:
                and t_liste == (a_t | list) %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
                oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
-               damit die history_stats jeden abgefangenen Quellausfall sehen. #}
-            {% set halte_reihe = (not frisch) and a_ok and haltbar %}
-            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and haltbar
-               and today_unveraendert %}
-            {% if frisch %}{{ t_liste }}
-            {%- else %}{{ (a_t | list) if a_t is not none else [] }}
+               damit die history_stats jeden abgefangenen Quellausfall sehen. Der
+               Morgen-Fall hat seinen EIGENEN Zeitstempel: bei einem reinen Morgen-Ausfall
+               bleibt today frisch und wuerde ts sonst bei jedem Tick erneuern - das Fenster
+               liefe nie ab. #}
+            {% set halte_reihe = (not frisch) and a_ok and anker_heute and im_fenster %}
+            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and anker_heute
+               and m_im_fenster and today_unveraendert %}
+            {# Morgen-Anker: frische Morgen-Liste uebernehmen; wechselt die
+               today-Liste (neuer Tag), verwerfen; sonst behalten. Der Zeitstempel
+               wandert nur mit einer tatsaechlich uebernommenen Morgen-Liste. #}
+            {% if frisch and m_ok %}
+              {%- set neu_m, neu_m_ts = m_liste, (jetzt | round(0)) %}
+            {%- elif frisch and not today_unveraendert %}
+              {%- set neu_m, neu_m_ts = [], 0 %}
+            {%- else %}
+              {%- set neu_m = (a_m | list) if a_m is not none else [] %}
+              {%- set neu_m_ts = a_m_ts | round(0) %}
             {%- endif %}
-          anker_tomorrow: >
-            {% set jetzt = now().timestamp() %}
-            {% set t = state_attr('sensor.opti_price_series', 'today') %}
-            {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
-            {# GEDAECHTNIS getrennt von der NUTZLAST: anker_* ist die letzte uebernommene
-               Reihe, today/tomorrow ist das, was die Konsumenten lesen. Lagen beide auf
-               denselben Attributen, zerstoerte der Zustand 'leer' die Anker und der Halter
-               verlor sein Gedaechtnis nach einem Tick. #}
-            {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
-            {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
-            {% set a_ts = (this.attributes.get('anker_ts') if this is not none else 0) | float(0) %}
-            {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
-            {% set t_ok = t_liste is not none
-               and (t_liste | select('number') | list | length) >= 4 %}
-            {% set a_ok = a_t is iterable and a_t is not string
-               and (a_t | select('number') | list | length) >= 4 %}
-            {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
-            {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-            {# HALTEFENSTER 15 min. Bewusst kurz: die beobachteten Quellausfaelle dauerten
-               20-80 s, ein 15-min-Fenster ueberbrueckt sie vollstaendig. Und es kann eine
-               Tagesgrenze konstruktiv nicht ueberschreiten - damit entfaellt jede
-               Datumslogik (Rollover-Erkennung, Ankeralter, Notausgang), die bei einem
-               ganztaegigen Halten noetig waere und in vier Review-Runden immer neue
-               Randfaelle produzierte. Ein Ausfall ueber 15 min endet fail-closed: das
-               Preisniveau wird unavailable und alle preisabhaengigen Zweige verstummen. #}
-            {% set haltefenster_s = 900 %}
-            {% set haltbar = a_ts > 0 and (jetzt - a_ts) <= haltefenster_s %}
-            {% set frisch = t_ok %}
-            {# 'today unveraendert' trennt den Tageswechsel vom reinen Morgen-Ausfall: beim
-               Tageswechsel liefert die Quelle eine ANDERE today-Liste, und dann darf das
-               gestrige tomorrow (= die heutigen Preise) nicht als 'morgen' weiterleben. #}
-            {% set today_unveraendert = t_liste is not none and a_t is not none
-               and t_liste == (a_t | list) %}
-            {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
-               oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
-               damit die history_stats jeden abgefangenen Quellausfall sehen. #}
-            {% set halte_reihe = (not frisch) and a_ok and haltbar %}
-            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and haltbar
-               and today_unveraendert %}
-            {# Wechselt die today-Liste (neuer Tag), muss der Morgen-Anker weg,
-               auch wenn die Quelle noch kein tomorrow hat - sonst wuerde das
-               gestrige tomorrow als 'morgen' weitergetragen. #}
-            {% if frisch and m_ok %}{{ m | list }}
-            {%- elif frisch and not today_unveraendert %}[]
-            {%- else %}{{ (a_m | list) if a_m is not none else [] }}
-            {%- endif %}
-          # Zeitstempel der letzten Uebernahme - die Halte-Berechtigung. Beim
-          # Halten bewusst NICHT fortgeschrieben, sonst liefe das Fenster nie ab.
-          anker_ts: >
-            {% set jetzt = now().timestamp() %}
-            {% set t = state_attr('sensor.opti_price_series', 'today') %}
-            {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
-            {# GEDAECHTNIS getrennt von der NUTZLAST: anker_* ist die letzte uebernommene
-               Reihe, today/tomorrow ist das, was die Konsumenten lesen. Lagen beide auf
-               denselben Attributen, zerstoerte der Zustand 'leer' die Anker und der Halter
-               verlor sein Gedaechtnis nach einem Tick. #}
-            {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
-            {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
-            {% set a_ts = (this.attributes.get('anker_ts') if this is not none else 0) | float(0) %}
-            {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
-            {% set t_ok = t_liste is not none
-               and (t_liste | select('number') | list | length) >= 4 %}
-            {% set a_ok = a_t is iterable and a_t is not string
-               and (a_t | select('number') | list | length) >= 4 %}
-            {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
-            {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-            {# HALTEFENSTER 15 min. Bewusst kurz: die beobachteten Quellausfaelle dauerten
-               20-80 s, ein 15-min-Fenster ueberbrueckt sie vollstaendig. Und es kann eine
-               Tagesgrenze konstruktiv nicht ueberschreiten - damit entfaellt jede
-               Datumslogik (Rollover-Erkennung, Ankeralter, Notausgang), die bei einem
-               ganztaegigen Halten noetig waere und in vier Review-Runden immer neue
-               Randfaelle produzierte. Ein Ausfall ueber 15 min endet fail-closed: das
-               Preisniveau wird unavailable und alle preisabhaengigen Zweige verstummen. #}
-            {% set haltefenster_s = 900 %}
-            {% set haltbar = a_ts > 0 and (jetzt - a_ts) <= haltefenster_s %}
-            {% set frisch = t_ok %}
-            {# 'today unveraendert' trennt den Tageswechsel vom reinen Morgen-Ausfall: beim
-               Tageswechsel liefert die Quelle eine ANDERE today-Liste, und dann darf das
-               gestrige tomorrow (= die heutigen Preise) nicht als 'morgen' weiterleben. #}
-            {% set today_unveraendert = t_liste is not none and a_t is not none
-               and t_liste == (a_t | list) %}
-            {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
-               oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
-               damit die history_stats jeden abgefangenen Quellausfall sehen. #}
-            {% set halte_reihe = (not frisch) and a_ok and haltbar %}
-            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and haltbar
-               and today_unveraendert %}
-            {% if frisch %}{{ jetzt | round(0) }}
-            {%- else %}{{ a_ts | round(0) }}
-            {%- endif %}
+            {{ {'today': (t_liste if frisch else ((a_t | list) if a_t is not none else [])),
+                'tomorrow': neu_m,
+                'ts': (jetzt | round(0)) if frisch else (a_ts | round(0)),
+                'm_ts': neu_m_ts,
+                'datum': heute if frisch else (a_datum if a_datum is not none else 'none')} }}
           # Diagnose: WAS gehalten wird. 'reihe' = ganze Tagesreihe (today fehlt),
           # 'morgen' = nur die Morgen-Liste, 'nichts' = frisch oder leer.
           gehalten_teil: >
             {% set jetzt = now().timestamp() %}
+            {% set heute = now().strftime('%Y-%m-%d') %}
             {% set t = state_attr('sensor.opti_price_series', 'today') %}
             {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
-            {# GEDAECHTNIS getrennt von der NUTZLAST: anker_* ist die letzte uebernommene
-               Reihe, today/tomorrow ist das, was die Konsumenten lesen. Lagen beide auf
-               denselben Attributen, zerstoerte der Zustand 'leer' die Anker und der Halter
-               verlor sein Gedaechtnis nach einem Tick. #}
-            {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
-            {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
-            {% set a_ts = (this.attributes.get('anker_ts') if this is not none else 0) | float(0) %}
+            {# GEDAECHTNIS in EINEM Attribut, getrennt von der Nutzlast: 'anker' haelt die
+               letzte uebernommene Reihe samt Zeitstempeln und Erfassungsdatum,
+               today/tomorrow ist das, was die Konsumenten lesen. Lagen beide auf denselben
+               Attributen, zerstoerte der Zustand 'leer' das Gedaechtnis und der Halter
+               verlor es nach einem Tick. Ein Dict statt fuenf Einzelattribute, weil jedes
+               Attribut die komplette Praeambel dupliziert - 'this' ist in block-level
+               variables trigger-basierter Templates nicht verfuegbar. #}
+            {% set a = (this.attributes.get('anker') if this is not none else none) or {} %}
+            {% set a_t = a.get('today') %}
+            {% set a_m = a.get('tomorrow') %}
+            {% set a_ts = a.get('ts') | float(0) %}
+            {% set a_m_ts = a.get('m_ts') | float(0) %}
+            {% set a_datum = a.get('datum') %}
             {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
+            {% set m_liste = (m | list) if (m is iterable and m is not string) else [] %}
             {% set t_ok = t_liste is not none
                and (t_liste | select('number') | list | length) >= 4 %}
             {% set a_ok = a_t is iterable and a_t is not string
                and (a_t | select('number') | list | length) >= 4 %}
-            {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
+            {% set m_ok = (m_liste | length) > 0 %}
             {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-            {# HALTEFENSTER 15 min. Bewusst kurz: die beobachteten Quellausfaelle dauerten
-               20-80 s, ein 15-min-Fenster ueberbrueckt sie vollstaendig. Und es kann eine
-               Tagesgrenze konstruktiv nicht ueberschreiten - damit entfaellt jede
-               Datumslogik (Rollover-Erkennung, Ankeralter, Notausgang), die bei einem
-               ganztaegigen Halten noetig waere und in vier Review-Runden immer neue
-               Randfaelle produzierte. Ein Ausfall ueber 15 min endet fail-closed: das
-               Preisniveau wird unavailable und alle preisabhaengigen Zweige verstummen. #}
-            {% set haltefenster_s = 900 %}
-            {% set haltbar = a_ts > 0 and (jetzt - a_ts) <= haltefenster_s %}
+            {# HALTEFENSTER 15 min, Abtastung minuetlich. Bewusst knapp: die beobachteten
+               Quellausfaelle dauerten 20-80 s. Untergrenze 0 gegen einen restaurierten
+               Zukunfts-Zeitstempel, der das Fenster sonst dauerhaft erfuellen wuerde.
+               Das Fenster ist minuetlich abgetastet, weil der Trigger die Auflaufgenauigkeit
+               bestimmt: bei /5 blieb die Nutzlast bis zu 20 min stehen. #}
+            {% set fenster_s = 900 %}
+            {% set im_fenster = a_ts > 0 and 0 <= (jetzt - a_ts) <= fenster_s %}
+            {% set m_im_fenster = a_m_ts > 0 and 0 <= (jetzt - a_m_ts) <= fenster_s %}
+            {# TAGESGRENZE. Ein 15-min-Fenster kann Mitternacht sehr wohl ueberschreiten
+               (frisch 23:55, Ausfall 00:00) - die Grenze folgt NICHT aus der Fensterlaenge,
+               sondern daraus, dass die Preislisten keine Zeitstempel tragen. Gehalten wird
+               deshalb nur, wenn der Anker am HEUTIGEN Kalendertag erfasst wurde; sonst
+               wuerde die gestrige Reihe (und ihr 'tomorrow', das die heutigen Preise sind)
+               in den neuen Tag weitergereicht. Restgrenze: liefert die Quelle nach
+               Mitternacht noch die gestrige Liste, wird sie uebernommen und umdatiert -
+               genau wie vor dem Halter, nur zusaetzlich bis zu 15 min haltbar. Ohne
+               Zeitstempel in der Quelle nicht aufloesbar. #}
+            {% set anker_heute = a_datum == heute %}
             {% set frisch = t_ok %}
             {# 'today unveraendert' trennt den Tageswechsel vom reinen Morgen-Ausfall: beim
                Tageswechsel liefert die Quelle eine ANDERE today-Liste, und dann darf das
@@ -1262,10 +1278,13 @@ template:
                and t_liste == (a_t | list) %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
                oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
-               damit die history_stats jeden abgefangenen Quellausfall sehen. #}
-            {% set halte_reihe = (not frisch) and a_ok and haltbar %}
-            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and haltbar
-               and today_unveraendert %}
+               damit die history_stats jeden abgefangenen Quellausfall sehen. Der
+               Morgen-Fall hat seinen EIGENEN Zeitstempel: bei einem reinen Morgen-Ausfall
+               bleibt today frisch und wuerde ts sonst bei jedem Tick erneuern - das Fenster
+               liefe nie ab. #}
+            {% set halte_reihe = (not frisch) and a_ok and anker_heute and im_fenster %}
+            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and anker_heute
+               and m_im_fenster and today_unveraendert %}
             {% if halte_reihe %}reihe{% elif halte_morgen %}morgen{% else %}nichts{% endif %}
 
   # ---------------------------------------------------------------------------

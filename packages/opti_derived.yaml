@@ -936,6 +936,14 @@ template:
   - triggers:
       - trigger: homeassistant
         event: start
+      # Template-Reload: ein trigger-basierter Sensor hat nach dem Reload noch
+      # KEINEN State (unknown), bis ein Trigger feuert - und weil
+      # opti_price_level und die Peak-Reserve an diesem Sensor haengen, waere
+      # die halbe Preislogik bis zum naechsten Tick unavailable (live gesehen
+      # beim ersten Deploy 25.07.2026). Der Reload-Event schliesst dieses
+      # Fenster; 'homeassistant start' deckt den Boot ab.
+      - trigger: event
+        event_type: event_template_reloaded
       # State-Trigger ohne attribute:-Einschraenkung feuert auch bei reinen
       # Attribut-Aenderungen - genau der Fall hier (today/tomorrow).
       - trigger: state
@@ -979,10 +987,18 @@ template:
                and (t | select('number') | list | length) >= 4 %}
             {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
             {% set cache = this.attributes.get('tomorrow') if this is not none else none %}
+            {% set cache_heute = this.attributes.get('today') if this is not none else none %}
             {% set stand = this.attributes.get('stand') if this is not none else none %}
-            {% set cache_gueltig = stand == now().strftime('%Y-%m-%d') %}
+            {# Halten ist alles-oder-nichts: dieselbe cache_ok-Bedingung wie bei
+               'today' (dort ueber den today-Cache geprueft). Sonst koennte ein
+               unbrauchbarer today-Cache heute=[] liefern, waehrend tomorrow
+               gehalten wird - opti_price_level haette dann ein Preisniveau allein
+               aus MORGEN-Preisen berechnet, obwohl der State 'leer' meldet. #}
+            {% set cache_ok = cache_heute is iterable and cache_heute is not string
+               and (cache_heute | select('number') | list | length) >= 4
+               and stand == now().strftime('%Y-%m-%d') %}
             {% if frisch %}{{ (m | list) if (m is iterable and m is not string) else [] }}
-            {%- elif cache_gueltig and cache is iterable and cache is not string %}{{ cache | list }}
+            {%- elif cache_ok and cache is iterable and cache is not string %}{{ cache | list }}
             {%- else %}[]{% endif %}
           # Datum der zuletzt UEBERNOMMENEN Reihe. Wird beim Halten bewusst nicht
           # fortgeschrieben (s. Tagesgrenze oben).

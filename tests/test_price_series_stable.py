@@ -148,6 +148,17 @@ def test_unbrauchbarer_cache_wird_nicht_gehalten():
     assert _state(hass) == "leer"
 
 
+def test_halten_ist_alles_oder_nichts():
+    """Unbrauchbarer today-Cache darf tomorrow nicht durchlassen: sonst
+    berechnete opti_price_level ein Preisniveau allein aus MORGEN-Preisen,
+    obwohl der Halter 'leer' meldet."""
+    hass = _hass([], cache=[1.0, 2.0], cache_morgen=MORGEN_REIHE,
+                 stand=HEUTE_STR)
+    assert _state(hass) == "leer"
+    assert _attr(hass, "today") == []
+    assert _attr(hass, "tomorrow") == []
+
+
 def test_fehlendes_quellattribut_ist_kein_absturz():
     hass = FakeHass(attrs={}, now=HEUTE, this_attributes={})
     assert _state(hass) == "leer"

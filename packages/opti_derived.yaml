@@ -981,13 +981,22 @@ template:
           {% set a_m_ts = a.get('m_ts') | float(0) %}
           {% set a_datum = a.get('datum') %}
           {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
-          {% set m_liste = (m | list) if (m is iterable and m is not string) else [] %}
+          {# Morgen-Listen streng validieren: ein beschaedigtes Unterfeld wie
+             "1234" wuerde von |list sonst zu ['1','2','3','4'] normalisiert und
+             konserviert, ein Skalar wie 42 wirft einen Renderfehler. Akzeptiert
+             wird nur eine reine Zahlenliste (Review-Finding 25.07.2026). #}
+          {% set m_roh = (m | list) if (m is iterable and m is not string) else [] %}
+          {% set m_liste = m_roh if (m_roh | select('number') | list | length)
+             == (m_roh | length) else [] %}
+          {% set a_m_roh = (a_m | list) if (a_m is iterable and a_m is not string) else [] %}
+          {% set a_m_liste = a_m_roh if (a_m_roh | select('number') | list | length)
+             == (a_m_roh | length) else [] %}
           {% set t_ok = t_liste is not none
              and (t_liste | select('number') | list | length) >= 4 %}
           {% set a_ok = a_t is iterable and a_t is not string
              and (a_t | select('number') | list | length) >= 4 %}
           {% set m_ok = (m_liste | length) > 0 %}
-          {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
+          {% set a_m_ok = (a_m_liste | length) > 0 %}
           {# HALTEFENSTER 15 min, Abtastung minuetlich. Bewusst knapp: die beobachteten
              Quellausfaelle dauerten 20-80 s. Untergrenze 0 gegen einen restaurierten
              Zukunfts-Zeitstempel, der das Fenster sonst dauerhaft erfuellen wuerde.
@@ -1050,13 +1059,22 @@ template:
             {% set a_m_ts = a.get('m_ts') | float(0) %}
             {% set a_datum = a.get('datum') %}
             {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
-            {% set m_liste = (m | list) if (m is iterable and m is not string) else [] %}
+            {# Morgen-Listen streng validieren: ein beschaedigtes Unterfeld wie
+               "1234" wuerde von |list sonst zu ['1','2','3','4'] normalisiert und
+               konserviert, ein Skalar wie 42 wirft einen Renderfehler. Akzeptiert
+               wird nur eine reine Zahlenliste (Review-Finding 25.07.2026). #}
+            {% set m_roh = (m | list) if (m is iterable and m is not string) else [] %}
+            {% set m_liste = m_roh if (m_roh | select('number') | list | length)
+               == (m_roh | length) else [] %}
+            {% set a_m_roh = (a_m | list) if (a_m is iterable and a_m is not string) else [] %}
+            {% set a_m_liste = a_m_roh if (a_m_roh | select('number') | list | length)
+               == (a_m_roh | length) else [] %}
             {% set t_ok = t_liste is not none
                and (t_liste | select('number') | list | length) >= 4 %}
             {% set a_ok = a_t is iterable and a_t is not string
                and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = (m_liste | length) > 0 %}
-            {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
+            {% set a_m_ok = (a_m_liste | length) > 0 %}
             {# HALTEFENSTER 15 min, Abtastung minuetlich. Bewusst knapp: die beobachteten
                Quellausfaelle dauerten 20-80 s. Untergrenze 0 gegen einen restaurierten
                Zukunfts-Zeitstempel, der das Fenster sonst dauerhaft erfuellen wuerde.
@@ -1117,13 +1135,22 @@ template:
             {% set a_m_ts = a.get('m_ts') | float(0) %}
             {% set a_datum = a.get('datum') %}
             {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
-            {% set m_liste = (m | list) if (m is iterable and m is not string) else [] %}
+            {# Morgen-Listen streng validieren: ein beschaedigtes Unterfeld wie
+               "1234" wuerde von |list sonst zu ['1','2','3','4'] normalisiert und
+               konserviert, ein Skalar wie 42 wirft einen Renderfehler. Akzeptiert
+               wird nur eine reine Zahlenliste (Review-Finding 25.07.2026). #}
+            {% set m_roh = (m | list) if (m is iterable and m is not string) else [] %}
+            {% set m_liste = m_roh if (m_roh | select('number') | list | length)
+               == (m_roh | length) else [] %}
+            {% set a_m_roh = (a_m | list) if (a_m is iterable and a_m is not string) else [] %}
+            {% set a_m_liste = a_m_roh if (a_m_roh | select('number') | list | length)
+               == (a_m_roh | length) else [] %}
             {% set t_ok = t_liste is not none
                and (t_liste | select('number') | list | length) >= 4 %}
             {% set a_ok = a_t is iterable and a_t is not string
                and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = (m_liste | length) > 0 %}
-            {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
+            {% set a_m_ok = (a_m_liste | length) > 0 %}
             {# HALTEFENSTER 15 min, Abtastung minuetlich. Bewusst knapp: die beobachteten
                Quellausfaelle dauerten 20-80 s. Untergrenze 0 gegen einen restaurierten
                Zukunfts-Zeitstempel, der das Fenster sonst dauerhaft erfuellen wuerde.
@@ -1191,13 +1218,22 @@ template:
             {% set a_m_ts = a.get('m_ts') | float(0) %}
             {% set a_datum = a.get('datum') %}
             {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
-            {% set m_liste = (m | list) if (m is iterable and m is not string) else [] %}
+            {# Morgen-Listen streng validieren: ein beschaedigtes Unterfeld wie
+               "1234" wuerde von |list sonst zu ['1','2','3','4'] normalisiert und
+               konserviert, ein Skalar wie 42 wirft einen Renderfehler. Akzeptiert
+               wird nur eine reine Zahlenliste (Review-Finding 25.07.2026). #}
+            {% set m_roh = (m | list) if (m is iterable and m is not string) else [] %}
+            {% set m_liste = m_roh if (m_roh | select('number') | list | length)
+               == (m_roh | length) else [] %}
+            {% set a_m_roh = (a_m | list) if (a_m is iterable and a_m is not string) else [] %}
+            {% set a_m_liste = a_m_roh if (a_m_roh | select('number') | list | length)
+               == (a_m_roh | length) else [] %}
             {% set t_ok = t_liste is not none
                and (t_liste | select('number') | list | length) >= 4 %}
             {% set a_ok = a_t is iterable and a_t is not string
                and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = (m_liste | length) > 0 %}
-            {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
+            {% set a_m_ok = (a_m_liste | length) > 0 %}
             {# HALTEFENSTER 15 min, Abtastung minuetlich. Bewusst knapp: die beobachteten
                Quellausfaelle dauerten 20-80 s. Untergrenze 0 gegen einen restaurierten
                Zukunfts-Zeitstempel, der das Fenster sonst dauerhaft erfuellen wuerde.
@@ -1248,7 +1284,7 @@ template:
                   wieder da. #}
               {%- set neu_m, neu_m_ts = [], 0 %}
             {%- else %}
-              {%- set neu_m = (a_m | list) if a_m is not none else [] %}
+              {%- set neu_m = a_m_liste %}
               {%- set neu_m_ts = a_m_ts | round(0) %}
             {%- endif %}
             {#- Zukunfts-Stempel wird nicht konserviert: sonst wuerde er gueltig,
@@ -1286,13 +1322,22 @@ template:
             {% set a_m_ts = a.get('m_ts') | float(0) %}
             {% set a_datum = a.get('datum') %}
             {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
-            {% set m_liste = (m | list) if (m is iterable and m is not string) else [] %}
+            {# Morgen-Listen streng validieren: ein beschaedigtes Unterfeld wie
+               "1234" wuerde von |list sonst zu ['1','2','3','4'] normalisiert und
+               konserviert, ein Skalar wie 42 wirft einen Renderfehler. Akzeptiert
+               wird nur eine reine Zahlenliste (Review-Finding 25.07.2026). #}
+            {% set m_roh = (m | list) if (m is iterable and m is not string) else [] %}
+            {% set m_liste = m_roh if (m_roh | select('number') | list | length)
+               == (m_roh | length) else [] %}
+            {% set a_m_roh = (a_m | list) if (a_m is iterable and a_m is not string) else [] %}
+            {% set a_m_liste = a_m_roh if (a_m_roh | select('number') | list | length)
+               == (a_m_roh | length) else [] %}
             {% set t_ok = t_liste is not none
                and (t_liste | select('number') | list | length) >= 4 %}
             {% set a_ok = a_t is iterable and a_t is not string
                and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = (m_liste | length) > 0 %}
-            {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
+            {% set a_m_ok = (a_m_liste | length) > 0 %}
             {# HALTEFENSTER 15 min, Abtastung minuetlich. Bewusst knapp: die beobachteten
                Quellausfaelle dauerten 20-80 s. Untergrenze 0 gegen einen restaurierten
                Zukunfts-Zeitstempel, der das Fenster sonst dauerhaft erfuellen wuerde.

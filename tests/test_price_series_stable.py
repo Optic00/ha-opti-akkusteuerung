@@ -435,3 +435,29 @@ def test_abgelaufener_halter_macht_preisniveau_unavailable():
     hass = _level_hass(_attr(halter, "today"))
     assert render(hass, level["availability"]) == "False"
     assert render(hass, level["state"]) == "unavailable"
+
+
+def test_beschaedigtes_tomorrow_unterfeld_faellt_fail_closed():
+    """Review-Finding 25.07.2026 (Minor): der Mapping-Guard war flach. Ein
+    beschaedigtes tomorrow-Unterfeld wie "1234" wurde von |list zu
+    ['1','2','3','4'] normalisiert, konserviert und im Folgetick als 'gehalten'
+    wieder ausgegeben; ein Skalar wie 42 warf einen Renderfehler."""
+    for kaputt in ("1234", 42, [1.0, 2.0, "x"], {"a": 1}):
+        zustand = {"anker": _anker(REIHE, kaputt, ts=TS - 60, m_ts=TS - 60)}
+        erst = _tick([], [], vorher=zustand)
+        assert erst["state"] == "gehalten", f"tomorrow={kaputt!r}"
+        assert erst["today"] == REIHE, f"tomorrow={kaputt!r}"
+        assert erst["tomorrow"] == [], f"tomorrow={kaputt!r}"
+        assert erst["anker"]["tomorrow"] == [], f"tomorrow={kaputt!r}"
+
+        zweit = _tick([], [], vorher=erst)
+        assert zweit["tomorrow"] == [], f"Folgetick, tomorrow={kaputt!r}"
+
+
+def test_beschaedigte_quell_morgenliste_wird_nicht_uebernommen():
+    """Symmetrisch zur Ankerseite: eine unbrauchbare Morgen-Liste aus der Quelle
+    darf nicht ins Gedaechtnis wandern."""
+    hass = _hass(REIHE, [1.0, "x", 3.0])
+    assert _state(hass) == "frisch"
+    assert _attr(hass, "tomorrow") == []
+    assert _attr(hass, "anker")["tomorrow"] == []

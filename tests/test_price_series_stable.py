@@ -281,8 +281,10 @@ def test_halten_ist_alles_oder_nichts():
 # --- Mehr-Tick-Sequenzen ---------------------------------------------------
 
 def test_anker_ueberleben_den_zustand_leer():
-    """Der Kern der Nutzlast/Gedaechtnis-Trennung: auch nach mehreren
-    Leer-Ticks muss der Anker noch da sein."""
+    """Der Kern der Nutzlast/Gedaechtnis-Trennung: auch nach mehreren Leer-Ticks
+    muss der today-Anker noch da sein. Die Morgen-Liste wird dagegen bewusst
+    vergessen, sobald ihr eigenes Fenster abgelaufen ist - sonst taucht sie beim
+    naechsten Komplettausfall wieder auf."""
     zustand = {"anker": _anker(REIHE, MORGEN_REIHE, ts=TS - 1000,
                                m_ts=TS - 1000)}
     for runde in range(4):
@@ -290,8 +292,82 @@ def test_anker_ueberleben_den_zustand_leer():
         assert zustand["state"] == "leer", f"Tick {runde}"
         assert zustand["today"] == [], f"Tick {runde}"
         assert zustand["anker"]["today"] == REIHE, f"Anker weg in Tick {runde}"
-        assert zustand["anker"]["tomorrow"] == MORGEN_REIHE, f"Tick {runde}"
         assert zustand["anker"]["ts"] == TS - 1000, f"Tick {runde}"
+        assert zustand["anker"]["tomorrow"] == [], f"Tick {runde}"
+        assert zustand["anker"]["m_ts"] == 0, f"Tick {runde}"
+
+
+def test_abgelaufenes_tomorrow_wird_nicht_wiederbelebt():
+    """Review-Finding 25.07.2026: das Ganzreihen-Halten gab a_m ohne Pruefung des
+    Morgen-Fensters aus. Reproduziert war: tomorrow nach 20 min korrekt leer,
+    eine Minute spaeter bei Komplettausfall wieder da."""
+    zustand = _tick(REIHE, MORGEN_REIHE, now=JETZT)
+    assert zustand["tomorrow"] == MORGEN_REIHE
+
+    # Morgen-Liste faellt weg, today bleibt frisch -> Fenster laeuft ab.
+    zustand = _tick(REIHE, [], vorher=zustand,
+                    now=JETZT + dt.timedelta(minutes=20))
+    assert zustand["tomorrow"] == [], "Morgen-Fenster abgelaufen"
+
+    # Jetzt der Komplettausfall: today wird gehalten, tomorrow darf NICHT
+    # zurueckkommen.
+    zustand = _tick([], [], vorher=zustand,
+                    now=JETZT + dt.timedelta(minutes=21))
+    assert zustand["state"] == "gehalten"
+    assert zustand["today"] == REIHE
+    assert zustand["tomorrow"] == [], "abgelaufene Morgen-Liste wiederbelebt"
+
+
+def test_mitternachts_folgetick_reaktiviert_gestriges_tomorrow_nicht():
+    """Review-Finding 25.07.2026: liefert die Quelle nach Mitternacht unveraendert
+    das gestrige today und kein tomorrow, wurde im ersten Tick 'datum' auf heute
+    gesetzt, waehrend der alte Morgen-Anker erhalten blieb - im zweiten Tick galt
+    er dann als heutiges 'morgen'. Das geht ueber die dokumentierte, unvermeidbare
+    Umdatierung des Quell-today hinaus."""
+    vor_mitternacht = dt.datetime(2026, 1, 14, 23, 58, tzinfo=TZ)
+    zustand = _tick(REIHE, MORGEN_REIHE, now=vor_mitternacht)
+    assert zustand["anker"]["datum"] == GESTERN_STR
+    assert zustand["anker"]["tomorrow"] == MORGEN_REIHE
+
+    nach = dt.datetime(2026, 1, 15, 0, 2, tzinfo=TZ)
+    erst = _tick(REIHE, [], vorher=zustand, now=nach)
+    assert erst["state"] == "frisch"
+    assert erst["anker"]["datum"] == HEUTE_STR, "Quell-today wird umdatiert"
+    assert erst["anker"]["tomorrow"] == [], "gestriges tomorrow muss weg sein"
+    assert erst["tomorrow"] == []
+
+    zweit = _tick(REIHE, [], vorher=erst,
+                  now=dt.datetime(2026, 1, 15, 0, 3, tzinfo=TZ))
+    assert zweit["tomorrow"] == [], "gestriges tomorrow reaktiviert"
+
+
+def test_zukunfts_zeitstempel_wird_nicht_konserviert():
+    """Review-Finding 25.07.2026: die Untergrenze wies den Zukunftsstempel nur
+    ab, solange er in der Zukunft lag - der Leerpfad bewahrte ihn auf, und beim
+    Erreichen der Stempelzeit begann das Halten."""
+    zustand = {"anker": _anker(REIHE, ts=TS + 600)}
+    erst = _tick([], [], vorher=zustand, now=JETZT)
+    assert erst["state"] == "leer"
+    assert erst["anker"]["ts"] == 0, "Zukunftsstempel muss verworfen werden"
+
+    # Uhr erreicht die alte Stempelzeit - es darf trotzdem nicht gehalten werden.
+    spaeter = _tick([], [], vorher=erst, now=JETZT + dt.timedelta(minutes=11))
+    assert spaeter["state"] == "leer"
+    assert spaeter["today"] == []
+
+
+def test_nicht_nativer_anker_faellt_fail_closed():
+    """Review-Finding 25.07.2026: a.get(...) setzt ein Mapping voraus. Ein als
+    String oder Liste restaurierter Anker (gescheiterte literal_eval, aeltere
+    Attributform) darf keinen Renderfehler werfen, sondern fail-closed laufen."""
+    for kaputt in ("keine-map", ["nur", "liste"], 42):
+        hass = FakeHass(
+            attrs={"sensor.opti_price_series": {"today": [], "tomorrow": []}},
+            now=JETZT,
+            this_attributes={"anker": kaputt},
+        )
+        assert _state(hass) == "leer", f"anker={kaputt!r}"
+        assert _attr(hass, "today") == [], f"anker={kaputt!r}"
 
 
 def test_normalbetrieb_ueber_mehrere_ticks():

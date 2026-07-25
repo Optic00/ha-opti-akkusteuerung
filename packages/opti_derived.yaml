@@ -969,7 +969,12 @@ template:
              verlor es nach einem Tick. Ein Dict statt fuenf Einzelattribute, weil jedes
              Attribut die komplette Praeambel dupliziert - 'this' ist in block-level
              variables trigger-basierter Templates nicht verfuegbar. #}
-          {% set a = (this.attributes.get('anker') if this is not none else none) or {} %}
+          {# Guard gegen einen nicht nativ zurueckgewandelten Anker (String nach
+             gescheiterter literal_eval, Restore einer aelteren Attributform, NaN/Inf
+             in der Reihe): ohne ihn wirft a.get(...) ab dem Folgetick einen
+             Renderfehler statt fail-closed zu laufen. #}
+          {% set a_raw = this.attributes.get('anker') if this is not none else none %}
+          {% set a = a_raw if a_raw is mapping else {} %}
           {% set a_t = a.get('today') %}
           {% set a_m = a.get('tomorrow') %}
           {% set a_ts = a.get('ts') | float(0) %}
@@ -1033,7 +1038,12 @@ template:
                verlor es nach einem Tick. Ein Dict statt fuenf Einzelattribute, weil jedes
                Attribut die komplette Praeambel dupliziert - 'this' ist in block-level
                variables trigger-basierter Templates nicht verfuegbar. #}
-            {% set a = (this.attributes.get('anker') if this is not none else none) or {} %}
+            {# Guard gegen einen nicht nativ zurueckgewandelten Anker (String nach
+               gescheiterter literal_eval, Restore einer aelteren Attributform, NaN/Inf
+               in der Reihe): ohne ihn wirft a.get(...) ab dem Folgetick einen
+               Renderfehler statt fail-closed zu laufen. #}
+            {% set a_raw = this.attributes.get('anker') if this is not none else none %}
+            {% set a = a_raw if a_raw is mapping else {} %}
             {% set a_t = a.get('today') %}
             {% set a_m = a.get('tomorrow') %}
             {% set a_ts = a.get('ts') | float(0) %}
@@ -1095,7 +1105,12 @@ template:
                verlor es nach einem Tick. Ein Dict statt fuenf Einzelattribute, weil jedes
                Attribut die komplette Praeambel dupliziert - 'this' ist in block-level
                variables trigger-basierter Templates nicht verfuegbar. #}
-            {% set a = (this.attributes.get('anker') if this is not none else none) or {} %}
+            {# Guard gegen einen nicht nativ zurueckgewandelten Anker (String nach
+               gescheiterter literal_eval, Restore einer aelteren Attributform, NaN/Inf
+               in der Reihe): ohne ihn wirft a.get(...) ab dem Folgetick einen
+               Renderfehler statt fail-closed zu laufen. #}
+            {% set a_raw = this.attributes.get('anker') if this is not none else none %}
+            {% set a = a_raw if a_raw is mapping else {} %}
             {% set a_t = a.get('today') %}
             {% set a_m = a.get('tomorrow') %}
             {% set a_ts = a.get('ts') | float(0) %}
@@ -1146,7 +1161,10 @@ template:
               {%- if m_ok %}{{ m_liste }}
               {%- elif halte_morgen %}{{ a_m | list }}
               {%- else %}[]{% endif %}
-            {%- elif halte_reihe and a_m_ok %}{{ a_m | list }}
+            {#- Auch beim Ganzreihen-Halten muss das Morgen-Fenster gelten, sonst
+                wird eine bereits abgelaufene Morgen-Liste beim naechsten
+                Komplettausfall wiederbelebt (Review-Finding 25.07.2026). #}
+            {%- elif halte_reihe and a_m_ok and m_im_fenster %}{{ a_m | list }}
             {%- else %}[]{% endif %}
           # --- GEDAECHTNIS: ueberlebt jeden Zustand. NICHT von Konsumenten lesen.
           anker: >
@@ -1161,7 +1179,12 @@ template:
                verlor es nach einem Tick. Ein Dict statt fuenf Einzelattribute, weil jedes
                Attribut die komplette Praeambel dupliziert - 'this' ist in block-level
                variables trigger-basierter Templates nicht verfuegbar. #}
-            {% set a = (this.attributes.get('anker') if this is not none else none) or {} %}
+            {# Guard gegen einen nicht nativ zurueckgewandelten Anker (String nach
+               gescheiterter literal_eval, Restore einer aelteren Attributform, NaN/Inf
+               in der Reihe): ohne ihn wirft a.get(...) ab dem Folgetick einen
+               Renderfehler statt fail-closed zu laufen. #}
+            {% set a_raw = this.attributes.get('anker') if this is not none else none %}
+            {% set a = a_raw if a_raw is mapping else {} %}
             {% set a_t = a.get('today') %}
             {% set a_m = a.get('tomorrow') %}
             {% set a_ts = a.get('ts') | float(0) %}
@@ -1213,15 +1236,28 @@ template:
                wandert nur mit einer tatsaechlich uebernommenen Morgen-Liste. #}
             {% if frisch and m_ok %}
               {%- set neu_m, neu_m_ts = m_liste, (jetzt | round(0)) %}
-            {%- elif frisch and not today_unveraendert %}
+            {%- elif frisch and (not today_unveraendert or not anker_heute) %}
+              {#- Tageswechsel: entweder wechselt die today-Liste, oder der Anker
+                  stammt von gestern. Beides heisst, dass das gespeicherte
+                  'tomorrow' die heutigen Preise sind - verwerfen, sonst lebt es
+                  im Folgetick als neues 'morgen' weiter (Review-Finding). #}
+              {%- set neu_m, neu_m_ts = [], 0 %}
+            {%- elif not m_im_fenster %}
+              {#- Fenster abgelaufen: nicht nur nicht ausliefern, sondern auch
+                  vergessen - sonst ist die Liste beim naechsten Komplettausfall
+                  wieder da. #}
               {%- set neu_m, neu_m_ts = [], 0 %}
             {%- else %}
               {%- set neu_m = (a_m | list) if a_m is not none else [] %}
               {%- set neu_m_ts = a_m_ts | round(0) %}
             {%- endif %}
+            {#- Zukunfts-Stempel wird nicht konserviert: sonst wuerde er gueltig,
+                sobald die Uhr ihn erreicht, und das Halten begaenne verspaetet
+                (Review-Finding 25.07.2026). #}
             {{ {'today': (t_liste if frisch else ((a_t | list) if a_t is not none else [])),
                 'tomorrow': neu_m,
-                'ts': (jetzt | round(0)) if frisch else (a_ts | round(0)),
+                'ts': (jetzt | round(0)) if frisch
+                      else ((a_ts | round(0)) if (jetzt - a_ts) >= 0 else 0),
                 'm_ts': neu_m_ts,
                 'datum': heute if frisch else (a_datum if a_datum is not none else 'none')} }}
           # Diagnose: WAS gehalten wird. 'reihe' = ganze Tagesreihe (today fehlt),
@@ -1238,7 +1274,12 @@ template:
                verlor es nach einem Tick. Ein Dict statt fuenf Einzelattribute, weil jedes
                Attribut die komplette Praeambel dupliziert - 'this' ist in block-level
                variables trigger-basierter Templates nicht verfuegbar. #}
-            {% set a = (this.attributes.get('anker') if this is not none else none) or {} %}
+            {# Guard gegen einen nicht nativ zurueckgewandelten Anker (String nach
+               gescheiterter literal_eval, Restore einer aelteren Attributform, NaN/Inf
+               in der Reihe): ohne ihn wirft a.get(...) ab dem Folgetick einen
+               Renderfehler statt fail-closed zu laufen. #}
+            {% set a_raw = this.attributes.get('anker') if this is not none else none %}
+            {% set a = a_raw if a_raw is mapping else {} %}
             {% set a_t = a.get('today') %}
             {% set a_m = a.get('tomorrow') %}
             {% set a_ts = a.get('ts') | float(0) %}

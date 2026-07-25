@@ -210,3 +210,35 @@ def test_vorschau_default_unveraendert_mit_preisniveau():
                   "sensor.opti_target_soc": "95", "sun.sun": "below_horizon"})
     assert _vorschau(hass) == "Akku Dynamisch"
     assert "Default" in _vorschau(hass, "grund")
+
+
+# --- Struktur: der Guard muss ueberhaupt ausgewertet werden ----------------
+
+def test_modus_select_ist_trigger():
+    """Review-Finding 25.07.2026: ohne den Modus-Select als Trigger wird der
+    Guard NICHT ausgewertet, wenn ein Nutzer oder eine andere Automation einen
+    Zwangsmodus setzt, waehrend das Preisniveau schon unavailable ist. Der
+    Adapter uebernimmt ihn sofort, und er bliebe bis zum naechsten beliebigen
+    Strategie-Trigger aktiv - waehrend die Vorschau bereits 'Akku Dynamisch'
+    zeigt. Die uebrigen Tests hier werten die choose-Kette direkt aus und
+    koennen das nicht sehen, deshalb dieser Strukturtest."""
+    cfg = load_yaml(REPO / "automations" / "opti_strategie.yaml")
+    haupt = next(a for a in cfg if a["id"] == "opti_canonical_strategie")
+    entitaeten = set()
+    for trigger in haupt["triggers"]:
+        eid = trigger.get("entity_id")
+        entitaeten.update(eid if isinstance(eid, list) else [eid] if eid else [])
+    assert MODUS in entitaeten, "Modus-Select fehlt als Trigger"
+
+
+def test_modus_trigger_hat_keine_to_einschraenkung():
+    """Der Trigger muss JEDEN Moduswechsel sehen - eine to:-Einschraenkung wuerde
+    genau die extern gesetzten Zwangsmodi wieder durchlassen."""
+    cfg = load_yaml(REPO / "automations" / "opti_strategie.yaml")
+    haupt = next(a for a in cfg if a["id"] == "opti_canonical_strategie")
+    modus_trigger = [t for t in haupt["triggers"]
+                     if MODUS in (t.get("entity_id") if isinstance(t.get("entity_id"), list)
+                                  else [t.get("entity_id")])]
+    assert modus_trigger, "kein Trigger auf dem Modus-Select"
+    for t in modus_trigger:
+        assert "to" not in t and "from" not in t, f"eingeschraenkter Trigger: {t}"

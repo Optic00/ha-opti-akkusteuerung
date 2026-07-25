@@ -175,7 +175,7 @@ zusätzlichen **Band H = 3 %** als zweiter Schutzschicht gegen Pendeln direkt an
 
 - **SoC < Ziel − 3** → *Akku Dynamisch* (lädt Richtung Ziel, Option 19)
 - **SoC > Ziel + 3** → *Akku nur Entladen* (genug Reserve, Option 20)
-- **innerhalb ±3 % um das Ziel** → neutrale Zone → Default *Akku Dynamisch*
+- **innerhalb ±3 % um das Ziel** → neutrale Zone → Default *Akku Dynamisch* (bei fehlendem Preisniveau bleibt stattdessen ein passiver Modus stehen, s. [Default](#default--akku-dynamisch))
 
 ### Nachbauen über die zwei Repos
 
@@ -318,7 +318,8 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
   `Akku Netzladen` **kauft**: bliebe es nach Wegfall seiner Preisberechtigung stehen, liefe der Netzeinkauf zu inzwischen beliebig hohem Preis weiter, und erst der `maxsoc`-Ladedeckel würde ihn beenden.
   `Akku nur Laden` sperrt die Entladung, wodurch das Haus aus dem Netz läuft, und `Akku Pause` legt den Akku still.
   Diese Modi verlieren mit dem Preisniveau ihre Begründung und fallen deshalb auf `Akku Dynamisch` zurück - für sie ist ein Modus-Wechsel das kleinere Übel als ein eingefrorener Zwangszustand.
-  Sicher ist das, weil alle preisunabhängigen Zweige **vor** dem Default stehen und weiter greifen: MinSOC-Schutz, EV-Sperre, Balancing-Watchdog, `maxsoc`-Ladedeckel, PV-/AC-Überschuss und die Ziel-SoC-Zweige.
+  Sicher ist das, weil die preisunabhängigen Zweige **vor** dem Default stehen und weiter greifen: MinSOC-Schutz, EV-Sperre, `maxsoc`-Ladedeckel, PV-/AC-Überschuss und die Ziel-SoC-Zweige.
+  Beim **Balancing-Watchdog** gilt das nur teilweise: der PV-Pfad ist preisunabhängig, der Gratis-Netz-Pfad hängt am *Skalarpreis* (der bei einem Ausfall der Preisreihe verfügbar bleibt) und läuft deshalb ebenfalls weiter — nur der bezahlte Netz-Pfad braucht das Preisniveau und entfällt gewollt, denn Netzstrom zu unbekanntem Niveau soll nicht gekauft werden.
   Fehlen die Core-Daten (SoC, Kapazität), setzt der separate Fail-safe-Layer ohnehin Pause.
   Der Vorschau-Sensor spiegelt den Guard und zeigt in diesem Fall den Ist-Modus mit dem Grund „Preisniveau fehlt (passiver Modus gehalten)".
 - **< 4 Preise gesamt** (`today` + `tomorrow`): `sensor.opti_peak_reserve_soc` wird `unavailable`, `binary_sensor.opti_peak_reserve_aktiv` fällt auf `off` - die komplette Leiter (L1-L4) ist inaktiv.
@@ -788,7 +789,7 @@ Ziel-SoC-Optionen (Option 19/20).
 Wie `sensor.opti_target_soc` diesen Zielwert herleitet (Restprognose, `ratio`-Stufen, Hysterese),
 ist im Abschnitt **[Der intelligente Ziel-SoC](#der-intelligente-ziel-soc--herzstück-der-akkuschonung)**
 erklärt. Das **−3 %-Band** (H) verhindert Modus-Pendeln direkt an der Ziel-Kante; innerhalb
-±3 % um das Ziel greift der Default (Dynamisch).
+±3 % um das Ziel greift der Default (Dynamisch; bei fehlendem Preisniveau bleibt ein passiver Modus stehen).
 
 ---
 
@@ -816,6 +817,12 @@ situationsabhängig, ob leicht geladen oder entladen wird — ein sicherer Mitte
 
 Der Default-Pfad greift nur wenn `sensor.opti_soc` und `sensor.opti_battery_capacity_kwh`
 verfügbar sind — Fail-safe bei unavailable Quellen.
+
+**Ausnahme seit 07/2026 (Default-Guard):** fehlt zusätzlich `sensor.opti_price_level`, setzt der Default **keinen** Modus, sofern der aktuelle ein *passiver* ist (`Akku Dynamisch` oder `Akku nur Entladen`) — er bleibt dann stehen.
+`Akku Netzladen`, `Akku nur Laden` und `Akku Pause` fallen dagegen auf `Akku Dynamisch` zurück, weil sie ohne Preisniveau ihre Begründung verlieren und sonst ein Zwangszustand mit Netzbezug einfriert.
+Das betrifft ausschließlich den Default: die höher priorisierten, preisunabhängigen Zweige (MinSOC-Schutz, EV-Sperre, `maxsoc`-Ladedeckel, PV-/AC-Überschuss, Ziel-SoC) werden weiterhin normal ausgewertet und überstimmen ein Halten.
+Vom Balancing-Watchdog bleiben der PV-Pfad und der Gratis-Netz-Pfad aktiv; nur sein bezahlter Netz-Pfad braucht das Preisniveau und entfällt gewollt.
+Siehe [Fail-safes und bekannte Grenzen](#fail-safes-und-bekannte-grenzen).
 
 ### Separater Safety-Layer
 
@@ -854,7 +861,7 @@ ausgewählte Akkumodus wird dabei nicht überschrieben.
 |---|---|
 | **Akku nur Laden** | SoC unter MinSOC (Notfall); schlechte Prognose + günstiger Strom; Wintermodus aktiv; Akku fast leer bei Schlechtwetter; Peak-Leiter L3/L4 (halten); Balancing-Watchdog PV-Vollladung (tagsüber) |
 | **Akku Netzladen** | Negativpreis-Laderegel, Peak-Vorladeregel oder Balancing-Watchdog (nachts) aktiv — erzwungenes dynamisches Netzladen (BatChaMinW = `opti_charge_power_w`); braucht `ha-modbus-akku-adapter` >= v1.5.0 |
-| **Akku Dynamisch** | PV-Überschuss tagsüber; Akku zwischen MinSOC und Ziel-SoC; voller Akku; kein klarer Lade-/Entladegrund (Default) |
+| **Akku Dynamisch** | PV-Überschuss tagsüber; Akku zwischen MinSOC und Ziel-SoC; voller Akku; kein klarer Lade-/Entladegrund (Default). Bei fehlendem Preisniveau setzt der Default nichts, wenn der aktuelle Modus passiv ist |
 | **Akku nur Entladen** | SoC über intelligentem Ziel-SoC (`sensor.opti_target_soc`); **Ladedeckel `maxsoc` erreicht** (harte Obergrenze, kein Balancing/Peak fällig); Peak-Leiter L1/L2 (entladen) |
 
 **Modus-Contract (Single-Writer-Regel):**

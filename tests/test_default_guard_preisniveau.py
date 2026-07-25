@@ -242,3 +242,17 @@ def test_modus_trigger_hat_keine_to_einschraenkung():
     assert modus_trigger, "kein Trigger auf dem Modus-Select"
     for t in modus_trigger:
         assert "to" not in t and "from" not in t, f"eingeschraenkter Trigger: {t}"
+
+
+def test_ki_prompt_beschreibt_den_default_guard():
+    """Der KI-Prompt zaehlt die Prioritaetsleiter auf und wird von der Analyse
+    zur Deutung des Modusverlaufs benutzt. Stuende dort weiter ein bedingungs-
+    loses 'Default -> Dynamisch', wuerde die KI ein Halten als Abweichung von
+    der dokumentierten Leiter lesen."""
+    cfg = load_yaml(REPO / "automations" / "opti_ki_analyse.yaml")
+    auto = next(a for a in cfg if a["id"] == "opti_ki_analyse_taeglich")
+    ai = next(s for s in auto["actions"]
+              if s.get("action") == "ai_task.generate_data")
+    prompt = ai["data"]["instructions"]
+    assert "nur bei" in prompt and "vorhandenem Preisniveau" in prompt
+    assert "passiver Modus" in prompt

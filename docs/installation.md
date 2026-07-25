@@ -85,6 +85,11 @@ kopieren und alle `DEIN_*`-Platzhalter durch echte Entitäts-IDs ersetzen.
 
 **5. Sensoren prüfen (Verify-Gate):** Bevor du irgendetwas scharf schaltest, in den Entwicklertools sicherstellen, dass die kanonischen Sensoren plausible Werte liefern und **nicht** `unavailable`/`unknown` sind - v. a. `sensor.opti_target_soc`, `sensor.opti_charge_power_w`, `sensor.opti_price_level`. Stimmt hier etwas nicht, zuerst das Mapping (`opti_mapping.yaml`) korrigieren, nicht weitergehen.
 
+> **Abgrenzung zum Betrieb:** Nach der Inbetriebnahme ist `sensor.opti_price_level` = `unavailable` kein Fehler, sondern gewollt - fällt die Preisquelle aus, meldet der Sensor das ehrlich (fail-closed), statt ein Preisniveau zu erfinden.
+> Die preisabhängigen Zweige verstummen dann; die preisunabhängigen (MinSOC-Schutz, Ladedeckel, Überschuss, Ziel-SoC …) laufen unverändert weiter, und nur im Default bleibt ein passiver Modus stehen.
+> Ein *dauerhaft* nicht verfügbares Preisniveau hat dagegen eine Ursache, die zu klären ist: fehlendes oder falsches Preis-Mapping, ein Ausfall beim Preis-Anbieter oder ein Netzwerkproblem.
+> Wer bewusst **ohne** Preisquelle fährt (siehe [Betrieb ohne Strompreis-Sensor](canonical-layer.md#was-automatisch-wegfällt)), für den ist der Zustand dauerhaft normal.
+
 **6. Hardware-Adapter importieren:** Blueprint aus
 [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter) per Raw-URL
 importieren (*Einstellungen → Automatisierungen & Szenen → Blueprints → importieren*) und

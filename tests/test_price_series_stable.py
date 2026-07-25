@@ -124,6 +124,24 @@ def test_rollover_offen_uebernimmt_gestrige_reihe_nicht():
     assert _attr(hass, "stand") == GESTERN_STR
 
 
+def test_rollover_wache_blockiert_nicht_dauerhaft():
+    """Re-Review-Finding 25.07.2026: eine legitim umgeschaltete, aber WERTGLEICHE
+    Folgetagsreihe (wiederholter Flattarif) ist von der gestrigen nicht
+    unterscheidbar. Ohne Zeitgrenze bliebe der Halter den ganzen Tag auf 'leer'
+    und die Preislogik komplett tot."""
+    flach = [30.0] * 24
+    nachts = _hass(flach, cache=flach, stand=GESTERN_STR,
+                   now=dt.datetime(2026, 1, 15, 1, 30, tzinfo=TZ))
+    assert _state(nachts) == "leer", "im Ambiguitaetsfenster bleibt es zu"
+    assert _attr(nachts, "stand") == GESTERN_STR
+
+    spaeter = _hass(flach, cache=flach, stand=GESTERN_STR,
+                    now=dt.datetime(2026, 1, 15, 2, 5, tzinfo=TZ))
+    assert _state(spaeter) == "frisch", "ab 02:00 darf die Wache nicht blockieren"
+    assert _attr(spaeter, "today") == flach
+    assert _attr(spaeter, "stand") == HEUTE_STR
+
+
 def test_rollover_erledigt_uebernimmt_neue_reihe():
     """Sobald die Quelle umschaltet (andere Liste als der Cache), greift der
     Halter wieder normal - die Wache darf nicht dauerhaft blockieren."""
@@ -149,10 +167,14 @@ def test_gestriges_tomorrow_verfaellt_beim_tageswechsel():
 def test_bekanntes_tomorrow_wird_nicht_ueberschrieben():
     """Review-Finding 25.07.2026: faellt nur die Morgen-Liste kurz weg, waehrend
     today gueltig bleibt, darf ein bereits bekanntes tomorrow nicht mit []
-    ueberschrieben werden (sonst springen Perzentil und Peak-Reserve)."""
+    ueberschrieben werden (sonst springen Perzentil und Peak-Reserve).
+    Re-Review: dieser Teilausfall MUSS als 'gehalten' sichtbar sein, sonst
+    zaehlen ihn die history_stats nicht."""
     hass = _hass(REIHE, [], cache=REIHE, cache_morgen=MORGEN_REIHE,
                  stand=HEUTE_STR)
-    assert _state(hass) == "frisch"
+    assert _state(hass) == "gehalten"
+    assert _attr(hass, "gehalten_teil") == "morgen"
+    assert _attr(hass, "today") == REIHE
     assert _attr(hass, "tomorrow") == MORGEN_REIHE
 
 

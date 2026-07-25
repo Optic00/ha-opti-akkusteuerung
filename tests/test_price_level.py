@@ -4,7 +4,7 @@ from .ha_harness import REPO, FakeHass, find_template_entity, load_yaml, render
 def _hass(current, today, tomorrow=None):
     return FakeHass(
         states={"sensor.opti_price_current_ct_kwh": str(current)},
-        attrs={"sensor.opti_price_series_stable": {"today": today, "tomorrow": tomorrow or []}},
+        attrs={"sensor.opti_price_series": {"today": today, "tomorrow": tomorrow or []}},
     )
 
 
@@ -90,7 +90,7 @@ def test_reihe_verteilt_auf_today_und_tomorrow():
 def test_skalarpreis_unavailable_bleibt_unavailable():
     hass = FakeHass(
         states={"sensor.opti_price_current_ct_kwh": "unavailable"},
-        attrs={"sensor.opti_price_series_stable": {"today": [30.0] * 24, "tomorrow": []}},
+        attrs={"sensor.opti_price_series": {"today": [30.0] * 24, "tomorrow": []}},
     )
     assert _available(hass) == "False"
 

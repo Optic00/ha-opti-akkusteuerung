@@ -129,26 +129,6 @@ sensor:
     type: count
     start: "{{ today_at() }}"
     end: "{{ now() }}"
-  # Ueberbrueckte Quellausfaelle: der Preisreihen-Halter (opti_derived.yaml 8b)
-  # faengt kurze Anbieter-Aussetzer ab, BEVOR sie das Preisniveau erreichen.
-  # Ohne diese Messung waere die Ueberbrueckung unsichtbar - eine flatternde
-  # Preisquelle sieht dann aus wie ein stabiler Tag.
-  - platform: history_stats
-    name: "Opti KI Preisreihe Gehalten H"
-    unique_id: opti_ki_preisreihe_gehalten_h
-    entity_id: sensor.opti_price_series_stable
-    state: "gehalten"
-    type: time
-    start: "{{ today_at() }}"
-    end: "{{ now() }}"
-  - platform: history_stats
-    name: "Opti KI Preisreihe Haltevorgaenge"
-    unique_id: opti_ki_preisreihe_haltevorgaenge
-    entity_id: sensor.opti_price_series_stable
-    state: "gehalten"
-    type: count
-    start: "{{ today_at() }}"
-    end: "{{ now() }}"
   - platform: history_stats
     name: "Opti KI Forecast Unavailable H"
     unique_id: opti_ki_forecast_unavailable_h

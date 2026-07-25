@@ -82,8 +82,6 @@
               "preis_unavailable_min": {{ ((states('sensor.opti_ki_preis_unavailable_h') | float(0)) * 60) | round(0) }},
               "preisniveau_unavailable_min": {{ ((states('sensor.opti_ki_preisniveau_unavailable_h') | float(0)) * 60) | round(0) }},
               "preisniveau_ausfaelle": {{ num('sensor.opti_ki_preisniveau_ausfaelle', 0) }},
-              "preisreihe_gehalten_min": {{ ((states('sensor.opti_ki_preisreihe_gehalten_h') | float(0)) * 60) | round(0) }},
-              "preisreihe_haltevorgaenge": {{ num('sensor.opti_ki_preisreihe_haltevorgaenge', 0) }},
               "forecast_unavailable_min": {{ ((states('sensor.opti_ki_forecast_unavailable_h') | float(0)) * 60) | round(0) }}
             },
             "byd": {
@@ -134,10 +132,7 @@
           Ursache, statt das Flattern allein der Steuerungslogik zuzuschreiben.
           preisniveau_unavailable_min kann klein und preisniveau_ausfaelle
           gleichzeitig hoch sein - viele Sekunden-Ausfaeller sind dann das
-          Muster, nicht ein langer Ausfall. preisreihe_haltevorgaenge zaehlt
-          Quellausfaelle, die der Preisreihen-Halter abgefangen hat, BEVOR sie
-          die Steuerung erreichten: hohe Werte bei ruhigem Modusverlauf sind
-          eine flatternde Preisquelle, kein Steuerungsproblem. Zum byd-Block:
+          Muster, nicht ein langer Ausfall. Zum byd-Block:
           LFP-Zellspreizung ist nur der Ruhe-Wert vergleichbar; SoH-Aenderungen
           von Tag zu Tag sind Rauschen; deterministische Alarme existieren
           separat, du bewertest nur Trends. Ein SoC ueber MaxSOC ist nur dann

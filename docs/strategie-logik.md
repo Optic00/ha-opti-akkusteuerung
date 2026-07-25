@@ -307,26 +307,23 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
 
 ### Fail-safes und bekannte Grenzen
 
-- **Kurzer Ausfall der Preisquelle:** `sensor.opti_price_series_stable` überbrückt ihn und hält die letzte gültige Tagesreihe (State `gehalten`), Preisniveau und Leiter arbeiten unverändert weiter.
-  Das ist zulässig, weil die Tagesreihe ein **Fahrplan** ist: die Viertelstundenpreise für heute stehen am Vortag fest und ändern sich innerhalb des Tages nicht.
-  Das **Haltefenster ist 15 Minuten** und wird minütlich abgetastet - bewusst knapp, denn die beobachteten Ausfälle dauerten 20-80 Sekunden.
-  Ein längerer Ausfall endet **fail-closed**: das Preisniveau wird `unavailable` und alle preisabhängigen Zweige verstummen.
-  Die Morgen-Liste hat einen **eigenen** Zeitstempel, weil bei einem reinen Morgen-Ausfall die `today`-Liste frisch bleibt - ein gemeinsamer Stempel würde bei jedem Tick erneuert und das Fenster liefe nie ab.
-- **Tagesgrenze:** ein 15-Minuten-Fenster kann Mitternacht **sehr wohl** überschreiten (frisch um 23:55, Ausfall um 00:00).
-  Die Tagesgrenze folgt deshalb nicht aus der Fensterlänge, sondern daraus, dass die Preislisten keine Zeitstempel tragen (Zuordnung per Index).
-  Gehalten wird darum nur, wenn der Anker am **heutigen** Kalendertag erfasst wurde; sonst wanderte die gestrige Reihe in den neuen Tag - und ihr `tomorrow` sind die heutigen Preise.
-  Wechselt die `today`-Liste, wird der Morgen-Anker aus demselben Grund verworfen.
-  Bekannte Restgrenze: liefert die Quelle nach Mitternacht noch die gestrige Liste, wird sie übernommen und umdatiert - genau wie vor dem Halter, nur zusätzlich bis zu 15 Minuten haltbar.
-  Ohne Zeitstempel in der Quelle ist das nicht auflösbar.
-- **Gedächtnis getrennt von der Nutzlast:** der Halter führt sein Gedächtnis im Attribut `anker` (Reihe, beide Zeitstempel, Erfassungsdatum), während `today`/`tomorrow` die Nutzlast für die Konsumenten sind und im Zustand `leer` auf `[]` gehen.
-  Lägen beide auf denselben Attributen, würde `leer` das Gedächtnis mit löschen und der Halter verlöre es nach einem einzigen Tick.
-- **< 4 Preise gesamt** (`today` + `tomorrow`, auch nach dem Halter): `sensor.opti_peak_reserve_soc` wird `unavailable`, `binary_sensor.opti_peak_reserve_aktiv` fällt auf `off` - die komplette Leiter (L1-L4) ist inaktiv.
+- **Ausfall der Preisquelle:** fällt die Preisreihe aus (z. B. Provider-Timeout), wird `sensor.opti_price_level` `unavailable` statt wie früher `NORMAL`.
+  Der alte `NORMAL`-Fallback war ein Fail-open: ein Datenausfall sah für die Strategie wie ein gültiges Mittelpreis-Signal aus, und `NORMAL`-gegatete Ladeblöcke konnten bei völlig unbekanntem Preis scharf werden.
+  Damit verstummen jetzt **alle** preisabhängigen Zweige, solange die Daten fehlen.
+- **Default-Guard (kein Modus-Flattern):** der Default-Zweig setzt den Modus nur, wenn zusätzlich zu SoC und Kapazität auch ein Preisniveau vorliegt.
+  Ohne diesen Guard behob das Fail-closed die falsche Zweig-Berechtigung, nicht aber das Flattern: verstummten alle Preiszweige, überschrieb der Default den Modus mit `Akku Dynamisch`, und beim nächsten erfolgreichen Poll sprang er zurück (Live-Befund 23./24.07.2026, rund 15 Episoden in 7 Tagen, teils mit 20-40 Sekunden Verweildauer).
+  Der Guard hält bewusst die **Entscheidung** statt der Daten: der Modus-Select ist selbst der Zustand und bleibt einfach stehen, bis wieder ein Preisniveau vorliegt.
+  Kein Zwischenspeicher, kein Haltefenster, keine Zustandsmaschine - und damit auch keine Fragen zu Tagesgrenzen oder Datenalter.
+  Sicher ist das, weil alle preisunabhängigen Zweige **vor** dem Default stehen und weiter greifen: MinSOC-Schutz, EV-Sperre, Balancing-Watchdog, `maxsoc`-Ladedeckel, PV-/AC-Überschuss und die Ziel-SoC-Zweige.
+  Fehlen die Core-Daten (SoC, Kapazität), setzt der separate Fail-safe-Layer ohnehin Pause.
+  Der Vorschau-Sensor spiegelt den Guard und zeigt in diesem Fall den Ist-Modus mit dem Grund „Preisniveau fehlt (Modus gehalten)".
+- **< 4 Preise gesamt** (`today` + `tomorrow`): `sensor.opti_peak_reserve_soc` wird `unavailable`, `binary_sensor.opti_peak_reserve_aktiv` fällt auf `off` - die komplette Leiter (L1-L4) ist inaktiv.
   `sensor.opti_price_level` wird bei derselben Datenlage ebenfalls `unavailable` und sperrt damit alle preisabhängigen Zweige.
   Bis 07/2026 lieferte es hier stattdessen `NORMAL`.
   Das war ein Fail-open: ein Datenausfall sah für die Strategie wie ein gültiges Mittelpreis-Signal aus, die Peak-Leiter L1 fiel durch, und der Modus sprang zwischen der Leiter und dem Default `Akku Dynamisch` (Live-Befund 23./24.07.2026, rund 15 Episoden in 7 Tagen).
 - **Raster-Erkennung:** Die Preislisten liefern keine Zeitstempel.
   Die Slot-Länge (`slot_h`) wird pro Liste (`today`/`tomorrow` getrennt) aus der Listenlänge abgeleitet: 24 geteilt durch die Anzahl der Einträge.
-  Unterstützt werden Stundenraster (Listenlänge 20-27, inklusive Zeitumstellungstage) und Viertelstundenraster (Listenlänge 80-108, inklusive Zeitumstellungstage) - seit der Tibber-Umstellung auf 15-Minuten-Day-Ahead-Preise (Juli 2026) liefert `sensor.opti_price_series` (und damit der Halter `sensor.opti_price_series_stable`) 96 Werte pro Tag statt 24.
+  Unterstützt werden Stundenraster (Listenlänge 20-27, inklusive Zeitumstellungstage) und Viertelstundenraster (Listenlänge 80-108, inklusive Zeitumstellungstage) - seit der Tibber-Umstellung auf 15-Minuten-Day-Ahead-Preise (Juli 2026) liefert `sensor.opti_price_series` 96 Werte pro Tag statt 24.
   Jede andere Listenlänge macht die komplette Preisbasis `gueltig=false`.
   An Tagen mit Zeitumstellung ist `slot_h` (z. B. 24/92 oder 24/100 bei Viertelstunden) leicht ungenau - akzeptiertes, bekanntes Verhalten.
   Das Fenster beginnt weiterhin an der aktuellen vollen Stunde (nicht am aktuellen Slot): bei Viertelstundenraster zählen dadurch bis zu drei bereits vergangene Slots der laufenden Stunde konservativ mit.
@@ -878,7 +875,7 @@ Steuer-Automation parallel aktiv lassen.
 | **Decision-Trace-Attribute** | `sensor.opti_target_soc` hängt Debugging-Attribute an (`branch`, `level`, `ratio`, `net_available_kwh`, `remaining_hours`), lesbar über HA-Entwicklerwerkzeuge |
 | **Forecast-Score-Bänder** | `sensor.opti_charge_power_w` variiert die C-Rate in drei Bändern (score ≤ 1: aggressiv; 2–4: moderat; ≥ 5: schonend) statt starrer Prognose-Labels |
 | **`sensor.opti_price_level`** | Anbieter-agnostisches Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE) auf Basis eines gleitenden Perzentils über `today`/`tomorrow`-Preislisten. Fail-closed: reicht die Preisbasis nicht (< 4 verwertbare Werte), wird der Sensor `unavailable` statt ein Niveau zu erfinden |
-| **Preisreihen-Halter** | `sensor.opti_price_series_stable` überbrückt kurze Ausfälle der Preisquelle, indem er die letzte gültige Tagesreihe hält (State `frisch` / `gehalten` / `leer`, wobei `gehalten` auch den Teilausfall „nur Morgen-Liste weg" umfasst). Haltefenster 15 Minuten (minütlich abgetastet, eigener Stempel für die Morgen-Liste), zusätzlich auf den heutigen Kalendertag begrenzt; danach fail-closed. Ohne ihn kippte die Strategie bei jedem Provider-Timeout kurzzeitig in den Default-Zweig. Verfällt an der Tagesgrenze, weil die Preislisten keine Zeitstempel tragen. Einzige Preisreihen-Quelle für `opti_price_level` und `opti_peak_reserve_soc` |
+| **Default-Guard Preisniveau** | Der Default-Zweig setzt den Modus nur bei vorhandenem `sensor.opti_price_level`. Fällt die Preisquelle aus, verstummen alle Preiszweige - ohne den Guard überschrieb der Default den Modus mit `Akku Dynamisch` und ließ ihn beim nächsten Poll zurückspringen (Modus-Flattern). Gehalten wird die Entscheidung, nicht die Daten: der Modus-Select ist selbst der Zustand |
 | **Midrank-Perzentil** | `sensor.opti_price_level` zählt Preis-Gleichstände seit dem Fix nur noch halb (statt sie wie ein `select('le')` komplett auf die teure Seite zu zählen) - flache Preistage landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE. Dieselbe Klassifikation nutzt auch `sensor.opti_peak_reserve_soc` |
 | **`sensor.opti_peak_reserve_soc`** | Reserve-SoC für kommende Preisspitzen im Wiederauflade-Horizont (36h); steuert die Peak-Leiter L1-L4. Siehe [Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden) |
 | **`binary_sensor.opti_winter_charging_allowed`** | Fail-open Gate für Winterladeblöcke (Standard: `true`); kann mit eigenem Sommermodus-Sensor überschrieben werden |

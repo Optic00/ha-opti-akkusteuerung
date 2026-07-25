@@ -781,13 +781,34 @@
 
       # Default (Modus-Set): nur setzen wenn opti_soc UND opti_battery_capacity_kwh
       # verfügbar sind – sonst tut die Strategie nichts (fail-safe).
+      #
+      # ZUSAETZLICH opti_price_level (Live-Befund 23./24.07.2026): faellt die
+      # Preisreihen-Quelle kurz aus (Tibber-REST-Timeout), verstummen ALLE
+      # preisabhaengigen Zweige gleichzeitig - und dieser Default ueberschrieb
+      # den Modus dann mit 'Akku Dynamisch'. Beim naechsten erfolgreichen Poll
+      # sprang er zurueck: ~15 Episoden in 7 Tagen, teils mit 20-40 s
+      # Verweildauer. Ohne den Guard behebt das Fail-closed des Preisniveaus
+      # (unavailable statt NORMAL) zwar die falsche Zweig-Berechtigung, nicht
+      # aber das Flattern - es fuehrt in genau denselben Default.
+      #
+      # Der Guard haelt bewusst die ENTSCHEIDUNG statt der Daten: der
+      # Modus-Select IST der Zustand und bleibt einfach stehen, bis wieder ein
+      # Preisniveau vorliegt. Kein Cache, kein Haltefenster, keine
+      # Zustandsmaschine - deshalb auch keine Tagesgrenzen-Problematik.
+      #
+      # Sicher, weil alle preisUNabhaengigen Zweige VOR dem Default stehen und
+      # weiter greifen: MinSOC-Schutz, EV-Sperre, Balancing-Watchdog,
+      # maxsoc-Ladedeckel, PV-/AC-Ueberschuss und die Ziel-SoC-Zweige. Fehlen
+      # die Core-Daten (soc/Kapazitaet), setzt der separate Fail-safe-Layer
+      # ohnehin Pause.
       default:
         - choose:
             - conditions:
                 - condition: template
                   value_template: >-
                     {{ has_value('sensor.opti_soc')
-                       and has_value('sensor.opti_battery_capacity_kwh') }}
+                       and has_value('sensor.opti_battery_capacity_kwh')
+                       and has_value('sensor.opti_price_level') }}
               sequence:
                 - action: input_select.select_option
                   data:

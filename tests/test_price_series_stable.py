@@ -124,33 +124,61 @@ def test_rollover_offen_uebernimmt_gestrige_reihe_nicht():
     assert _attr(hass, "stand") == GESTERN_STR
 
 
-def test_rollover_wache_blockiert_nicht_dauerhaft():
-    """Re-Review-Finding 25.07.2026: eine legitim umgeschaltete, aber WERTGLEICHE
-    Folgetagsreihe (wiederholter Flattarif) ist von der gestrigen nicht
-    unterscheidbar. Ohne Zeitgrenze bliebe der Halter den ganzen Tag auf 'leer'
-    und die Preislogik komplett tot."""
-    flach = [30.0] * 24
-    nachts = _hass(flach, cache=flach, stand=GESTERN_STR,
-                   now=dt.datetime(2026, 1, 15, 1, 30, tzinfo=TZ))
-    assert _state(nachts) == "leer", "im Ambiguitaetsfenster bleibt es zu"
-    assert _attr(nachts, "stand") == GESTERN_STR
-
-    spaeter = _hass(flach, cache=flach, stand=GESTERN_STR,
-                    now=dt.datetime(2026, 1, 15, 2, 5, tzinfo=TZ))
-    assert _state(spaeter) == "frisch", "ab 02:00 darf die Wache nicht blockieren"
-    assert _attr(spaeter, "today") == flach
-    assert _attr(spaeter, "stand") == HEUTE_STR
-
-
-def test_rollover_erledigt_uebernimmt_neue_reihe():
-    """Sobald die Quelle umschaltet (andere Liste als der Cache), greift der
-    Halter wieder normal - die Wache darf nicht dauerhaft blockieren."""
-    neue_reihe = [50.0 + i for i in range(24)]
-    hass = _hass(neue_reihe, cache=REIHE, stand=GESTERN_STR,
-                 now=dt.datetime(2026, 1, 15, 0, 8, tzinfo=TZ))
+def test_rollover_erkannt_wenn_quelle_gestriges_tomorrow_zeigt():
+    """Der positive Rollover-Beweis: das gestrige 'tomorrow' SIND die heutigen
+    Preise. Zeigt die Quelle sie, hat sie umgeschaltet - ohne jede Uhrzeit-
+    Heuristik, auch um 00:01."""
+    hass = _hass(MORGEN_REIHE, [], cache=REIHE, cache_morgen=MORGEN_REIHE,
+                 stand=GESTERN_STR,
+                 now=dt.datetime(2026, 1, 15, 0, 1, tzinfo=TZ))
     assert _state(hass) == "frisch"
-    assert _attr(hass, "today") == neue_reihe
+    assert _attr(hass, "today") == MORGEN_REIHE
     assert _attr(hass, "stand") == HEUTE_STR
+
+
+def test_flattarif_blockiert_nicht():
+    """Re-Review-Finding 1: wertgleiche Folgetagsreihe (wiederholter Flattarif).
+    Sie ist == gestriges tomorrow, also erkennbar umgeschaltet - und weil die
+    Werte identisch sind, sind sie ohnehin die richtigen. Keine Dauerblockade."""
+    flach = [30.0] * 24
+    hass = _hass(flach, cache=flach, cache_morgen=flach, stand=GESTERN_STR,
+                 now=dt.datetime(2026, 1, 15, 0, 30, tzinfo=TZ))
+    assert _state(hass) == "frisch"
+    assert _attr(hass, "today") == flach
+    assert _attr(hass, "stand") == HEUTE_STR
+
+
+def test_ohne_vergleichsanker_wird_nicht_haltbar():
+    """Re-Review-Finding 2 (zweite Runde): fehlt das gestrige tomorrow als Anker,
+    ist nicht entscheidbar, ob die Quelle umgeschaltet hat. Vor 06:00 bleibt es
+    zu; danach wird ausgeliefert, aber OHNE Stempel - sonst haette ein
+    anschliessender Ausfall die stale Reihe bis Tagesende gehalten, was
+    schlechter waere als ohne Halter."""
+    frueh = _hass(REIHE, cache=REIHE, stand=GESTERN_STR,
+                  now=dt.datetime(2026, 1, 15, 3, 0, tzinfo=TZ))
+    assert _state(frueh) == "leer"
+    assert _attr(frueh, "today") == []
+
+    spaet = _hass(REIHE, cache=REIHE, stand=GESTERN_STR,
+                  now=dt.datetime(2026, 1, 15, 7, 0, tzinfo=TZ))
+    assert _state(spaet) == "unsicher"
+    assert _attr(spaet, "today") == REIHE
+    assert _attr(spaet, "stand") == GESTERN_STR, "darf nicht haltbar werden"
+
+
+def test_unsichere_reihe_wird_nicht_gehalten():
+    """Der Zweischritt aus dem Re-Review: erst wird die unsichere Reihe
+    ausgeliefert, dann faellt die Quelle aus. Weil kein Stempel gesetzt wurde,
+    greift kein Cache - fail-closed statt Persistenz einer falschen Reihe."""
+    erst = _hass(REIHE, cache=REIHE, stand=GESTERN_STR,
+                 now=dt.datetime(2026, 1, 15, 7, 0, tzinfo=TZ))
+    geliefert, stand = _attr(erst, "today"), _attr(erst, "stand")
+    assert geliefert == REIHE and stand == GESTERN_STR
+
+    zweit = _hass([], cache=geliefert, stand=stand,
+                  now=dt.datetime(2026, 1, 15, 7, 5, tzinfo=TZ))
+    assert _state(zweit) == "leer"
+    assert _attr(zweit, "today") == []
 
 
 def test_gestriges_tomorrow_verfaellt_beim_tageswechsel():

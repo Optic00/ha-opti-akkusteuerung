@@ -1,5 +1,8 @@
 # ha-opti-akkusteuerung
 
+[![Tests](https://github.com/Optic00/ha-opti-akkusteuerung/actions/workflows/tests.yml/badge.svg)](https://github.com/Optic00/ha-opti-akkusteuerung/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Prognosebasierte Akku-Ladesteuerung für Home Assistant - die Strategie ist hardware-agnostisch (Canonical-`opti_*`-Layer), als Referenz-Adapter dient der **SMA STP SE Hybrid-Wechselrichter** (direkt über Modbus, ohne Grid Guard Code).
 
 > ⚠️ **Disclaimer:** Dieses Projekt wird nicht von SMA begleitet oder supportet. Nutzung auf eigene Gefahr. Kein persönlicher Support, aber die Community hilft gerne über [Issues](https://github.com/Optic00/ha-opti-akkusteuerung/issues).
@@ -120,6 +123,46 @@ Der frühere manuelle Weg mit Flachdateien liegt zur Referenz unter [`old/README
 
 Die Strategie-Automation entscheidet den **Modus** via `input_select.akkusteuerung_modus` und berührt keine Hardware direkt; ein nachgelagerter Cleanup pflegt nur Booster und Ladepreis. Eine vollständige, laienverständliche Block-für-Block-Erklärung aller Entscheidungsoptionen, der Preisstufenlogik (`sensor.opti_price_level`), des MinSOC-Schutzes, der Wintermodus-Blöcke und der Bausteine (P10-Sicherheitsnetz, Decision-Trace, Balancing-Watchdog):
 **[docs/strategie-logik.md](docs/strategie-logik.md)**
+
+---
+
+## Entwicklung & Tests
+
+Für die reine Nutzung wird kein Python gebraucht - das Repo liefert HA-YAML aus.
+Wer aber an den Templates oder der Strategie schraubt, sollte die Testsuite laufen lassen:
+Sie rendert die Jinja-Templates aus den aktiven `packages/` und die Bedingungen aus `automations/` gegen einen nachgebauten HA-Zustand und prüft die Ergebnisse; `legacy/` und `old/` sind bewusst nicht abgedeckt, das sind Archive.
+Damit fallen kaputte Templates auf, bevor sie in einer echten Anlage landen.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+
+pytest -q                                  # alles
+pytest -q tests/test_strategie_paritaet.py  # einzelne Datei
+```
+
+Getestet gegen Python 3.11 bis 3.14; `requirements-dev.txt` braucht nur `pytest`, `Jinja2` und `PyYAML`.
+Dieselben Tests laufen bei jedem Pull Request und bei jedem Push auf `main` automatisch über [GitHub Actions](.github/workflows/tests.yml).
+
+**Was die Suite abdeckt** (`tests/`, aktuell über 400 Tests):
+
+| Bereich | Beispiele |
+|---|---|
+| Template-Syntax | `test_yaml_jinja_parst.py` prüft jedes Jinja-Template in `packages/*.yaml`, `automations/*.yaml` und der Beispiel-Mapping-Datei mit echtem Jinja2 auf Syntax |
+| Strategie-Entscheidungen | `test_strategie_paritaet.py`, `test_strategie_fail_safe.py`, `test_strategie_vorschau.py` |
+| Abgeleitete Sensoren | `test_derived_sensoren.py`, `test_price_level.py`, `test_target_soc_hysterese.py`, `test_peak_reserve.py` |
+| BYD-Monitoring | `test_byd_monitoring.py`, `test_byd_modul2_fruehwarnung.py`, `test_byd_knie_spreizung.py` |
+| Mapping & Privacy | `test_opti_mapping.py` scannt alle getrackten Dateien **und die Commit-Historie** auf echte WR-Seriennummern |
+
+12 Tests überspringen sich selbst, solange `packages/opti_mapping.yaml` fehlt - sie prüfen ein echtes, ausgefülltes Mapping und können deshalb weder in CI noch in einem frischen Clone laufen.
+Das ist erwartet, kein Fehler.
+
+Der HA-Nachbau steckt in `tests/ha_harness.py`.
+Er bildet die Filter und das Rundungsverhalten von Home Assistant nach, ist aber kein vollständiges HA:
+Verhalten, das an echten Integrationen hängt, muss weiterhin an der Anlage verifiziert werden.
+
+Vor dem Merge eines nicht-trivialen Pull Requests gilt zusätzlich die [Cross-Model Review Policy](REVIEW_POLICY.md).
 
 ---
 

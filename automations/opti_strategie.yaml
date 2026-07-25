@@ -836,9 +836,11 @@
       # eingefrorener Zwangszustand.
       #
       # Sicher, weil alle preisUNabhaengigen Zweige VOR dem Default stehen und
-      # weiter greifen: MinSOC-Schutz, EV-Sperre, Balancing-Watchdog (PV- und
-      # Gratis-Netz-Pfad), maxsoc-Ladedeckel, PV-/AC-Ueberschuss und die
-      # Ziel-SoC-Zweige. Fehlen die Core-Daten (soc/Kapazitaet), setzt der
+      # weiter greifen: MinSOC-Schutz, EV-Sperre, maxsoc-Ladedeckel,
+      # PV-/AC-Ueberschuss und die Ziel-SoC-Zweige. Vom Balancing-Watchdog
+      # bleiben PV-Pfad (preisunabhaengig) und Gratis-Netz-Pfad (haengt am
+      # Skalarpreis, der verfuegbar bleibt) aktiv; nur sein bezahlter Netz-Pfad
+      # braucht das Preisniveau und entfaellt gewollt. Fehlen die Core-Daten (soc/Kapazitaet), setzt der
       # separate Fail-safe-Layer ohnehin Pause.
       #
       # Bewusst EINE Bedingung ohne Halte-Zweig: ein zweiter choose-Zweig mit

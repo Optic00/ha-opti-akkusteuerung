@@ -318,7 +318,8 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
   `Akku Netzladen` **kauft**: bliebe es nach Wegfall seiner Preisberechtigung stehen, liefe der Netzeinkauf zu inzwischen beliebig hohem Preis weiter, und erst der `maxsoc`-Ladedeckel würde ihn beenden.
   `Akku nur Laden` sperrt die Entladung, wodurch das Haus aus dem Netz läuft, und `Akku Pause` legt den Akku still.
   Diese Modi verlieren mit dem Preisniveau ihre Begründung und fallen deshalb auf `Akku Dynamisch` zurück - für sie ist ein Modus-Wechsel das kleinere Übel als ein eingefrorener Zwangszustand.
-  Sicher ist das, weil alle preisunabhängigen Zweige **vor** dem Default stehen und weiter greifen: MinSOC-Schutz, EV-Sperre, Balancing-Watchdog, `maxsoc`-Ladedeckel, PV-/AC-Überschuss und die Ziel-SoC-Zweige.
+  Sicher ist das, weil die preisunabhängigen Zweige **vor** dem Default stehen und weiter greifen: MinSOC-Schutz, EV-Sperre, `maxsoc`-Ladedeckel, PV-/AC-Überschuss und die Ziel-SoC-Zweige.
+  Beim **Balancing-Watchdog** gilt das nur teilweise: der PV-Pfad ist preisunabhängig, der Gratis-Netz-Pfad hängt am *Skalarpreis* (der bei einem Ausfall der Preisreihe verfügbar bleibt) und läuft deshalb ebenfalls weiter — nur der bezahlte Netz-Pfad braucht das Preisniveau und entfällt gewollt, denn Netzstrom zu unbekanntem Niveau soll nicht gekauft werden.
   Fehlen die Core-Daten (SoC, Kapazität), setzt der separate Fail-safe-Layer ohnehin Pause.
   Der Vorschau-Sensor spiegelt den Guard und zeigt in diesem Fall den Ist-Modus mit dem Grund „Preisniveau fehlt (passiver Modus gehalten)".
 - **< 4 Preise gesamt** (`today` + `tomorrow`): `sensor.opti_peak_reserve_soc` wird `unavailable`, `binary_sensor.opti_peak_reserve_aktiv` fällt auf `off` - die komplette Leiter (L1-L4) ist inaktiv.
@@ -819,7 +820,8 @@ verfügbar sind — Fail-safe bei unavailable Quellen.
 
 **Ausnahme seit 07/2026 (Default-Guard):** fehlt zusätzlich `sensor.opti_price_level`, setzt der Default **keinen** Modus, sofern der aktuelle ein *passiver* ist (`Akku Dynamisch` oder `Akku nur Entladen`) — er bleibt dann stehen.
 `Akku Netzladen`, `Akku nur Laden` und `Akku Pause` fallen dagegen auf `Akku Dynamisch` zurück, weil sie ohne Preisniveau ihre Begründung verlieren und sonst ein Zwangszustand mit Netzbezug einfriert.
-Das betrifft ausschließlich den Default: alle höher priorisierten, preisunabhängigen Zweige (MinSOC-Schutz, EV-Sperre, Balancing-Watchdog, `maxsoc`-Ladedeckel, PV-/AC-Überschuss, Ziel-SoC) werden weiterhin normal ausgewertet und überstimmen ein Halten.
+Das betrifft ausschließlich den Default: die höher priorisierten, preisunabhängigen Zweige (MinSOC-Schutz, EV-Sperre, `maxsoc`-Ladedeckel, PV-/AC-Überschuss, Ziel-SoC) werden weiterhin normal ausgewertet und überstimmen ein Halten.
+Vom Balancing-Watchdog bleiben der PV-Pfad und der Gratis-Netz-Pfad aktiv; nur sein bezahlter Netz-Pfad braucht das Preisniveau und entfällt gewollt.
 Siehe [Fail-safes und bekannte Grenzen](#fail-safes-und-bekannte-grenzen).
 
 ### Separater Safety-Layer

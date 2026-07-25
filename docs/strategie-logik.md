@@ -316,6 +316,8 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
   Ein wertgleicher Folgetag (etwa wiederholter Flattarif) löst sich damit von selbst - die Quelle stimmt dann mit dem gestrigen `tomorrow` überein, und identische Werte sind ohnehin die richtigen.
   Fehlt das gestrige `tomorrow` als Vergleichsanker, ist der Fall nicht entscheidbar: die Reihe wird dann ab 06:00 ausgeliefert (State `unsicher`), aber **ohne Stempel** und damit nicht haltbar.
   Fällt die Quelle danach aus, greift kein Cache und es wird fail-closed - eine falsche Reihe darf sich nicht über den Tag festsetzen.
+  Das Gedächtnis des Halters liegt dafür **getrennt von der Nutzlast** auf `anker_today`/`anker_tomorrow`: die Anker überleben jeden Zustand, während `today`/`tomorrow` im Zustand `leer` auf `[]` gehen.
+  Lägen beide auf denselben Attributen, würde `leer` die Vergleichsanker mit zerstören - dieselbe gestrige Reihe sähe im Folgetick verändert aus und wäre wieder stempelbar.
 - **< 4 Preise gesamt** (`today` + `tomorrow`, auch nach dem Halter): `sensor.opti_peak_reserve_soc` wird `unavailable`, `binary_sensor.opti_peak_reserve_aktiv` fällt auf `off` - die komplette Leiter (L1-L4) ist inaktiv.
   `sensor.opti_price_level` wird bei derselben Datenlage ebenfalls `unavailable` und sperrt damit alle preisabhängigen Zweige.
   Bis 07/2026 lieferte es hier stattdessen `NORMAL`.

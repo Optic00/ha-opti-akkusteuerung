@@ -960,163 +960,288 @@ template:
           {% set heute = now().strftime('%Y-%m-%d') %}
           {% set t = state_attr('sensor.opti_price_series', 'today') %}
           {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
-          {% set c_t = this.attributes.get('today') if this is not none else none %}
-          {% set c_m = this.attributes.get('tomorrow') if this is not none else none %}
+          {# GEDAECHTNIS getrennt von der NUTZLAST (Re-Review 25.07.2026, dritte Runde):
+             anker_* ist die letzte UEBERNOMMENE Reihe, today/tomorrow ist das, was die
+             Konsumenten lesen. Vorher lagen beide auf denselben Attributen - im Zustand
+             'leer' wurden today/tomorrow auf [] gesetzt und damit die Vergleichsanker
+             zerstoert. Beim naechsten Tick sah dieselbe gestrige Quelle deshalb
+             'veraendert' aus, wurde als frisch gestempelt und war wieder haltbar: die
+             Wache hielt nur EINEN Tick. Die Anker ueberleben jetzt jeden Zustand. #}
+          {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
+          {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
           {% set stand = this.attributes.get('stand') if this is not none else none %}
           {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
           {% set t_ok = t_liste is not none
              and (t_liste | select('number') | list | length) >= 4 %}
-          {% set c_ok = c_t is iterable and c_t is not string
-             and (c_t | select('number') | list | length) >= 4 %}
+          {% set a_ok = a_t is iterable and a_t is not string
+             and (a_t | select('number') | list | length) >= 4 %}
           {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
-          {% set c_m_ok = c_m is iterable and c_m is not string and (c_m | list | length) > 0 %}
-          {# ROLLOVER-ERKENNUNG (Re-Review 25.07.2026, zweite Runde)
-             Direkt nach Mitternacht zeigt die Quelle noch die GESTRIGE Reihe: numerisch
-             gueltig, aber nicht von heute. Wuerde sie als frisch gestempelt, haette ein
-             anschliessender Ausfall sie bis Tagesende gehalten - das waere schlechter als
-             ohne Halter, wo eine stale Reihe nur so lange wirkte, wie die Quelle sie
-             tatsaechlich lieferte.
-             Der Diskriminator braucht keine Uhrzeit-Heuristik: das gestrige 'tomorrow'
-             SIND die heutigen Preise. Also
-               Quelle == gestriges today  und  Quelle != gestriges tomorrow
-             => die Quelle hat noch nicht umgeschaltet.
-             Der Flattarif-Fall (alles wertgleich) loest sich damit von selbst: dann ist
-             Quelle == gestriges tomorrow, also umgeschaltet - und weil die Werte
-             identisch sind, sind sie ohnehin die richtigen. Keine Dauerblockade. #}
+          {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
+          {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
+             heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
+             tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
+             gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
+             gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
+             == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
+             die richtigen.
+             Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
+             zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
+             wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
+             Persistenz - die sichere Richtung. #}
           {% set tag_offen = stand is not none and stand != heute %}
-          {% set gleich_heute = t_liste is not none and c_t is not none
-             and t_liste == (c_t | list) %}
-          {% set gleich_morgen = t_liste is not none and c_m_ok
-             and t_liste == (c_m | list) %}
+          {% set gleich_heute = t_liste is not none and a_t is not none
+             and t_liste == (a_t | list) %}
+          {% set gleich_morgen = t_liste is not none and a_m_ok
+             and t_liste == (a_m | list) %}
           {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
-          {# Unentscheidbar: es gibt kein gestriges 'tomorrow' als Vergleichsanker (die
-             Quelle hatte es nie geliefert). Um keine Dauerblockade zu riskieren, wird die
-             Reihe ab 06:00 ausgeliefert - aber OHNE Stempel, damit sie NICHT haltbar ist:
-             faellt die Quelle danach aus, greift kein Cache und es wird fail-closed.
-             Ohne Cache ueberhaupt (Erststart ohne Restore) fehlt jeder Anker; dann wird
-             uebernommen und gestempelt - ohne Zeitstempel in der Quelle nicht loesbar. #}
-          {% set notausgang = nicht_umgeschaltet and not c_m_ok and now().hour >= 6 %}
+          {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
+             aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
+             anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
+             bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
+             nicht doch noch in 'frisch'. #}
+          {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
           {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
           {% set stempeln = frisch and not notausgang %}
           {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
              oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
              damit die history_stats jeden abgefangenen Quellausfall sehen. #}
-          {% set halte_reihe = (not frisch) and c_ok and stand == heute %}
-          {% set halte_morgen = frisch and (not m_ok) and c_m_ok and stand == heute %}
+          {% set halte_reihe = (not frisch) and a_ok and stand == heute %}
+          {% set halte_morgen = frisch and (not m_ok) and a_m_ok and stand == heute %}
           {% if halte_reihe or halte_morgen %}gehalten
           {%- elif frisch and not stempeln %}unsicher
           {%- elif frisch %}frisch
           {%- else %}leer{% endif %}
         attributes:
+          # --- NUTZLAST: was Preisniveau und Peak-Reserve lesen ---------------
           today: >
             {% set heute = now().strftime('%Y-%m-%d') %}
             {% set t = state_attr('sensor.opti_price_series', 'today') %}
             {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
-            {% set c_t = this.attributes.get('today') if this is not none else none %}
-            {% set c_m = this.attributes.get('tomorrow') if this is not none else none %}
+            {# GEDAECHTNIS getrennt von der NUTZLAST (Re-Review 25.07.2026, dritte Runde):
+               anker_* ist die letzte UEBERNOMMENE Reihe, today/tomorrow ist das, was die
+               Konsumenten lesen. Vorher lagen beide auf denselben Attributen - im Zustand
+               'leer' wurden today/tomorrow auf [] gesetzt und damit die Vergleichsanker
+               zerstoert. Beim naechsten Tick sah dieselbe gestrige Quelle deshalb
+               'veraendert' aus, wurde als frisch gestempelt und war wieder haltbar: die
+               Wache hielt nur EINEN Tick. Die Anker ueberleben jetzt jeden Zustand. #}
+            {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
+            {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
             {% set stand = this.attributes.get('stand') if this is not none else none %}
             {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
             {% set t_ok = t_liste is not none
                and (t_liste | select('number') | list | length) >= 4 %}
-            {% set c_ok = c_t is iterable and c_t is not string
-               and (c_t | select('number') | list | length) >= 4 %}
+            {% set a_ok = a_t is iterable and a_t is not string
+               and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
-            {% set c_m_ok = c_m is iterable and c_m is not string and (c_m | list | length) > 0 %}
-            {# ROLLOVER-ERKENNUNG (Re-Review 25.07.2026, zweite Runde)
-               Direkt nach Mitternacht zeigt die Quelle noch die GESTRIGE Reihe: numerisch
-               gueltig, aber nicht von heute. Wuerde sie als frisch gestempelt, haette ein
-               anschliessender Ausfall sie bis Tagesende gehalten - das waere schlechter als
-               ohne Halter, wo eine stale Reihe nur so lange wirkte, wie die Quelle sie
-               tatsaechlich lieferte.
-               Der Diskriminator braucht keine Uhrzeit-Heuristik: das gestrige 'tomorrow'
-               SIND die heutigen Preise. Also
-                 Quelle == gestriges today  und  Quelle != gestriges tomorrow
-               => die Quelle hat noch nicht umgeschaltet.
-               Der Flattarif-Fall (alles wertgleich) loest sich damit von selbst: dann ist
-               Quelle == gestriges tomorrow, also umgeschaltet - und weil die Werte
-               identisch sind, sind sie ohnehin die richtigen. Keine Dauerblockade. #}
+            {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
+            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
+               heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
+               tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
+               gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
+               gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
+               == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
+               die richtigen.
+               Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
+               zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
+               wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
+               Persistenz - die sichere Richtung. #}
             {% set tag_offen = stand is not none and stand != heute %}
-            {% set gleich_heute = t_liste is not none and c_t is not none
-               and t_liste == (c_t | list) %}
-            {% set gleich_morgen = t_liste is not none and c_m_ok
-               and t_liste == (c_m | list) %}
+            {% set gleich_heute = t_liste is not none and a_t is not none
+               and t_liste == (a_t | list) %}
+            {% set gleich_morgen = t_liste is not none and a_m_ok
+               and t_liste == (a_m | list) %}
             {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
-            {# Unentscheidbar: es gibt kein gestriges 'tomorrow' als Vergleichsanker (die
-               Quelle hatte es nie geliefert). Um keine Dauerblockade zu riskieren, wird die
-               Reihe ab 06:00 ausgeliefert - aber OHNE Stempel, damit sie NICHT haltbar ist:
-               faellt die Quelle danach aus, greift kein Cache und es wird fail-closed.
-               Ohne Cache ueberhaupt (Erststart ohne Restore) fehlt jeder Anker; dann wird
-               uebernommen und gestempelt - ohne Zeitstempel in der Quelle nicht loesbar. #}
-            {% set notausgang = nicht_umgeschaltet and not c_m_ok and now().hour >= 6 %}
+            {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
+               aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
+               anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
+               bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
+               nicht doch noch in 'frisch'. #}
+            {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
             {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
             {% set stempeln = frisch and not notausgang %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
                oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
                damit die history_stats jeden abgefangenen Quellausfall sehen. #}
-            {% set halte_reihe = (not frisch) and c_ok and stand == heute %}
-            {% set halte_morgen = frisch and (not m_ok) and c_m_ok and stand == heute %}
+            {% set halte_reihe = (not frisch) and a_ok and stand == heute %}
+            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and stand == heute %}
             {% if frisch %}{{ t_liste }}
-            {%- elif halte_reihe %}{{ c_t | list }}
+            {%- elif halte_reihe %}{{ a_t | list }}
             {%- else %}[]{% endif %}
           tomorrow: >
             {% set heute = now().strftime('%Y-%m-%d') %}
             {% set t = state_attr('sensor.opti_price_series', 'today') %}
             {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
-            {% set c_t = this.attributes.get('today') if this is not none else none %}
-            {% set c_m = this.attributes.get('tomorrow') if this is not none else none %}
+            {# GEDAECHTNIS getrennt von der NUTZLAST (Re-Review 25.07.2026, dritte Runde):
+               anker_* ist die letzte UEBERNOMMENE Reihe, today/tomorrow ist das, was die
+               Konsumenten lesen. Vorher lagen beide auf denselben Attributen - im Zustand
+               'leer' wurden today/tomorrow auf [] gesetzt und damit die Vergleichsanker
+               zerstoert. Beim naechsten Tick sah dieselbe gestrige Quelle deshalb
+               'veraendert' aus, wurde als frisch gestempelt und war wieder haltbar: die
+               Wache hielt nur EINEN Tick. Die Anker ueberleben jetzt jeden Zustand. #}
+            {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
+            {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
             {% set stand = this.attributes.get('stand') if this is not none else none %}
             {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
             {% set t_ok = t_liste is not none
                and (t_liste | select('number') | list | length) >= 4 %}
-            {% set c_ok = c_t is iterable and c_t is not string
-               and (c_t | select('number') | list | length) >= 4 %}
+            {% set a_ok = a_t is iterable and a_t is not string
+               and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
-            {% set c_m_ok = c_m is iterable and c_m is not string and (c_m | list | length) > 0 %}
-            {# ROLLOVER-ERKENNUNG (Re-Review 25.07.2026, zweite Runde)
-               Direkt nach Mitternacht zeigt die Quelle noch die GESTRIGE Reihe: numerisch
-               gueltig, aber nicht von heute. Wuerde sie als frisch gestempelt, haette ein
-               anschliessender Ausfall sie bis Tagesende gehalten - das waere schlechter als
-               ohne Halter, wo eine stale Reihe nur so lange wirkte, wie die Quelle sie
-               tatsaechlich lieferte.
-               Der Diskriminator braucht keine Uhrzeit-Heuristik: das gestrige 'tomorrow'
-               SIND die heutigen Preise. Also
-                 Quelle == gestriges today  und  Quelle != gestriges tomorrow
-               => die Quelle hat noch nicht umgeschaltet.
-               Der Flattarif-Fall (alles wertgleich) loest sich damit von selbst: dann ist
-               Quelle == gestriges tomorrow, also umgeschaltet - und weil die Werte
-               identisch sind, sind sie ohnehin die richtigen. Keine Dauerblockade. #}
+            {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
+            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
+               heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
+               tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
+               gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
+               gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
+               == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
+               die richtigen.
+               Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
+               zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
+               wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
+               Persistenz - die sichere Richtung. #}
             {% set tag_offen = stand is not none and stand != heute %}
-            {% set gleich_heute = t_liste is not none and c_t is not none
-               and t_liste == (c_t | list) %}
-            {% set gleich_morgen = t_liste is not none and c_m_ok
-               and t_liste == (c_m | list) %}
+            {% set gleich_heute = t_liste is not none and a_t is not none
+               and t_liste == (a_t | list) %}
+            {% set gleich_morgen = t_liste is not none and a_m_ok
+               and t_liste == (a_m | list) %}
             {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
-            {# Unentscheidbar: es gibt kein gestriges 'tomorrow' als Vergleichsanker (die
-               Quelle hatte es nie geliefert). Um keine Dauerblockade zu riskieren, wird die
-               Reihe ab 06:00 ausgeliefert - aber OHNE Stempel, damit sie NICHT haltbar ist:
-               faellt die Quelle danach aus, greift kein Cache und es wird fail-closed.
-               Ohne Cache ueberhaupt (Erststart ohne Restore) fehlt jeder Anker; dann wird
-               uebernommen und gestempelt - ohne Zeitstempel in der Quelle nicht loesbar. #}
-            {% set notausgang = nicht_umgeschaltet and not c_m_ok and now().hour >= 6 %}
+            {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
+               aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
+               anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
+               bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
+               nicht doch noch in 'frisch'. #}
+            {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
             {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
             {% set stempeln = frisch and not notausgang %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
                oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
                damit die history_stats jeden abgefangenen Quellausfall sehen. #}
-            {% set halte_reihe = (not frisch) and c_ok and stand == heute %}
-            {% set halte_morgen = frisch and (not m_ok) and c_m_ok and stand == heute %}
+            {% set halte_reihe = (not frisch) and a_ok and stand == heute %}
+            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and stand == heute %}
             {# tomorrow darf legitim leer sein (vor der Day-Ahead-Veroeffentlichung),
                deshalb faellt die Frische-Entscheidung fuer den TAG ueber today.
                Ein bereits bekanntes tomorrow wird aber NICHT weggeworfen, wenn nur
-               die Morgen-Liste kurz wegfaellt. Am Tageswechsel ist stand != heute,
-               wodurch das gestrige tomorrow (= heutige Preise) korrekt verfaellt
-               statt als 'morgen' weiterzuleben. #}
+               die Morgen-Liste kurz wegfaellt. #}
             {% if frisch %}
               {%- if m_ok %}{{ m | list }}
-              {%- elif halte_morgen %}{{ c_m | list }}
+              {%- elif halte_morgen %}{{ a_m | list }}
               {%- else %}[]{% endif %}
-            {%- elif halte_reihe and c_m_ok %}{{ c_m | list }}
+            {%- elif halte_reihe and a_m_ok %}{{ a_m | list }}
             {%- else %}[]{% endif %}
+          # --- GEDAECHTNIS: ueberlebt jeden Zustand, wird nur beim Uebernehmen
+          #     frischer Daten fortgeschrieben. NICHT von Konsumenten lesen.
+          anker_today: >
+            {% set heute = now().strftime('%Y-%m-%d') %}
+            {% set t = state_attr('sensor.opti_price_series', 'today') %}
+            {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
+            {# GEDAECHTNIS getrennt von der NUTZLAST (Re-Review 25.07.2026, dritte Runde):
+               anker_* ist die letzte UEBERNOMMENE Reihe, today/tomorrow ist das, was die
+               Konsumenten lesen. Vorher lagen beide auf denselben Attributen - im Zustand
+               'leer' wurden today/tomorrow auf [] gesetzt und damit die Vergleichsanker
+               zerstoert. Beim naechsten Tick sah dieselbe gestrige Quelle deshalb
+               'veraendert' aus, wurde als frisch gestempelt und war wieder haltbar: die
+               Wache hielt nur EINEN Tick. Die Anker ueberleben jetzt jeden Zustand. #}
+            {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
+            {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
+            {% set stand = this.attributes.get('stand') if this is not none else none %}
+            {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
+            {% set t_ok = t_liste is not none
+               and (t_liste | select('number') | list | length) >= 4 %}
+            {% set a_ok = a_t is iterable and a_t is not string
+               and (a_t | select('number') | list | length) >= 4 %}
+            {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
+            {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
+            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
+               heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
+               tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
+               gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
+               gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
+               == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
+               die richtigen.
+               Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
+               zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
+               wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
+               Persistenz - die sichere Richtung. #}
+            {% set tag_offen = stand is not none and stand != heute %}
+            {% set gleich_heute = t_liste is not none and a_t is not none
+               and t_liste == (a_t | list) %}
+            {% set gleich_morgen = t_liste is not none and a_m_ok
+               and t_liste == (a_m | list) %}
+            {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
+            {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
+               aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
+               anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
+               bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
+               nicht doch noch in 'frisch'. #}
+            {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
+            {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
+            {% set stempeln = frisch and not notausgang %}
+            {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
+               oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
+               damit die history_stats jeden abgefangenen Quellausfall sehen. #}
+            {% set halte_reihe = (not frisch) and a_ok and stand == heute %}
+            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and stand == heute %}
+            {% if stempeln %}{{ t_liste }}
+            {%- else %}{{ (a_t | list) if a_t is not none else [] }}
+            {%- endif %}
+          anker_tomorrow: >
+            {% set heute = now().strftime('%Y-%m-%d') %}
+            {% set t = state_attr('sensor.opti_price_series', 'today') %}
+            {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
+            {# GEDAECHTNIS getrennt von der NUTZLAST (Re-Review 25.07.2026, dritte Runde):
+               anker_* ist die letzte UEBERNOMMENE Reihe, today/tomorrow ist das, was die
+               Konsumenten lesen. Vorher lagen beide auf denselben Attributen - im Zustand
+               'leer' wurden today/tomorrow auf [] gesetzt und damit die Vergleichsanker
+               zerstoert. Beim naechsten Tick sah dieselbe gestrige Quelle deshalb
+               'veraendert' aus, wurde als frisch gestempelt und war wieder haltbar: die
+               Wache hielt nur EINEN Tick. Die Anker ueberleben jetzt jeden Zustand. #}
+            {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
+            {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
+            {% set stand = this.attributes.get('stand') if this is not none else none %}
+            {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
+            {% set t_ok = t_liste is not none
+               and (t_liste | select('number') | list | length) >= 4 %}
+            {% set a_ok = a_t is iterable and a_t is not string
+               and (a_t | select('number') | list | length) >= 4 %}
+            {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
+            {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
+            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
+               heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
+               tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
+               gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
+               gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
+               == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
+               die richtigen.
+               Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
+               zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
+               wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
+               Persistenz - die sichere Richtung. #}
+            {% set tag_offen = stand is not none and stand != heute %}
+            {% set gleich_heute = t_liste is not none and a_t is not none
+               and t_liste == (a_t | list) %}
+            {% set gleich_morgen = t_liste is not none and a_m_ok
+               and t_liste == (a_m | list) %}
+            {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
+            {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
+               aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
+               anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
+               bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
+               nicht doch noch in 'frisch'. #}
+            {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
+            {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
+            {% set stempeln = frisch and not notausgang %}
+            {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
+               oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
+               damit die history_stats jeden abgefangenen Quellausfall sehen. #}
+            {% set halte_reihe = (not frisch) and a_ok and stand == heute %}
+            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and stand == heute %}
+            {# Beim Tageswechsel MUSS der Anker mitgehen, auch wenn die Quelle
+               noch kein tomorrow hat: das gestrige tomorrow sind die heutigen
+               Preise und darf nicht als 'morgen' weiterleben. Innerhalb des
+               Tages bleibt ein bekanntes tomorrow dagegen erhalten. #}
+            {% if stempeln and (m_ok or tag_offen) %}{{ (m | list) if m_ok else [] }}
+            {%- else %}{{ (a_m | list) if a_m is not none else [] }}
+            {%- endif %}
           # Datum der zuletzt UEBERNOMMENEN Reihe und damit die Halte-Berechtigung:
           # nur gestempelte Daten sind haltbar. Beim Halten und im Notausgang
           # bewusst NICHT fortgeschrieben.
@@ -1124,49 +1249,53 @@ template:
             {% set heute = now().strftime('%Y-%m-%d') %}
             {% set t = state_attr('sensor.opti_price_series', 'today') %}
             {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
-            {% set c_t = this.attributes.get('today') if this is not none else none %}
-            {% set c_m = this.attributes.get('tomorrow') if this is not none else none %}
+            {# GEDAECHTNIS getrennt von der NUTZLAST (Re-Review 25.07.2026, dritte Runde):
+               anker_* ist die letzte UEBERNOMMENE Reihe, today/tomorrow ist das, was die
+               Konsumenten lesen. Vorher lagen beide auf denselben Attributen - im Zustand
+               'leer' wurden today/tomorrow auf [] gesetzt und damit die Vergleichsanker
+               zerstoert. Beim naechsten Tick sah dieselbe gestrige Quelle deshalb
+               'veraendert' aus, wurde als frisch gestempelt und war wieder haltbar: die
+               Wache hielt nur EINEN Tick. Die Anker ueberleben jetzt jeden Zustand. #}
+            {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
+            {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
             {% set stand = this.attributes.get('stand') if this is not none else none %}
             {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
             {% set t_ok = t_liste is not none
                and (t_liste | select('number') | list | length) >= 4 %}
-            {% set c_ok = c_t is iterable and c_t is not string
-               and (c_t | select('number') | list | length) >= 4 %}
+            {% set a_ok = a_t is iterable and a_t is not string
+               and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
-            {% set c_m_ok = c_m is iterable and c_m is not string and (c_m | list | length) > 0 %}
-            {# ROLLOVER-ERKENNUNG (Re-Review 25.07.2026, zweite Runde)
-               Direkt nach Mitternacht zeigt die Quelle noch die GESTRIGE Reihe: numerisch
-               gueltig, aber nicht von heute. Wuerde sie als frisch gestempelt, haette ein
-               anschliessender Ausfall sie bis Tagesende gehalten - das waere schlechter als
-               ohne Halter, wo eine stale Reihe nur so lange wirkte, wie die Quelle sie
-               tatsaechlich lieferte.
-               Der Diskriminator braucht keine Uhrzeit-Heuristik: das gestrige 'tomorrow'
-               SIND die heutigen Preise. Also
-                 Quelle == gestriges today  und  Quelle != gestriges tomorrow
-               => die Quelle hat noch nicht umgeschaltet.
-               Der Flattarif-Fall (alles wertgleich) loest sich damit von selbst: dann ist
-               Quelle == gestriges tomorrow, also umgeschaltet - und weil die Werte
-               identisch sind, sind sie ohnehin die richtigen. Keine Dauerblockade. #}
+            {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
+            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
+               heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
+               tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
+               gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
+               gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
+               == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
+               die richtigen.
+               Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
+               zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
+               wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
+               Persistenz - die sichere Richtung. #}
             {% set tag_offen = stand is not none and stand != heute %}
-            {% set gleich_heute = t_liste is not none and c_t is not none
-               and t_liste == (c_t | list) %}
-            {% set gleich_morgen = t_liste is not none and c_m_ok
-               and t_liste == (c_m | list) %}
+            {% set gleich_heute = t_liste is not none and a_t is not none
+               and t_liste == (a_t | list) %}
+            {% set gleich_morgen = t_liste is not none and a_m_ok
+               and t_liste == (a_m | list) %}
             {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
-            {# Unentscheidbar: es gibt kein gestriges 'tomorrow' als Vergleichsanker (die
-               Quelle hatte es nie geliefert). Um keine Dauerblockade zu riskieren, wird die
-               Reihe ab 06:00 ausgeliefert - aber OHNE Stempel, damit sie NICHT haltbar ist:
-               faellt die Quelle danach aus, greift kein Cache und es wird fail-closed.
-               Ohne Cache ueberhaupt (Erststart ohne Restore) fehlt jeder Anker; dann wird
-               uebernommen und gestempelt - ohne Zeitstempel in der Quelle nicht loesbar. #}
-            {% set notausgang = nicht_umgeschaltet and not c_m_ok and now().hour >= 6 %}
+            {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
+               aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
+               anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
+               bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
+               nicht doch noch in 'frisch'. #}
+            {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
             {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
             {% set stempeln = frisch and not notausgang %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
                oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
                damit die history_stats jeden abgefangenen Quellausfall sehen. #}
-            {% set halte_reihe = (not frisch) and c_ok and stand == heute %}
-            {% set halte_morgen = frisch and (not m_ok) and c_m_ok and stand == heute %}
+            {% set halte_reihe = (not frisch) and a_ok and stand == heute %}
+            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and stand == heute %}
             {% if stempeln %}{{ heute }}
             {%- else %}{{ stand if stand is not none else 'none' }}
             {%- endif %}
@@ -1176,49 +1305,53 @@ template:
             {% set heute = now().strftime('%Y-%m-%d') %}
             {% set t = state_attr('sensor.opti_price_series', 'today') %}
             {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
-            {% set c_t = this.attributes.get('today') if this is not none else none %}
-            {% set c_m = this.attributes.get('tomorrow') if this is not none else none %}
+            {# GEDAECHTNIS getrennt von der NUTZLAST (Re-Review 25.07.2026, dritte Runde):
+               anker_* ist die letzte UEBERNOMMENE Reihe, today/tomorrow ist das, was die
+               Konsumenten lesen. Vorher lagen beide auf denselben Attributen - im Zustand
+               'leer' wurden today/tomorrow auf [] gesetzt und damit die Vergleichsanker
+               zerstoert. Beim naechsten Tick sah dieselbe gestrige Quelle deshalb
+               'veraendert' aus, wurde als frisch gestempelt und war wieder haltbar: die
+               Wache hielt nur EINEN Tick. Die Anker ueberleben jetzt jeden Zustand. #}
+            {% set a_t = this.attributes.get('anker_today') if this is not none else none %}
+            {% set a_m = this.attributes.get('anker_tomorrow') if this is not none else none %}
             {% set stand = this.attributes.get('stand') if this is not none else none %}
             {% set t_liste = (t | list) if (t is iterable and t is not string) else none %}
             {% set t_ok = t_liste is not none
                and (t_liste | select('number') | list | length) >= 4 %}
-            {% set c_ok = c_t is iterable and c_t is not string
-               and (c_t | select('number') | list | length) >= 4 %}
+            {% set a_ok = a_t is iterable and a_t is not string
+               and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
-            {% set c_m_ok = c_m is iterable and c_m is not string and (c_m | list | length) > 0 %}
-            {# ROLLOVER-ERKENNUNG (Re-Review 25.07.2026, zweite Runde)
-               Direkt nach Mitternacht zeigt die Quelle noch die GESTRIGE Reihe: numerisch
-               gueltig, aber nicht von heute. Wuerde sie als frisch gestempelt, haette ein
-               anschliessender Ausfall sie bis Tagesende gehalten - das waere schlechter als
-               ohne Halter, wo eine stale Reihe nur so lange wirkte, wie die Quelle sie
-               tatsaechlich lieferte.
-               Der Diskriminator braucht keine Uhrzeit-Heuristik: das gestrige 'tomorrow'
-               SIND die heutigen Preise. Also
-                 Quelle == gestriges today  und  Quelle != gestriges tomorrow
-               => die Quelle hat noch nicht umgeschaltet.
-               Der Flattarif-Fall (alles wertgleich) loest sich damit von selbst: dann ist
-               Quelle == gestriges tomorrow, also umgeschaltet - und weil die Werte
-               identisch sind, sind sie ohnehin die richtigen. Keine Dauerblockade. #}
+            {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
+            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
+               heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
+               tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
+               gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
+               gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
+               == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
+               die richtigen.
+               Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
+               zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
+               wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
+               Persistenz - die sichere Richtung. #}
             {% set tag_offen = stand is not none and stand != heute %}
-            {% set gleich_heute = t_liste is not none and c_t is not none
-               and t_liste == (c_t | list) %}
-            {% set gleich_morgen = t_liste is not none and c_m_ok
-               and t_liste == (c_m | list) %}
+            {% set gleich_heute = t_liste is not none and a_t is not none
+               and t_liste == (a_t | list) %}
+            {% set gleich_morgen = t_liste is not none and a_m_ok
+               and t_liste == (a_m | list) %}
             {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
-            {# Unentscheidbar: es gibt kein gestriges 'tomorrow' als Vergleichsanker (die
-               Quelle hatte es nie geliefert). Um keine Dauerblockade zu riskieren, wird die
-               Reihe ab 06:00 ausgeliefert - aber OHNE Stempel, damit sie NICHT haltbar ist:
-               faellt die Quelle danach aus, greift kein Cache und es wird fail-closed.
-               Ohne Cache ueberhaupt (Erststart ohne Restore) fehlt jeder Anker; dann wird
-               uebernommen und gestempelt - ohne Zeitstempel in der Quelle nicht loesbar. #}
-            {% set notausgang = nicht_umgeschaltet and not c_m_ok and now().hour >= 6 %}
+            {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
+               aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
+               anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
+               bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
+               nicht doch noch in 'frisch'. #}
+            {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
             {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
             {% set stempeln = frisch and not notausgang %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
                oder nur die Morgen-Liste (today gueltig). Beide zaehlen als 'gehalten',
                damit die history_stats jeden abgefangenen Quellausfall sehen. #}
-            {% set halte_reihe = (not frisch) and c_ok and stand == heute %}
-            {% set halte_morgen = frisch and (not m_ok) and c_m_ok and stand == heute %}
+            {% set halte_reihe = (not frisch) and a_ok and stand == heute %}
+            {% set halte_morgen = frisch and (not m_ok) and a_m_ok and stand == heute %}
             {% if halte_reihe %}reihe{% elif halte_morgen %}morgen{% else %}nichts{% endif %}
 
   # ---------------------------------------------------------------------------

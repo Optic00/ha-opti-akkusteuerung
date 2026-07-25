@@ -28,12 +28,14 @@ def _entity():
 
 def _hass(today, tomorrow=None, cache=None, cache_morgen=None, stand=None,
           now=HEUTE):
-    """cache/stand modellieren den vorherigen this-Snapshot (RestoreEntity)."""
+    """cache/stand modellieren den vorherigen this-Snapshot (RestoreEntity).
+    Wichtig: das Gedaechtnis liegt auf anker_today/anker_tomorrow, NICHT auf der
+    Nutzlast today/tomorrow - genau diese Trennung ist der Kern des Halters."""
     this_attrs = {}
     if cache is not None:
-        this_attrs["today"] = cache
+        this_attrs["anker_today"] = cache
     if cache_morgen is not None:
-        this_attrs["tomorrow"] = cache_morgen
+        this_attrs["anker_tomorrow"] = cache_morgen
     if stand is not None:
         this_attrs["stand"] = stand
     return FakeHass(
@@ -42,6 +44,24 @@ def _hass(today, tomorrow=None, cache=None, cache_morgen=None, stand=None,
         now=now,
         this_attributes=this_attrs,
     )
+
+
+def _tick(quelle_today, quelle_tomorrow=None, vorher=None, now=HEUTE):
+    """Ein Render-Durchlauf. 'vorher' ist das Ergebnis-dict des letzten Ticks,
+    sodass echte Mehr-Tick-Sequenzen gefahren werden koennen - ein Einzeltick
+    verdeckt sonst Fehler, die erst im Folgetick auftreten."""
+    vorher = vorher or {}
+    hass = FakeHass(
+        attrs={"sensor.opti_price_series": {"today": quelle_today,
+                                            "tomorrow": quelle_tomorrow or []}},
+        now=now,
+        this_attributes={k: v for k, v in vorher.items() if k != "state"},
+    )
+    ergebnis = {"state": _state(hass)}
+    for name in ("today", "tomorrow", "anker_today", "anker_tomorrow", "stand",
+                 "gehalten_teil"):
+        ergebnis[name] = _attr(hass, name)
+    return ergebnis
 
 
 def _state(hass):
@@ -288,3 +308,85 @@ def test_gehaltene_reihe_traegt_das_preisniveau():
     )
     assert render(hass, level["availability"]) == "True"
     assert render(hass, level["state"]) == "VERY_EXPENSIVE"
+
+
+# ---------------------------------------------------------------------------
+# Mehr-Tick-Sequenzen (Re-Review-Finding 25.07.2026, dritte Runde).
+# Einzeltick-Tests waren hier false-green: der Fehler lag im FOLGETICK, weil
+# der Zustand 'leer' die Nutzlast today/tomorrow auf [] setzte und damit die
+# Vergleichsanker mit zerstoerte. Dieselbe gestrige Quelle sah dann veraendert
+# aus, wurde gestempelt und war wieder haltbar - die Wache hielt einen Tick.
+# ---------------------------------------------------------------------------
+
+def _vorstand(cache, cache_morgen, stand):
+    return {"anker_today": cache, "anker_tomorrow": cache_morgen,
+            "stand": stand}
+
+
+def test_rollover_bleibt_ueber_mehrere_ticks_zu():
+    """Die gestrige Quelle darf auch nach beliebig vielen Ticks nicht als frisch
+    gestempelt werden - die Anker muessen den Zustand 'leer' ueberleben."""
+    nacht = dt.datetime(2026, 1, 15, 0, 3, tzinfo=TZ)
+    zustand = _vorstand(REIHE, MORGEN_REIHE, GESTERN_STR)
+    for runde in range(4):
+        zustand = _tick(REIHE, [], vorher=zustand, now=nacht)
+        assert zustand["state"] == "leer", f"Tick {runde}"
+        assert zustand["today"] == [], f"Tick {runde}"
+        assert zustand["stand"] == GESTERN_STR, f"Tick {runde}"
+        assert zustand["anker_today"] == REIHE, f"Anker verloren in Tick {runde}"
+        assert zustand["anker_tomorrow"] == MORGEN_REIHE, f"Tick {runde}"
+
+
+def test_rollover_zu_dann_umschaltung_wird_uebernommen():
+    """Gegenprobe: sobald die Quelle wirklich umschaltet (== gestriges tomorrow),
+    greift der Halter nach der Blockade sofort wieder normal."""
+    nacht = dt.datetime(2026, 1, 15, 0, 3, tzinfo=TZ)
+    zustand = _vorstand(REIHE, MORGEN_REIHE, GESTERN_STR)
+    zustand = _tick(REIHE, [], vorher=zustand, now=nacht)
+    assert zustand["state"] == "leer"
+    zustand = _tick(MORGEN_REIHE, [], vorher=zustand, now=nacht)
+    assert zustand["state"] == "frisch"
+    assert zustand["today"] == MORGEN_REIHE
+    assert zustand["stand"] == HEUTE_STR
+    # Das gestrige tomorrow ist jetzt today - der Morgen-Anker muss mitgehen.
+    assert zustand["anker_tomorrow"] == []
+
+
+def test_unsicher_persistiert_auch_ueber_ausfall_und_rueckkehr_nicht():
+    """Der vom Reviewer reproduzierte Pfad: unsicher -> Ausfall -> Quelle kehrt
+    unveraendert zurueck. Ohne erhaltene Anker waere daraus 'frisch' mit Stempel
+    geworden und der naechste Ausfall haette die falsche Reihe gehalten."""
+    spaet = dt.datetime(2026, 1, 15, 7, 0, tzinfo=TZ)
+    zustand = {"anker_today": REIHE, "stand": GESTERN_STR}
+
+    zustand = _tick(REIHE, [], vorher=zustand, now=spaet)
+    assert zustand["state"] == "unsicher"
+    assert zustand["stand"] == GESTERN_STR
+
+    zustand = _tick([], [], vorher=zustand, now=spaet)
+    assert zustand["state"] == "leer"
+    assert zustand["today"] == []
+
+    zustand = _tick(REIHE, [], vorher=zustand, now=spaet)
+    assert zustand["state"] == "unsicher", "darf nicht zu 'frisch' kippen"
+    assert zustand["stand"] == GESTERN_STR, "darf nie haltbar werden"
+
+    zustand = _tick([], [], vorher=zustand, now=spaet)
+    assert zustand["state"] == "leer", "fail-closed statt Persistenz"
+    assert zustand["today"] == []
+
+
+def test_normalbetrieb_ueber_mehrere_ticks():
+    """Gegenprobe zur Blockade-Kette: im Normalbetrieb bleibt alles frisch,
+    ein kurzer Ausfall wird gehalten, danach geht es frisch weiter."""
+    zustand = _tick(REIHE, MORGEN_REIHE)
+    assert zustand["state"] == "frisch"
+    zustand = _tick([], [], vorher=zustand)
+    assert zustand["state"] == "gehalten"
+    assert zustand["gehalten_teil"] == "reihe"
+    assert zustand["today"] == REIHE and zustand["tomorrow"] == MORGEN_REIHE
+    zustand = _tick([], [], vorher=zustand)
+    assert zustand["state"] == "gehalten", "auch der zweite Ausfall-Tick haelt"
+    assert zustand["today"] == REIHE
+    zustand = _tick(REIHE, MORGEN_REIHE, vorher=zustand)
+    assert zustand["state"] == "frisch"

@@ -75,10 +75,12 @@ def _charge_hass_mit_vorschau(states):
 
 
 def _mutant_cfg(old, new):
-    """opti_derived.yaml nach /private/tmp kopieren, Konstante mutieren, laden."""
+    """opti_derived.yaml in eine Temp-Datei kopieren, Konstante mutieren, laden."""
     src = YAML.read_text(encoding="utf-8")
     assert old in src, f"Mutations-Anker {old!r} nicht im Template gefunden"
-    fd, path = tempfile.mkstemp(suffix=".yaml", dir="/private/tmp")
+    # Kein fixes dir=: /private/tmp gibt es nur auf macOS, auf Linux (CI)
+    # schlaegt mkstemp damit fehl. Der Plattform-Default respektiert TMPDIR.
+    fd, path = tempfile.mkstemp(suffix=".yaml")
     os.close(fd)
     p = pathlib.Path(path)
     try:

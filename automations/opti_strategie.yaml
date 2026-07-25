@@ -39,10 +39,12 @@
     #
     # Kein Rueckkopplungs-Problem: setzt die Strategie denselben Wert erneut,
     # aendert sich der State nicht und es feuert kein weiterer Trigger. Aendert
-    # sie ihn wirklich, faellt der Selbsttrigger wegen mode: single in den noch
-    # laufenden Durchgang und wird verworfen (HA protokolliert das) - die
-    # Neubewertung passiert also erst beim naechsten reaktivierenden Ereignis,
-    # nicht sofort.
+    # sie ihn wirklich, folgt eine zusaetzliche Auswertung; faellt der
+    # Selbsttrigger dabei noch in den laufenden Durchgang, verwirft ihn
+    # mode: single und die Neubewertung passiert erst beim naechsten
+    # reaktivierenden Ereignis. Live gemessen 25.07.2026: der Durchgang dauert
+    # ~3 ms, der Selbsttrigger kommt danach - im Log stehen entsprechend keine
+    # "Already running"-Warnungen fuer diese Automation.
     #
     # Das ist unkritisch, weil die modusabhaengigen Hysterese-Baender
     # (Ladedeckel +3, Ziel-SoC +0/+3, L3/L4 +5/+3, Netzlade-Stopband) allesamt

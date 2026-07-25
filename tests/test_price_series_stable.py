@@ -390,3 +390,49 @@ def test_normalbetrieb_ueber_mehrere_ticks():
     assert zustand["today"] == REIHE
     zustand = _tick(REIHE, MORGEN_REIHE, vorher=zustand)
     assert zustand["state"] == "frisch"
+
+
+def test_mehrtaegige_blockade_stempelt_keine_alte_reihe():
+    """Re-Review-Finding 25.07.2026 (vierte Runde): stand=14., Anker fuer 14./15.
+    Die Quelle bleibt am 15. blockiert und schaltet erst am 16. auf die
+    15.-Reihe. Die ist dann einen Tag zu alt - der Rollover-Beweis
+    'Quelle == anker_tomorrow' darf hier NICHT greifen, sonst wird sie als
+    16. gestempelt und beim naechsten Ausfall gehalten."""
+    reihe_14, reihe_15 = REIHE, MORGEN_REIHE
+    zustand = {"anker_today": reihe_14, "anker_tomorrow": reihe_15,
+               "stand": "2026-01-14"}
+
+    # 15.01: Quelle haengt auf der 14.-Reihe -> blockiert, Anker bleiben.
+    am_15 = dt.datetime(2026, 1, 15, 8, 0, tzinfo=TZ)
+    zustand = _tick(reihe_14, [], vorher=zustand, now=am_15)
+    assert zustand["state"] == "leer"
+    assert zustand["stand"] == "2026-01-14"
+
+    # 16.01: Quelle schaltet auf die 15.-Reihe um - einen Tag zu alt.
+    am_16_frueh = dt.datetime(2026, 1, 16, 3, 0, tzinfo=TZ)
+    frueh = _tick(reihe_15, [], vorher=zustand, now=am_16_frueh)
+    assert frueh["state"] == "leer"
+    assert frueh["today"] == []
+    assert frueh["stand"] == "2026-01-14"
+
+    am_16_spaet = dt.datetime(2026, 1, 16, 9, 0, tzinfo=TZ)
+    spaet = _tick(reihe_15, [], vorher=zustand, now=am_16_spaet)
+    assert spaet["state"] == "unsicher", "ausliefern ja, stempeln nein"
+    assert spaet["stand"] == "2026-01-14", "darf nicht haltbar werden"
+
+    # Und der Folgeausfall darf die Reihe nicht halten.
+    danach = _tick([], [], vorher=spaet, now=am_16_spaet)
+    assert danach["state"] == "leer"
+    assert danach["today"] == []
+
+
+def test_eintaegiger_rollover_bleibt_beweisbar():
+    """Gegenprobe zur Altersbedingung: der normale Tageswechsel (Anker genau
+    einen Tag alt) muss weiterhin sofort als umgeschaltet erkannt werden."""
+    zustand = {"anker_today": REIHE, "anker_tomorrow": MORGEN_REIHE,
+               "stand": GESTERN_STR}
+    ergebnis = _tick(MORGEN_REIHE, [], vorher=zustand,
+                     now=dt.datetime(2026, 1, 15, 0, 1, tzinfo=TZ))
+    assert ergebnis["state"] == "frisch"
+    assert ergebnis["today"] == MORGEN_REIHE
+    assert ergebnis["stand"] == HEUTE_STR

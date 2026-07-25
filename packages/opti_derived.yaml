@@ -977,29 +977,44 @@ template:
              and (a_t | select('number') | list | length) >= 4 %}
           {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
           {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-          {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
-             heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
-             tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
-             gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
-             gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
-             == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
-             die richtigen.
+          {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik. Beide Anker haben ein BEKANNTES
+             Datum: anker_today gehoert zu 'stand', anker_tomorrow zu 'stand' + 1 Tag.
+             Daraus folgt direkt, welche Quellliste NICHT die heutige sein kann.
+             Der positive Beweis "Quelle == anker_tomorrow" gilt nur, wenn der Anker
+             GENAU EINEN TAG alt ist (stand == gestern) - dann ist anker_tomorrow per
+             Definition die heutige Reihe. Ohne diese Altersbedingung liesse sich eine
+             mehrtaegige Blockade missbrauchen: stand=14., Anker fuer 14./15., die Quelle
+             bleibt am 15. blockiert und schaltet erst am 16. auf die 15.-Reihe - die
+             waere dann einen Tag zu alt und wuerde als 16. gestempelt
+             (Re-Review-Finding 25.07.2026, vierte Runde).
+             Der Flattarif-Fall loest sich weiterhin selbst: am normalen Tageswechsel ist
+             stand == gestern, der Beweis greift, und identische Werte sind ohnehin die
+             richtigen.
              Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
-             zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
-             wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
-             Persistenz - die sichere Richtung. #}
+             zufaellig einem alten Anker entspricht, wird als 'nicht umgeschaltet'
+             gelesen. Folge ist fail-closed, nicht falsche Persistenz - die sichere
+             Richtung. #}
+          {% set gestern = (now() - timedelta(days=1)).strftime('%Y-%m-%d') %}
           {% set tag_offen = stand is not none and stand != heute %}
+          {% set anker_gestern = stand == gestern %}
           {% set gleich_heute = t_liste is not none and a_t is not none
              and t_liste == (a_t | list) %}
           {% set gleich_morgen = t_liste is not none and a_m_ok
              and t_liste == (a_m | list) %}
-          {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
-          {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
-             aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
-             anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
-             bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
-             nicht doch noch in 'frisch'. #}
-          {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
+          {# Die Quelle zeigt eine Liste, deren Datum wir kennen und das nicht heute ist. #}
+          {% set ist_alte_reihe = (gleich_heute and tag_offen)
+             or (gleich_morgen and not anker_gestern) %}
+          {% set beweis_heute = gleich_morgen and anker_gestern %}
+          {% set nicht_umgeschaltet = tag_offen and ist_alte_reihe and not beweis_heute %}
+          {# Unentscheidbar: kein tragfaehiger Beweis, weil der Anker entweder kein
+             'tomorrow' hat oder aelter als einen Tag ist. Dann ab 06:00 ausliefern, aber
+             OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein anschliessender
+             Ausfall endet fail-closed. Weil die Anker erhalten bleiben, bleibt dieser
+             Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt nicht doch in
+             'frisch'. Ist der Anker genau einen Tag alt UND hat ein 'tomorrow', ist der
+             Fall entscheidbar - dann bleibt es bewusst zu, bis die Quelle umschaltet. #}
+          {% set notausgang = nicht_umgeschaltet and now().hour >= 6
+             and (not a_m_ok or not anker_gestern) %}
           {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
           {% set stempeln = frisch and not notausgang %}
           {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
@@ -1034,29 +1049,44 @@ template:
                and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
             {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
-               heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
-               tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
-               gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
-               gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
-               == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
-               die richtigen.
+            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik. Beide Anker haben ein BEKANNTES
+               Datum: anker_today gehoert zu 'stand', anker_tomorrow zu 'stand' + 1 Tag.
+               Daraus folgt direkt, welche Quellliste NICHT die heutige sein kann.
+               Der positive Beweis "Quelle == anker_tomorrow" gilt nur, wenn der Anker
+               GENAU EINEN TAG alt ist (stand == gestern) - dann ist anker_tomorrow per
+               Definition die heutige Reihe. Ohne diese Altersbedingung liesse sich eine
+               mehrtaegige Blockade missbrauchen: stand=14., Anker fuer 14./15., die Quelle
+               bleibt am 15. blockiert und schaltet erst am 16. auf die 15.-Reihe - die
+               waere dann einen Tag zu alt und wuerde als 16. gestempelt
+               (Re-Review-Finding 25.07.2026, vierte Runde).
+               Der Flattarif-Fall loest sich weiterhin selbst: am normalen Tageswechsel ist
+               stand == gestern, der Beweis greift, und identische Werte sind ohnehin die
+               richtigen.
                Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
-               zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
-               wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
-               Persistenz - die sichere Richtung. #}
+               zufaellig einem alten Anker entspricht, wird als 'nicht umgeschaltet'
+               gelesen. Folge ist fail-closed, nicht falsche Persistenz - die sichere
+               Richtung. #}
+            {% set gestern = (now() - timedelta(days=1)).strftime('%Y-%m-%d') %}
             {% set tag_offen = stand is not none and stand != heute %}
+            {% set anker_gestern = stand == gestern %}
             {% set gleich_heute = t_liste is not none and a_t is not none
                and t_liste == (a_t | list) %}
             {% set gleich_morgen = t_liste is not none and a_m_ok
                and t_liste == (a_m | list) %}
-            {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
-            {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
-               aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
-               anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
-               bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
-               nicht doch noch in 'frisch'. #}
-            {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
+            {# Die Quelle zeigt eine Liste, deren Datum wir kennen und das nicht heute ist. #}
+            {% set ist_alte_reihe = (gleich_heute and tag_offen)
+               or (gleich_morgen and not anker_gestern) %}
+            {% set beweis_heute = gleich_morgen and anker_gestern %}
+            {% set nicht_umgeschaltet = tag_offen and ist_alte_reihe and not beweis_heute %}
+            {# Unentscheidbar: kein tragfaehiger Beweis, weil der Anker entweder kein
+               'tomorrow' hat oder aelter als einen Tag ist. Dann ab 06:00 ausliefern, aber
+               OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein anschliessender
+               Ausfall endet fail-closed. Weil die Anker erhalten bleiben, bleibt dieser
+               Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt nicht doch in
+               'frisch'. Ist der Anker genau einen Tag alt UND hat ein 'tomorrow', ist der
+               Fall entscheidbar - dann bleibt es bewusst zu, bis die Quelle umschaltet. #}
+            {% set notausgang = nicht_umgeschaltet and now().hour >= 6
+               and (not a_m_ok or not anker_gestern) %}
             {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
             {% set stempeln = frisch and not notausgang %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
@@ -1088,29 +1118,44 @@ template:
                and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
             {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
-               heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
-               tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
-               gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
-               gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
-               == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
-               die richtigen.
+            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik. Beide Anker haben ein BEKANNTES
+               Datum: anker_today gehoert zu 'stand', anker_tomorrow zu 'stand' + 1 Tag.
+               Daraus folgt direkt, welche Quellliste NICHT die heutige sein kann.
+               Der positive Beweis "Quelle == anker_tomorrow" gilt nur, wenn der Anker
+               GENAU EINEN TAG alt ist (stand == gestern) - dann ist anker_tomorrow per
+               Definition die heutige Reihe. Ohne diese Altersbedingung liesse sich eine
+               mehrtaegige Blockade missbrauchen: stand=14., Anker fuer 14./15., die Quelle
+               bleibt am 15. blockiert und schaltet erst am 16. auf die 15.-Reihe - die
+               waere dann einen Tag zu alt und wuerde als 16. gestempelt
+               (Re-Review-Finding 25.07.2026, vierte Runde).
+               Der Flattarif-Fall loest sich weiterhin selbst: am normalen Tageswechsel ist
+               stand == gestern, der Beweis greift, und identische Werte sind ohnehin die
+               richtigen.
                Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
-               zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
-               wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
-               Persistenz - die sichere Richtung. #}
+               zufaellig einem alten Anker entspricht, wird als 'nicht umgeschaltet'
+               gelesen. Folge ist fail-closed, nicht falsche Persistenz - die sichere
+               Richtung. #}
+            {% set gestern = (now() - timedelta(days=1)).strftime('%Y-%m-%d') %}
             {% set tag_offen = stand is not none and stand != heute %}
+            {% set anker_gestern = stand == gestern %}
             {% set gleich_heute = t_liste is not none and a_t is not none
                and t_liste == (a_t | list) %}
             {% set gleich_morgen = t_liste is not none and a_m_ok
                and t_liste == (a_m | list) %}
-            {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
-            {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
-               aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
-               anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
-               bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
-               nicht doch noch in 'frisch'. #}
-            {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
+            {# Die Quelle zeigt eine Liste, deren Datum wir kennen und das nicht heute ist. #}
+            {% set ist_alte_reihe = (gleich_heute and tag_offen)
+               or (gleich_morgen and not anker_gestern) %}
+            {% set beweis_heute = gleich_morgen and anker_gestern %}
+            {% set nicht_umgeschaltet = tag_offen and ist_alte_reihe and not beweis_heute %}
+            {# Unentscheidbar: kein tragfaehiger Beweis, weil der Anker entweder kein
+               'tomorrow' hat oder aelter als einen Tag ist. Dann ab 06:00 ausliefern, aber
+               OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein anschliessender
+               Ausfall endet fail-closed. Weil die Anker erhalten bleiben, bleibt dieser
+               Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt nicht doch in
+               'frisch'. Ist der Anker genau einen Tag alt UND hat ein 'tomorrow', ist der
+               Fall entscheidbar - dann bleibt es bewusst zu, bis die Quelle umschaltet. #}
+            {% set notausgang = nicht_umgeschaltet and now().hour >= 6
+               and (not a_m_ok or not anker_gestern) %}
             {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
             {% set stempeln = frisch and not notausgang %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
@@ -1151,29 +1196,44 @@ template:
                and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
             {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
-               heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
-               tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
-               gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
-               gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
-               == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
-               die richtigen.
+            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik. Beide Anker haben ein BEKANNTES
+               Datum: anker_today gehoert zu 'stand', anker_tomorrow zu 'stand' + 1 Tag.
+               Daraus folgt direkt, welche Quellliste NICHT die heutige sein kann.
+               Der positive Beweis "Quelle == anker_tomorrow" gilt nur, wenn der Anker
+               GENAU EINEN TAG alt ist (stand == gestern) - dann ist anker_tomorrow per
+               Definition die heutige Reihe. Ohne diese Altersbedingung liesse sich eine
+               mehrtaegige Blockade missbrauchen: stand=14., Anker fuer 14./15., die Quelle
+               bleibt am 15. blockiert und schaltet erst am 16. auf die 15.-Reihe - die
+               waere dann einen Tag zu alt und wuerde als 16. gestempelt
+               (Re-Review-Finding 25.07.2026, vierte Runde).
+               Der Flattarif-Fall loest sich weiterhin selbst: am normalen Tageswechsel ist
+               stand == gestern, der Beweis greift, und identische Werte sind ohnehin die
+               richtigen.
                Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
-               zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
-               wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
-               Persistenz - die sichere Richtung. #}
+               zufaellig einem alten Anker entspricht, wird als 'nicht umgeschaltet'
+               gelesen. Folge ist fail-closed, nicht falsche Persistenz - die sichere
+               Richtung. #}
+            {% set gestern = (now() - timedelta(days=1)).strftime('%Y-%m-%d') %}
             {% set tag_offen = stand is not none and stand != heute %}
+            {% set anker_gestern = stand == gestern %}
             {% set gleich_heute = t_liste is not none and a_t is not none
                and t_liste == (a_t | list) %}
             {% set gleich_morgen = t_liste is not none and a_m_ok
                and t_liste == (a_m | list) %}
-            {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
-            {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
-               aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
-               anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
-               bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
-               nicht doch noch in 'frisch'. #}
-            {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
+            {# Die Quelle zeigt eine Liste, deren Datum wir kennen und das nicht heute ist. #}
+            {% set ist_alte_reihe = (gleich_heute and tag_offen)
+               or (gleich_morgen and not anker_gestern) %}
+            {% set beweis_heute = gleich_morgen and anker_gestern %}
+            {% set nicht_umgeschaltet = tag_offen and ist_alte_reihe and not beweis_heute %}
+            {# Unentscheidbar: kein tragfaehiger Beweis, weil der Anker entweder kein
+               'tomorrow' hat oder aelter als einen Tag ist. Dann ab 06:00 ausliefern, aber
+               OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein anschliessender
+               Ausfall endet fail-closed. Weil die Anker erhalten bleiben, bleibt dieser
+               Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt nicht doch in
+               'frisch'. Ist der Anker genau einen Tag alt UND hat ein 'tomorrow', ist der
+               Fall entscheidbar - dann bleibt es bewusst zu, bis die Quelle umschaltet. #}
+            {% set notausgang = nicht_umgeschaltet and now().hour >= 6
+               and (not a_m_ok or not anker_gestern) %}
             {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
             {% set stempeln = frisch and not notausgang %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
@@ -1205,29 +1265,44 @@ template:
                and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
             {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
-               heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
-               tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
-               gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
-               gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
-               == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
-               die richtigen.
+            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik. Beide Anker haben ein BEKANNTES
+               Datum: anker_today gehoert zu 'stand', anker_tomorrow zu 'stand' + 1 Tag.
+               Daraus folgt direkt, welche Quellliste NICHT die heutige sein kann.
+               Der positive Beweis "Quelle == anker_tomorrow" gilt nur, wenn der Anker
+               GENAU EINEN TAG alt ist (stand == gestern) - dann ist anker_tomorrow per
+               Definition die heutige Reihe. Ohne diese Altersbedingung liesse sich eine
+               mehrtaegige Blockade missbrauchen: stand=14., Anker fuer 14./15., die Quelle
+               bleibt am 15. blockiert und schaltet erst am 16. auf die 15.-Reihe - die
+               waere dann einen Tag zu alt und wuerde als 16. gestempelt
+               (Re-Review-Finding 25.07.2026, vierte Runde).
+               Der Flattarif-Fall loest sich weiterhin selbst: am normalen Tageswechsel ist
+               stand == gestern, der Beweis greift, und identische Werte sind ohnehin die
+               richtigen.
                Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
-               zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
-               wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
-               Persistenz - die sichere Richtung. #}
+               zufaellig einem alten Anker entspricht, wird als 'nicht umgeschaltet'
+               gelesen. Folge ist fail-closed, nicht falsche Persistenz - die sichere
+               Richtung. #}
+            {% set gestern = (now() - timedelta(days=1)).strftime('%Y-%m-%d') %}
             {% set tag_offen = stand is not none and stand != heute %}
+            {% set anker_gestern = stand == gestern %}
             {% set gleich_heute = t_liste is not none and a_t is not none
                and t_liste == (a_t | list) %}
             {% set gleich_morgen = t_liste is not none and a_m_ok
                and t_liste == (a_m | list) %}
-            {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
-            {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
-               aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
-               anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
-               bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
-               nicht doch noch in 'frisch'. #}
-            {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
+            {# Die Quelle zeigt eine Liste, deren Datum wir kennen und das nicht heute ist. #}
+            {% set ist_alte_reihe = (gleich_heute and tag_offen)
+               or (gleich_morgen and not anker_gestern) %}
+            {% set beweis_heute = gleich_morgen and anker_gestern %}
+            {% set nicht_umgeschaltet = tag_offen and ist_alte_reihe and not beweis_heute %}
+            {# Unentscheidbar: kein tragfaehiger Beweis, weil der Anker entweder kein
+               'tomorrow' hat oder aelter als einen Tag ist. Dann ab 06:00 ausliefern, aber
+               OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein anschliessender
+               Ausfall endet fail-closed. Weil die Anker erhalten bleiben, bleibt dieser
+               Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt nicht doch in
+               'frisch'. Ist der Anker genau einen Tag alt UND hat ein 'tomorrow', ist der
+               Fall entscheidbar - dann bleibt es bewusst zu, bis die Quelle umschaltet. #}
+            {% set notausgang = nicht_umgeschaltet and now().hour >= 6
+               and (not a_m_ok or not anker_gestern) %}
             {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
             {% set stempeln = frisch and not notausgang %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
@@ -1266,29 +1341,44 @@ template:
                and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
             {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
-               heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
-               tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
-               gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
-               gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
-               == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
-               die richtigen.
+            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik. Beide Anker haben ein BEKANNTES
+               Datum: anker_today gehoert zu 'stand', anker_tomorrow zu 'stand' + 1 Tag.
+               Daraus folgt direkt, welche Quellliste NICHT die heutige sein kann.
+               Der positive Beweis "Quelle == anker_tomorrow" gilt nur, wenn der Anker
+               GENAU EINEN TAG alt ist (stand == gestern) - dann ist anker_tomorrow per
+               Definition die heutige Reihe. Ohne diese Altersbedingung liesse sich eine
+               mehrtaegige Blockade missbrauchen: stand=14., Anker fuer 14./15., die Quelle
+               bleibt am 15. blockiert und schaltet erst am 16. auf die 15.-Reihe - die
+               waere dann einen Tag zu alt und wuerde als 16. gestempelt
+               (Re-Review-Finding 25.07.2026, vierte Runde).
+               Der Flattarif-Fall loest sich weiterhin selbst: am normalen Tageswechsel ist
+               stand == gestern, der Beweis greift, und identische Werte sind ohnehin die
+               richtigen.
                Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
-               zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
-               wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
-               Persistenz - die sichere Richtung. #}
+               zufaellig einem alten Anker entspricht, wird als 'nicht umgeschaltet'
+               gelesen. Folge ist fail-closed, nicht falsche Persistenz - die sichere
+               Richtung. #}
+            {% set gestern = (now() - timedelta(days=1)).strftime('%Y-%m-%d') %}
             {% set tag_offen = stand is not none and stand != heute %}
+            {% set anker_gestern = stand == gestern %}
             {% set gleich_heute = t_liste is not none and a_t is not none
                and t_liste == (a_t | list) %}
             {% set gleich_morgen = t_liste is not none and a_m_ok
                and t_liste == (a_m | list) %}
-            {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
-            {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
-               aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
-               anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
-               bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
-               nicht doch noch in 'frisch'. #}
-            {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
+            {# Die Quelle zeigt eine Liste, deren Datum wir kennen und das nicht heute ist. #}
+            {% set ist_alte_reihe = (gleich_heute and tag_offen)
+               or (gleich_morgen and not anker_gestern) %}
+            {% set beweis_heute = gleich_morgen and anker_gestern %}
+            {% set nicht_umgeschaltet = tag_offen and ist_alte_reihe and not beweis_heute %}
+            {# Unentscheidbar: kein tragfaehiger Beweis, weil der Anker entweder kein
+               'tomorrow' hat oder aelter als einen Tag ist. Dann ab 06:00 ausliefern, aber
+               OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein anschliessender
+               Ausfall endet fail-closed. Weil die Anker erhalten bleiben, bleibt dieser
+               Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt nicht doch in
+               'frisch'. Ist der Anker genau einen Tag alt UND hat ein 'tomorrow', ist der
+               Fall entscheidbar - dann bleibt es bewusst zu, bis die Quelle umschaltet. #}
+            {% set notausgang = nicht_umgeschaltet and now().hour >= 6
+               and (not a_m_ok or not anker_gestern) %}
             {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
             {% set stempeln = frisch and not notausgang %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)
@@ -1322,29 +1412,44 @@ template:
                and (a_t | select('number') | list | length) >= 4 %}
             {% set m_ok = m is iterable and m is not string and (m | list | length) > 0 %}
             {% set a_m_ok = a_m is iterable and a_m is not string and (a_m | list | length) > 0 %}
-            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik: das gestrige 'tomorrow' SIND die
-               heutigen Preise. Gilt (Quelle == gestriges today) UND (Quelle != gestriges
-               tomorrow), hat die Quelle noch nicht umgeschaltet -> fail-closed, damit die
-               gestrigen Preise nicht auf den neuen Tag umdatiert und danach den ganzen Tag
-               gehalten werden. Der Flattarif-Fall loest sich selbst: dann ist die Quelle
-               == gestriges tomorrow, also umgeschaltet, und identische Werte sind ohnehin
-               die richtigen.
+            {# ROLLOVER-ERKENNUNG ohne Uhrzeit-Heuristik. Beide Anker haben ein BEKANNTES
+               Datum: anker_today gehoert zu 'stand', anker_tomorrow zu 'stand' + 1 Tag.
+               Daraus folgt direkt, welche Quellliste NICHT die heutige sein kann.
+               Der positive Beweis "Quelle == anker_tomorrow" gilt nur, wenn der Anker
+               GENAU EINEN TAG alt ist (stand == gestern) - dann ist anker_tomorrow per
+               Definition die heutige Reihe. Ohne diese Altersbedingung liesse sich eine
+               mehrtaegige Blockade missbrauchen: stand=14., Anker fuer 14./15., die Quelle
+               bleibt am 15. blockiert und schaltet erst am 16. auf die 15.-Reihe - die
+               waere dann einen Tag zu alt und wuerde als 16. gestempelt
+               (Re-Review-Finding 25.07.2026, vierte Runde).
+               Der Flattarif-Fall loest sich weiterhin selbst: am normalen Tageswechsel ist
+               stand == gestern, der Beweis greift, und identische Werte sind ohnehin die
+               richtigen.
                Akzeptierte Restgrenze: eine nachtraeglich revidierte heutige Reihe, die
-               zufaellig dem gestrigen today und nicht dem gestrigen tomorrow entspricht,
-               wird als 'nicht umgeschaltet' gelesen. Folge ist fail-closed, nicht falsche
-               Persistenz - die sichere Richtung. #}
+               zufaellig einem alten Anker entspricht, wird als 'nicht umgeschaltet'
+               gelesen. Folge ist fail-closed, nicht falsche Persistenz - die sichere
+               Richtung. #}
+            {% set gestern = (now() - timedelta(days=1)).strftime('%Y-%m-%d') %}
             {% set tag_offen = stand is not none and stand != heute %}
+            {% set anker_gestern = stand == gestern %}
             {% set gleich_heute = t_liste is not none and a_t is not none
                and t_liste == (a_t | list) %}
             {% set gleich_morgen = t_liste is not none and a_m_ok
                and t_liste == (a_m | list) %}
-            {% set nicht_umgeschaltet = tag_offen and gleich_heute and not gleich_morgen %}
-            {# Unentscheidbar: kein gestriges 'tomorrow' als Anker. Ab 06:00 ausliefern,
-               aber OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein
-               anschliessender Ausfall endet fail-closed. Weil die Anker erhalten bleiben,
-               bleibt dieser Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt
-               nicht doch noch in 'frisch'. #}
-            {% set notausgang = nicht_umgeschaltet and not a_m_ok and now().hour >= 6 %}
+            {# Die Quelle zeigt eine Liste, deren Datum wir kennen und das nicht heute ist. #}
+            {% set ist_alte_reihe = (gleich_heute and tag_offen)
+               or (gleich_morgen and not anker_gestern) %}
+            {% set beweis_heute = gleich_morgen and anker_gestern %}
+            {% set nicht_umgeschaltet = tag_offen and ist_alte_reihe and not beweis_heute %}
+            {# Unentscheidbar: kein tragfaehiger Beweis, weil der Anker entweder kein
+               'tomorrow' hat oder aelter als einen Tag ist. Dann ab 06:00 ausliefern, aber
+               OHNE Stempel - ohne Stempel keine Halte-Berechtigung, ein anschliessender
+               Ausfall endet fail-closed. Weil die Anker erhalten bleiben, bleibt dieser
+               Zustand auch ueber beliebig viele Ticks 'unsicher' und kippt nicht doch in
+               'frisch'. Ist der Anker genau einen Tag alt UND hat ein 'tomorrow', ist der
+               Fall entscheidbar - dann bleibt es bewusst zu, bis die Quelle umschaltet. #}
+            {% set notausgang = nicht_umgeschaltet and now().hour >= 6
+               and (not a_m_ok or not anker_gestern) %}
             {% set frisch = t_ok and (not nicht_umgeschaltet or notausgang) %}
             {% set stempeln = frisch and not notausgang %}
             {# Zwei Haltefaelle, wechselseitig ausschliessend: die GANZE Reihe (today weg)

@@ -200,7 +200,7 @@ Ohne die läuft die Strategie gar nicht (siehe [Fail-safe-Verhalten](#testfälle
 
 ### Was automatisch wegfällt
 
-Fehlt `opti_price_current_ct_kwh`, wird `sensor.opti_price_level` über seinen Availability-Check `unavailable` (siehe [Abgeleitete Sensoren](#abgeleitete-sensoren-opti_derivedyaml)).
+Fehlt `opti_price_current_ct_kwh` **oder** die Preisreihe (< 4 verwertbare Werte, ohne Halter-Cache vom heutigen Tag), wird `sensor.opti_price_level` über seinen Availability-Check `unavailable` (siehe [Abgeleitete Sensoren](#abgeleitete-sensoren-opti_derivedyaml)).
 Damit greift **kein** Ladeblock mehr, der ein Preisniveau prüft:
 
 - **Preis- und Winter-Ladeblöcke** (Entladesperre „Akku nur Laden" nach Preisniveau `VERY_CHEAP`/`CHEAP`/…): inaktiv, weil `opti_price_level` `unavailable` ist.
@@ -385,7 +385,8 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 | `sensor.opti_forecast_effective_remaining_kwh` | Effektive Rest-Prognose (kWh): Blend aus Median und P10 über `input_number.opti_forecast_optimismus` (0–100 %, Default 0 = `min(median, P10)`). Einzige Quelle für Score und Ziel-SoC. |
 | `sensor.opti_target_soc` | Ziel-SoC (%) basierend auf Restprognose und geglättetem Hausverbrauch |
 | `sensor.opti_charge_power_w` | Dynamische Ladestärke (W) nach SoC-Stufe und Forecast-Score |
-| `sensor.opti_price_level` | Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE); Midrank-Perzentil (Gleichstände zählen halb) - flache Preistage (viele identische Werte) landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE |
+| `sensor.opti_price_series_stable` | Preisreihen-Halter (trigger-basiert): spiegelt `today`/`tomorrow` aus `opti_price_series` und hält bei einem Quellausfall die letzte gültige Reihe **desselben Kalendertags**. State = `frisch` / `gehalten` / `leer`. Einzige Preisreihen-Quelle für Preisniveau und Peak-Reserve |
+| `sensor.opti_price_level` | Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE); Midrank-Perzentil (Gleichstände zählen halb) - flache Preistage (viele identische Werte) landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE. Fail-closed: < 4 verwertbare Preise → `unavailable` |
 | `sensor.opti_mindestentladepreis_ct_kwh` | Mindestentladepreis = Ladepreis + Preisdifferenz (ct/kWh) |
 | `sensor.opti_runtime_h` | Geschätzte Akku-Restlaufzeit (Stunden) |
 | `binary_sensor.opti_winter_charging_allowed` | Saisonales Lade-Gate (Standard: `true`, fail-open) |
@@ -433,7 +434,8 @@ Details: `docs/superpowers/specs/2026-07-10-ki-analyse-schicht-design.md` (lokal
 | **Tagsüber unter Ziel-SoC** | SoC < `opti_target_soc` **− 3 %**, nach Sonnenaufgang | **Akku Dynamisch** | Option „Dynamisch laden wenn SOC < ZielSoC"; das ±3 %-Band verhindert Modus-Pendeln direkt an der Ziel-Kante — siehe [strategie-logik.md](strategie-logik.md#der-intelligente-ziel-soc--herzstück-der-akkuschonung) |
 | **Entladen über Ziel-SoC** | SoC > `opti_target_soc` **+ 3 %** | **Akku nur Entladen** | Option „Nur Entladen wenn SOC > DynZielSoC" |
 | **MinSOC-Schutz** | SoC < `input_number.minsoc` | **Akku nur Laden** | Höchste Priorität, überstimmt alle anderen Blöcke |
-| **Preis-morgen fehlt** | `opti_price_series`-Attribut `tomorrow` leer / < 4 Gesamtwerte | Preisniveau bleibt **NORMAL** | Fail-safe: `< 4 Preise gesamt → NORMAL`. `sensor.opti_peak_reserve_soc` wird bei < 4 Preisen `unavailable` (Peak-Leiter L1-L4 komplett inaktiv) - bewusst anders als der NORMAL-Fallback des Preisniveaus, siehe [strategie-logik.md](strategie-logik.md#fail-safes-und-bekannte-grenzen) |
+| **Preisreihe fällt kurz aus** | Quelle liefert `today`/`tomorrow` leer (z. B. Provider-Timeout) | `sensor.opti_price_series_stable` **hält** die letzte gültige Reihe desselben Kalendertags (State `gehalten`); Preisniveau und Peak-Leiter arbeiten unverändert weiter | Zulässig, weil die Tagesreihe ein Fahrplan ist und sich innerhalb des Tages nicht ändert - siehe [strategie-logik.md](strategie-logik.md#fail-safes-und-bekannte-grenzen) |
+| **Preisreihe fehlt ganz** | < 4 verwertbare Werte und kein Halter-Cache vom heutigen Tag (auch: Ausfall über Mitternacht) | Preisniveau wird **`unavailable`**, `sensor.opti_peak_reserve_soc` ebenfalls | Fail-closed: alle preisabhängigen Zweige (Preis-/Winterladeblöcke, Peak-Leiter L1-L4) sind inaktiv. Kein `NORMAL`-Fallback mehr - der täuschte der Strategie bei einem Datenausfall ein gültiges Mittelpreis-Signal vor |
 | **Forecast fehlt** | `opti_forecast_remaining_today_kwh` → `unavailable` | Prognose-Blöcke inaktiv; MinSOC-Schutz und Cleanup laufen weiter | Default → **Akku Dynamisch** (nur wenn `opti_soc` + `opti_battery_capacity_kwh` verfügbar) |
 | **Voller Akku** | SoC > 99 % | **Akku Dynamisch**; Lade-Booster (Legacy) wird deaktiviert | Option „Bei vollem Akku auf Dynamisch" + Cleanup-Block |
 | **Balancing fällig, tagsüber** | `counter.tage_seit_akku100` ≥ `opti_balancing_intervall_tage`, Tag | **Akku nur Laden** | `sensor.opti_balancing_watchdog` = `pv`; bleibt bis zum bestätigten Abschluss aktiv und steht hinter der Peak-Leiter L1/L2, vor den Prognoseblöcken — siehe [strategie-logik.md](strategie-logik.md#balancing-deep-charge-watchdog) |

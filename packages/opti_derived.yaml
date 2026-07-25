@@ -478,19 +478,55 @@ template:
       # -----------------------------------------------------------------------
       # 5. Preisniveau (Enum) — übersetzt aus strompreis_niveau
       #    (SMA-Templates Z.362-423). Perzentil-Bänder unverändert, aber Midrank-Zählung (Gleichstände halb) statt select('le') - Fix für flache Preistage.
-      #    current → opti_price_current_ct_kwh; Reihe → opti_price_series today/tomorrow
-      #    (bereits ct/kWh-Listen). <4 Werte → NORMAL.
+      #    current → opti_price_current_ct_kwh; Reihe → opti_price_series_stable
+      #    today/tomorrow (bereits ct/kWh-Listen; der Halter aus Abschnitt 8b
+      #    ueberbrueckt kurze Quellausfaelle).
+      #
+      #    Fail-safe: < 4 verwertbare Preise -> unavailable (NICHT mehr NORMAL).
+      #    Grund (Live-Befund 23./24.07.2026): faellt die Preisreihen-Quelle aus
+      #    (Tibber-REST-Timeout, im Log als DNS-Timeout), lieferte der alte
+      #    NORMAL-Fallback der Strategie ein gueltig aussehendes Mittelpreis-
+      #    Signal. Die Peak-Leiter L1 (price_level == VERY_EXPENSIVE) fiel damit
+      #    durch, der Default-Zweig setzte 'Akku Dynamisch', und beim naechsten
+      #    erfolgreichen Poll sprang der Modus zurueck - ~15 solcher Episoden in
+      #    7 Tagen, teils mit 20-40 s Verweildauer. Umgekehrt konnten NORMAL-
+      #    gegatete Ladebloecke bei voellig unbekanntem Preis scharf werden.
+      #    Damit ist dieser Sensor jetzt genauso fail-closed wie die
+      #    Peak-Reserve (s. Abschnitt 9), deren Kommentar diese Asymmetrie
+      #    bereits als bewusste Abweichung benannte.
+      #
+      #    Alle Konsumenten pruefen price_level ausschliesslich per positivem
+      #    Vergleich (condition: state / 'price in [...]'), deshalb entzieht
+      #    'unavailable' die Zweig-Berechtigung statt eine neue zu erzeugen.
       # -----------------------------------------------------------------------
       - unique_id: opti_price_level
         name: "Opti Price Level"
         icon: mdi:cash-clock
+        # Zaehlt die verwertbaren Preise mit derselben Parse-Logik wie state:
+        # ein leeres/kaputtes today+tomorrow macht den Sensor unavailable.
         availability: >
-          {{ has_value('sensor.opti_price_current_ct_kwh') }}
+          {% set ns = namespace(c=0) %}
+          {% for key in ['today', 'tomorrow'] %}
+            {% set arr = state_attr('sensor.opti_price_series_stable', key) %}
+            {% if arr is iterable and arr is not string %}
+              {% for it in arr %}
+                {% if it is mapping %}
+                  {% set p = it.get('total', it.get('price', it.get('value'))) %}
+                {% else %}
+                  {% set p = it %}
+                {% endif %}
+                {% if (p | float(none)) is not none %}
+                  {% set ns.c = ns.c + 1 %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+          {{ has_value('sensor.opti_price_current_ct_kwh') and ns.c >= 4 }}
         state: >
           {% set current = states('sensor.opti_price_current_ct_kwh') | float(0) %}
           {% set ns = namespace(prices=[]) %}
           {% for key in ['today', 'tomorrow'] %}
-            {% set arr = state_attr('sensor.opti_price_series', key) %}
+            {% set arr = state_attr('sensor.opti_price_series_stable', key) %}
             {% if arr is iterable and arr is not string %}
               {% for it in arr %}
                 {% if it is mapping %}
@@ -520,14 +556,18 @@ template:
             {% endif %}
             {{ level }}
           {% else %}
-            NORMAL
+            {# Zweite Verteidigungslinie zur availability oben: auch wenn dieses
+               Gate mal wegfaellt, darf eine leere Preisreihe kein Preisniveau
+               erfinden. HA setzt den Sensor bei diesem Renderergebnis
+               unavailable. #}
+            unavailable
           {% endif %}
         attributes:
           perzentil: >
             {% set current = states('sensor.opti_price_current_ct_kwh') | float(0) %}
             {% set ns = namespace(prices=[]) %}
             {% for key in ['today', 'tomorrow'] %}
-              {% set arr = state_attr('sensor.opti_price_series', key) %}
+              {% set arr = state_attr('sensor.opti_price_series_stable', key) %}
               {% if arr is iterable and arr is not string %}
                 {% for it in arr %}
                   {% if it is mapping %}{% set p = it.get('total', it.get('price', it.get('value'))) %}{% else %}{% set p = it %}{% endif %}
@@ -542,7 +582,7 @@ template:
           anzahl_preise: >
             {% set ns = namespace(c=0) %}
             {% for key in ['today', 'tomorrow'] %}
-              {% set arr = state_attr('sensor.opti_price_series', key) %}
+              {% set arr = state_attr('sensor.opti_price_series_stable', key) %}
               {% if arr is iterable and arr is not string %}{% set ns.c = ns.c + (arr | list | length) %}{% endif %}
             {% endfor %}
             {{ ns.c }}
@@ -860,8 +900,104 @@ template:
           annahme: "Toggles opti_prognose_netzladen/opti_pv_ueberschuss_ladung existieren live, aktueller Zustand: prognose={{ states('input_boolean.opti_prognose_netzladen') }}, ueberschuss={{ states('input_boolean.opti_pv_ueberschuss_ladung') }}"
 
   # ---------------------------------------------------------------------------
+  # 8b. Preisreihen-Halter (trigger-basiert): letzte gueltige Tagesreihe.
+  #
+  #    WARUM (Live-Befund 23./24.07.2026): faellt der Preisreihen-Anbieter kurz
+  #    aus (Tibber-REST, im Log als DNS-Timeout), verlieren die Quell-Attribute
+  #    today/tomorrow ihren Inhalt. Beide Konsumenten brachen daraufhin
+  #    gleichzeitig weg: opti_price_level lieferte NORMAL (jetzt: unavailable)
+  #    und opti_peak_reserve_soc wurde unavailable. Die Strategie fiel dadurch
+  #    aus der Peak-Leiter L1 in den Default 'Akku Dynamisch' und sprang beim
+  #    naechsten erfolgreichen Poll zurueck - ~15 Episoden in 7 Tagen, teils mit
+  #    20-40 s Verweildauer.
+  #
+  #    Fail-closed allein reicht dagegen NICHT: ein ehrliches 'unavailable'
+  #    fuehrt zu genau demselben Default-Zweig. Der Ausfall muss ueberbrueckt
+  #    werden, und das ist hier zulaessig, weil die Tagesreihe ein FAHRPLAN ist:
+  #    die 96 Viertelstundenpreise fuer heute stehen am Vortag fest und aendern
+  #    sich innerhalb des Tages nicht. Eine gehaltene Reihe ist deshalb nicht
+  #    veraltet, sondern unveraendert gueltig - anders als ein Messwert.
+  #
+  #    TAGESGRENZE ist die harte Schranke: today/tomorrow sind Listen OHNE
+  #    Zeitstempel (Zuordnung per Index, s. Abschnitt 9). Ueber Mitternacht
+  #    gehalten wuerde aus 'today' stillschweigend 'gestern'. Deshalb wird
+  #    'stand' beim Uebernehmen frischer Daten gestempelt und beim Halten NICHT
+  #    fortgeschrieben: ein Ausfall ueber Mitternacht laesst den Halter
+  #    verfallen und die Konsumenten fallen sauber ins Fail-closed.
+  #
+  #    RESTART-SEMANTIK wie bei byd_knie_spreizung.yaml: trigger-basierte
+  #    Template-Sensoren stellen State und Attribute wieder her, der Cache lebt
+  #    daher ausschliesslich in this.attributes. Kein Input-Helfer, kein
+  #    initial:.
+  #
+  #    State ist bewusst ein Diagnose-Enum (frisch/gehalten/leer), damit der
+  #    Halte-Betrieb messbar ist (history_stats in opti_ki_analyse.yaml).
+  # ---------------------------------------------------------------------------
+  - triggers:
+      - trigger: homeassistant
+        event: start
+      # State-Trigger ohne attribute:-Einschraenkung feuert auch bei reinen
+      # Attribut-Aenderungen - genau der Fall hier (today/tomorrow).
+      - trigger: state
+        entity_id: sensor.opti_price_series
+      # Sicherheitsnetz + Tageswechsel: ohne diesen Tick koennte ein Halter
+      # nach Mitternacht bis zum naechsten Quell-Update stehen bleiben.
+      - trigger: time_pattern
+        minutes: "/5"
+    sensor:
+      - unique_id: opti_price_series_stable
+        name: "Opti Price Series Stable"
+        icon: mdi:database-clock
+        state: >
+          {% set t = state_attr('sensor.opti_price_series', 'today') %}
+          {% set frisch = t is iterable and t is not string
+             and (t | select('number') | list | length) >= 4 %}
+          {% set cache = this.attributes.get('today') if this is not none else none %}
+          {% set stand = this.attributes.get('stand') if this is not none else none %}
+          {% set cache_ok = cache is iterable and cache is not string
+             and (cache | select('number') | list | length) >= 4
+             and stand == now().strftime('%Y-%m-%d') %}
+          {% if frisch %}frisch{% elif cache_ok %}gehalten{% else %}leer{% endif %}
+        attributes:
+          today: >
+            {% set t = state_attr('sensor.opti_price_series', 'today') %}
+            {% set frisch = t is iterable and t is not string
+               and (t | select('number') | list | length) >= 4 %}
+            {% set cache = this.attributes.get('today') if this is not none else none %}
+            {% set stand = this.attributes.get('stand') if this is not none else none %}
+            {% set cache_ok = cache is iterable and cache is not string
+               and (cache | select('number') | list | length) >= 4
+               and stand == now().strftime('%Y-%m-%d') %}
+            {% if frisch %}{{ t | list }}{% elif cache_ok %}{{ cache | list }}{% else %}[]{% endif %}
+          tomorrow: >
+            {# An 'today' gekoppelt: tomorrow darf legitim leer sein (vor der
+               Day-Ahead-Veroeffentlichung). Die Frische-Entscheidung faellt
+               deshalb ueber today, damit heute-frisch/morgen-leer nicht als
+               Ausfall gilt und ein bereits bekanntes tomorrow nicht verwirft. #}
+            {% set t = state_attr('sensor.opti_price_series', 'today') %}
+            {% set frisch = t is iterable and t is not string
+               and (t | select('number') | list | length) >= 4 %}
+            {% set m = state_attr('sensor.opti_price_series', 'tomorrow') %}
+            {% set cache = this.attributes.get('tomorrow') if this is not none else none %}
+            {% set stand = this.attributes.get('stand') if this is not none else none %}
+            {% set cache_gueltig = stand == now().strftime('%Y-%m-%d') %}
+            {% if frisch %}{{ (m | list) if (m is iterable and m is not string) else [] }}
+            {%- elif cache_gueltig and cache is iterable and cache is not string %}{{ cache | list }}
+            {%- else %}[]{% endif %}
+          # Datum der zuletzt UEBERNOMMENEN Reihe. Wird beim Halten bewusst nicht
+          # fortgeschrieben (s. Tagesgrenze oben).
+          stand: >
+            {% set t = state_attr('sensor.opti_price_series', 'today') %}
+            {% set frisch = t is iterable and t is not string
+               and (t | select('number') | list | length) >= 4 %}
+            {% if frisch %}{{ now().strftime('%Y-%m-%d') }}
+            {%- else %}{{ this.attributes.get('stand', 'none') if this is not none else 'none' }}
+            {%- endif %}
+
+  # ---------------------------------------------------------------------------
   # 9. Entlade-Peak-Allokation: Reserve-SoC + Aktiv-Gate (trigger-basiert).
-  #    Rechnet aus opti_price_series (today/tomorrow) die Reserve fuer kommende
+  #    Rechnet aus opti_price_series_stable (today/tomorrow, s. Abschnitt 8b)
+  #    die Reserve fuer kommende
   #    teure Stunden im Wiederauflade-Horizont. Trigger-basiert, damit der
   #    Rechenkern EINMAL in 'variables' steht (kein 7x dupliziertes Template);
   #    Bonus: RestoreEntity ueber HA-Neustarts. Braucht HA >= 2024.10.
@@ -886,7 +1022,7 @@ template:
         minutes: "/15"
       - trigger: state
         entity_id:
-          - sensor.opti_price_series
+          - sensor.opti_price_series_stable
           - sensor.opti_forecast_score
           - sensor.opti_forecast_score_tomorrow
           - sensor.opti_battery_capacity_kwh
@@ -916,7 +1052,7 @@ template:
         {% set ns = namespace(prices=[], future=[], raster_ok=true) %}
         {% set heute = today_at('00:00') %}
         {% for key in ['today', 'tomorrow'] %}
-          {% set arr = state_attr('sensor.opti_price_series', key) %}
+          {% set arr = state_attr('sensor.opti_price_series_stable', key) %}
           {% if arr is iterable and arr is not string and arr | length > 0 %}
             {% set laenge = arr | length %}
             {% if not ((20 <= laenge <= 27) or (80 <= laenge <= 108)) %}

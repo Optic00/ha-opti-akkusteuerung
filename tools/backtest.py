@@ -136,7 +136,7 @@ def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
                 "sun.sun": "below_horizon",
             },
             attrs={
-                "sensor.opti_price_series":
+                "sensor.opti_price_series_stable":
                     {"today": prices_today, "tomorrow": prices_tomorrow},
                 "sun.sun": {"next_rising": "2026-01-16T08:15:00+01:00"},
             })

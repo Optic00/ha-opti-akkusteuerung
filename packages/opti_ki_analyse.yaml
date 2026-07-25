@@ -90,6 +90,13 @@ sensor:
     end: "{{ now() }}"
 
   # ---- Datenqualitaet: unavailable-Zeiten der Kernquellen (heute) ----------
+  # Der Skalarpreis (Realtime-Kanal) und die Preisreihe (REST-Kanal) fallen
+  # UNABHAENGIG voneinander aus, deshalb zwei Messungen. Live-Befund 24.07.2026:
+  # bei einem Tibber-REST-Ausfall blieb opti_price_current_ct_kwh verfuegbar,
+  # nur die Reihe fehlte - dieser Sensor stand auf 0.0 h und der Tagesreport
+  # meldete "keine Preisdatenluecken", obwohl die Strategie in einen falschen
+  # Zweig gelaufen war. opti_price_level deckt beide Kanaele ab, seit es bei
+  # leerer Reihe unavailable wird (opti_derived.yaml Abschnitt 5).
   - platform: history_stats
     name: "Opti KI Preis Unavailable H"
     unique_id: opti_ki_preis_unavailable_h
@@ -98,6 +105,48 @@ sensor:
       - "unavailable"
       - "unknown"
     type: time
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Opti KI Preisniveau Unavailable H"
+    unique_id: opti_ki_preisniveau_unavailable_h
+    entity_id: sensor.opti_price_level
+    state:
+      - "unavailable"
+      - "unknown"
+    type: time
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  # Zaehlt die Ausfall-EPISODEN, nicht nur deren Summe: 15 Kurzausfaeller von je
+  # 30 s sind ein anderes Problem (Modus-Flattern) als ein Ausfall von 8 min.
+  - platform: history_stats
+    name: "Opti KI Preisniveau Ausfaelle"
+    unique_id: opti_ki_preisniveau_ausfaelle
+    entity_id: sensor.opti_price_level
+    state:
+      - "unavailable"
+      - "unknown"
+    type: count
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  # Ueberbrueckte Quellausfaelle: der Preisreihen-Halter (opti_derived.yaml 8b)
+  # faengt kurze Anbieter-Aussetzer ab, BEVOR sie das Preisniveau erreichen.
+  # Ohne diese Messung waere die Ueberbrueckung unsichtbar - eine flatternde
+  # Preisquelle sieht dann aus wie ein stabiler Tag.
+  - platform: history_stats
+    name: "Opti KI Preisreihe Gehalten H"
+    unique_id: opti_ki_preisreihe_gehalten_h
+    entity_id: sensor.opti_price_series_stable
+    state: "gehalten"
+    type: time
+    start: "{{ today_at() }}"
+    end: "{{ now() }}"
+  - platform: history_stats
+    name: "Opti KI Preisreihe Haltevorgaenge"
+    unique_id: opti_ki_preisreihe_haltevorgaenge
+    entity_id: sensor.opti_price_series_stable
+    state: "gehalten"
+    type: count
     start: "{{ today_at() }}"
     end: "{{ now() }}"
   - platform: history_stats

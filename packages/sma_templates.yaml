@@ -368,11 +368,31 @@ template:
       #    'total'/'price'/'value' sein. Liegt die Preisreihe auf einem ANDEREN Entity
       #    (z.B. Tibber: sensor.tibber_price_level.today), trage dieses unter beiden
       #    state_attr(...)-Aufrufen ein.
+      #
+      # Fail-safe: < 4 verwertbare Preise -> unavailable (NICHT NORMAL). Ein
+      # NORMAL-Fallback taeuscht der Steuerung bei einem Ausfall der Preisreihe
+      # ein gueltiges Mittelpreis-Signal vor; siehe opti_derived.yaml Abschnitt 5.
       - unique_id: "strompreis_niveau"
         name: "Strompreis Niveau"
         icon: mdi:cash-clock
         availability: >
-          {{ has_value('sensor.DEIN_STROMPREIS') }}
+          {% set ns = namespace(c=0) %}
+          {% for key in ['today', 'tomorrow'] %}
+            {% set arr = state_attr('sensor.DEIN_STROMPREIS', key) %}
+            {% if arr is iterable and arr is not string %}
+              {% for it in arr %}
+                {% if it is mapping %}
+                  {% set p = it.get('total', it.get('price', it.get('value'))) %}
+                {% else %}
+                  {% set p = it %}
+                {% endif %}
+                {% if (p | float(none)) is not none %}
+                  {% set ns.c = ns.c + 1 %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+          {{ has_value('sensor.DEIN_STROMPREIS') and ns.c >= 4 }}
         state: >
           {% set current = states('sensor.DEIN_STROMPREIS') | float(0) %}
           {% set ns = namespace(prices=[]) %}
@@ -407,7 +427,9 @@ template:
             {% endif %}
             {{ level }}
           {% else %}
-            NORMAL
+            {# Zweite Verteidigungslinie zur availability oben - kein erfundenes
+               Preisniveau bei leerer Preisreihe. #}
+            unavailable
           {% endif %}
         attributes:
           perzentil: >

@@ -25,7 +25,7 @@ def _hass(today, tomorrow, *, now=WINTER_ABEND, score_heute="1", score_morgen="1
             "sun.sun": sun_state,
         },
         attrs={
-            "sensor.opti_price_series": {"today": today, "tomorrow": tomorrow},
+            "sensor.opti_price_series_stable": {"today": today, "tomorrow": tomorrow},
             "sun.sun": {"next_rising": next_rising},
         },
     )

@@ -307,11 +307,17 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
 
 ### Fail-safes und bekannte Grenzen
 
-- **< 4 Preise gesamt** (`today` + `tomorrow`): `sensor.opti_peak_reserve_soc` wird `unavailable`, `binary_sensor.opti_peak_reserve_aktiv` fällt auf `off` - die komplette Leiter (L1-L4) ist inaktiv.
-  Das ist **bewusst anders** als der NORMAL-Fallback von `sensor.opti_price_level` bei derselben Datenlage: eine Reserve von 0 % sähe wie „keine Peaks in Sicht" aus und würde die Leiter fälschlich freigeben, statt sie einfach abzuschalten.
+- **Kurzer Ausfall der Preisquelle:** `sensor.opti_price_series_stable` überbrückt ihn und hält die letzte gültige Tagesreihe (State `gehalten`), Preisniveau und Leiter arbeiten unverändert weiter.
+  Das ist zulässig, weil die Tagesreihe ein **Fahrplan** ist: die Viertelstundenpreise für heute stehen am Vortag fest und ändern sich innerhalb des Tages nicht.
+  Harte Schranke ist die **Tagesgrenze** - die Listen haben keine Zeitstempel (Zuordnung per Index), über Mitternacht gehalten würde aus `today` stillschweigend „gestern".
+  Der Halter stempelt deshalb nur beim Übernehmen frischer Daten und verfällt beim Tageswechsel.
+- **< 4 Preise gesamt** (`today` + `tomorrow`, auch nach dem Halter): `sensor.opti_peak_reserve_soc` wird `unavailable`, `binary_sensor.opti_peak_reserve_aktiv` fällt auf `off` - die komplette Leiter (L1-L4) ist inaktiv.
+  `sensor.opti_price_level` wird bei derselben Datenlage ebenfalls `unavailable` und sperrt damit alle preisabhängigen Zweige.
+  Bis 07/2026 lieferte es hier stattdessen `NORMAL`.
+  Das war ein Fail-open: ein Datenausfall sah für die Strategie wie ein gültiges Mittelpreis-Signal aus, die Peak-Leiter L1 fiel durch, und der Modus sprang zwischen der Leiter und dem Default `Akku Dynamisch` (Live-Befund 23./24.07.2026, rund 15 Episoden in 7 Tagen).
 - **Raster-Erkennung:** Die Preislisten liefern keine Zeitstempel.
   Die Slot-Länge (`slot_h`) wird pro Liste (`today`/`tomorrow` getrennt) aus der Listenlänge abgeleitet: 24 geteilt durch die Anzahl der Einträge.
-  Unterstützt werden Stundenraster (Listenlänge 20-27, inklusive Zeitumstellungstage) und Viertelstundenraster (Listenlänge 80-108, inklusive Zeitumstellungstage) - seit der Tibber-Umstellung auf 15-Minuten-Day-Ahead-Preise (Juli 2026) liefert `sensor.opti_price_series` 96 Werte pro Tag statt 24.
+  Unterstützt werden Stundenraster (Listenlänge 20-27, inklusive Zeitumstellungstage) und Viertelstundenraster (Listenlänge 80-108, inklusive Zeitumstellungstage) - seit der Tibber-Umstellung auf 15-Minuten-Day-Ahead-Preise (Juli 2026) liefert `sensor.opti_price_series` (und damit der Halter `sensor.opti_price_series_stable`) 96 Werte pro Tag statt 24.
   Jede andere Listenlänge macht die komplette Preisbasis `gueltig=false`.
   An Tagen mit Zeitumstellung ist `slot_h` (z. B. 24/92 oder 24/100 bei Viertelstunden) leicht ungenau - akzeptiertes, bekanntes Verhalten.
   Das Fenster beginnt weiterhin an der aktuellen vollen Stunde (nicht am aktuellen Slot): bei Viertelstundenraster zählen dadurch bis zu drei bereits vergangene Slots der laufenden Stunde konservativ mit.
@@ -862,7 +868,8 @@ Steuer-Automation parallel aktiv lassen.
 | **Ziel-SoC-Hysterese** | `sensor.opti_target_soc` hält die aktuelle `ratio`-Stufe im Attribut `level` (Schmitt-Trigger, Marge 0.10) → kein Flattern der Zielstufe. Siehe [Der intelligente Ziel-SoC](#der-intelligente-ziel-soc--herzstück-der-akkuschonung) |
 | **Decision-Trace-Attribute** | `sensor.opti_target_soc` hängt Debugging-Attribute an (`branch`, `level`, `ratio`, `net_available_kwh`, `remaining_hours`), lesbar über HA-Entwicklerwerkzeuge |
 | **Forecast-Score-Bänder** | `sensor.opti_charge_power_w` variiert die C-Rate in drei Bändern (score ≤ 1: aggressiv; 2–4: moderat; ≥ 5: schonend) statt starrer Prognose-Labels |
-| **`sensor.opti_price_level`** | Anbieter-agnostisches Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE) auf Basis eines gleitenden Perzentils über `today`/`tomorrow`-Preislisten |
+| **`sensor.opti_price_level`** | Anbieter-agnostisches Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE) auf Basis eines gleitenden Perzentils über `today`/`tomorrow`-Preislisten. Fail-closed: reicht die Preisbasis nicht (< 4 verwertbare Werte), wird der Sensor `unavailable` statt ein Niveau zu erfinden |
+| **Preisreihen-Halter** | `sensor.opti_price_series_stable` überbrückt kurze Ausfälle der Preisquelle, indem er die letzte gültige Tagesreihe hält (State `frisch` / `gehalten` / `leer`). Ohne ihn kippte die Strategie bei jedem Provider-Timeout kurzzeitig in den Default-Zweig. Verfällt an der Tagesgrenze, weil die Preislisten keine Zeitstempel tragen. Einzige Preisreihen-Quelle für `opti_price_level` und `opti_peak_reserve_soc` |
 | **Midrank-Perzentil** | `sensor.opti_price_level` zählt Preis-Gleichstände seit dem Fix nur noch halb (statt sie wie ein `select('le')` komplett auf die teure Seite zu zählen) - flache Preistage landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE. Dieselbe Klassifikation nutzt auch `sensor.opti_peak_reserve_soc` |
 | **`sensor.opti_peak_reserve_soc`** | Reserve-SoC für kommende Preisspitzen im Wiederauflade-Horizont (36h); steuert die Peak-Leiter L1-L4. Siehe [Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden) |
 | **`binary_sensor.opti_winter_charging_allowed`** | Fail-open Gate für Winterladeblöcke (Standard: `true`); kann mit eigenem Sommermodus-Sensor überschrieben werden |

@@ -80,6 +80,10 @@
             },
             "datenqualitaet": {
               "preis_unavailable_min": {{ ((states('sensor.opti_ki_preis_unavailable_h') | float(0)) * 60) | round(0) }},
+              "preisniveau_unavailable_min": {{ ((states('sensor.opti_ki_preisniveau_unavailable_h') | float(0)) * 60) | round(0) }},
+              "preisniveau_ausfaelle": {{ num('sensor.opti_ki_preisniveau_ausfaelle', 0) }},
+              "preisreihe_gehalten_min": {{ ((states('sensor.opti_ki_preisreihe_gehalten_h') | float(0)) * 60) | round(0) }},
+              "preisreihe_haltevorgaenge": {{ num('sensor.opti_ki_preisreihe_haltevorgaenge', 0) }},
               "forecast_unavailable_min": {{ ((states('sensor.opti_ki_forecast_unavailable_h') | float(0)) * 60) | round(0) }}
             },
             "byd": {
@@ -125,7 +129,15 @@
           Kennzahlen mit "nicht verfuegbar" nicht bewerten. Formuliere
           Korrelation nie als Kausalitaet. Keine Handlungsempfehlungen und
           keine Parameter-Vorschlaege. Zahlen mit Einheiten. Viele Starts bei
-          kleiner Verweildauer je Modus deuten auf Flattern. Zum byd-Block:
+          kleiner Verweildauer je Modus deuten auf Flattern; ist dabei
+          preisniveau_ausfaelle > 0, benenne die Preisdatenluecke als moegliche
+          Ursache, statt das Flattern allein der Steuerungslogik zuzuschreiben.
+          preisniveau_unavailable_min kann klein und preisniveau_ausfaelle
+          gleichzeitig hoch sein - viele Sekunden-Ausfaeller sind dann das
+          Muster, nicht ein langer Ausfall. preisreihe_haltevorgaenge zaehlt
+          Quellausfaelle, die der Preisreihen-Halter abgefangen hat, BEVOR sie
+          die Steuerung erreichten: hohe Werte bei ruhigem Modusverlauf sind
+          eine flatternde Preisquelle, kein Steuerungsproblem. Zum byd-Block:
           LFP-Zellspreizung ist nur der Ruhe-Wert vergleichbar; SoH-Aenderungen
           von Tag zu Tag sind Rauschen; deterministische Alarme existieren
           separat, du bewertest nur Trends. Ein SoC ueber MaxSOC ist nur dann
@@ -134,8 +146,9 @@
           balancing_dauer_h >= 0.5 als schwache Balancing-Evidenz gelten; eine
           bekannte false-Angabe darf die Dauer nicht ueberstimmen.
           meldenswert = true nur bei echten
-          Auffaelligkeiten (Flattern, Datenluecken ueber 30 min, SoC-Band
-          verletzt MinSOC/MaxSOC, ungewoehnliche Ruhe-Spreizung).
+          Auffaelligkeiten (Flattern, Datenluecken ueber 30 min, mehr als 3
+          Preisniveau-Ausfaelle am Tag, SoC-Band verletzt MinSOC/MaxSOC,
+          ungewoehnliche Ruhe-Spreizung).
 
           DATEN: {{ datenpaket }}
         structure:

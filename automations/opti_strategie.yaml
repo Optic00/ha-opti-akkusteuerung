@@ -796,11 +796,26 @@
       # Preisniveau vorliegt. Kein Cache, kein Haltefenster, keine
       # Zustandsmaschine - deshalb auch keine Tagesgrenzen-Problematik.
       #
+      # NUR PASSIVE MODI DUERFEN STEHENBLEIBEN (Review-Finding 25.07.2026):
+      # 'Akku Dynamisch' und 'Akku nur Entladen' erzwingen keinen Netzbezug.
+      # 'Akku Netzladen' dagegen KAUFT - bliebe es nach Wegfall seiner
+      # Preisberechtigung stehen, liefe der Netzeinkauf zu inzwischen beliebig
+      # hohem Preis weiter, bis erst der maxsoc-Ladedeckel ihn beendet.
+      # 'Akku nur Laden' sperrt die Entladung, wodurch das Haus aus dem Netz
+      # laeuft, und 'Akku Pause' legt den Akku still. Diese drei verlieren mit
+      # dem Preisniveau ihre Begruendung und fallen deshalb auf 'Akku Dynamisch'
+      # zurueck - fuer sie ist ein Modus-Wechsel das kleinere Uebel als ein
+      # eingefrorener Zwangszustand.
+      #
       # Sicher, weil alle preisUNabhaengigen Zweige VOR dem Default stehen und
-      # weiter greifen: MinSOC-Schutz, EV-Sperre, Balancing-Watchdog,
-      # maxsoc-Ladedeckel, PV-/AC-Ueberschuss und die Ziel-SoC-Zweige. Fehlen
-      # die Core-Daten (soc/Kapazitaet), setzt der separate Fail-safe-Layer
-      # ohnehin Pause.
+      # weiter greifen: MinSOC-Schutz, EV-Sperre, Balancing-Watchdog (PV- und
+      # Gratis-Netz-Pfad), maxsoc-Ladedeckel, PV-/AC-Ueberschuss und die
+      # Ziel-SoC-Zweige. Fehlen die Core-Daten (soc/Kapazitaet), setzt der
+      # separate Fail-safe-Layer ohnehin Pause.
+      #
+      # Bewusst EINE Bedingung ohne Halte-Zweig: ein zweiter choose-Zweig mit
+      # 'stop' wuerde den nachfolgenden Cleanup abbrechen (vgl.
+      # test_strategie_fail_safe.py), ein No-op-Zweig waere nur Ballast.
       default:
         - choose:
             - conditions:
@@ -808,7 +823,9 @@
                   value_template: >-
                     {{ has_value('sensor.opti_soc')
                        and has_value('sensor.opti_battery_capacity_kwh')
-                       and has_value('sensor.opti_price_level') }}
+                       and (has_value('sensor.opti_price_level')
+                            or states('input_select.akkusteuerung_modus')
+                               not in ['Akku Dynamisch', 'Akku nur Entladen']) }}
               sequence:
                 - action: input_select.select_option
                   data:

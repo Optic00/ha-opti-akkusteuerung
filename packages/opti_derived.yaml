@@ -832,8 +832,13 @@ template:
           {#- Default-Guard wie in der Strategie: ohne Preisniveau setzt die
               Automation den Modus NICHT, er bleibt stehen. Die Vorschau spiegelt
               das, indem sie den Ist-Modus zeigt - sonst behauptete sie einen
-              Wechsel, den es nicht gibt (Paritaet, s. Kopfkommentar). #}
-          {%- elif soc >= 0 and not has_value('sensor.opti_price_level') %}{{ states('input_select.akkusteuerung_modus') }}
+              Wechsel, den es nicht gibt (Paritaet, s. Kopfkommentar).
+              Gehalten werden nur die PASSIVEN Modi; Netzladen/nur Laden/Pause
+              verlieren mit dem Preisniveau ihre Begruendung und fallen auf
+              Dynamisch zurueck (Review-Finding 25.07.2026). #}
+          {%- elif soc >= 0 and not has_value('sensor.opti_price_level')
+             and states('input_select.akkusteuerung_modus')
+                 in ['Akku Dynamisch', 'Akku nur Entladen'] %}{{ states('input_select.akkusteuerung_modus') }}
           {%- elif soc >= 0 %}Akku Dynamisch
           {%- else %}unbekannt{% endif %}
         attributes:
@@ -892,7 +897,9 @@ template:
             {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%)
             {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag)
             {%- elif soc > target + (0 if is_state('input_select.akkusteuerung_modus','Akku nur Entladen') else H) %}ueber Ziel-SoC
-            {%- elif soc >= 0 and not has_value('sensor.opti_price_level') %}Preisniveau fehlt (Modus gehalten)
+            {%- elif soc >= 0 and not has_value('sensor.opti_price_level')
+               and states('input_select.akkusteuerung_modus')
+                   in ['Akku Dynamisch', 'Akku nur Entladen'] %}Preisniveau fehlt (passiver Modus gehalten)
             {%- elif soc >= 0 %}Default (Nacht/keine Aktion)
             {%- else %}opti_soc fehlt{% endif %}
           ist_modus: "{{ states('input_select.akkusteuerung_modus') }}"

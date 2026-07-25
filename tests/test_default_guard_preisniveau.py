@@ -60,7 +60,7 @@ def _vorschau(hass, teil="state"):
 # --- Der Kern: Default schweigt ohne Preisniveau ---------------------------
 
 @pytest.mark.parametrize("zustand", ["unavailable", "unknown"])
-def test_default_setzt_ohne_preisniveau_keinen_modus(zustand):
+def test_default_haelt_passiven_modus_ohne_preisniveau(zustand):
     """Nachts, SoC im neutralen Band: vorher landete das im Default und
     ueberschrieb den Modus mit 'Akku Dynamisch'."""
     hass = _hass({PRICE: zustand, "sensor.opti_soc": "60",
@@ -68,6 +68,44 @@ def test_default_setzt_ohne_preisniveau_keinen_modus(zustand):
                   MODUS: "Akku nur Entladen"})
     alias, modus = _entscheidung(hass)
     assert modus is None, f"Zweig '{alias}' setzt trotz fehlendem Preisniveau"
+
+
+@pytest.mark.parametrize("passiv", ["Akku Dynamisch", "Akku nur Entladen"])
+def test_nur_passive_modi_werden_gehalten(passiv):
+    hass = _hass({PRICE: "unavailable", "sensor.opti_soc": "60",
+                  "sensor.opti_target_soc": "95", "sun.sun": "below_horizon",
+                  MODUS: passiv})
+    assert _entscheidung(hass)[1] is None
+
+
+@pytest.mark.parametrize("zwang", ["Akku Netzladen", "Akku nur Laden",
+                                   "Akku Pause", "Akku schnell Laden"])
+def test_zwangsmodi_fallen_ohne_preisniveau_auf_dynamisch(zwang):
+    """Review-Finding 25.07.2026: ein bereits aktives 'Akku Netzladen' blieb
+    nach Wegfall seiner Preisberechtigung stehen und kaufte weiter Netzstrom zu
+    inzwischen beliebig hohem Preis - beendet erst durch den maxsoc-Ladedeckel.
+    'Akku nur Laden' sperrt die Entladung (Haus laeuft aus dem Netz), 'Akku
+    Pause' legt den Akku still. Diese Modi verlieren mit dem Preisniveau ihre
+    Begruendung und muessen zurueckfallen; ein Modus-Wechsel ist hier das
+    kleinere Uebel als ein eingefrorener Zwangszustand."""
+    hass = _hass({PRICE: "unavailable", "sensor.opti_soc": "60",
+                  "sensor.opti_target_soc": "95", "sun.sun": "below_horizon",
+                  MODUS: zwang})
+    alias, modus = _entscheidung(hass)
+    assert alias == "default"
+    assert modus == "Akku Dynamisch", f"'{zwang}' bleibt haengen"
+
+
+def test_netzladen_kauft_nicht_weiter_bei_teurem_skalarpreis():
+    """Die reproduzierte Situation des Findings: Preisniveau weg, Skalarpreis
+    60 ct, SoC 40 % - Netzladen darf NICHT weiterlaufen."""
+    hass = _hass({PRICE: "unavailable",
+                  "sensor.opti_price_current_ct_kwh": "60",
+                  "sensor.opti_soc": "40", "sensor.opti_target_soc": "95",
+                  "sun.sun": "below_horizon", MODUS: "Akku Netzladen"})
+    alias, modus = _entscheidung(hass)
+    assert modus == "Akku Dynamisch"
+    assert _vorschau(hass) == "Akku Dynamisch"
 
 
 def test_default_greift_mit_gueltigem_preisniveau_weiter():
@@ -164,7 +202,7 @@ def test_vorschau_spiegelt_den_gehaltenen_modus():
                   "sensor.opti_target_soc": "95", "sun.sun": "below_horizon",
                   MODUS: "Akku nur Entladen"})
     assert _vorschau(hass) == "Akku nur Entladen"
-    assert "Preisniveau fehlt" in _vorschau(hass, "grund")
+    assert "passiver Modus gehalten" in _vorschau(hass, "grund")
 
 
 def test_vorschau_default_unveraendert_mit_preisniveau():

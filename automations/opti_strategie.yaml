@@ -30,6 +30,34 @@
         - input_boolean.akku_opti_automatik
       to: "on"
       id: "Akku Opti-Automatik AN/AUS"
+    # Modus-Select als Trigger (Review-Finding 25.07.2026): ohne ihn wird der
+    # Default-Guard nicht ausgewertet, wenn ein Nutzer oder eine andere
+    # Automation den Modus setzt, WAEHREND das Preisniveau schon unavailable
+    # ist. Der Adapter uebernimmt einen so gesetzten Zwangsmodus sofort, und er
+    # bliebe bis zum naechsten beliebigen Strategie-Trigger aktiv - waehrend die
+    # Vorschau bereits 'Akku Dynamisch' zeigt (Paritaetsverletzung).
+    #
+    # Kein Rueckkopplungs-Problem: setzt die Strategie denselben Wert erneut,
+    # aendert sich der State nicht und es feuert kein weiterer Trigger. Aendert
+    # sie ihn wirklich, folgt eine zusaetzliche Auswertung; faellt der
+    # Selbsttrigger dabei noch in den laufenden Durchgang, verwirft ihn
+    # mode: single und die Neubewertung passiert erst beim naechsten
+    # reaktivierenden Ereignis. Live gemessen 25.07.2026: der Durchgang dauert
+    # ~3 ms, der Selbsttrigger kommt danach - im Log stehen entsprechend keine
+    # "Already running"-Warnungen fuer diese Automation.
+    #
+    # Das ist unkritisch, weil die modusabhaengigen Hysterese-Baender
+    # (Ladedeckel +3, Ziel-SoC +0/+3, L3/L4 +5/+3, Netzlade-Stopband) allesamt
+    # Schmitt-Trigger sind: sie verbreitern die Haltezone des AKTUELLEN Modus.
+    # Ein einmal erreichter Modus haelt sich damit selbst, statt zurueckzukippen.
+    # In seltenen Konstellationen sind zwei Uebergaenge noetig (Beispiel aus der
+    # Review: SoC 34, VE-Reserve 30, EXPENSIVE, Watchdog netz -> nur Laden ->
+    # Netzladen -> nur Entladen), danach ist der Zustand stabil. Ein Zyklus
+    # existiert nicht; gegengerechnet ueber alle Zweige, die den Modus lesen.
+    - trigger: state
+      entity_id:
+        - input_select.akkusteuerung_modus
+      id: "Modus extern geändert"
     # Batterie-SoC (Canonical) statt Hardware-Rohsensor
     - trigger: state
       entity_id:
@@ -781,13 +809,51 @@
 
       # Default (Modus-Set): nur setzen wenn opti_soc UND opti_battery_capacity_kwh
       # verfügbar sind – sonst tut die Strategie nichts (fail-safe).
+      #
+      # ZUSAETZLICH opti_price_level (Live-Befund 23./24.07.2026): faellt die
+      # Preisreihen-Quelle kurz aus (Tibber-REST-Timeout), verstummen ALLE
+      # preisabhaengigen Zweige gleichzeitig - und dieser Default ueberschrieb
+      # den Modus dann mit 'Akku Dynamisch'. Beim naechsten erfolgreichen Poll
+      # sprang er zurueck: ~15 Episoden in 7 Tagen, teils mit 20-40 s
+      # Verweildauer. Ohne den Guard behebt das Fail-closed des Preisniveaus
+      # (unavailable statt NORMAL) zwar die falsche Zweig-Berechtigung, nicht
+      # aber das Flattern - es fuehrt in genau denselben Default.
+      #
+      # Der Guard haelt bewusst die ENTSCHEIDUNG statt der Daten: der
+      # Modus-Select IST der Zustand und bleibt einfach stehen, bis wieder ein
+      # Preisniveau vorliegt. Kein Cache, kein Haltefenster, keine
+      # Zustandsmaschine - deshalb auch keine Tagesgrenzen-Problematik.
+      #
+      # NUR PASSIVE MODI DUERFEN STEHENBLEIBEN (Review-Finding 25.07.2026):
+      # 'Akku Dynamisch' und 'Akku nur Entladen' erzwingen keinen Netzbezug.
+      # 'Akku Netzladen' dagegen KAUFT - bliebe es nach Wegfall seiner
+      # Preisberechtigung stehen, liefe der Netzeinkauf zu inzwischen beliebig
+      # hohem Preis weiter, bis erst der maxsoc-Ladedeckel ihn beendet.
+      # 'Akku nur Laden' sperrt die Entladung, wodurch das Haus aus dem Netz
+      # laeuft, und 'Akku Pause' legt den Akku still. Diese drei verlieren mit
+      # dem Preisniveau ihre Begruendung und fallen deshalb auf 'Akku Dynamisch'
+      # zurueck - fuer sie ist ein Modus-Wechsel das kleinere Uebel als ein
+      # eingefrorener Zwangszustand.
+      #
+      # Sicher, weil alle preisUNabhaengigen Zweige VOR dem Default stehen und
+      # weiter greifen: MinSOC-Schutz, EV-Sperre, Balancing-Watchdog (PV- und
+      # Gratis-Netz-Pfad), maxsoc-Ladedeckel, PV-/AC-Ueberschuss und die
+      # Ziel-SoC-Zweige. Fehlen die Core-Daten (soc/Kapazitaet), setzt der
+      # separate Fail-safe-Layer ohnehin Pause.
+      #
+      # Bewusst EINE Bedingung ohne Halte-Zweig: ein zweiter choose-Zweig mit
+      # 'stop' wuerde den nachfolgenden Cleanup abbrechen (vgl.
+      # test_strategie_fail_safe.py), ein No-op-Zweig waere nur Ballast.
       default:
         - choose:
             - conditions:
                 - condition: template
                   value_template: >-
                     {{ has_value('sensor.opti_soc')
-                       and has_value('sensor.opti_battery_capacity_kwh') }}
+                       and has_value('sensor.opti_battery_capacity_kwh')
+                       and (has_value('sensor.opti_price_level')
+                            or states('input_select.akkusteuerung_modus')
+                               not in ['Akku Dynamisch', 'Akku nur Entladen']) }}
               sequence:
                 - action: input_select.select_option
                   data:

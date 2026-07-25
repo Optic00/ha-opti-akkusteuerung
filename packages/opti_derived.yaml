@@ -478,14 +478,49 @@ template:
       # -----------------------------------------------------------------------
       # 5. Preisniveau (Enum) — übersetzt aus strompreis_niveau
       #    (SMA-Templates Z.362-423). Perzentil-Bänder unverändert, aber Midrank-Zählung (Gleichstände halb) statt select('le') - Fix für flache Preistage.
-      #    current → opti_price_current_ct_kwh; Reihe → opti_price_series today/tomorrow
-      #    (bereits ct/kWh-Listen). <4 Werte → NORMAL.
+      #    current → opti_price_current_ct_kwh; Reihe → opti_price_series
+      #    today/tomorrow (bereits ct/kWh-Listen).
+      #
+      #    Fail-safe: < 4 verwertbare Preise -> unavailable (NICHT mehr NORMAL).
+      #    Grund (Live-Befund 23./24.07.2026): faellt die Preisreihen-Quelle aus
+      #    (Tibber-REST-Timeout, im Log als DNS-Timeout), lieferte der alte
+      #    NORMAL-Fallback der Strategie ein gueltig aussehendes Mittelpreis-
+      #    Signal. Die Peak-Leiter L1 (price_level == VERY_EXPENSIVE) fiel damit
+      #    durch, der Default-Zweig setzte 'Akku Dynamisch', und beim naechsten
+      #    erfolgreichen Poll sprang der Modus zurueck - ~15 solcher Episoden in
+      #    7 Tagen, teils mit 20-40 s Verweildauer. Umgekehrt konnten NORMAL-
+      #    gegatete Ladebloecke bei voellig unbekanntem Preis scharf werden.
+      #    Damit ist dieser Sensor jetzt genauso fail-closed wie die
+      #    Peak-Reserve (s. Abschnitt 9), deren Kommentar diese Asymmetrie
+      #    bereits als bewusste Abweichung benannte.
+      #
+      #    Alle Konsumenten pruefen price_level ausschliesslich per positivem
+      #    Vergleich (condition: state / 'price in [...]'), deshalb entzieht
+      #    'unavailable' die Zweig-Berechtigung statt eine neue zu erzeugen.
       # -----------------------------------------------------------------------
       - unique_id: opti_price_level
         name: "Opti Price Level"
         icon: mdi:cash-clock
+        # Zaehlt die verwertbaren Preise mit derselben Parse-Logik wie state:
+        # ein leeres/kaputtes today+tomorrow macht den Sensor unavailable.
         availability: >
-          {{ has_value('sensor.opti_price_current_ct_kwh') }}
+          {% set ns = namespace(c=0) %}
+          {% for key in ['today', 'tomorrow'] %}
+            {% set arr = state_attr('sensor.opti_price_series', key) %}
+            {% if arr is iterable and arr is not string %}
+              {% for it in arr %}
+                {% if it is mapping %}
+                  {% set p = it.get('total', it.get('price', it.get('value'))) %}
+                {% else %}
+                  {% set p = it %}
+                {% endif %}
+                {% if (p | float(none)) is not none %}
+                  {% set ns.c = ns.c + 1 %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+          {{ has_value('sensor.opti_price_current_ct_kwh') and ns.c >= 4 }}
         state: >
           {% set current = states('sensor.opti_price_current_ct_kwh') | float(0) %}
           {% set ns = namespace(prices=[]) %}
@@ -520,7 +555,11 @@ template:
             {% endif %}
             {{ level }}
           {% else %}
-            NORMAL
+            {# Zweite Verteidigungslinie zur availability oben: auch wenn dieses
+               Gate mal wegfaellt, darf eine leere Preisreihe kein Preisniveau
+               erfinden. HA setzt den Sensor bei diesem Renderergebnis
+               unavailable. #}
+            unavailable
           {% endif %}
         attributes:
           perzentil: >
@@ -790,6 +829,16 @@ template:
              Entladen<->Dynamisch, weil das Entladen selbst den SoC wieder
              unter die Kante zieht. #}
           {%- elif soc > target + (0 if is_state('input_select.akkusteuerung_modus','Akku nur Entladen') else H) %}Akku nur Entladen
+          {#- Default-Guard wie in der Strategie: ohne Preisniveau setzt die
+              Automation den Modus NICHT, er bleibt stehen. Die Vorschau spiegelt
+              das, indem sie den Ist-Modus zeigt - sonst behauptete sie einen
+              Wechsel, den es nicht gibt (Paritaet, s. Kopfkommentar).
+              Gehalten werden nur die PASSIVEN Modi; Netzladen/nur Laden/Pause
+              verlieren mit dem Preisniveau ihre Begruendung und fallen auf
+              Dynamisch zurueck (Review-Finding 25.07.2026). #}
+          {%- elif soc >= 0 and not has_value('sensor.opti_price_level')
+             and states('input_select.akkusteuerung_modus')
+                 in ['Akku Dynamisch', 'Akku nur Entladen'] %}{{ states('input_select.akkusteuerung_modus') }}
           {%- elif soc >= 0 %}Akku Dynamisch
           {%- else %}unbekannt{% endif %}
         attributes:
@@ -848,6 +897,9 @@ template:
             {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%)
             {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag)
             {%- elif soc > target + (0 if is_state('input_select.akkusteuerung_modus','Akku nur Entladen') else H) %}ueber Ziel-SoC
+            {%- elif soc >= 0 and not has_value('sensor.opti_price_level')
+               and states('input_select.akkusteuerung_modus')
+                   in ['Akku Dynamisch', 'Akku nur Entladen'] %}Preisniveau fehlt (passiver Modus gehalten)
             {%- elif soc >= 0 %}Default (Nacht/keine Aktion)
             {%- else %}opti_soc fehlt{% endif %}
           ist_modus: "{{ states('input_select.akkusteuerung_modus') }}"

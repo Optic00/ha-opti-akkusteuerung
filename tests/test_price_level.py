@@ -8,10 +8,17 @@ def _hass(current, today, tomorrow=None):
     )
 
 
-def _level(hass):
+def _entity():
     cfg = load_yaml(REPO / "packages" / "opti_derived.yaml")
-    entity = find_template_entity(cfg, "sensor", "opti_price_level")
-    return render(hass, entity["state"])
+    return find_template_entity(cfg, "sensor", "opti_price_level")
+
+
+def _level(hass):
+    return render(hass, _entity()["state"])
+
+
+def _available(hass):
+    return render(hass, _entity()["availability"])
 
 
 def test_flache_preise_sind_normal():
@@ -38,8 +45,58 @@ def test_unterscheidbare_preise_wie_bisher():
     assert _level(_hass(21.0, today)) == "NORMAL"
 
 
-def test_weniger_als_4_preise_normal():
-    assert _level(_hass(99.0, [99.0, 99.0])) == "NORMAL"
+# ---------------------------------------------------------------------------
+# Fail-closed bei fehlender Preisreihe (Live-Befund 23./24.07.2026).
+# Vorher lieferte der Sensor NORMAL, sobald die Reihe leer war - fuer die
+# Strategie ein gueltig aussehendes Mittelpreis-Signal. Jetzt: unavailable.
+# ---------------------------------------------------------------------------
+
+def test_weniger_als_4_preise_ist_unavailable():
+    assert _available(_hass(99.0, [99.0, 99.0])) == "False"
+    assert _level(_hass(99.0, [99.0, 99.0])) == "unavailable"
+
+
+def test_leere_preisreihe_ist_unavailable():
+    # Der beobachtete Tibber-REST-Ausfall: Skalarpreis da, Reihe weg.
+    assert _available(_hass(42.4, [])) == "False"
+    assert _level(_hass(42.4, [])) == "unavailable"
+
+
+def test_fehlendes_reihen_attribut_ist_unavailable():
+    hass = FakeHass(states={"sensor.opti_price_current_ct_kwh": "42.4"}, attrs={})
+    assert _available(hass) == "False"
+    assert _level(hass) == "unavailable"
+
+
+def test_nicht_numerische_reihe_ist_unavailable():
+    # Reihe vorhanden, aber unbrauchbar: darf nicht als 4 Preise durchgehen.
+    assert _available(_hass(42.4, ["a", "b", None, "c"])) == "False"
+
+
+def test_reihe_aus_dicts_zaehlt_mit():
+    # Tibber-Format (Dicts mit 'total'): availability muss dieselbe Parse-Logik
+    # wie state benutzen, sonst waere der Sensor dauerhaft unavailable.
+    today = [{"total": 0.30 + i / 100} for i in range(24)]
+    assert _available(_hass(0.30, today)) == "True"
+    assert _level(_hass(0.30, today)) == "VERY_CHEAP"
+
+
+def test_reihe_verteilt_auf_today_und_tomorrow():
+    # 2 + 2 Werte erreichen die Schwelle gemeinsam.
+    assert _available(_hass(50.0, [50.0, 50.0], [50.0, 50.0])) == "True"
+    assert _available(_hass(50.0, [50.0, 50.0], [50.0])) == "False"
+
+
+def test_skalarpreis_unavailable_bleibt_unavailable():
+    hass = FakeHass(
+        states={"sensor.opti_price_current_ct_kwh": "unavailable"},
+        attrs={"sensor.opti_price_series": {"today": [30.0] * 24, "tomorrow": []}},
+    )
+    assert _available(hass) == "False"
+
+
+def test_vollstaendige_reihe_ist_verfuegbar():
+    assert _available(_hass(30.0, [30.0] * 24)) == "True"
 
 
 # ---------------------------------------------------------------------------

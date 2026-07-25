@@ -307,8 +307,24 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
 
 ### Fail-safes und bekannte Grenzen
 
+- **Ausfall der Preisquelle:** fällt die Preisreihe aus (z. B. Provider-Timeout), wird `sensor.opti_price_level` `unavailable` statt wie früher `NORMAL`.
+  Der alte `NORMAL`-Fallback war ein Fail-open: ein Datenausfall sah für die Strategie wie ein gültiges Mittelpreis-Signal aus, und `NORMAL`-gegatete Ladeblöcke konnten bei völlig unbekanntem Preis scharf werden.
+  Damit verstummen jetzt **alle** preisabhängigen Zweige, solange die Daten fehlen.
+- **Default-Guard (kein Modus-Flattern):** der Default-Zweig setzt den Modus nur, wenn zusätzlich zu SoC und Kapazität auch ein Preisniveau vorliegt.
+  Ohne diesen Guard behob das Fail-closed die falsche Zweig-Berechtigung, nicht aber das Flattern: verstummten alle Preiszweige, überschrieb der Default den Modus mit `Akku Dynamisch`, und beim nächsten erfolgreichen Poll sprang er zurück (Live-Befund 23./24.07.2026, rund 15 Episoden in 7 Tagen, teils mit 20-40 Sekunden Verweildauer).
+  Der Guard hält bewusst die **Entscheidung** statt der Daten: der Modus-Select ist selbst der Zustand und bleibt einfach stehen, bis wieder ein Preisniveau vorliegt.
+  Kein Zwischenspeicher, kein Haltefenster, keine Zustandsmaschine - und damit auch keine Fragen zu Tagesgrenzen oder Datenalter.
+  **Gehalten werden nur die passiven Modi** `Akku Dynamisch` und `Akku nur Entladen`, denn nur sie erzwingen keinen Netzbezug.
+  `Akku Netzladen` **kauft**: bliebe es nach Wegfall seiner Preisberechtigung stehen, liefe der Netzeinkauf zu inzwischen beliebig hohem Preis weiter, und erst der `maxsoc`-Ladedeckel würde ihn beenden.
+  `Akku nur Laden` sperrt die Entladung, wodurch das Haus aus dem Netz läuft, und `Akku Pause` legt den Akku still.
+  Diese Modi verlieren mit dem Preisniveau ihre Begründung und fallen deshalb auf `Akku Dynamisch` zurück - für sie ist ein Modus-Wechsel das kleinere Übel als ein eingefrorener Zwangszustand.
+  Sicher ist das, weil alle preisunabhängigen Zweige **vor** dem Default stehen und weiter greifen: MinSOC-Schutz, EV-Sperre, Balancing-Watchdog, `maxsoc`-Ladedeckel, PV-/AC-Überschuss und die Ziel-SoC-Zweige.
+  Fehlen die Core-Daten (SoC, Kapazität), setzt der separate Fail-safe-Layer ohnehin Pause.
+  Der Vorschau-Sensor spiegelt den Guard und zeigt in diesem Fall den Ist-Modus mit dem Grund „Preisniveau fehlt (passiver Modus gehalten)".
 - **< 4 Preise gesamt** (`today` + `tomorrow`): `sensor.opti_peak_reserve_soc` wird `unavailable`, `binary_sensor.opti_peak_reserve_aktiv` fällt auf `off` - die komplette Leiter (L1-L4) ist inaktiv.
-  Das ist **bewusst anders** als der NORMAL-Fallback von `sensor.opti_price_level` bei derselben Datenlage: eine Reserve von 0 % sähe wie „keine Peaks in Sicht" aus und würde die Leiter fälschlich freigeben, statt sie einfach abzuschalten.
+  `sensor.opti_price_level` wird bei derselben Datenlage ebenfalls `unavailable` und sperrt damit alle preisabhängigen Zweige.
+  Bis 07/2026 lieferte es hier stattdessen `NORMAL`.
+  Das war ein Fail-open: ein Datenausfall sah für die Strategie wie ein gültiges Mittelpreis-Signal aus, die Peak-Leiter L1 fiel durch, und der Modus sprang zwischen der Leiter und dem Default `Akku Dynamisch` (Live-Befund 23./24.07.2026, rund 15 Episoden in 7 Tagen).
 - **Raster-Erkennung:** Die Preislisten liefern keine Zeitstempel.
   Die Slot-Länge (`slot_h`) wird pro Liste (`today`/`tomorrow` getrennt) aus der Listenlänge abgeleitet: 24 geteilt durch die Anzahl der Einträge.
   Unterstützt werden Stundenraster (Listenlänge 20-27, inklusive Zeitumstellungstage) und Viertelstundenraster (Listenlänge 80-108, inklusive Zeitumstellungstage) - seit der Tibber-Umstellung auf 15-Minuten-Day-Ahead-Preise (Juli 2026) liefert `sensor.opti_price_series` 96 Werte pro Tag statt 24.
@@ -862,7 +878,8 @@ Steuer-Automation parallel aktiv lassen.
 | **Ziel-SoC-Hysterese** | `sensor.opti_target_soc` hält die aktuelle `ratio`-Stufe im Attribut `level` (Schmitt-Trigger, Marge 0.10) → kein Flattern der Zielstufe. Siehe [Der intelligente Ziel-SoC](#der-intelligente-ziel-soc--herzstück-der-akkuschonung) |
 | **Decision-Trace-Attribute** | `sensor.opti_target_soc` hängt Debugging-Attribute an (`branch`, `level`, `ratio`, `net_available_kwh`, `remaining_hours`), lesbar über HA-Entwicklerwerkzeuge |
 | **Forecast-Score-Bänder** | `sensor.opti_charge_power_w` variiert die C-Rate in drei Bändern (score ≤ 1: aggressiv; 2–4: moderat; ≥ 5: schonend) statt starrer Prognose-Labels |
-| **`sensor.opti_price_level`** | Anbieter-agnostisches Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE) auf Basis eines gleitenden Perzentils über `today`/`tomorrow`-Preislisten |
+| **`sensor.opti_price_level`** | Anbieter-agnostisches Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE) auf Basis eines gleitenden Perzentils über `today`/`tomorrow`-Preislisten. Fail-closed: reicht die Preisbasis nicht (< 4 verwertbare Werte), wird der Sensor `unavailable` statt ein Niveau zu erfinden |
+| **Default-Guard Preisniveau** | Der Default-Zweig setzt den Modus nur bei vorhandenem `sensor.opti_price_level` - oder wenn der aktuelle Modus kein passiver ist. Fällt die Preisquelle aus, verstummen alle Preiszweige; ohne den Guard überschrieb der Default den Modus mit `Akku Dynamisch` und ließ ihn beim nächsten Poll zurückspringen (Modus-Flattern). Gehalten wird die Entscheidung, nicht die Daten - aber nur für `Akku Dynamisch` / `Akku nur Entladen`; `Akku Netzladen`, `Akku nur Laden` und `Akku Pause` fallen zurück, damit kein Zwangszustand mit Netzbezug einfriert |
 | **Midrank-Perzentil** | `sensor.opti_price_level` zählt Preis-Gleichstände seit dem Fix nur noch halb (statt sie wie ein `select('le')` komplett auf die teure Seite zu zählen) - flache Preistage landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE. Dieselbe Klassifikation nutzt auch `sensor.opti_peak_reserve_soc` |
 | **`sensor.opti_peak_reserve_soc`** | Reserve-SoC für kommende Preisspitzen im Wiederauflade-Horizont (36h); steuert die Peak-Leiter L1-L4. Siehe [Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden) |
 | **`binary_sensor.opti_winter_charging_allowed`** | Fail-open Gate für Winterladeblöcke (Standard: `true`); kann mit eigenem Sommermodus-Sensor überschrieben werden |

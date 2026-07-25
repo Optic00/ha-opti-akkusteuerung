@@ -38,11 +38,20 @@
     # Vorschau bereits 'Akku Dynamisch' zeigt (Paritaetsverletzung).
     #
     # Kein Rueckkopplungs-Problem: setzt die Strategie denselben Wert erneut,
-    # aendert sich der State nicht und es feuert kein weiterer Trigger. Bei einem
-    # echten Wechsel folgt genau EINE zusaetzliche Auswertung. Die
-    # modusabhaengigen Hysterese-Baender (Ladedeckel +3, Ziel-SoC +0/+3,
-    # L3/L4 +5/+3) sind Schmitt-Trigger: sie verbreitern die Haltezone des
-    # AKTUELLEN Modus und konvergieren deshalb nach diesem einen Schritt.
+    # aendert sich der State nicht und es feuert kein weiterer Trigger. Aendert
+    # sie ihn wirklich, faellt der Selbsttrigger wegen mode: single in den noch
+    # laufenden Durchgang und wird verworfen (HA protokolliert das) - die
+    # Neubewertung passiert also erst beim naechsten reaktivierenden Ereignis,
+    # nicht sofort.
+    #
+    # Das ist unkritisch, weil die modusabhaengigen Hysterese-Baender
+    # (Ladedeckel +3, Ziel-SoC +0/+3, L3/L4 +5/+3, Netzlade-Stopband) allesamt
+    # Schmitt-Trigger sind: sie verbreitern die Haltezone des AKTUELLEN Modus.
+    # Ein einmal erreichter Modus haelt sich damit selbst, statt zurueckzukippen.
+    # In seltenen Konstellationen sind zwei Uebergaenge noetig (Beispiel aus der
+    # Review: SoC 34, VE-Reserve 30, EXPENSIVE, Watchdog netz -> nur Laden ->
+    # Netzladen -> nur Entladen), danach ist der Zustand stabil. Ein Zyklus
+    # existiert nicht; gegengerechnet ueber alle Zweige, die den Modus lesen.
     - trigger: state
       entity_id:
         - input_select.akkusteuerung_modus

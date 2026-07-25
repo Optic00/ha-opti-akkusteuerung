@@ -110,6 +110,59 @@ def test_cache_von_gestern_verfaellt():
     assert _attr(hass, "tomorrow") == []
 
 
+def test_rollover_offen_uebernimmt_gestrige_reihe_nicht():
+    """Review-Finding 25.07.2026: direkt nach Mitternacht liefert die Quelle noch
+    die GESTRIGE Reihe. Numerisch gueltig, aber nicht von heute - wird sie als
+    'frisch' auf das neue Datum gestempelt, koennte sie danach einen ganzen Tag
+    gehalten werden und falsche Preiszweige freigeben."""
+    hass = _hass(REIHE, cache=REIHE, cache_morgen=MORGEN_REIHE,
+                 stand=GESTERN_STR,
+                 now=dt.datetime(2026, 1, 15, 0, 3, tzinfo=TZ))
+    assert _state(hass) == "leer"
+    assert _attr(hass, "today") == []
+    # Entscheidend: der Stempel darf NICHT auf heute wandern.
+    assert _attr(hass, "stand") == GESTERN_STR
+
+
+def test_rollover_erledigt_uebernimmt_neue_reihe():
+    """Sobald die Quelle umschaltet (andere Liste als der Cache), greift der
+    Halter wieder normal - die Wache darf nicht dauerhaft blockieren."""
+    neue_reihe = [50.0 + i for i in range(24)]
+    hass = _hass(neue_reihe, cache=REIHE, stand=GESTERN_STR,
+                 now=dt.datetime(2026, 1, 15, 0, 8, tzinfo=TZ))
+    assert _state(hass) == "frisch"
+    assert _attr(hass, "today") == neue_reihe
+    assert _attr(hass, "stand") == HEUTE_STR
+
+
+def test_gestriges_tomorrow_verfaellt_beim_tageswechsel():
+    """Das gestrige 'tomorrow' sind die HEUTIGEN Preise - es darf nicht als
+    'morgen' weiterleben, wenn die Quelle auf den neuen Tag umschaltet."""
+    neue_reihe = [50.0 + i for i in range(24)]
+    hass = _hass(neue_reihe, [], cache=REIHE, cache_morgen=MORGEN_REIHE,
+                 stand=GESTERN_STR,
+                 now=dt.datetime(2026, 1, 15, 0, 8, tzinfo=TZ))
+    assert _state(hass) == "frisch"
+    assert _attr(hass, "tomorrow") == []
+
+
+def test_bekanntes_tomorrow_wird_nicht_ueberschrieben():
+    """Review-Finding 25.07.2026: faellt nur die Morgen-Liste kurz weg, waehrend
+    today gueltig bleibt, darf ein bereits bekanntes tomorrow nicht mit []
+    ueberschrieben werden (sonst springen Perzentil und Peak-Reserve)."""
+    hass = _hass(REIHE, [], cache=REIHE, cache_morgen=MORGEN_REIHE,
+                 stand=HEUTE_STR)
+    assert _state(hass) == "frisch"
+    assert _attr(hass, "tomorrow") == MORGEN_REIHE
+
+
+def test_frisches_tomorrow_schlaegt_den_cache():
+    aktuell = [99.0] * 24
+    hass = _hass(REIHE, aktuell, cache=REIHE, cache_morgen=MORGEN_REIHE,
+                 stand=HEUTE_STR)
+    assert _attr(hass, "tomorrow") == aktuell
+
+
 def test_ausfall_ueber_mitternacht_verfaellt():
     """Derselbe Cache, nur die Uhr ist weiter: nach Mitternacht darf die
     gestrige Reihe nicht mehr als 'heute' gelten."""

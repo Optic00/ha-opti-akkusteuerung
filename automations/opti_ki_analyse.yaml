@@ -120,7 +120,10 @@
           -> Dynamisch. 10. Akku voll -> Dynamisch. 11. Peak-Leiter L3/L4
           (halten) -> nur Laden. 12. Unter Ziel-SoC tags -> Dynamisch.
           13. Ueber Ziel-SoC -> nur Entladen (preisunabhaengig, Ziel-SoC
-          enthaelt die Wirtschaftlichkeit). 14. Default -> Dynamisch.
+          enthaelt die Wirtschaftlichkeit). 14. Default -> Dynamisch, ABER nur bei
+          vorhandenem Preisniveau: fehlt es (Preisquelle ausgefallen),
+          bleibt ein passiver Modus (Dynamisch/nur Entladen) stehen,
+          waehrend Netzladen/nur Laden/Pause auf Dynamisch zurueckfallen.
 
           REGELN: Nutze nur die gelieferten Zahlen, ergaenze keine Fakten.
           unavailable-Minuten sind Datenluecken, kein Anlagenverhalten -

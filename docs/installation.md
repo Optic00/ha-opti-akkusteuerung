@@ -85,6 +85,8 @@ kopieren und alle `DEIN_*`-Platzhalter durch echte Entitäts-IDs ersetzen.
 
 **5. Sensoren prüfen (Verify-Gate):** Bevor du irgendetwas scharf schaltest, in den Entwicklertools sicherstellen, dass die kanonischen Sensoren plausible Werte liefern und **nicht** `unavailable`/`unknown` sind - v. a. `sensor.opti_target_soc`, `sensor.opti_charge_power_w`, `sensor.opti_price_level`. Stimmt hier etwas nicht, zuerst das Mapping (`opti_mapping.yaml`) korrigieren, nicht weitergehen.
 
+> **Abgrenzung zum Betrieb:** Nach der Inbetriebnahme ist `sensor.opti_price_level` = `unavailable` kein Fehler, sondern gewollt - fällt die Preisquelle aus, meldet der Sensor das ehrlich (fail-closed), und die Strategie hält so lange einen passiven Modus. Nur ein *dauerhaft* nicht verfügbares Preisniveau deutet auf ein Mapping-Problem.
+
 **6. Hardware-Adapter importieren:** Blueprint aus
 [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter) per Raw-URL
 importieren (*Einstellungen → Automatisierungen & Szenen → Blueprints → importieren*) und

@@ -203,6 +203,84 @@ def test_reichtag_hysterese_und_failsafe():
     assert _reichtag(score_heute="unavailable", this_state=None) == "False"
 
 
+def test_reichtag_monatstor_sperrt_dst_loch_im_maerz():
+    zustand = _reichtag(
+        score_heute="10",
+        now=dt.datetime(2026, 3, 20, 3, 40, tzinfo=TZ),
+        next_rising="2026-03-20T06:15:00+01:00",
+        this_state="off",
+    )
+    branch = _reichtag(
+        score_heute="10",
+        now=dt.datetime(2026, 3, 20, 3, 40, tzinfo=TZ),
+        next_rising="2026-03-20T06:15:00+01:00",
+        this_state="off",
+        part="branch",
+    )
+
+    assert zustand == "False"
+    assert "Monatstor=zu" in branch
+    assert "06:30-Riegel=offen" in branch
+    assert "Monatstor geschlossen" in branch
+
+
+def test_reichtag_monatstor_oeffnet_im_april():
+    zustand = _reichtag(
+        score_heute="10",
+        now=dt.datetime(2026, 4, 20, 3, 40, tzinfo=TZ),
+        next_rising="2026-04-20T06:15:00+02:00",
+        this_state="off",
+    )
+    branch = _reichtag(
+        score_heute="10",
+        now=dt.datetime(2026, 4, 20, 3, 40, tzinfo=TZ),
+        next_rising="2026-04-20T06:15:00+02:00",
+        this_state="off",
+        part="branch",
+    )
+
+    assert zustand == "True"
+    assert "Monatstor=offen" in branch
+    assert "06:30-Riegel=offen" in branch
+
+
+def test_reichtag_monatstor_sperrt_im_september():
+    zustand = _reichtag(
+        score_heute="10",
+        now=dt.datetime(2026, 9, 5, 3, 40, tzinfo=TZ),
+        next_rising="2026-09-05T06:25:00+02:00",
+        this_state="off",
+    )
+    branch = _reichtag(
+        score_heute="10",
+        now=dt.datetime(2026, 9, 5, 3, 40, tzinfo=TZ),
+        next_rising="2026-09-05T06:25:00+02:00",
+        this_state="off",
+        part="branch",
+    )
+
+    assert zustand == "False"
+    assert "Monatstor=zu" in branch
+    assert "06:30-Riegel=offen" in branch
+
+
+def test_reichtag_ohne_next_rising_ist_auch_bei_vorzustand_an_aus():
+    assert _reichtag(
+        score_heute="10",
+        next_rising=None,
+        this_state="on",
+    ) == "False"
+
+    branch = _reichtag(
+        score_heute="10",
+        next_rising=None,
+        this_state="on",
+        part="branch",
+    )
+    assert "Sonnenaufgang=unbekannt -> aus" in branch
+    assert "Saisonriegel" not in branch
+
+
 def test_reichtag_saisonriegel_sperrt_spaeten_sonnenaufgang():
     spaet_now = dt.datetime(2026, 10, 15, 3, 40, tzinfo=TZ)
     spaet = "2026-10-15T07:40:00+02:00"
@@ -216,10 +294,15 @@ def test_reichtag_saisonriegel_sperrt_spaeten_sonnenaufgang():
     assert "Sonnenaufgang=07:40" in _reichtag(
         score_heute="10", now=spaet_now,
         next_rising=spaet, this_state="off", part="branch")
-    assert "Saisonriegel=zu" in _reichtag(
+    assert "Monatstor=zu" in _reichtag(
         score_heute="10", now=spaet_now,
         next_rising=spaet, this_state="off", part="branch")
-    assert "Saisonriegel=offen" in _reichtag(
+    assert "06:30-Riegel=zu" in _reichtag(
+        score_heute="10", now=spaet_now,
+        next_rising=spaet, this_state="off", part="branch")
+    assert "Monatstor=offen" in _reichtag(
+        score_heute="10", next_rising=frueh, this_state="off", part="branch")
+    assert "06:30-Riegel=offen" in _reichtag(
         score_heute="10", next_rising=frueh, this_state="off", part="branch")
 
 
@@ -235,16 +318,33 @@ def test_reichtag_saisonriegel_sticht_haltezone():
 def test_reichtag_saisonriegel_ist_um_0630_bereits_zu():
     # Die Freigabe verlangt bewusst "echt frueher als 06:30":
     # 06:29 ist offen, die Schwelle selbst bereits geschlossen.
-    assert _reichtag(
+    vor_kante = _reichtag(
         score_heute="10",
         next_rising="2026-07-27T06:29:00+02:00",
         this_state="off",
-    ) == "True"
-    assert _reichtag(
+    )
+    vor_kante_branch = _reichtag(
+        score_heute="10",
+        next_rising="2026-07-27T06:29:00+02:00",
+        this_state="off",
+        part="branch",
+    )
+    an_kante = _reichtag(
         score_heute="10",
         next_rising="2026-07-27T06:30:00+02:00",
         this_state="off",
-    ) == "False"
+    )
+    an_kante_branch = _reichtag(
+        score_heute="10",
+        next_rising="2026-07-27T06:30:00+02:00",
+        this_state="off",
+        part="branch",
+    )
+
+    assert vor_kante == "True"
+    assert "06:30-Riegel=offen" in vor_kante_branch
+    assert an_kante == "False"
+    assert "06:30-Riegel=zu" in an_kante_branch
 
 
 def test_spaeter_sonnenaufgang_behaelt_drei_stunden_und_l4_halt():

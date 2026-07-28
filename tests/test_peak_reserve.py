@@ -46,7 +46,8 @@ def _peak(hass):
 
 def _reichtag(*, score_heute="unknown", score_morgen="unknown",
               now=REICHTAG_MORGEN,
-              next_rising="2026-07-27T05:45:00+02:00", this_state=None):
+              next_rising="2026-07-27T05:45:00+02:00", this_state=None,
+              part="state"):
     cfg = load_yaml(REPO / "packages" / "opti_derived.yaml")
     entity = find_template_entity(cfg, "binary_sensor", "opti_pv_reichtag")
     hass = FakeHass(
@@ -58,7 +59,8 @@ def _reichtag(*, score_heute="unknown", score_morgen="unknown",
         attrs={"sun.sun": {"next_rising": next_rising}},
         this_state=this_state,
     )
-    return render(hass, entity["state"])
+    template = entity["state"] if part == "state" else entity["attributes"][part]
+    return render(hass, template)
 
 
 def _entscheidung(peak, *, score_heute, score_morgen="10", soc="28"):
@@ -136,8 +138,7 @@ def test_reichtag_27_07_verkuerzt_horizont_und_beendet_l4_halt():
     assert peak["ges_soc"] + 5 < 28
 
     alias, modus = _entscheidung(peak, score_heute="10")
-    assert alias is None or "Peak-Leiter L4" not in alias
-    assert modus != "Akku nur Laden"
+    assert (alias, modus) == ("default", "Akku Dynamisch")
 
 
 def test_schlechter_morgen_behaelt_drei_stunden_und_l4_halt():
@@ -168,16 +169,28 @@ def test_score_zwei_nutzt_36_stunden_und_haelt_weiter():
 
 def test_reichtag_laesst_heutige_abendspitze_im_horizont():
     abends = dt.datetime(2026, 7, 27, 21, 0, tzinfo=TZ)
-    peak = _reichtag_peak(
+    morgen = [25.0] * 28 + [50.0] * 8 + [25.0] * 60
+    gemeinsam = dict(
         now=abends,
         score_heute="10",
         score_morgen="10",
-        reichtag="on",
+        cap="12.8",
+        verbrauch="0.8",
+        minsoc="5",
+        maxsoc="95",
+        sun_state="below_horizon",
         next_rising="2026-07-28T05:45:00+02:00",
     )
 
-    assert peak["ve_stunden"] + peak["exp_stunden"] == 1.0
-    assert peak["benoetigt_kwh"] > 0
+    reichtag = _peak(_hass(
+        _reichtag_preise(), morgen, reichtag="on", **gemeinsam))
+    gegenprobe = _peak(_hass(
+        _reichtag_preise(), morgen, reichtag="off", **gemeinsam))
+
+    assert reichtag["horizont_ende"] == "2026-07-28T06:45:00+02:00"
+    assert reichtag["ve_stunden"] + reichtag["exp_stunden"] == 1.0
+    assert gegenprobe["horizont_ende"] == "2026-07-28T08:45:00+02:00"
+    assert gegenprobe["ve_stunden"] + gegenprobe["exp_stunden"] == 2.75
 
 
 def test_reichtag_hysterese_und_failsafe():
@@ -188,6 +201,18 @@ def test_reichtag_hysterese_und_failsafe():
     assert _reichtag(score_heute="unavailable", this_state="on") == "True"
     assert _reichtag(score_heute="unknown", this_state="off") == "False"
     assert _reichtag(score_heute="unavailable", this_state=None) == "False"
+
+
+def test_reichtag_nicht_numerischer_score_ist_fail_closed():
+    assert _reichtag(score_heute="kein-score", this_state="on") == "False"
+
+
+def test_reichtag_branch_zeigt_vorzustand_in_der_haltezone():
+    gehalten = _reichtag(score_heute="9", this_state="on", part="branch")
+    neustart = _reichtag(score_heute="9", this_state=None, part="branch")
+
+    assert "war_an=True" in gehalten
+    assert "war_an=False" in neustart
 
 
 def test_reichtag_waehlt_score_des_sonnenaufgangstags():

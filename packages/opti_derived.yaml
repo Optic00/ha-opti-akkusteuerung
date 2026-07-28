@@ -111,7 +111,7 @@ template:
                                   if rise.date() == now().date()
                                   else 'sensor.opti_forecast_score_tomorrow' %}
             {% if has_value(score_entity) %}
-              {% set score = states(score_entity) | float %}
+              {% set score = states(score_entity) | float(-1) %}
               {{ score >= 10 or (war_an and score >= 9) }}
             {% else %}
               {{ war_an }}
@@ -126,16 +126,22 @@ template:
           branch: >
             {% set rising = state_attr('sun.sun', 'next_rising') %}
             {% set rise = (rising | as_datetime | as_local) if rising else none %}
+            {% set war_an = this is defined and this.state == 'on' %}
             {% if rise is none %}
-              kein Sonnenaufgang -> Vorzustand gehalten
+              kein Sonnenaufgang -> Vorzustand gehalten (war_an={{ war_an }})
             {% else %}
               {% set score_entity = 'sensor.opti_forecast_score'
                                     if rise.date() == now().date()
                                     else 'sensor.opti_forecast_score_tomorrow' %}
               {% if has_value(score_entity) %}
-                {{ score_entity }}={{ states(score_entity) }} (ein >= 10, halten >= 9, aus <= 8)
+                {% set score = states(score_entity) | float(none) %}
+                {% if score is none %}
+                  {{ score_entity }}={{ states(score_entity) }} nicht numerisch -> aus (war_an={{ war_an }})
+                {% else %}
+                  {{ score_entity }}={{ states(score_entity) }} (ein >= 10, halten >= 9, aus <= 8, war_an={{ war_an }})
+                {% endif %}
               {% else %}
-                {{ score_entity }} unavailable -> Vorzustand gehalten
+                {{ score_entity }} unavailable -> Vorzustand gehalten (war_an={{ war_an }})
               {% endif %}
             {% endif %}
 

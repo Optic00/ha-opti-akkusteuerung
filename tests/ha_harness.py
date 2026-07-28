@@ -47,10 +47,15 @@ class FakeHass:
             second=0, microsecond=0)
 
 
-def _float(value, default=0.0):
+_NO_DEFAULT = object()
+
+
+def _float(value, default=_NO_DEFAULT):
     try:
         return float(value)
     except (TypeError, ValueError):
+        if default is _NO_DEFAULT:
+            raise
         return default
 
 

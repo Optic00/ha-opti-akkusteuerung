@@ -333,7 +333,8 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
   Bis 07/2026 lieferte es hier stattdessen `NORMAL`.
   Das war ein Fail-open: ein Datenausfall sah für die Strategie wie ein gültiges Mittelpreis-Signal aus, die Peak-Leiter L1 fiel durch, und der Modus sprang zwischen der Leiter und dem Default `Akku Dynamisch` (Live-Befund 23./24.07.2026, rund 15 Episoden in 7 Tagen).
 - **Ausfall des Reichtag-Scores:** `binary_sensor.opti_pv_reichtag` hält bei `unknown` oder `unavailable` seinen vorherigen Zustand.
-  Nach einem HA-Neustart ohne Vorzustand fällt er auf `off`, wodurch der bisherige 3-h-Puffer gilt.
+  State-basierte Template-Entities restaurieren ihren Zustand nicht: Bei jedem HA-Neustart ist `this.state` beim ersten Rendern `unknown`, daher fällt der Sensor zunächst auf `off` und der bisherige 3-h-Puffer gilt.
+  Ein Neustart um 03:00 bei Score 9 an einem echten Reichtag schaltet den Horizont für diese Nacht somit zurück auf den konservativen 3-h-Puffer; erst ein Score ab 10 schaltet den Sensor wieder ein.
   Der Peak-Rechenkern bewertet seinen Tages-Score weiterhin unabhängig mit `float(-1)`: Ist der Reichtag-Sensor noch `on`, aber der im Peak-Block ausgewählte Score gerade nicht lesbar, gewinnt deshalb unverändert der konservative 36-h-Horizont.
 - **Raster-Erkennung:** Die Preislisten liefern keine Zeitstempel.
   Die Slot-Länge (`slot_h`) wird pro Liste (`today`/`tomorrow` getrennt) aus der Listenlänge abgeleitet: 24 geteilt durch die Anzahl der Einträge.

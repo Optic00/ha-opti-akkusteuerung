@@ -96,6 +96,9 @@ template:
       #     vorherigem on bis Score 9 halten, ab Score 8 aus. Bei fehlendem
       #     Score bleibt der vorherige Zustand erhalten; ohne Vorzustand gilt
       #     off und damit konservativ der bisherige 3-h-Puffer.
+      #     Zusaetzlich darf der ausgewaehlte Sonnenaufgang nur vor 06:30
+      #     Ortszeit liegen. Der saisonale Riegel begrenzt den 1-h-Puffer auf
+      #     Monate mit frueher, typischerweise steiler Morgenrampe.
       # -----------------------------------------------------------------------
       - unique_id: opti_pv_reichtag
         name: "Opti PV Reichtag"
@@ -104,44 +107,61 @@ template:
           {% set rising = state_attr('sun.sun', 'next_rising') %}
           {% set rise = (rising | as_datetime | as_local) if rising else none %}
           {% set war_an = this is defined and this.state == 'on' %}
+          {# Saisonriegel bei 06:30 Ortszeit. rise ist bereits as_local, daher
+             ist die Sommerzeit automatisch korrekt. Im Winter ist der Riegel
+             bei Sonnenaufgang um 08:00 Uhr und spaeter sicher geschlossen. #}
+          {% set saisonriegel_grenze = 6 * 60 + 30 %}
           {% if rise is not none %}
+            {% set saisonriegel_offen =
+                 rise.hour * 60 + rise.minute < saisonriegel_grenze %}
             {# MUSS mit der rise_score-Auswahl im Peak-Rechenkern
                (Abschnitt 9) synchron bleiben. #}
             {% set score_entity = 'sensor.opti_forecast_score'
                                   if rise.date() == now().date()
                                   else 'sensor.opti_forecast_score_tomorrow' %}
-            {% if has_value(score_entity) %}
+            {% if not saisonriegel_offen %}
+              {{ false }}
+            {% elif has_value(score_entity) %}
               {% set score = states(score_entity) | float(-1) %}
               {{ score >= 10 or (war_an and score >= 9) }}
             {% else %}
               {{ war_an }}
             {% endif %}
           {% else %}
-            {{ war_an }}
+            {{ false }}
           {% endif %}
         attributes:
           # Diagnose-Attribut wie bei opti_target_soc/opti_peak_reserve_soc:
           # ohne sichtbare Entscheidungsgrundlage laesst sich im Nachhinein
-          # nicht rekonstruieren, welcher Score den Puffer gesetzt hat.
+          # nicht rekonstruieren, ob Score oder Saisonriegel entschieden hat.
           branch: >
             {% set rising = state_attr('sun.sun', 'next_rising') %}
             {% set rise = (rising | as_datetime | as_local) if rising else none %}
             {% set war_an = this is defined and this.state == 'on' %}
+            {# Gleiche lokale 06:30-Schwelle wie im State-Template. #}
+            {% set saisonriegel_grenze = 6 * 60 + 30 %}
             {% if rise is none %}
-              kein Sonnenaufgang -> Vorzustand gehalten (war_an={{ war_an }})
+              Sonnenaufgang=unbekannt, Saisonriegel=zu -> aus (war_an={{ war_an }})
             {% else %}
+              {% set saisonriegel_offen =
+                   rise.hour * 60 + rise.minute < saisonriegel_grenze %}
               {% set score_entity = 'sensor.opti_forecast_score'
                                     if rise.date() == now().date()
                                     else 'sensor.opti_forecast_score_tomorrow' %}
-              {% if has_value(score_entity) %}
+              {% set diagnose = 'Sonnenaufgang=' ~ rise.strftime('%H:%M')
+                                ~ ', Saisonriegel='
+                                ~ ('offen' if saisonriegel_offen else 'zu') %}
+              {% if not saisonriegel_offen %}
+                {{ diagnose }} -> aus (war_an={{ war_an }})
+              {% elif has_value(score_entity) %}
                 {% set score = states(score_entity) | float(none) %}
                 {% if score is none %}
-                  {{ score_entity }}={{ states(score_entity) }} nicht numerisch -> aus (war_an={{ war_an }})
+                  {{ diagnose }}, {{ score_entity }}={{ states(score_entity) }} nicht numerisch -> aus (war_an={{ war_an }})
                 {% else %}
-                  {{ score_entity }}={{ states(score_entity) }} (ein >= 10, halten >= 9, aus <= 8, war_an={{ war_an }})
+                  {{ diagnose }}, {{ score_entity }}={{ states(score_entity) }} (ein >= 10, halten >= 9, aus <= 8, war_an={{ war_an }})
                 {% endif %}
               {% else %}
-                {{ score_entity }} unavailable -> Vorzustand gehalten (war_an={{ war_an }})
+                {{ diagnose }}, {{ score_entity }} unavailable -> Vorzustand gehalten (war_an={{ war_an }})
               {% endif %}
             {% endif %}
 

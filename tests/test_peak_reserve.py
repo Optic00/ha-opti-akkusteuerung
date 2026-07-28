@@ -203,6 +203,76 @@ def test_reichtag_hysterese_und_failsafe():
     assert _reichtag(score_heute="unavailable", this_state=None) == "False"
 
 
+def test_reichtag_saisonriegel_sperrt_spaeten_sonnenaufgang():
+    spaet_now = dt.datetime(2026, 10, 15, 3, 40, tzinfo=TZ)
+    spaet = "2026-10-15T07:40:00+02:00"
+    frueh = "2026-07-27T05:45:00+02:00"
+
+    assert _reichtag(
+        score_heute="10", now=spaet_now,
+        next_rising=spaet, this_state="off") == "False"
+    assert _reichtag(
+        score_heute="10", next_rising=frueh, this_state="off") == "True"
+    assert "Sonnenaufgang=07:40" in _reichtag(
+        score_heute="10", now=spaet_now,
+        next_rising=spaet, this_state="off", part="branch")
+    assert "Saisonriegel=zu" in _reichtag(
+        score_heute="10", now=spaet_now,
+        next_rising=spaet, this_state="off", part="branch")
+    assert "Saisonriegel=offen" in _reichtag(
+        score_heute="10", next_rising=frueh, this_state="off", part="branch")
+
+
+def test_reichtag_saisonriegel_sticht_haltezone():
+    assert _reichtag(
+        score_heute="9",
+        now=dt.datetime(2026, 10, 15, 3, 40, tzinfo=TZ),
+        next_rising="2026-10-15T07:40:00+02:00",
+        this_state="on",
+    ) == "False"
+
+
+def test_reichtag_saisonriegel_ist_um_0630_bereits_zu():
+    # Die Freigabe verlangt bewusst "echt frueher als 06:30":
+    # 06:29 ist offen, die Schwelle selbst bereits geschlossen.
+    assert _reichtag(
+        score_heute="10",
+        next_rising="2026-07-27T06:29:00+02:00",
+        this_state="off",
+    ) == "True"
+    assert _reichtag(
+        score_heute="10",
+        next_rising="2026-07-27T06:30:00+02:00",
+        this_state="off",
+    ) == "False"
+
+
+def test_spaeter_sonnenaufgang_behaelt_drei_stunden_und_l4_halt():
+    now = dt.datetime(2026, 10, 15, 3, 40, tzinfo=TZ)
+    next_rising = "2026-10-15T07:40:00+02:00"
+    reichtag = _reichtag(
+        score_heute="10",
+        now=now,
+        next_rising=next_rising,
+        this_state="off",
+    )
+    peak = _reichtag_peak(
+        score_heute="10",
+        reichtag="on" if reichtag == "True" else "off",
+        now=now,
+        next_rising=next_rising,
+    )
+
+    assert reichtag == "False"
+    assert peak["horizont_ende"] == "2026-10-15T10:40:00+02:00"
+    assert peak["ve_stunden"] + peak["exp_stunden"] == 3.0
+    assert peak["benoetigt_kwh"] > 0
+
+    alias, modus = _entscheidung(peak, score_heute="10")
+    assert "Peak-Leiter L4" in alias
+    assert modus == "Akku nur Laden"
+
+
 def test_reichtag_nicht_numerischer_score_ist_fail_closed():
     assert _reichtag(score_heute="kein-score", this_state="on") == "False"
 

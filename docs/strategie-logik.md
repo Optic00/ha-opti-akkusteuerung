@@ -24,7 +24,7 @@ Zentrales Entitäts-Modell (Canonical-`opti_*`-Layer):
 - `input_boolean.opti_prognose_netzladen` — Gate für prognosebasiertes Netzladen
 - `input_boolean.opti_pv_ueberschuss_ladung` — Gate für PV-Überschuss-Laden
 - `binary_sensor.opti_winter_charging_allowed` — Winterladefreigabe (Standard: `true`)
-- `binary_sensor.opti_pv_reichtag` - hysteretisches Signal für einen Top-PV-Tag und den verkürzten Wiederauflade-Puffer
+- `binary_sensor.opti_pv_reichtag` - hysteretisches, saisonal begrenztes Signal für den verkürzten Wiederauflade-Puffer
 - `sensor.opti_peak_reserve_soc` - berechneter Reserve-SoC für kommende Preisspitzen (36h-Horizont)
 - `binary_sensor.opti_peak_reserve_aktiv` - Gate: Peaks im Wiederauflade-Horizont vorhanden
 - `input_number.opti_peak_verbrauch_kw` / `opti_einspeiseverguetung_ct` / `opti_netzlade_spread_ct` / `opti_peak_min_aufschlag_ct` / `opti_halte_spread_ct` - Konfiguration der Peak-Allokation
@@ -213,9 +213,17 @@ Das Fenster beginnt an der nächsten vollen Stunde und endet:
 - sonst **maximal 36 h** ab jetzt (kein guter Score in Sicht, oder Score fehlt).
 
 `binary_sensor.opti_pv_reichtag` schaltet ab Score 10 ein, hält einen bereits aktiven Zustand bei Score 9 und schaltet ab Score 8 aus.
-Er nutzt exakt dieselbe Auswahl des Sonnenaufgangstags wie der Peak-Rechenkern.
-Der einstündige Puffer ist bewusst nicht null: Bei Sonnenaufgang liefert die Anlage auch an einem Top-Tag noch nichts.
+Zusätzlich muss der ausgewählte Sonnenaufgang echt vor 06:30 Uhr Ortszeit liegen. Ab 06:30 Uhr ist dieser saisonale Riegel geschlossen und der Sensor bleibt unabhängig von der Score-Hysterese aus. Damit gilt wieder der konservative 3-h-Puffer. Der Sensor nutzt exakt dieselbe Auswahl des Sonnenaufgangstags wie der Peak-Rechenkern.
+
+Score 10 ist dabei ein **Sättigungssignal**, kein Top-Tag-Detektor: Die erwartete PV-Energie reicht voraussichtlich aus, um den Akku wieder zu füllen. Der Fit-Quotient ist bei 10 gekappt und über
+`needed = cap * (1 - soc / 100)` direkt an den aktuellen SoC rückgekoppelt. Je voller der Akku bereits ist, desto weniger Restprognose genügt deshalb für Score 10.
+
+Der Tagessummen-Score kennt die **Morgenrampe** nicht. Ein Nebel- oder Inversionstag kann trotz später PV-Rampe Score 10 erreichen. Der 1-h-Puffer deckt solche Fälle später Rampen bewusst nicht ab.
+Der saisonale 06:30-Riegel ist deshalb eine Zwischenlösung: Frühe Sonnenaufgänge begrenzen die Verkürzung grob auf April bis August, während er im Winter bei Sonnenaufgängen um 08:00 Uhr und später sicher geschlossen bleibt. Sommerzeit wird korrekt berücksichtigt, weil der Sonnenaufgang vor dem Vergleich in Ortszeit umgerechnet wird.
+
+Der einstündige Puffer ist trotzdem bewusst nicht null: Bei Sonnenaufgang liefert die Anlage auch an einem freigegebenen Reichtag noch nichts.
 Am 27.07.2026 lag der Schnittpunkt von PV-Erzeugung und Hausverbrauch erst gegen 06:30 Uhr, bei Sonnenaufgang um 05:45 Uhr.
+Die saubere spätere Lösung wäre ein rampenabhängiger Puffer aus der halbstündlichen Solcast-Detailprognose, berechnet als Zeit bis die prognostizierte PV-Leistung den Hausverbrauch übersteigt.
 
 Wichtig: Ist der nächste Sonnenaufgang erst **morgen** (Score von morgen entscheidet), zählt die **heutige** Abendspitze trotzdem mit - sie liegt ja vor diesem Wiederaufladepunkt.
 Ein sonniger Tag von morgen schließt die heutige Abendspitze also nicht aus dem Horizont aus, er verkürzt ihn nur ab dem morgigen Sonnenaufgang plus dem Reichtag-abhängigen Puffer.

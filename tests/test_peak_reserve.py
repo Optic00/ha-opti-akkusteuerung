@@ -1,15 +1,21 @@
 import datetime as dt
 
+from .condition_eval import evaluate_condition
 from .ha_harness import (REPO, TZ, FakeHass, find_template_entity,
-                         find_trigger_block_variables, load_yaml, render_native)
+                         find_trigger_block_variables, load_yaml, render,
+                         render_native)
+from .test_strategie_paritaet import (CHOOSE_OPTIONS, MAIN_ACTION,
+                                      _mode_from_sequence)
+from .test_strategie_vorschau import BASIS, reserve_attrs
 
 WINTER_ABEND = dt.datetime(2026, 1, 15, 17, 30, tzinfo=TZ)  # nach Sonnenuntergang
+REICHTAG_MORGEN = dt.datetime(2026, 7, 27, 3, 40, tzinfo=TZ)
 
 
 def _hass(today, tomorrow, *, now=WINTER_ABEND, score_heute="1", score_morgen="1",
           cap="12.8", verbrauch="0.9", minsoc="10", maxsoc="95",
           sun_state="below_horizon", next_rising="2026-01-16T08:15:00+01:00",
-          aufschlag="0"):
+          aufschlag="0", reichtag="off"):
     # aufschlag default "0" = alte Tests bleiben semantisch unveraendert (keine
     # oekonomische Filterung); neue Tests setzen aufschlag explizit aktiv.
     return FakeHass(
@@ -22,6 +28,7 @@ def _hass(today, tomorrow, *, now=WINTER_ABEND, score_heute="1", score_morgen="1
             "input_number.minsoc": minsoc,
             "input_number.maxsoc": maxsoc,
             "input_number.opti_peak_min_aufschlag_ct": aufschlag,
+            "binary_sensor.opti_pv_reichtag": reichtag,
             "sun.sun": sun_state,
         },
         attrs={
@@ -35,6 +42,181 @@ def _peak(hass):
     cfg = load_yaml(REPO / "packages" / "opti_derived.yaml")
     template = find_trigger_block_variables(cfg, "peak")
     return render_native(hass, template)
+
+
+def _reichtag(*, score_heute="unknown", score_morgen="unknown",
+              now=REICHTAG_MORGEN,
+              next_rising="2026-07-27T05:45:00+02:00", this_state=None):
+    cfg = load_yaml(REPO / "packages" / "opti_derived.yaml")
+    entity = find_template_entity(cfg, "binary_sensor", "opti_pv_reichtag")
+    hass = FakeHass(
+        now=now,
+        states={
+            "sensor.opti_forecast_score": score_heute,
+            "sensor.opti_forecast_score_tomorrow": score_morgen,
+        },
+        attrs={"sun.sun": {"next_rising": next_rising}},
+        this_state=this_state,
+    )
+    return render(hass, entity["state"])
+
+
+def _entscheidung(peak, *, score_heute, score_morgen="10", soc="28"):
+    states = dict(BASIS)
+    states.update({
+        "sensor.opti_soc": soc,
+        "sensor.opti_forecast_score": score_heute,
+        "sensor.opti_forecast_score_tomorrow": score_morgen,
+        "sensor.opti_peak_reserve_soc": str(peak["ges_soc"]),
+        "binary_sensor.opti_peak_reserve_aktiv":
+            "on" if peak["gueltig"] and peak["benoetigt_kwh"] > 0 else "off",
+        "sensor.opti_price_current_ct_kwh": "25",
+        "sensor.opti_price_level": "NORMAL",
+        "input_boolean.opti_prognose_netzladen": "off",
+        "input_select.akkusteuerung_modus": "Akku nur Laden",
+        "sun.sun": "below_horizon",
+    })
+    hass = FakeHass(
+        states=states,
+        attrs=reserve_attrs(
+            ve=peak["ve_soc"],
+            min_vor=peak["min_preis_vor_peak_ct"],
+            avg=peak["peak_preis_avg_ct"],
+            ve_avg=peak["ve_preis_avg_ct"],
+        ),
+    )
+    for option in CHOOSE_OPTIONS:
+        if all(evaluate_condition(hass, c) for c in option.get("conditions", [])):
+            return option.get("alias"), _mode_from_sequence(option["sequence"])
+    for step in MAIN_ACTION.get("default", []) or []:
+        for option in step.get("choose", []) or []:
+            if all(evaluate_condition(hass, c)
+                   for c in option.get("conditions", [])):
+                return "default", _mode_from_sequence(option["sequence"])
+    return None, None
+
+
+def _reichtag_preise():
+    # Viertelstundenraster: Nacht ~25 ct, 06-09 Uhr 31-34 ct,
+    # mittags billig, abends teuer.
+    return (
+        [25.0] * 24
+        + [31.0] * 4 + [32.0] * 4 + [34.0] * 4
+        + [10.0] * 36
+        + [40.0] * 16
+        + [25.0] * 8
+    )
+
+
+def _reichtag_peak(*, score_heute, reichtag, now=REICHTAG_MORGEN,
+                   score_morgen="10",
+                   next_rising="2026-07-27T05:45:00+02:00"):
+    return _peak(_hass(
+        _reichtag_preise(),
+        [],
+        now=now,
+        score_heute=score_heute,
+        score_morgen=score_morgen,
+        cap="12.8",
+        verbrauch="0.8",
+        minsoc="5",
+        maxsoc="95",
+        sun_state="below_horizon",
+        next_rising=next_rising,
+        reichtag=reichtag,
+    ))
+
+
+def test_reichtag_27_07_verkuerzt_horizont_und_beendet_l4_halt():
+    peak = _reichtag_peak(score_heute="10", reichtag="on")
+
+    assert peak["horizont_ende"] == "2026-07-27T06:45:00+02:00"
+    assert peak["ve_stunden"] + peak["exp_stunden"] == 0.75
+    assert peak["benoetigt_kwh"] == 0.67
+    assert peak["ges_soc"] + 5 < 28
+
+    alias, modus = _entscheidung(peak, score_heute="10")
+    assert alias is None or "Peak-Leiter L4" not in alias
+    assert modus != "Akku nur Laden"
+
+
+def test_schlechter_morgen_behaelt_drei_stunden_und_l4_halt():
+    peak = _reichtag_peak(score_heute="6", reichtag="off")
+
+    assert peak["horizont_ende"] == "2026-07-27T08:45:00+02:00"
+    assert peak["ve_stunden"] + peak["exp_stunden"] == 2.75
+    assert peak["benoetigt_kwh"] > 0
+
+    alias, modus = _entscheidung(peak, score_heute="6")
+    assert "Peak-Leiter L4" in alias
+    assert modus == "Akku nur Laden"
+
+
+def test_score_zwei_nutzt_36_stunden_und_haelt_weiter():
+    peak = _reichtag_peak(score_heute="2", score_morgen="10", reichtag="off")
+
+    assert peak["horizont_ende"] == "2026-07-28T15:40:00+02:00"
+    # 3 h Morgen-Peaks plus 4 h Abend-Peaks: Der lange Horizont muss beide
+    # Gruppen enthalten.
+    assert peak["ve_stunden"] + peak["exp_stunden"] == 7.0
+    assert peak["benoetigt_kwh"] > 0
+
+    alias, modus = _entscheidung(peak, score_heute="2", score_morgen="10")
+    assert "Peak-Leiter L4" in alias
+    assert modus == "Akku nur Laden"
+
+
+def test_reichtag_laesst_heutige_abendspitze_im_horizont():
+    abends = dt.datetime(2026, 7, 27, 21, 0, tzinfo=TZ)
+    peak = _reichtag_peak(
+        now=abends,
+        score_heute="10",
+        score_morgen="10",
+        reichtag="on",
+        next_rising="2026-07-28T05:45:00+02:00",
+    )
+
+    assert peak["ve_stunden"] + peak["exp_stunden"] == 1.0
+    assert peak["benoetigt_kwh"] > 0
+
+
+def test_reichtag_hysterese_und_failsafe():
+    assert _reichtag(score_heute="10", this_state="off") == "True"
+    assert _reichtag(score_heute="9", this_state="on") == "True"
+    assert _reichtag(score_heute="9", this_state="off") == "False"
+    assert _reichtag(score_heute="8", this_state="on") == "False"
+    assert _reichtag(score_heute="unavailable", this_state="on") == "True"
+    assert _reichtag(score_heute="unknown", this_state="off") == "False"
+    assert _reichtag(score_heute="unavailable", this_state=None) == "False"
+
+
+def test_reichtag_waehlt_score_des_sonnenaufgangstags():
+    assert _reichtag(
+        score_heute="10",
+        score_morgen="8",
+        this_state="off",
+    ) == "True"
+    assert _reichtag(
+        score_heute="10",
+        score_morgen="8",
+        now=dt.datetime(2026, 7, 27, 21, 0, tzinfo=TZ),
+        next_rising="2026-07-28T05:45:00+02:00",
+        this_state="off",
+    ) == "False"
+
+
+def test_reichtag_ist_trigger_des_peak_blocks():
+    cfg = load_yaml(REPO / "packages" / "opti_derived.yaml")
+    block = next(b for b in cfg["template"] if "peak" in b.get("variables", {}))
+    state_trigger = next(t for t in block["triggers"] if t["trigger"] == "state")
+    assert "binary_sensor.opti_pv_reichtag" in state_trigger["entity_id"]
+
+
+def test_reichtag_on_scoreausfall_im_peak_block_nutzt_36_stunden():
+    peak = _reichtag_peak(score_heute="unavailable", reichtag="on")
+
+    assert peak["horizont_ende"] == "2026-07-28T15:40:00+02:00"
+    assert peak["ve_stunden"] + peak["exp_stunden"] > 0
 
 
 def test_abendspitze_heute_zaehlt():
@@ -83,7 +265,7 @@ def test_kappung_bei_maxsoc():
 
 
 def test_weniger_als_4_preise_ungueltig():
-    peak = _peak(_hass([50.0, 60.0], []))
+    peak = _peak(_hass([50.0, 60.0], [], reichtag="on"))
     assert peak["gueltig"] is False
 
 

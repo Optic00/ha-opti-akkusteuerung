@@ -90,6 +90,55 @@ template:
           grenze_ein_w: "{{ states('input_number.akkusteuerung_wr_ac_ueberschuss_grenze') }}"
           hysterese_w: 300
 
+      # -----------------------------------------------------------------------
+      # 0b. PV-Reichtag fuer den Wiederauflade-Horizont der Peak-Reserve.
+      #     Entscheidungs-Hysterese ohne Datenpuffer: ab Score 10 an, bei
+      #     vorherigem on bis Score 9 halten, ab Score 8 aus. Bei fehlendem
+      #     Score bleibt der vorherige Zustand erhalten; ohne Vorzustand gilt
+      #     off und damit konservativ der bisherige 3-h-Puffer.
+      # -----------------------------------------------------------------------
+      - unique_id: opti_pv_reichtag
+        name: "Opti PV Reichtag"
+        icon: mdi:weather-sunny
+        state: >
+          {% set rising = state_attr('sun.sun', 'next_rising') %}
+          {% set rise = (rising | as_datetime | as_local) if rising else none %}
+          {% set war_an = this is defined and this.state == 'on' %}
+          {% if rise is not none %}
+            {# MUSS mit der rise_score-Auswahl im Peak-Rechenkern
+               (Abschnitt 9) synchron bleiben. #}
+            {% set score_entity = 'sensor.opti_forecast_score'
+                                  if rise.date() == now().date()
+                                  else 'sensor.opti_forecast_score_tomorrow' %}
+            {% if has_value(score_entity) %}
+              {% set score = states(score_entity) | float %}
+              {{ score >= 10 or (war_an and score >= 9) }}
+            {% else %}
+              {{ war_an }}
+            {% endif %}
+          {% else %}
+            {{ war_an }}
+          {% endif %}
+        attributes:
+          # Diagnose-Attribut wie bei opti_target_soc/opti_peak_reserve_soc:
+          # ohne sichtbare Entscheidungsgrundlage laesst sich im Nachhinein
+          # nicht rekonstruieren, welcher Score den Puffer gesetzt hat.
+          branch: >
+            {% set rising = state_attr('sun.sun', 'next_rising') %}
+            {% set rise = (rising | as_datetime | as_local) if rising else none %}
+            {% if rise is none %}
+              kein Sonnenaufgang -> Vorzustand gehalten
+            {% else %}
+              {% set score_entity = 'sensor.opti_forecast_score'
+                                    if rise.date() == now().date()
+                                    else 'sensor.opti_forecast_score_tomorrow' %}
+              {% if has_value(score_entity) %}
+                {{ score_entity }}={{ states(score_entity) }} (ein >= 10, halten >= 9, aus <= 8)
+              {% else %}
+                {{ score_entity }} unavailable -> Vorzustand gehalten
+              {% endif %}
+            {% endif %}
+
   - sensor:
 
       # -----------------------------------------------------------------------
@@ -941,6 +990,7 @@ template:
           - sensor.opti_price_series
           - sensor.opti_forecast_score
           - sensor.opti_forecast_score_tomorrow
+          - binary_sensor.opti_pv_reichtag
           - sensor.opti_battery_capacity_kwh
           - input_number.opti_peak_verbrauch_kw
           - input_number.minsoc
@@ -987,8 +1037,10 @@ template:
           {% endif %}
         {% endfor %}
         {% set n = ns.prices | length if ns.raster_ok else 0 %}
-        {# 2. Wiederauflade-Horizont: bis naechster Sonnenaufgang + 3 h mit gutem
-           Tages-Score (> 2), sonst 36 h. Tagsueber + guter Heute-Score -> leer. #}
+        {# 2. Wiederauflade-Horizont: bis naechster Sonnenaufgang plus
+           scoreabhaengigem Puffer mit gutem Tages-Score (> 2): 1 h an einem
+           PV-Reichtag, sonst 3 h. Bei schlechtem/fehlendem Score 36 h.
+           Tagsueber + guter Heute-Score -> leer. #}
         {% set s_heute = states('sensor.opti_forecast_score') | float(-1) %}
         {% set s_morgen = states('sensor.opti_forecast_score_tomorrow') | float(-1) %}
         {% set horizont_max = now() + timedelta(hours=36) %}
@@ -1001,9 +1053,15 @@ template:
           {% set rising = state_attr('sun.sun', 'next_rising') %}
           {% set rise = (rising | as_datetime | as_local) if rising else none %}
           {% if rise is not none %}
+            {# MUSS mit der Score-Auswahl von opti_pv_reichtag oben
+               synchron bleiben. #}
             {% set rise_score = s_heute if rise.date() == now().date() else s_morgen %}
             {% if rise_score > 2 %}
-              {% set horizont_ende = [rise + timedelta(hours=3), horizont_max] | min %}
+              {# 1 h ist bewusst nicht 0 h: Bei Sonnenaufgang liefert auch ein
+                 Top-Tag noch nichts. Am 27.07.2026 lag der Schnittpunkt von
+                 PV und Hausverbrauch erst ca. 06:30 bei Sonnenaufgang 05:45. #}
+              {% set puffer = 1 if is_state('binary_sensor.opti_pv_reichtag','on') else 3 %}
+              {% set horizont_ende = [rise + timedelta(hours=puffer), horizont_max] | min %}
             {% else %}
               {% set horizont_ende = horizont_max %}
             {% endif %}

@@ -1,0 +1,9 @@
+# Test-Abhaengigkeiten fuer die Jinja-/YAML-Testsuite (tests/).
+# Laufzeit-Abhaengigkeiten gibt es keine: das Repo liefert HA-YAML aus,
+# Python wird ausschliesslich zum Testen und fuer tools/backtest.py gebraucht.
+#
+# Installation: python3 -m pip install -r requirements-dev.txt
+
+pytest>=8.0
+Jinja2>=3.1
+PyYAML>=6.0

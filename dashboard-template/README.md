@@ -60,6 +60,7 @@ Die Vorzeichen-/Einheiten-Konventionen stammen aus `docs/canonical-layer.md` die
 | `sensor.opti_forecast_tomorrow_kwh` | Prognose morgen | kWh, Attribut `estimate10` (P10) |
 | `sensor.opti_peak_reserve_soc` | Reserve-SoC für Preisspitzen | % |
 | `binary_sensor.opti_peak_reserve_aktiv` | Peak-Reserve-Gate | on/off |
+| `binary_sensor.opti_pv_reichtag` | verkürzter Wiederauflade-Horizont an PV-Reichtagen | on/off |
 | `binary_sensor.opti_winter_charging_allowed` | saisonales Lade-Gate | on/off (fail-open) |
 | `sensor.opti_strategie_vorschau` | Vorschau-Modus der Strategie | Text, Attribut `grund` |
 | `sensor.opti_balancing_watchdog` | Balancing-/Deep-Charge-Watchdog | `aus` / `pv` / `netz`, Attribut `grund` |

@@ -24,6 +24,7 @@ Zentrales Entitäts-Modell (Canonical-`opti_*`-Layer):
 - `input_boolean.opti_prognose_netzladen` — Gate für prognosebasiertes Netzladen
 - `input_boolean.opti_pv_ueberschuss_ladung` — Gate für PV-Überschuss-Laden
 - `binary_sensor.opti_winter_charging_allowed` — Winterladefreigabe (Standard: `true`)
+- `binary_sensor.opti_pv_reichtag` - hysteretisches, saisonal begrenztes Signal für den verkürzten Wiederauflade-Puffer
 - `sensor.opti_peak_reserve_soc` - berechneter Reserve-SoC für kommende Preisspitzen (36h-Horizont)
 - `binary_sensor.opti_peak_reserve_aktiv` - Gate: Peaks im Wiederauflade-Horizont vorhanden
 - `input_number.opti_peak_verbrauch_kw` / `opti_einspeiseverguetung_ct` / `opti_netzlade_spread_ct` / `opti_peak_min_aufschlag_ct` / `opti_halte_spread_ct` - Konfiguration der Peak-Allokation
@@ -208,11 +209,24 @@ Die Reserve muss nur bis zum nächsten Zeitpunkt reichen, an dem der Akku voraus
 Das Fenster beginnt an der nächsten vollen Stunde und endet:
 
 - **leer**, wenn es gerade Tag ist (Sonne über dem Horizont) und der heutige Forecast-Score gut ist (> 2) - dann füllt die PV den Akku ohnehin gleich wieder auf, eine Reserve ist überflüssig.
-- sonst am **nächsten Sonnenaufgang + 3 h**, wenn der Score des Tages, an dem dieser Sonnenaufgang liegt, gut ist (> 2) - heute oder morgen, je nachdem, ob der nächste Sonnenaufgang schon heute war oder erst morgen kommt.
+- sonst am **nächsten Sonnenaufgang + 1 h** an einem PV-Reichtag beziehungsweise **+ 3 h** an allen anderen Tagen, wenn der Score des Tages, auf den dieser Sonnenaufgang fällt, gut ist (> 2). Für einen Sonnenaufgang heute entscheidet `sensor.opti_forecast_score`, für einen Sonnenaufgang morgen `sensor.opti_forecast_score_tomorrow`.
 - sonst **maximal 36 h** ab jetzt (kein guter Score in Sicht, oder Score fehlt).
 
+`binary_sensor.opti_pv_reichtag` schaltet ab Score 10 ein, hält einen bereits aktiven Zustand bei Score 9 und schaltet ab Score 8 aus.
+Zusätzlich muss der ausgewählte Sonnenaufgang in den Monaten April bis August liegen **und** echt vor 06:30 Uhr Ortszeit stattfinden. Schließt das Monatstor oder der 06:30-Riegel, bleibt der Sensor unabhängig von der Score-Hysterese aus und es gilt wieder der konservative 3-h-Puffer. Der Sensor nutzt exakt dieselbe Auswahl des Sonnenaufgangstags wie der Peak-Rechenkern.
+
+Score 10 ist dabei ein **Sättigungssignal**, kein Top-Tag-Detektor: Die erwartete PV-Energie reicht voraussichtlich aus, um den Akku wieder zu füllen. Der Fit-Quotient ist bei 10 gekappt und über
+`needed = cap * (1 - soc / 100)` direkt an den aktuellen SoC rückgekoppelt. Je voller der Akku bereits ist, desto weniger Restprognose genügt deshalb für Score 10.
+
+Der Tagessummen-Score kennt die **Morgenrampe** nicht. Ein Nebel- oder Inversionstag kann trotz später PV-Rampe Score 10 erreichen. Der 1-h-Puffer deckt solche Fälle mit später Rampe bewusst nicht ab.
+Der saisonale Riegel ist deshalb eine Zwischenlösung: Das Monatstor lässt ausschließlich April bis August zu und verhindert das DST-Loch der nicht monotonen Wanduhrzeit. Innerhalb dieses Zeitraums muss der ausgewählte Sonnenaufgang zusätzlich echt vor 06:30 Uhr Ortszeit liegen. Diese feinere Grenze bleibt für Nachnutzungen an anderen geografischen Breiten wirksam; Sommerzeit wird berücksichtigt, weil der Sonnenaufgang vor dem Vergleich in Ortszeit umgerechnet wird.
+
+Der einstündige Puffer ist trotzdem bewusst nicht null: Bei Sonnenaufgang liefert die Anlage auch an einem freigegebenen Reichtag noch nichts.
+Am 27.07.2026 lag der Schnittpunkt von PV-Erzeugung und Hausverbrauch erst gegen 06:30 Uhr, bei Sonnenaufgang um 05:45 Uhr.
+Die saubere spätere Lösung wäre ein rampenabhängiger Puffer aus der halbstündlichen Solcast-Detailprognose, berechnet als Zeit bis die prognostizierte PV-Leistung den Hausverbrauch übersteigt.
+
 Wichtig: Ist der nächste Sonnenaufgang erst **morgen** (Score von morgen entscheidet), zählt die **heutige** Abendspitze trotzdem mit - sie liegt ja vor diesem Wiederaufladepunkt.
-Ein sonniger Tag von morgen schließt die heutige Abendspitze also nicht aus dem Horizont aus, er verkürzt ihn nur ab dem morgigen Sonnenaufgang + 3 h.
+Ein sonniger Tag von morgen schließt die heutige Abendspitze also nicht aus dem Horizont aus, er verkürzt ihn nur ab dem morgigen Sonnenaufgang plus dem Reichtag-abhängigen Puffer.
 
 **Klassifikation.**
 Jede Stunde im Horizont wird mit demselben **Midrank-Perzentil** wie `sensor.opti_price_level` eingestuft (gleiche Grenzen: ≥ 80 % → VERY_EXPENSIVE, ≥ 60 % → EXPENSIVE) - ein konsistentes Preisniveau-Konzept für die ganze Strategie.
@@ -326,6 +340,11 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
   `sensor.opti_price_level` wird bei derselben Datenlage ebenfalls `unavailable` und sperrt damit alle preisabhängigen Zweige.
   Bis 07/2026 lieferte es hier stattdessen `NORMAL`.
   Das war ein Fail-open: ein Datenausfall sah für die Strategie wie ein gültiges Mittelpreis-Signal aus, die Peak-Leiter L1 fiel durch, und der Modus sprang zwischen der Leiter und dem Default `Akku Dynamisch` (Live-Befund 23./24.07.2026, rund 15 Episoden in 7 Tagen).
+- **Ausfall des Reichtag-Scores:** `binary_sensor.opti_pv_reichtag` hält bei `unknown` oder `unavailable` seinen vorherigen Zustand.
+  State-basierte Template-Entities restaurieren ihren Zustand nicht: Bei jedem HA-Neustart ist `this.state` beim ersten Rendern `unknown`, daher fällt der Sensor zunächst auf `off` und der bisherige 3-h-Puffer gilt.
+  Ein Neustart um 03:00 bei Score 9 an einem echten Reichtag schaltet den Horizont für diese Nacht somit zurück auf den konservativen 3-h-Puffer; erst ein Score ab 10 schaltet den Sensor wieder ein.
+  Der Peak-Rechenkern bewertet seinen Tages-Score weiterhin unabhängig mit `float(-1)`: Ist der Reichtag-Sensor noch `on`, aber der im Peak-Block ausgewählte Score gerade nicht lesbar, gewinnt deshalb unverändert der konservative 36-h-Horizont.
+- **Fehlender nächster Sonnenaufgang:** Fehlt `sun.sun` das Attribut `next_rising`, fällt `binary_sensor.opti_pv_reichtag` unabhängig vom Vorzustand auf `off`. Der Peak-Rechenkern kann dann keinen Sonnenaufgangspuffer bestimmen und nutzt den konservativen 36-h-Horizont.
 - **Raster-Erkennung:** Die Preislisten liefern keine Zeitstempel.
   Die Slot-Länge (`slot_h`) wird pro Liste (`today`/`tomorrow` getrennt) aus der Listenlänge abgeleitet: 24 geteilt durch die Anzahl der Einträge.
   Unterstützt werden Stundenraster (Listenlänge 20-27, inklusive Zeitumstellungstage) und Viertelstundenraster (Listenlänge 80-108, inklusive Zeitumstellungstage) - seit der Tibber-Umstellung auf 15-Minuten-Day-Ahead-Preise (Juli 2026) liefert `sensor.opti_price_series` 96 Werte pro Tag statt 24.
@@ -889,5 +908,6 @@ Steuer-Automation parallel aktiv lassen.
 | **Default-Guard Preisniveau** | Der Default-Zweig setzt den Modus nur bei vorhandenem `sensor.opti_price_level` - oder wenn der aktuelle Modus kein passiver ist. Fällt die Preisquelle aus, verstummen alle Preiszweige; ohne den Guard überschrieb der Default den Modus mit `Akku Dynamisch` und ließ ihn beim nächsten Poll zurückspringen (Modus-Flattern). Gehalten wird die Entscheidung, nicht die Daten - aber nur für `Akku Dynamisch` / `Akku nur Entladen`; `Akku Netzladen`, `Akku nur Laden` und `Akku Pause` fallen zurück, damit kein Zwangszustand mit Netzbezug einfriert |
 | **Midrank-Perzentil** | `sensor.opti_price_level` zählt Preis-Gleichstände seit dem Fix nur noch halb (statt sie wie ein `select('le')` komplett auf die teure Seite zu zählen) - flache Preistage landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE. Dieselbe Klassifikation nutzt auch `sensor.opti_peak_reserve_soc` |
 | **`sensor.opti_peak_reserve_soc`** | Reserve-SoC für kommende Preisspitzen im Wiederauflade-Horizont (36h); steuert die Peak-Leiter L1-L4. Siehe [Entlade-Peak-Allokation](#entlade-peak-allokation-reserve-für-die-teuersten-stunden) |
+| **`binary_sensor.opti_pv_reichtag`** | Sättigungssignal für voraussichtlich ausreichende PV-Energie, kein Top-Tag-Detektor: ab Score 10 an, bei aktivem Zustand bis Score 9 gehalten, ab Score 8 aus. Verkürzt den Wiederauflade-Puffer der Peak-Reserve von 3 h auf 1 h, aber nur wenn der ausgewählte Sonnenaufgang in April bis August liegt und echt vor 06:30 Uhr Ortszeit stattfindet. Fehlende Scores halten den Zustand, ohne Vorzustand konservativ `off`; ohne `next_rising` immer `off` |
 | **`binary_sensor.opti_winter_charging_allowed`** | Fail-open Gate für Winterladeblöcke (Standard: `true`); kann mit eigenem Sommermodus-Sensor überschrieben werden |
 | **`sensor.opti_balancing_watchdog`** | Balancing-/Deep-Charge-Watchdog (`aus`/`pv`/`netz`): erzwingt einen Voll-Zyklus, wenn der Akku zu lange nicht ~voll war (BMS-Balancing). Rein abgeleitet aus `counter.tage_seit_akku100`, SoC und den `opti_balancing_*`-Helfern → restart-durabel. Siehe [Balancing-/Deep-Charge-Watchdog](#balancing-deep-charge-watchdog) |

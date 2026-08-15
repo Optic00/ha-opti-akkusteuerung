@@ -163,6 +163,7 @@ def test_automation_conditions_nutzen_binaersensoren():
 
 VETO_BASIS = {
     "sensor.opti_grid_export_w": "0",
+    "sensor.opti_grid_import_w": "0",
     "sensor.opti_battery_power_w": "0",
     "input_number.akkusteuerung_ueberschuss_veto_grenze": "500",
     "input_number.akkusteuerung_ueberschuss_veto_aus_grenze": "250",
@@ -247,3 +248,37 @@ def test_veto_helfer_erststart_werte_brauchbar():
     assert ein["min"] >= 200, "Erststart-Schwelle zu tief"
     assert aus["min"] > 0, "Halteband beim Erststart wirkungslos"
     assert aus["min"] < ein["min"], "Aus-Grenze muss unter der Ein-Grenze liegen"
+
+
+# --- Import-Term (Review Fable 5, 2026-08-15) -------------------------------
+# Erst `export - import + battery` ist exakt `PV - Hauslast`. Ohne den
+# Import-Term meldet der Sensor beim Netzladen Ueberschuss, wo gerade Strom
+# gekauft wird.
+
+def test_veto_netzladen_ist_kein_ueberschuss():
+    """DER Fall: Akku laedt mit 3 kW aus dem Netz. Export 0, Import 3000,
+    battery +3000. Ohne Import-Term ergaebe die Formel 3000 W 'Ueberschuss'."""
+    assert bveto(**{"sensor.opti_grid_export_w": "0",
+                    "sensor.opti_grid_import_w": "3000",
+                    "sensor.opti_battery_power_w": "3000"}) == "False"
+
+
+def test_veto_netzbezug_haus_ist_kein_ueberschuss():
+    # Nacht: PV 0, Hauslast 1000 W aus dem Netz, Akku idle.
+    assert bveto(this_state="on", **{"sensor.opti_grid_export_w": "0",
+                                     "sensor.opti_grid_import_w": "1000",
+                                     "sensor.opti_battery_power_w": "0"}) == "False"
+
+
+def test_veto_import_sensor_unavailable_fail_safe():
+    assert bveto(this_state="on", **{"sensor.opti_grid_export_w": "2000",
+                                     "sensor.opti_grid_import_w": "unavailable"}) == "False"
+
+
+def test_veto_im_zielregime_unveraendert():
+    # Export > 0 => Import = 0: der Term aendert nichts am bisherigen Verhalten.
+    assert bveto(**{"sensor.opti_grid_export_w": "600",
+                    "sensor.opti_grid_import_w": "0"}) == "True"
+    assert bveto(**{"sensor.opti_grid_export_w": "0",
+                    "sensor.opti_grid_import_w": "0",
+                    "sensor.opti_battery_power_w": "3000"}) == "True"

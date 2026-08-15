@@ -232,3 +232,18 @@ def test_veto_trigger_und_condition_in_automation():
     assert "sensor.opti_grid_export_w" not in cond
     # Harter maxsoc-Deckel bleibt gewahrt.
     assert "input_number.maxsoc" in cond
+
+
+def test_veto_helfer_erststart_werte_brauchbar():
+    """Review-Finding 15.08.2026: ein input_number ohne gespeicherten Zustand
+    startet auf `min`. Ohne brauchbare Minima stuende das Veto beim Erststart auf
+    einer unsinnigen Schwelle - und `aus = 0` haette das Halteband abgeschaltet.
+    `initial:` ist bewusst KEINE Loesung (ueberschreibt den restaurierten Wert bei
+    jedem Neustart), deshalb muessen die Minima selbst tragen."""
+    cfg = load_yaml(REPO / "packages" / "sma_helpers.yaml")["input_number"]
+    ein = cfg["akkusteuerung_ueberschuss_veto_grenze"]
+    aus = cfg["akkusteuerung_ueberschuss_veto_aus_grenze"]
+    assert "initial" not in ein and "initial" not in aus
+    assert ein["min"] >= 200, "Erststart-Schwelle zu tief"
+    assert aus["min"] > 0, "Halteband beim Erststart wirkungslos"
+    assert aus["min"] < ein["min"], "Aus-Grenze muss unter der Ein-Grenze liegen"

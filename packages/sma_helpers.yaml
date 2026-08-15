@@ -115,9 +115,14 @@ input_number:
   # 19,3 kWh ins Netz, waehrend der Ziel-SoC-Deckel den Akku ~2,5 h auf
   # Ladeleistung 0 zwang. Sie dient nur der Signalstabilitaet, nicht der
   # Wirtschaftlichkeit: oekonomisch waere jedes Watt Export ladewuerdig.
+  # min bewusst 200 statt 0: ein input_number ohne gespeicherten Zustand startet
+  # auf seinem Minimum. Kein `initial:` - das ueberschriebe den restaurierten Wert
+  # bei JEDEM Neustart (dieselbe Falle, die am Modus-Select entfernt wurde). Der
+  # Erststart-Wert muss deshalb ueber `min` brauchbar sein. Empfohlener
+  # Betriebswert: 500 W.
   akkusteuerung_ueberschuss_veto_grenze:
     name: "Akkusteuerung Überschuss-Veto Grenze"
-    min: 100
+    min: 200
     max: 5000
     step: 50
     unit_of_measurement: W
@@ -128,9 +133,12 @@ input_number:
   # Helfer statt fester Differenz: der Abstand zur Einschaltgrenze muss die
   # Messpunkt-Unschaerfe zwischen DC-Batterieleistung und AC-Export abdecken
   # (Wandlungsverluste ~5-10 %, bei Volllast bis ~200 W).
+  # min 100 aus demselben Grund: beim Erststart faellt der Helfer sonst auf 0 und
+  # das Halteband waere wirkungslos (das Template wertet `aus > 0` aus).
+  # Empfohlener Betriebswert: 250 W.
   akkusteuerung_ueberschuss_veto_aus_grenze:
     name: "Akkusteuerung Überschuss-Veto Aus-Grenze"
-    min: 0
+    min: 100
     max: 5000
     step: 50
     unit_of_measurement: W

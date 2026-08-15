@@ -335,3 +335,15 @@ def test_veto_respektiert_toggle():
     hass = _make_hass({**VETO_LAGE, "sensor.opti_soc": "70",
                        "input_boolean.opti_pv_ueberschuss_ladung": "off"})
     assert _evaluate_automation(hass)[1] == "Akku nur Entladen"
+
+
+def test_veto_paritaet_bei_maxsoc_unavailable():
+    """Review-Finding 15.08.2026: der Automation-Zweig ist per `has_value` auf
+    maxsoc gegatet und faellt bei unavailable zu. Die Vorschau rechnete dagegen
+    mit dem Default 95 weiter und meldete 'Akku Dynamisch', waehrend real
+    'nur Entladen' lief - eine echte Paritaetsverletzung."""
+    hass = _make_hass({**VETO_LAGE, "sensor.opti_soc": "70",
+                       "input_number.maxsoc": "unavailable"})
+    _, auto_modus = _evaluate_automation(hass)
+    assert auto_modus == _vorschau(hass, "state")
+    assert auto_modus == "Akku nur Entladen"

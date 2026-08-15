@@ -1,14 +1,14 @@
 """Paritaets-Test: echte Steuer-Automation vs. Spiegel-Sensor.
 
 Die Steuerung lebt in automations/opti_strategie.yaml (action-Alias
-"Zwischen Speicherszenarien waehlen": choose-Kette mit 21 Optionen + default).
+"Zwischen Speicherszenarien waehlen": choose-Kette mit 22 Optionen + default).
 Ihr Spiegel ist der Vorschau-Sensor opti_strategie_vorschau in
 packages/opti_derived.yaml (state-if/elif-Kette + grund-Attribut). Der
 YAML-Kommentar verlangt manuelle Spiegelung ("MUSS mitgespiegelt werden") -
 ohne diesen Test laesst eine Aenderung an der Automation alle Tests gruen,
 obwohl die Steuerung von der Vorschau abweicht.
 
-Der Test baut fuer JEDE der 21 choose-Optionen + den Default eine Fixture
+Der Test baut fuer JEDE der 22 choose-Optionen + den Default eine Fixture
 (FakeHass-Zustand), die genau diesen Zweig trifft, und prueft:
   (i)   Automation-choose-Kette (eigener Evaluator) -> getroffener Zweig-Index
         + gesetzter Modus.
@@ -199,10 +199,17 @@ BRANCHES = [
       "input_boolean.opti_prognose_netzladen": "off",
       "_attrs": reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0)},
      "Akku nur Laden", "Peak-Leiter L4"),
-    (19, "dyn_bis_ziel",
+    (19, "ueberschuss_veto_sticht_ziel_soc",
+     # Identische Lage wie 'ueber_ziel_soc' (soc 70 > target 60), aber tagsueber
+     # mit laufendem Netzexport: das Veto muss VOR dem Ziel-SoC-Zweig greifen
+     # und laden statt entladen. Das ist der Fall vom 15.08.2026.
+     {"sun.sun": "above_horizon", "sensor.opti_soc": "70", "sensor.opti_target_soc": "60",
+      "binary_sensor.opti_ueberschuss_veto_aktiv": "on"},
+     "Akku Dynamisch", "Ueberschuss-Veto"),
+    (20, "dyn_bis_ziel",
      {"sun.sun": "above_horizon", "sensor.opti_soc": "40", "sensor.opti_target_soc": "60"},
      "Akku Dynamisch", "dyn bis Ziel"),
-    (20, "ueber_ziel_soc",
+    (21, "ueber_ziel_soc",
      {"sensor.opti_soc": "70", "sensor.opti_target_soc": "60"},
      "Akku nur Entladen", "ueber Ziel-SoC"),
 ]
@@ -262,3 +269,69 @@ def test_struktur_alle_choose_optionen_abgedeckt():
         "neue/entfernte Option in opti_strategie.yaml nicht im Paritaets-Test gespiegelt")
     # Zweig-Indizes lueckenlos 0..N-1 (kein Tippfehler in der BRANCHES-Tabelle).
     assert [b[0] for b in BRANCHES] == list(range(len(BRANCHES)))
+
+
+# --- Vorrang-Regeln des Ueberschuss-Vetos (2026-08-15) ----------------------
+# Das Veto darf AUSSCHLIESSLICH die Ziel-SoC-Zweige stechen. Alles, was den Akku
+# aus einem anderen Grund am Laden hindert oder bewusst entlaedt, muss gewinnen.
+# Cross-Review Fable 5 + GPT-5.6 Sol, 15.08.2026.
+
+VETO_LAGE = {
+    "sun.sun": "above_horizon",
+    "binary_sensor.opti_ueberschuss_veto_aktiv": "on",
+    "sensor.opti_target_soc": "60",
+}
+
+
+def test_veto_sticht_ziel_soc_deckel():
+    """Der Fall vom 15.08.2026: SoC ueber Ziel-SoC, aber Export laeuft."""
+    hass = _make_hass({**VETO_LAGE, "sensor.opti_soc": "70"})
+    zweig, modus = _evaluate_automation(hass)
+    assert modus == "Akku Dynamisch"
+    assert _vorschau(hass, "state") == "Akku Dynamisch"
+    # Ohne Veto waere es der Ziel-SoC-Zweig mit 'nur Entladen'.
+    ohne = _make_hass({**VETO_LAGE, "sensor.opti_soc": "70",
+                       "binary_sensor.opti_ueberschuss_veto_aktiv": "off"})
+    assert _evaluate_automation(ohne)[1] == "Akku nur Entladen"
+
+
+def test_veto_laedt_nicht_ueber_maxsoc():
+    """Harter Deckel bleibt hart: bei SoC >= maxsoc gewinnt der Ladedeckel."""
+    hass = _make_hass({**VETO_LAGE, "sensor.opti_soc": "96"})
+    zweig, modus = _evaluate_automation(hass)
+    assert modus == "Akku nur Entladen"
+    assert _vorschau(hass, "state") == "Akku nur Entladen"
+    assert "Ladedeckel" in _vorschau(hass, "grund")
+
+
+def test_ev_sperre_gewinnt_gegen_veto():
+    """Sonst entlaedt der Akku bei evcc-Schnellladung ins Auto."""
+    hass = _make_hass({**VETO_LAGE, "sensor.opti_soc": "70",
+                       "input_boolean.opti_ev_akku_pause": "on",
+                       "binary_sensor.opti_ev_schnellladung": "on"})
+    assert _evaluate_automation(hass)[1] == "Akku nur Laden"
+    assert "EV-Sperre" in _vorschau(hass, "grund")
+
+
+def test_peak_entladung_gewinnt_gegen_veto():
+    """L1: bei VERY_EXPENSIVE wird entladen, auch wenn gerade exportiert wird."""
+    hass = _make_hass({**LEITER_BASE, **VETO_LAGE, "sensor.opti_soc": "85",
+                       "sensor.opti_price_level": "VERY_EXPENSIVE",
+                       "_attrs": reserve_attrs(ve=30.0, min_vor=50.0, avg=200.0)})
+    assert _evaluate_automation(hass)[1] == "Akku nur Entladen"
+    assert "Peak-Leiter L1" in _vorschau(hass, "grund")
+
+
+def test_veto_nur_tagsueber():
+    """Nachts gibt es keinen PV-Ueberschuss; ein haengendes Signal darf den
+    Ziel-SoC-Zweig nicht aushebeln."""
+    hass = _make_hass({**VETO_LAGE, "sensor.opti_soc": "70",
+                       "sun.sun": "below_horizon"})
+    assert _evaluate_automation(hass)[1] == "Akku nur Entladen"
+
+
+def test_veto_respektiert_toggle():
+    """Globaler PV-Ueberschuss-Schalter aus -> kein Veto."""
+    hass = _make_hass({**VETO_LAGE, "sensor.opti_soc": "70",
+                       "input_boolean.opti_pv_ueberschuss_ladung": "off"})
+    assert _evaluate_automation(hass)[1] == "Akku nur Entladen"

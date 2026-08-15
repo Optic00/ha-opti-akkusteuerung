@@ -91,6 +91,55 @@ template:
           hysterese_w: 300
 
       # -----------------------------------------------------------------------
+      # 0a-2. Wirtschaftliches Ueberschuss-Signal (2026-08-15)
+      #    Die beiden Sensoren oben sind ABREGELUNGS-Waechter: ihre Grenzen sind
+      #    das 70%-Einspeiselimit (live 18000 W) und die WR-AC-Grenze (9500 W).
+      #    Eine Anlage mit ~8,3 kW Peak erreicht sie nie - beide Signale waren am
+      #    15.08.2026 durchgehend off, waehrend 19,3 kWh ins Netz gingen und der
+      #    Ziel-SoC-Deckel den Akku in drei Fenstern (zusammen ~2 h 25 min) auf
+      #    Ladeleistung 0 zwang. Es fehlte also das wirtschaftliche Signal:
+      #    solange ueberhaupt exportiert wird, ist jede in den Akku geladene kWh
+      #    den Abendpreis minus Einspeiseverguetung wert (15.08.: ~28 ct/kWh).
+      #
+      #    Gleiche Bauart wie oben - bewusst, nicht aus Bequemlichkeit: die
+      #    Akku-Herausrechnung (Export + Batterieleistung, positiv = laden) ist
+      #    der live erprobte Fix gegen die Selbstschwingung vom 03.07., denn das
+      #    Laden selbst senkt den Export und wuerde sonst die eigene Freigabe
+      #    beenden. Die Summe bleibt beim Anladen invariant.
+      #
+      #    Abweichungen zu den Abregelungs-Waechtern:
+      #    - Aus-Grenze als eigener Helfer statt fester Differenz: das Band muss
+      #      die Messpunkt-Unschaerfe DC-Batterieleistung vs. AC-Export tragen
+      #      (Wandlungsverluste ~5-10 %, bei Volllast bis ~200 W).
+      #    - 60 s statt 30 s beidseitig: die Schwelle liegt hier unterhalb der
+      #      Hausgrundlast-Schwankung (~700-1500 W), also naeher am Rauschen.
+      #    Quellen unavailable -> off (fail-safe, wie oben).
+      # -----------------------------------------------------------------------
+      - unique_id: opti_ueberschuss_veto_aktiv
+        name: "Opti Ueberschuss Veto Aktiv"
+        icon: mdi:battery-plus-variant
+        delay_on:
+          seconds: 60
+        delay_off:
+          seconds: 60
+        state: >
+          {% set ok = has_value('sensor.opti_grid_export_w')
+                      and has_value('sensor.opti_battery_power_w') %}
+          {% set export_ohne_akku = [0, states('sensor.opti_grid_export_w')|float(0)
+                                        + states('sensor.opti_battery_power_w')|float(0)] | max %}
+          {% set ein = states('input_number.akkusteuerung_ueberschuss_veto_grenze')|float(999999) %}
+          {% set aus = states('input_number.akkusteuerung_ueberschuss_veto_aus_grenze')|float(ein) %}
+          {% set war_an = this is defined and this.state == 'on' %}
+          {{ ok and (export_ohne_akku > ein
+                     or (aus > 0 and export_ohne_akku >= aus and war_an)) }}
+        attributes:
+          export_ohne_akku_w: >
+            {{ [0, states('sensor.opti_grid_export_w')|float(0)
+                   + states('sensor.opti_battery_power_w')|float(0)] | max | round(0) }}
+          grenze_ein_w: "{{ states('input_number.akkusteuerung_ueberschuss_veto_grenze') }}"
+          grenze_aus_w: "{{ states('input_number.akkusteuerung_ueberschuss_veto_aus_grenze') }}"
+
+      # -----------------------------------------------------------------------
       # 0b. PV-Reichtag fuer den Wiederauflade-Horizont der Peak-Reserve.
       #     Entscheidungs-Hysterese ohne Datenpuffer: ab Score 10 an, bei
       #     vorherigem on bis Score 9 halten, ab Score 8 aus. Bei fehlendem
@@ -897,6 +946,8 @@ template:
           {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
           {% set ev = states('input_boolean.opti_ev_akku_pause') == 'on'
                       and is_state('binary_sensor.opti_ev_schnellladung', 'on') %}
+          {% set maxsoc = states('input_number.maxsoc')|float(95) %}
+          {% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %}
           {% if soc >= 0 and soc < minsoc %}Akku nur Laden
           {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Akku Netzladen
           {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen
@@ -919,6 +970,10 @@ template:
           {%- elif soc > 99 %}Akku Dynamisch
           {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Akku nur Laden
           {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Akku nur Laden
+          {# Ueberschuss-Veto (2026-08-15): laufender Netzexport sticht den
+             Ziel-SoC-Deckel. Position identisch zur Strategie - hinter L3/L4,
+             vor den Ziel-SoC-Zweigen (Paritaet). #}
+          {%- elif ueb and day and veto and soc >= 0 and soc < maxsoc %}Akku Dynamisch
           {%- elif soc > minsoc and soc < target - H and day %}Akku Dynamisch
           {# Asymmetrische Hysterese gegen Ziel-SoC-Flattern (v.a. mittags, wenn
              PV den SoC ueber die Schwelle drueckt): rein bei target+H, drin
@@ -973,6 +1028,8 @@ template:
             {% set fenster = (minv is none) or (cur <= minv + 0.5) %}
             {% set ev = states('input_boolean.opti_ev_akku_pause') == 'on'
                         and is_state('binary_sensor.opti_ev_schnellladung', 'on') %}
+            {% set maxsoc = states('input_number.maxsoc')|float(95) %}
+            {% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %}
             {% if soc >= 0 and soc < minsoc %}MinSOC-Schutz (SoC<{{minsoc}})
             {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct)
             {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%)
@@ -992,6 +1049,7 @@ template:
             {%- elif soc > 99 %}Akku voll
             {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%, Spread {{(ve_avg - cur)|round(1)}}ct)
             {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%)
+            {%- elif ueb and day and veto and soc >= 0 and soc < maxsoc %}Ueberschuss-Veto ({{ state_attr('binary_sensor.opti_ueberschuss_veto_aktiv','export_ohne_akku_w') }}W Export sticht Ziel-SoC {{target}}%)
             {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag)
             {%- elif soc > target + (0 if is_state('input_select.akkusteuerung_modus','Akku nur Entladen') else H) %}ueber Ziel-SoC
             {%- elif soc >= 0 and not has_value('sensor.opti_price_level')

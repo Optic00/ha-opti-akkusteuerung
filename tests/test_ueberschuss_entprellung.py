@@ -153,3 +153,82 @@ def test_automation_conditions_nutzen_binaersensoren():
     assert "sensor.opti_grid_export_w" not in c70
     assert "binary_sensor.opti_ueberschuss_ac_aktiv" in cac
     assert "sensor.opti_pv_power_w" not in cac
+
+
+# --- Wirtschaftliches Ueberschuss-Veto (2026-08-15) -------------------------
+# Die beiden Sensoren oben sind Abregelungs-Waechter (18000 / 9500 W) und lagen
+# am 15.08.2026 durchgehend off, waehrend 19,3 kWh ins Netz gingen und der
+# Ziel-SoC-Deckel den Akku ~2,5 h auf Ladeleistung 0 zwang. Dieser Sensor ist
+# das fehlende wirtschaftliche Signal.
+
+VETO_BASIS = {
+    "sensor.opti_grid_export_w": "0",
+    "sensor.opti_battery_power_w": "0",
+    "input_number.akkusteuerung_ueberschuss_veto_grenze": "500",
+    "input_number.akkusteuerung_ueberschuss_veto_aus_grenze": "250",
+}
+
+
+def bveto(this_state="off", **overrides):
+    states = dict(VETO_BASIS)
+    states.update(overrides)
+    hass = FakeHass(states=states, this_state=this_state)
+    return render(hass, _entity("opti_ueberschuss_veto_aktiv")["state"])
+
+
+def test_veto_ein_ueber_grenze():
+    assert bveto(**{"sensor.opti_grid_export_w": "600"}) == "True"
+
+
+def test_veto_bleibt_aus_unter_grenze():
+    assert bveto(**{"sensor.opti_grid_export_w": "400"}) == "False"
+
+
+def test_veto_haltet_im_hysteresband():
+    # Zwischen Aus- und Ein-Grenze bleibt ein bereits aktives Veto an ...
+    assert bveto(this_state="on", **{"sensor.opti_grid_export_w": "300"}) == "True"
+    # ... springt aber aus dem Aus-Zustand nicht an.
+    assert bveto(this_state="off", **{"sensor.opti_grid_export_w": "300"}) == "False"
+
+
+def test_veto_aus_unter_aus_grenze():
+    assert bveto(this_state="on", **{"sensor.opti_grid_export_w": "100"}) == "False"
+
+
+def test_veto_akkuunabhaengig_laden_zaehlt_dazu():
+    # DER Rueckkopplungsfall: der Akku laedt mit 3 kW und drueckt den gemessenen
+    # Export auf 0. Ohne Akku waeren es 3 kW -> das Signal darf sich nicht selbst
+    # abschalten, sonst schwingt der Modus (Live-Bug vom 03.07.2026).
+    assert bveto(this_state="on", **{"sensor.opti_grid_export_w": "0",
+                                     "sensor.opti_battery_power_w": "3000"}) == "True"
+
+
+def test_veto_entladen_wird_rausgerechnet():
+    # Akku entlaedt 800 W in den Export: gemessen 900 W, ohne Akku nur 100 W.
+    assert bveto(**{"sensor.opti_grid_export_w": "900",
+                    "sensor.opti_battery_power_w": "-800"}) == "False"
+
+
+def test_veto_fail_safe_bei_unavailable():
+    for quelle in ("sensor.opti_grid_export_w", "sensor.opti_battery_power_w"):
+        assert bveto(this_state="on", **{quelle: "unavailable"}) == "False", quelle
+
+
+def test_veto_delay_on_off_60s():
+    # 60 s statt 30 s: die Schwelle liegt unter der Hausgrundlast-Schwankung.
+    entity = _entity("opti_ueberschuss_veto_aktiv")
+    assert entity["delay_on"] == {"seconds": 60}
+    assert entity["delay_off"] == {"seconds": 60}
+
+
+def test_veto_trigger_und_condition_in_automation():
+    from .ha_harness import find_automation_condition
+    cfg = _automation()
+    assert "binary_sensor.opti_ueberschuss_veto_aktiv" in _flat(cfg[0]["triggers"])
+    cond = _flat(find_automation_condition(
+        cfg, "Modus 'Dynamisch': echter Netz-Ueberschuss sticht Ziel-SoC-Deckel"))
+    assert "binary_sensor.opti_ueberschuss_veto_aktiv" in cond
+    # Kein Rohwert-Vergleich im Zweig (Entprellung lebt im Sensor).
+    assert "sensor.opti_grid_export_w" not in cond
+    # Harter maxsoc-Deckel bleibt gewahrt.
+    assert "input_number.maxsoc" in cond

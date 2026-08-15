@@ -107,6 +107,36 @@ input_number:
     unit_of_measurement: W
     mode: box
 
+  # Wirtschaftliches Ueberschuss-Veto (2026-08-15): die beiden Grenzen oben sind
+  # ABREGELUNGS-Schwellen (70%-Einspeiselimit, WR-AC-Grenze) und liegen bei einer
+  # Anlage mit ~8 kW Peak so hoch, dass ihre Signale nie ausloesen. Diese Grenze
+  # ist die wirtschaftliche: jede kWh, die bei laufendem Netzexport NICHT in den
+  # Akku geht, ist Einspeiseverguetung statt Abendpreis - am 15.08.2026 gingen so
+  # 19,3 kWh ins Netz, waehrend der Ziel-SoC-Deckel den Akku ~2,5 h auf
+  # Ladeleistung 0 zwang. Sie dient nur der Signalstabilitaet, nicht der
+  # Wirtschaftlichkeit: oekonomisch waere jedes Watt Export ladewuerdig.
+  akkusteuerung_ueberschuss_veto_grenze:
+    name: "Akkusteuerung Überschuss-Veto Grenze"
+    min: 100
+    max: 5000
+    step: 50
+    unit_of_measurement: W
+    mode: box
+    icon: mdi:transmission-tower-export
+
+  # Ausschaltschwelle des Vetos (Hysterese-Unterkante). Bewusst als eigener
+  # Helfer statt fester Differenz: der Abstand zur Einschaltgrenze muss die
+  # Messpunkt-Unschaerfe zwischen DC-Batterieleistung und AC-Export abdecken
+  # (Wandlungsverluste ~5-10 %, bei Volllast bis ~200 W).
+  akkusteuerung_ueberschuss_veto_aus_grenze:
+    name: "Akkusteuerung Überschuss-Veto Aus-Grenze"
+    min: 0
+    max: 5000
+    step: 50
+    unit_of_measurement: W
+    mode: box
+    icon: mdi:transmission-tower-export
+
   # --- SoC-Grenzen ---
   minsoc:
     name: "Akku Min SoC"

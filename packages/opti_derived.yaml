@@ -91,15 +91,19 @@ template:
           hysterese_w: 300
 
       # -----------------------------------------------------------------------
-      # 0a-2. Wirtschaftliches Ueberschuss-Signal (2026-08-15)
+      # 0a-2. Wirtschaftliches Ueberschuss-Signal (2026-08-15/16)
       #    Die beiden Sensoren oben sind ABREGELUNGS-Waechter: ihre Grenzen sind
       #    das 70%-Einspeiselimit (live 18000 W) und die WR-AC-Grenze (9500 W).
       #    Eine Anlage mit ~8,3 kW Peak erreicht sie nie - beide Signale waren am
       #    15.08.2026 durchgehend off, waehrend 19,3 kWh ins Netz gingen und der
       #    Ziel-SoC-Deckel den Akku in drei Fenstern (zusammen ~2 h 25 min) auf
-      #    Ladeleistung 0 zwang. Es fehlte also das wirtschaftliche Signal:
-      #    solange ueberhaupt exportiert wird, ist jede in den Akku geladene kWh
-      #    den Abendpreis minus Einspeiseverguetung wert (15.08.: ~28 ct/kWh).
+      #    Ladeleistung 0 zwang. Es fehlte also das wirtschaftliche Signal fuer
+      #    einen Knappheitstag: nur wenn der prognostizierte Rest-Ueberschuss den
+      #    Akku nicht mehr sicher fuellt, ist aktueller Export ein Verlust. Reicht
+      #    die Rest-PV dagegen sicher aus, ist der Export gewollter Aufschub und
+      #    das Veto wuerde nur unnoetige Hoch-SoC-Stunden verursachen. Am
+      #    16.08.2026 standen 51,5 kWh Rest-Ueberschuss nur 4,5 kWh Bedarf bis
+      #    voll gegenueber - das Veto muss an so einem Reichtag gesperrt bleiben.
       #
       #    Gleiche Bauart wie oben - bewusst, nicht aus Bequemlichkeit: die
       #    Akku-Herausrechnung (Export + Batterieleistung, positiv = laden) ist
@@ -122,7 +126,21 @@ template:
       #      (Wandlungsverluste ~5-10 %, bei Volllast bis ~200 W).
       #    - 60 s statt 30 s beidseitig: die Schwelle liegt hier unterhalb der
       #      Hausgrundlast-Schwankung (~700-1500 W), also naeher am Rauschen.
-      #    Quellen unavailable -> off (fail-safe, wie oben).
+      #    - Knappheits-Gate (2026-08-16): offen bei Rest-Ueberschuss kleiner
+      #      als Bedarf bis voll mal Faktor. War das Veto bereits an, bleibt es
+      #      bis Faktor mal 1,2 offen. Das feste 20-%-Halteband verhindert, dass
+      #      das Laden durch steigenden SoC und sinkenden Bedarf seine eigene
+      #      Freigabe im ~15-Minuten-Takt beendet. `knappheit_gate_offen` zeigt
+      #      den wirksamen Gate-Zustand inklusive dieses Haltebands.
+      #    - Fail-Richtungen bewusst gegensaetzlich: Messquellen unavailable
+      #      -> off (fail-safe, kein Laden ohne realen Messbeleg). Fehlende oder
+      #      nicht numerische Forecast-Werte -> Knappheits-Gate offen, also das
+      #      bisherige Veto-Verhalten. Nur ein positiv belegter Tages-Ueberfluss
+      #      darf den real gemessenen Export unterdruecken. Der Verlustfall vom
+      #      15.08. kostet Geld, eine Fehlausloesung nur Hoch-SoC-Stunden.
+      #    - needed_full_kwh rechnet bis 100 %, nicht bis maxsoc. Ein Wert <= 0
+      #      bedeutet rechnerisch voll und schliesst das Gate; die Differenz zu
+      #      maxsoc deckt der Knappheits-Faktor ab.
       # -----------------------------------------------------------------------
       - unique_id: opti_ueberschuss_veto_aktiv
         name: "Opti Ueberschuss Veto Aktiv"
@@ -141,7 +159,18 @@ template:
           {% set ein = states('input_number.akkusteuerung_ueberschuss_veto_grenze')|float(999999) %}
           {% set aus = states('input_number.akkusteuerung_ueberschuss_veto_aus_grenze')|float(ein) %}
           {% set war_an = this is defined and this.state == 'on' %}
-          {{ ok and (export_ohne_akku > ein
+          {% set surplus = state_attr('sensor.opti_forecast_score', 'pv_surplus_kwh')|float(none) %}
+          {% set needed = state_attr('sensor.opti_forecast_score', 'needed_full_kwh')|float(none) %}
+          {% set f = states('input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor')|float(1) %}
+          {% if needed is not none and needed <= 0 %}
+            {% set knappheit_gate_offen = false %}
+          {% elif surplus is none or needed is none %}
+            {% set knappheit_gate_offen = true %}
+          {% else %}
+            {% set knappheit_gate_offen = surplus < needed * f
+                or (war_an and surplus < needed * f * 1.2) %}
+          {% endif %}
+          {{ ok and knappheit_gate_offen and (export_ohne_akku > ein
                      or (aus > 0 and export_ohne_akku >= aus and war_an)) }}
         attributes:
           export_ohne_akku_w: >
@@ -150,6 +179,25 @@ template:
                    + states('sensor.opti_battery_power_w')|float(0)] | max | round(0) }}
           grenze_ein_w: "{{ states('input_number.akkusteuerung_ueberschuss_veto_grenze') }}"
           grenze_aus_w: "{{ states('input_number.akkusteuerung_ueberschuss_veto_aus_grenze') }}"
+          knappheit_faktor: >
+            {{ states('input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor')|float(1) }}
+          pv_surplus_kwh: >
+            {{ state_attr('sensor.opti_forecast_score', 'pv_surplus_kwh') }}
+          needed_full_kwh: >
+            {{ state_attr('sensor.opti_forecast_score', 'needed_full_kwh') }}
+          knappheit_gate_offen: >
+            {% set surplus = state_attr('sensor.opti_forecast_score', 'pv_surplus_kwh')|float(none) %}
+            {% set needed = state_attr('sensor.opti_forecast_score', 'needed_full_kwh')|float(none) %}
+            {% set f = states('input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor')|float(1) %}
+            {% set war_an = this is defined and this.state == 'on' %}
+            {% if needed is not none and needed <= 0 %}
+              {{ false }}
+            {% elif surplus is none or needed is none %}
+              {{ true }}
+            {% else %}
+              {{ surplus < needed * f
+                 or (war_an and surplus < needed * f * 1.2) }}
+            {% endif %}
 
       # -----------------------------------------------------------------------
       # 0b. PV-Reichtag fuer den Wiederauflade-Horizont der Peak-Reserve.
@@ -991,8 +1039,9 @@ template:
           {%- elif soc > 99 %}Akku Dynamisch
           {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Akku nur Laden
           {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Akku nur Laden
-          {# Ueberschuss-Veto (2026-08-15): laufender Netzexport sticht den
-             Ziel-SoC-Deckel. Position identisch zur Strategie - hinter L3/L4,
+          {# Ueberschuss-Veto (2026-08-15/16): knapper Resttag und laufender
+             Netzexport stechen den Ziel-SoC-Deckel. Das Knappheits-Gate lebt
+             im Binary Sensor. Position identisch zur Strategie - hinter L3/L4,
              vor den Ziel-SoC-Zweigen (Paritaet). #}
           {%- elif ueb and day and veto and hv_maxsoc and soc >= 0 and soc < maxsoc %}Akku Dynamisch
           {%- elif soc > minsoc and soc < target - H and day %}Akku Dynamisch

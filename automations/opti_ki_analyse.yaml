@@ -118,14 +118,16 @@
           8. EV-Schnelllade-Sperre (evcc laedt now/minpv) -> nur Laden
           (reine Entladesperre, PV-Laden bleibt moeglich). 9. PV-Ueberschuss
           -> Dynamisch. 10. Akku voll -> Dynamisch. 11. Peak-Leiter L3/L4
-          (halten) -> nur Laden. 12. Unter Ziel-SoC tags -> Dynamisch.
-          13. Ueber Ziel-SoC -> nur Entladen (preisunabhaengig, Ziel-SoC
-          enthaelt die Wirtschaftlichkeit). 14. Default -> Dynamisch, ABER nur bei
-          vorhandenem Preisniveau: fehlt es (Preisquelle ausgefallen) UND greift
-          kein hoeher priorisierter preisunabhaengiger Zweig, bleibt ein passiver
-          Modus (Dynamisch/nur Entladen) stehen, waehrend Netzladen/nur
-          Laden/Pause auf Dynamisch zurueckfallen. Die Zweige 1-13 gelten
-          unveraendert weiter.
+          (halten) -> nur Laden. 12. Ueberschuss-Veto (laufender Netzexport,
+          und der Rest-Forecast fuellt den Akku nicht mehr sicher) ->
+          Dynamisch, sticht den Ziel-SoC-Deckel. 13. Unter Ziel-SoC tags
+          -> Dynamisch. 14. Ueber Ziel-SoC -> nur Entladen (preisunabhaengig,
+          Ziel-SoC enthaelt die Wirtschaftlichkeit). 15. Default -> Dynamisch,
+          ABER nur bei vorhandenem Preisniveau: fehlt es (Preisquelle
+          ausgefallen) UND greift kein hoeher priorisierter preisunabhaengiger
+          Zweig, bleibt ein passiver Modus (Dynamisch/nur Entladen) stehen,
+          waehrend Netzladen/nur Laden/Pause auf Dynamisch zurueckfallen. Die
+          Zweige 1-14 gelten unveraendert weiter.
 
           REGELN: Nutze nur die gelieferten Zahlen, ergaenze keine Fakten.
           unavailable-Minuten sind Datenluecken, kein Anlagenverhalten -

@@ -774,8 +774,8 @@
                 entity_id: input_select.akkusteuerung_modus
 
         # ---------------------------------------------------------------------
-        # Ueberschuss-Veto (2026-08-15): laufender Netzexport sticht den
-        # Ziel-SoC-Deckel. Belegter Ausloeser 15.08.2026: 48,1 kWh PV, davon
+        # Ueberschuss-Veto (2026-08-15, Knappheits-Gate 2026-08-16): belegter
+        # Ausloeser 15.08.2026 waren 48,1 kWh PV, davon
         # 19,3 kWh ins Netz, SoC-Peak nur 91 % um 15:17. Der Ziel-SoC lief der
         # Realitaet als Treppe hinterher (50 % um 06:00, 95 % erst um 15:07,
         # dazwischen ein Rueckschritt 80 -> 70 % um 12:54) und zwang den Akku in
@@ -783,11 +783,15 @@
         # ~2 h 25 min) ueber Zweig "nur Entladen: SOC ueber Ziel-SoC" auf
         # Ladeleistung 0 - bei gleichzeitig 1,9 bis 5,5 kW Export.
         #
-        # Solange exportiert wird, ist Laden immer richtig: die kWh ist der
-        # Abendpreis minus Einspeiseverguetung wert (15.08.: 38-41 ct gegen
-        # 10 ct). Der Ziel-SoC-Deckel haelt Kapazitaet fuer spaetere PV frei -
-        # ein Ziel, das bei laufendem Export gegenstandslos ist, weil die
-        # Energie ohnehin gerade weggeht.
+        # Laufender Export ist nur dann ein wirtschaftlicher Verlust, wenn der
+        # prognostizierte Rest-Ueberschuss den Akku nicht mehr sicher fuellt.
+        # Reicht die Rest-PV aus, ist Mittagsexport gewollter Aufschub: der Akku
+        # wird spaeter trotzdem voll, und frueheres Laden kostet nur
+        # Hoch-SoC-Stunden. Seit 16.08.2026 unterdrueckt deshalb das
+        # Knappheits-Gate im binary_sensor.opti_ueberschuss_veto_aktiv den Zweig
+        # bei positiv belegtem Tages-Ueberfluss. Der Sensor enthaelt auch das
+        # 20-%-Halteband und die bewusste Fail-Open-Richtung fuer Forecast-Daten;
+        # die Bedingungen dieser Automation bleiben dadurch unveraendert.
         #
         # POSITION (bewusst genau hier, Cross-Review Fable 5 + GPT-5.6 Sol,
         # 15.08.2026): hinter allem, was Vorrang behalten muss - MinSOC-Schutz,

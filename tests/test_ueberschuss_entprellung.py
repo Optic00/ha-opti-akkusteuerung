@@ -167,13 +167,16 @@ VETO_BASIS = {
     "sensor.opti_battery_power_w": "0",
     "input_number.akkusteuerung_ueberschuss_veto_grenze": "500",
     "input_number.akkusteuerung_ueberschuss_veto_aus_grenze": "250",
+    "input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor": "3",
 }
 
 
-def bveto(this_state="off", **overrides):
+def bveto(this_state="off", forecast_attrs=None, **overrides):
     states = dict(VETO_BASIS)
     states.update(overrides)
-    hass = FakeHass(states=states, this_state=this_state)
+    attrs = ({"sensor.opti_forecast_score": forecast_attrs}
+             if forecast_attrs is not None else {})
+    hass = FakeHass(states=states, attrs=attrs, this_state=this_state)
     return render(hass, _entity("opti_ueberschuss_veto_aktiv")["state"])
 
 
@@ -250,6 +253,17 @@ def test_veto_helfer_erststart_werte_brauchbar():
     assert aus["min"] < ein["min"], "Aus-Grenze muss unter der Ein-Grenze liegen"
 
 
+def test_veto_knappheits_faktor_helfer_hat_konservativen_erststart():
+    cfg = load_yaml(REPO / "packages" / "sma_helpers.yaml")["input_number"]
+    faktor = cfg["akkusteuerung_ueberschuss_veto_knappheit_faktor"]
+    assert "initial" not in faktor
+    assert faktor["min"] == 1
+    assert faktor["max"] == 10
+    assert faktor["step"] == 0.5
+    assert faktor["mode"] == "box"
+    assert "unit_of_measurement" not in faktor
+
+
 # --- Import-Term (Review Fable 5, 2026-08-15) -------------------------------
 # Erst `export - import + battery` ist exakt `PV - Hauslast`. Ohne den
 # Import-Term meldet der Sensor beim Netzladen Ueberschuss, wo gerade Strom
@@ -282,3 +296,68 @@ def test_veto_im_zielregime_unveraendert():
     assert bveto(**{"sensor.opti_grid_export_w": "0",
                     "sensor.opti_grid_import_w": "0",
                     "sensor.opti_battery_power_w": "3000"}) == "True"
+
+
+# --- Knappheits-Gate (2026-08-16) ------------------------------------------
+
+def test_veto_knappheits_gate_zu_am_reichtag_trotz_export():
+    attrs = {"pv_surplus_kwh": 51.5, "needed_full_kwh": 4.5}
+    assert bveto(forecast_attrs=attrs,
+                 **{"sensor.opti_grid_export_w": "600"}) == "False"
+
+
+def test_veto_knappheits_gate_offen_bei_unterdeckung():
+    attrs = {"pv_surplus_kwh": 10.0, "needed_full_kwh": 4.5}
+    assert bveto(forecast_attrs=attrs,
+                 **{"sensor.opti_grid_export_w": "600"}) == "True"
+
+
+def test_veto_knappheits_gate_halteband_verhindert_selbstabschaltung():
+    # Bei Faktor 3 liegt 15 kWh zwischen der Ein-Schwelle 13,5 kWh und der
+    # Halte-Schwelle 16,2 kWh. Nur ein bereits aktives Veto darf offen bleiben.
+    attrs = {"pv_surplus_kwh": 15.0, "needed_full_kwh": 4.5}
+    assert bveto(this_state="on", forecast_attrs=attrs,
+                 **{"sensor.opti_grid_export_w": "600"}) == "True"
+    assert bveto(this_state="off", forecast_attrs=attrs,
+                 **{"sensor.opti_grid_export_w": "600"}) == "False"
+
+
+def test_veto_knappheits_gate_fail_open_bei_fehlendem_forecast():
+    # Fehlende Attribute und explizite None-Werte duerfen den real gemessenen
+    # Export nicht unterdruecken.
+    assert bveto(**{"sensor.opti_grid_export_w": "600"}) == "True"
+    attrs = {"pv_surplus_kwh": None, "needed_full_kwh": None}
+    assert bveto(forecast_attrs=attrs,
+                 **{"sensor.opti_grid_export_w": "600"}) == "True"
+
+
+def test_veto_knappheits_gate_zu_wenn_akku_rechnerisch_voll():
+    attrs = {"pv_surplus_kwh": 0.0, "needed_full_kwh": 0.0}
+    assert bveto(this_state="on", forecast_attrs=attrs,
+                 **{"sensor.opti_grid_export_w": "600"}) == "False"
+
+
+def test_veto_knappheits_faktor_kommt_aus_helfer():
+    attrs = {"pv_surplus_kwh": 10.0, "needed_full_kwh": 4.0}
+    assert bveto(forecast_attrs=attrs,
+                 **{"sensor.opti_grid_export_w": "600",
+                    "input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor": "2"}) == "False"
+    assert bveto(forecast_attrs=attrs,
+                 **{"sensor.opti_grid_export_w": "600",
+                    "input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor": "3"}) == "True"
+
+
+def test_veto_knappheits_attribute_sind_beobachtbar():
+    entity = _entity("opti_ueberschuss_veto_aktiv")
+    hass = FakeHass(
+        states=VETO_BASIS,
+        attrs={"sensor.opti_forecast_score": {
+            "pv_surplus_kwh": 15.0,
+            "needed_full_kwh": 4.5,
+        }},
+        this_state="on",
+    )
+    assert render(hass, entity["attributes"]["knappheit_faktor"]) == "3.0"
+    assert render(hass, entity["attributes"]["pv_surplus_kwh"]) == "15.0"
+    assert render(hass, entity["attributes"]["needed_full_kwh"]) == "4.5"
+    assert render(hass, entity["attributes"]["knappheit_gate_offen"]) == "True"

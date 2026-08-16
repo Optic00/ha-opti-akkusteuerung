@@ -110,11 +110,11 @@ input_number:
   # Wirtschaftliches Ueberschuss-Veto (2026-08-15): die beiden Grenzen oben sind
   # ABREGELUNGS-Schwellen (70%-Einspeiselimit, WR-AC-Grenze) und liegen bei einer
   # Anlage mit ~8 kW Peak so hoch, dass ihre Signale nie ausloesen. Diese Grenze
-  # ist die wirtschaftliche: jede kWh, die bei laufendem Netzexport NICHT in den
-  # Akku geht, ist Einspeiseverguetung statt Abendpreis - am 15.08.2026 gingen so
-  # 19,3 kWh ins Netz, waehrend der Ziel-SoC-Deckel den Akku ~2,5 h auf
-  # Ladeleistung 0 zwang. Sie dient nur der Signalstabilitaet, nicht der
-  # Wirtschaftlichkeit: oekonomisch waere jedes Watt Export ladewuerdig.
+  # ist die wirtschaftliche Leistungsschwelle. Bei prognostizierter Knappheit ist
+  # jede kWh, die bei laufendem Netzexport NICHT in den Akku geht,
+  # Einspeiseverguetung statt Abendpreis - am 15.08.2026 gingen so 19,3 kWh ins
+  # Netz, waehrend der Ziel-SoC-Deckel den Akku ~2,5 h auf Ladeleistung 0 zwang.
+  # An einem Reichtag sperrt der Knappheits-Faktor unten dieses Veto dagegen.
   # min bewusst 200 statt 0: ein input_number ohne gespeicherten Zustand startet
   # auf seinem Minimum. Kein `initial:` - das ueberschriebe den restaurierten Wert
   # bei JEDEM Neustart (dieselbe Falle, die am Modus-Select entfernt wurde). Der
@@ -144,6 +144,22 @@ input_number:
     unit_of_measurement: W
     mode: box
     icon: mdi:transmission-tower-export
+
+  # Knappheits-Gate fuer das Ueberschuss-Veto (2026-08-16): das Veto sticht den
+  # Ziel-SoC nur noch, wenn der prognostizierte Rest-Ueberschuss des Tages kleiner
+  # ist als dieser Faktor mal der Energiebedarf bis Akku voll. Kein `initial:` -
+  # das ueberschriebe den restaurierten Wert bei jedem Neustart. Der Erststart
+  # faellt deshalb auf min 1: Veto nur bei echter Unterdeckung, also die
+  # konservativste Einstellung in Richtung Ziel-SoC-Rampe. Empfohlener
+  # Betriebswert: 3 als Pessimismus-Puffer gegen Forecast-Optimismus, belegt am
+  # Knappheitstag 15.08.2026.
+  akkusteuerung_ueberschuss_veto_knappheit_faktor:
+    name: "Akkusteuerung Überschuss-Veto Knappheits-Faktor"
+    min: 1
+    max: 10
+    step: 0.5
+    mode: box
+    icon: mdi:scale-balance
 
   # --- SoC-Grenzen ---
   minsoc:

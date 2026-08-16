@@ -178,58 +178,67 @@ zusätzlichen **Band H = 3 %** als zweiter Schutzschicht gegen Pendeln direkt an
 - **SoC > Ziel + 3** → *Akku nur Entladen* (genug Reserve, Option 21)
 - **innerhalb ±3 % um das Ziel** → neutrale Zone → Default *Akku Dynamisch* (bei fehlendem Preisniveau bleibt stattdessen ein passiver Modus stehen, s. [Default](#default--akku-dynamisch))
 
-### Das Überschuss-Veto: laufender Export sticht den Deckel (Option 19)
+### Das Überschuss-Veto: Knappheit entscheidet über den Ziel-SoC-Deckel (Option 19)
 
-Der Ziel-SoC hält Kapazität für später am Tag frei. Dieses Ziel ist gegenstandslos, sobald
-gerade **ins Netz eingespeist wird** — die Energie geht in diesem Moment ohnehin weg. Bis
-August 2026 fehlte diese Einsicht in der Kette, mit messbarer Folge.
+Der Ziel-SoC hält Kapazität für spätere PV frei und vermeidet unnötige Hoch-SoC-Stunden.
+Aktueller Netzexport ist deshalb nur dann ein wirtschaftlicher Verlust, wenn der prognostizierte Rest-Überschuss des Tages den Akku nicht mehr sicher füllt.
+Reicht die Rest-PV sicher aus, ist Mittagsexport gewollter Aufschub: Der Akku wird später trotzdem voll, der Tagesgesamtexport bleibt gleich und die Ziel-SoC-Rampe erfüllt ihren Zweck.
 
-**Belegter Auslöser, 15.08.2026:** 48,1 kWh PV-Erzeugung, davon 19,3 kWh ins Netz, Netzbezug
-0,7 kWh, kein E-Auto-Laden. Der SoC erreichte trotzdem nur 91 % (um 15:17) und fiel danach
-wieder. Der Ziel-SoC lief der Realität als Treppe hinterher — 50 % um 06:00, 95 % erst um
-15:07, dazwischen ein Rückschritt von 80 auf 70 % um 12:54, weil die Restprognose wieder
-stieg. In drei Fenstern (08:47–09:19, 10:10–11:13, 12:54–13:45, zusammen ~2 h 25 min) zwang
-Option 21 den Akku auf Ladeleistung 0 — bei gleichzeitig 1,9 bis 5,5 kW Export.
+**Belegter Knappheitsfall, 15.08.2026:** An diesem Tag wurden 48,1 kWh PV erzeugt und 19,3 kWh ins Netz eingespeist, bei 0,7 kWh Netzbezug und ohne E-Auto-Laden.
+Der SoC erreichte trotzdem nur 91 % um 15:17 und fiel danach wieder.
+Der Ziel-SoC lief der Realität als Treppe hinterher: 50 % um 06:00, 95 % erst um 15:07 und dazwischen ein Rückschritt von 80 auf 70 % um 12:54, weil die Restprognose wieder stieg.
+In drei Fenstern von 08:47-09:19, 10:10-11:13 und 12:54-13:45, zusammen rund 2 h 25 min, zwang Option 21 den Akku bei gleichzeitig 1,9 bis 5,5 kW Export auf Ladeleistung 0.
+Unter dieser Knappheit war jede noch gespeicherte kWh den Abendpreis minus Einspeisevergütung wert, am 15.08. also 38-41 ct gegen 10 ct und damit rund 28 ct/kWh.
 
-Ökonomisch ist das eindeutig: solange exportiert wird, ist jede gespeicherte kWh den
-Abendpreis minus Einspeisevergütung wert (am 15.08.: 38–41 ct gegen 10 ct, also ~28 ct/kWh).
+**Gegenbeispiel Reichtag, 16.08.2026:** Der prognostizierte Rest-Überschuss `pv_surplus_kwh` lag bei 51,5 kWh, während `needed_full_kwh` nur 4,5 kWh bis 100 % SoC auswies.
+Frühes Laden trotz Mittagsexport hätte den Akku nicht voller gemacht, sondern nur die Dauer bei hohem SoC verlängert.
 
-**Warum die bestehenden Überschuss-Zweige (14/15) das nicht abgefangen haben:** ihre Grenzen
-sind *Abregelungs*-Schwellen — das 70-%-Einspeiselimit (live 18.000 W) und die WR-AC-Grenze
-(9.500 W). Eine Anlage mit ~8,3 kW Peak erreicht sie nie; beide Signale waren den ganzen Tag
-`off`. Sie schützen vor Abregelung, nicht vor Verschenken.
+**Warum die bestehenden Überschuss-Zweige 14 und 15 das nicht abfangen:** Ihre Grenzen sind Abregelungs-Schwellen, nämlich das 70-%-Einspeiselimit mit live 18.000 W und die WR-AC-Grenze mit 9.500 W.
+Eine Anlage mit rund 8,3 kW Peak erreicht sie nie, und beide Signale waren am 15.08. den ganzen Tag `off`.
+Sie schützen vor Abregelung, nicht vor dem wirtschaftlichen Knappheitsfall.
 
-Option 19 ergänzt daher das **wirtschaftliche** Signal
-`binary_sensor.opti_ueberschuss_veto_aktiv`: gleiche Bauart wie die Abregelungs-Wächter
-(Akku herausgerechnet, Hysterese, beidseitige Entprellung), aber mit einer Schwelle im Bereich
-weniger hundert Watt (`input_number.akkusteuerung_ueberschuss_veto_grenze`, Vorgabe 500 W ein /
-250 W aus) und 60 s statt 30 s Entprellung, weil die Schwelle unterhalb der
-Hausgrundlast-Schwankung liegt.
+Option 19 nutzt dafür `binary_sensor.opti_ueberschuss_veto_aktiv`.
+Sein Leistungssignal rechnet den Akku und Netzbezug als `Export - Import + Batterieleistung` heraus, wobei positive Batterieleistung Laden bedeutet.
+Diese Rückrechnung ist notwendig, weil das Laden den gemessenen Export senkt und die eigene Freigabe sonst beendet, wie bei der Selbstschwingung vom 03.07.2026.
+Der Sensor schaltet oberhalb von `input_number.akkusteuerung_ueberschuss_veto_grenze` ein, hält bis `input_number.akkusteuerung_ueberschuss_veto_aus_grenze` und entprellt beide Flanken 60 s lang.
+Empfohlene Leistungswerte sind 500 W zum Einschalten und 250 W zum Ausschalten.
 
-Die Akku-Herausrechnung (`Export + Batterieleistung`, positiv = laden) ist hier keine Kopie aus
-Bequemlichkeit, sondern notwendig: das Laden senkt den gemessenen Export und würde die eigene
-Freigabe sonst beenden — genau die Selbstschwingung vom 03.07.2026.
+Seit 16.08.2026 ergänzt ein Knappheits-Gate dieses reale Leistungssignal.
+Beim Einschalten gilt die strikte Bedingung `pv_surplus_kwh < needed_full_kwh * knappheit_faktor`.
+Der Faktor kommt aus `input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor`, hat den Bereich 1 bis 10 in Schritten von 0,5 und verwendet keinen `initial`-Wert.
+Ein Erststart fällt deshalb auf das Minimum 1 und lässt das Veto nur bei echter Unterdeckung zu, was die konservativste Einstellung in Richtung Ziel-SoC-Rampe ist.
+Der empfohlene Betriebswert ist 3 als Pessimismus-Puffer gegen Forecast-Optimismus, gestützt durch den Knappheitsfall vom 15.08.
 
-**Was das Veto NICHT sticht** (Position bewusst spät in der Kette, cross-model geprüft):
-MinSOC-Schutz, beide Netzlade-Zweige, Peak-Leiter L1/L2, Balancing-Watchdog, den harten
-`maxsoc`-Ladedeckel, die Winter-/Prognose-Ladeblöcke, die EV-Sperre und die Halte-Stufen
-L3/L4. Es verdeckt ausschließlich die Ziel-SoC-Zweige und den Default. Gegen `maxsoc` ist es
-doppelt gesichert: eigene Bedingung `SoC < maxsoc` plus der früher stehende Ladedeckel.
+War das Veto bereits an, bleibt das Gate offen, solange `pv_surplus_kwh < needed_full_kwh * knappheit_faktor * 1.2` gilt.
+Es schließt erst ab der oberen Grenze von 120 %.
+Das feste 20-%-Halteband verhindert eine Selbstabschaltung im Minuten- bis Viertelstundentakt, weil Laden den SoC hebt und dadurch `needed_full_kwh` senkt.
+Der Sensorzustand selbst liefert das notwendige Gedächtnis über das vorhandene `war_an`-Muster.
 
-Da es preisunabhängig ist, sticht es auch den Preisniveau-Default-Guard: fällt die Preisreihe
-bei laufendem Export aus, wird *Akku Dynamisch* gesetzt, statt den passiven Modus zu halten.
-Gewollt — *Dynamisch* erzwingt keinen Netzbezug, und überschüssige PV zu speichern braucht
-keinen Preis.
+Die Fail-Richtung des Forecast-Gates ist bewusst offen und damit das Gegenteil der Messquellen-Prüfung.
+Fehlen `pv_surplus_kwh` oder `needed_full_kwh`, oder sind sie nicht numerisch, verhält sich das Veto wie vor dem Gate.
+Das Gate darf den real gemessenen Export nur unterdrücken, wenn der Forecast den Tagesüberfluss positiv belegt.
+Der Verlustfall kostet Geld, während eine Fehlauslösung nur zusätzliche Hoch-SoC-Stunden kostet.
+Fehlen dagegen Export, Import oder Batterieleistung, bleibt der gesamte Binary Sensor fail-safe aus, weil dann der reale Messbeleg fehlt.
 
-Im evcc-**PV**-Modus (nicht Schnellladung) konkurrieren Auto und Akku um denselben Überschuss.
-Die Formel regelt das von selbst: der Wallbox-Verbrauch senkt den Export, das Auto hat damit
-Vorrang, der Akku bekommt den Rest.
+Der Sonderfall `needed_full_kwh <= 0` schließt das Gate, weil der Akku rechnerisch bereits voll ist.
+`needed_full_kwh` rechnet bis 100 % und nicht bis `maxsoc`; die Differenz deckt der Faktor ab.
+Die Attribute `knappheit_faktor`, `pv_surplus_kwh`, `needed_full_kwh` und `knappheit_gate_offen` machen die Entscheidung beobachtbar.
+`knappheit_gate_offen` zeigt den wirksamen Zustand einschließlich des 20-%-Haltebands und des vorherigen Veto-Zustands.
 
-**Bewusst nicht gebaut:** ein Tages-Latch, der den Ziel-SoC monoton steigend hält (gegen den
-Rückschritt um 12:54). Nach dem Veto bleibt sein Nutzen auf den schmalen Streifen „Export
-unter der Schwelle" beschränkt, er entkernt die gewollte Puffer-Funktion der Kennlinie, und
-Template-Attribute überleben weder einen Neustart im `unavailable`-Zustand noch einen Reload
-zuverlässig — er wäre ohnehin nur best effort.
+**Was das Veto nicht sticht:** MinSOC-Schutz, beide Netzlade-Zweige, Peak-Leiter L1/L2, Balancing-Watchdog, den harten `maxsoc`-Ladedeckel, die Winter-/Prognose-Ladeblöcke, die EV-Sperre und die Halte-Stufen L3/L4.
+Es verdeckt ausschließlich die Ziel-SoC-Zweige und den Default.
+Gegen `maxsoc` ist es doppelt gesichert: durch die eigene Bedingung `SoC < maxsoc` und durch den früher stehenden Ladedeckel.
+
+Bei offenem Knappheits-Gate ist das Veto preisunabhängig und sticht auch den Preisniveau-Default-Guard.
+Fällt die Preisreihe in diesem Zustand aus, wird *Akku Dynamisch* gesetzt, statt den passiven Modus zu halten.
+Das ist beabsichtigt, weil *Dynamisch* keinen Netzbezug erzwingt und das Speichern knapper überschüssiger PV keinen Preis benötigt.
+
+Im evcc-**PV**-Modus, nicht bei Schnellladung, konkurrieren Auto und Akku um denselben Überschuss.
+Der Wallbox-Verbrauch senkt den Export, sodass das Auto Vorrang hat und der Akku nur den Rest bekommt.
+
+**Bewusst nicht gebaut:** Ein Tages-Latch würde den Ziel-SoC nach dem Rückschritt um 12:54 monoton steigend halten, aber die gewollte Puffer-Funktion der Kennlinie entkernen.
+Das Knappheits-Gate erhält diese Funktion gezielt an Reichtagen.
+Template-Attribute überleben zudem weder einen Neustart im Zustand `unavailable` noch einen Reload zuverlässig, sodass ein solches Latch nur best effort wäre.
 
 ### Nachbauen über die zwei Repos
 
@@ -783,10 +792,8 @@ Export ist über den Akku rückgekoppelt (Laden drückt ihn unter die Grenze und
 eigene Freigabe sofort wieder beenden - live beobachtetes Minutentakt-Flattern).
 Entprellung 30 s beidseitig plus Hysterese-Band, wie in der bewährten Opti-2.0-Automatik.
 
-**Abgrenzung:** Diese Option und Option 15 sind **Abregelungs**-Wächter — ihre Grenzen liegen
-beim Einspeiselimit bzw. der WR-AC-Grenze und lösen bei kleineren Anlagen im Normalbetrieb nie
-aus. Das *wirtschaftliche* Überschuss-Signal (jeder nennenswerte Export ist ladewürdig) ist
-Option 19.
+**Abgrenzung:** Diese Option und Option 15 sind **Abregelungs**-Wächter - ihre Grenzen liegen beim Einspeiselimit beziehungsweise der WR-AC-Grenze und lösen bei kleineren Anlagen im Normalbetrieb nie aus.
+Das wirtschaftliche Knappheitssignal, das nennenswerten Export nur bei prognostizierter Unterdeckung als ladewürdig einstuft, ist Option 19.
 
 ---
 
@@ -853,7 +860,7 @@ Ziel-SoC-Optionen (Option 20/21) — davor greift jedoch das Überschuss-Veto (O
 
 ---
 
-#### Option 19 — Echter Netz-Überschuss sticht den Ziel-SoC-Deckel (nur tagsüber)
+#### Option 19 - Echter Netz-Überschuss sticht den Ziel-SoC-Deckel (nur tagsüber)
 
 | Eigenschaft | Wert |
 |---|---|
@@ -862,15 +869,12 @@ Ziel-SoC-Optionen (Option 20/21) — davor greift jedoch das Überschuss-Veto (O
 | Tageszeit | nach Sonnenaufgang bis Sonnenuntergang |
 | Gesetzter Modus | **Akku Dynamisch** |
 
-**Warum:** Solange ins Netz eingespeist wird, ist der Zweck des Ziel-SoC-Deckels — Kapazität
-für später freihalten — gegenstandslos: die Energie geht ohnehin gerade weg. Jede stattdessen
-gespeicherte kWh ist Abendpreis minus Einspeisevergütung wert. Ausführliche Herleitung samt
-Live-Beleg vom 15.08.2026 im Abschnitt
-**[Das Überschuss-Veto](#das-überschuss-veto-laufender-export-sticht-den-deckel-option-19)**.
+**Warum:** Netzexport ist nur dann ein wirtschaftlicher Verlust, wenn der prognostizierte Rest-Überschuss den Akku nicht mehr sicher füllt.
+Das Knappheits-Gate im Binary Sensor sperrt Option 19 an Reichtagen und lässt sie bei Unterdeckung oder fehlenden Forecast-Daten zu.
+Die ausführliche Herleitung mit den Beispielen vom 15.08. und 16.08. steht im Abschnitt **[Das Überschuss-Veto](#das-überschuss-veto-knappheit-entscheidet-über-den-ziel-soc-deckel-option-19)**.
 
-Der Zweig steht bewusst hinter allen Zweigen, die aus einem anderen Grund laden, halten oder
-bewusst entladen (MinSOC, Netzladen, L1–L4, Balancing, `maxsoc`-Deckel, Prognose-Ladeblöcke,
-EV-Sperre) und verdeckt ausschließlich die Ziel-SoC-Optionen und den Default.
+Der Zweig steht bewusst hinter allen Zweigen, die aus einem anderen Grund laden, halten oder bewusst entladen: MinSOC, Netzladen, L1-L4, Balancing, `maxsoc`-Deckel, Prognose-Ladeblöcke und EV-Sperre.
+Er verdeckt ausschließlich die Ziel-SoC-Optionen und den Default.
 
 ---
 

@@ -14,9 +14,20 @@
 #   opti_battery_power_w  += laden  (positiv = Batterie lädt)
 #
 # Jeder Sensor hat:
-#   unique_id: opti_mapping_<name>
-#   name: "Opti …" → HA leitet daraus sensor.opti_<name> ab
+#   unique_id: opti_mapping_<name>  - interne Kennung, KEINE Entity-ID
+#   name: "Opti …" → HA leitet daraus die Entity-ID sensor.opti_<name> ab
 #   availability: prüft ob die Pflicht-Quelle verfügbar ist
+#
+# Wichtig: Strategie, Dashboard und Doku sprechen die aus dem NAMEN abgeleitete
+# Entity-ID an, nie die unique_id. Beispiel: der Block mit
+# `unique_id: opti_mapping_battery_capacity_kwh` und
+# `name: "Opti Battery Capacity kWh"` erzeugt beim erstmaligen Anlegen die
+# Entity `sensor.opti_battery_capacity_kwh` - und genau die wird überall
+# erwartet. Beim ersten Start also einmal unter Entwicklerwerkzeuge → Zustände
+# gegenprüfen: existiert die ID bereits (etwa aus einem früheren Versuch),
+# hängt HA ein `_2` an, und eine spätere Umbenennung in der UI überschreibt
+# die ID ebenfalls. In beiden Fällen die Entity umbenennen statt die Strategie
+# anzupassen.
 # =============================================================================
 
 template:

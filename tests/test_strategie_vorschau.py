@@ -10,6 +10,8 @@ BASIS = {
     "sensor.opti_price_current_ct_kwh": "30",
     "binary_sensor.opti_ueberschuss_70_aktiv": "off",
     "binary_sensor.opti_ueberschuss_ac_aktiv": "off",
+    # Wirtschaftliches Ueberschuss-Veto default aus (Fixtures schalten es an).
+    "binary_sensor.opti_ueberschuss_veto_aktiv": "off",
     "sensor.opti_peak_reserve_soc": "unavailable",
     "binary_sensor.opti_peak_reserve_aktiv": "off",
     "binary_sensor.opti_winter_charging_allowed": "on",

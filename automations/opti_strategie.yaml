@@ -93,6 +93,16 @@
         - "on"
         - "off"
       id: "PV-70%-Überschuss geändert"
+    # Wirtschaftliches Überschuss-Veto (2026-08-15). Ebenfalls beide Flanken:
+    # ohne die Off-Flanke bliebe der Modus nach Wegfall des Überschusses bis zum
+    # nächsten zufälligen SoC-Event auf "Dynamisch" stehen.
+    - trigger: state
+      entity_id:
+        - binary_sensor.opti_ueberschuss_veto_aktiv
+      to:
+        - "on"
+        - "off"
+      id: "Überschuss-Veto geändert"
     # Prognose-Scores statt PV-Forecast-Bewertungslabels
     - trigger: state
       entity_id:
@@ -760,6 +770,76 @@
             - action: input_select.select_option
               data:
                 option: "Akku nur Laden"
+              target:
+                entity_id: input_select.akkusteuerung_modus
+
+        # ---------------------------------------------------------------------
+        # Ueberschuss-Veto (2026-08-15, Knappheits-Gate 2026-08-16): belegter
+        # Ausloeser 15.08.2026 waren 48,1 kWh PV, davon
+        # 19,3 kWh ins Netz, SoC-Peak nur 91 % um 15:17. Der Ziel-SoC lief der
+        # Realitaet als Treppe hinterher (50 % um 06:00, 95 % erst um 15:07,
+        # dazwischen ein Rueckschritt 80 -> 70 % um 12:54) und zwang den Akku in
+        # drei Fenstern (08:47-09:19, 10:10-11:13, 12:54-13:45, zusammen
+        # ~2 h 25 min) ueber Zweig "nur Entladen: SOC ueber Ziel-SoC" auf
+        # Ladeleistung 0 - bei gleichzeitig 1,9 bis 5,5 kW Export.
+        #
+        # Laufender Export ist nur dann ein wirtschaftlicher Verlust, wenn der
+        # prognostizierte Rest-Ueberschuss den Akku nicht mehr sicher fuellt.
+        # Reicht die Rest-PV aus, ist Mittagsexport gewollter Aufschub: der Akku
+        # wird spaeter trotzdem voll, und frueheres Laden kostet nur
+        # Hoch-SoC-Stunden. Seit 16.08.2026 unterdrueckt deshalb das
+        # Knappheits-Gate im binary_sensor.opti_ueberschuss_veto_aktiv den Zweig
+        # bei positiv belegtem Tages-Ueberfluss. Der Sensor enthaelt auch das
+        # 20-%-Halteband und die bewusste Fail-Open-Richtung fuer Forecast-Daten;
+        # die Bedingungen dieser Automation bleiben dadurch unveraendert.
+        #
+        # POSITION (bewusst genau hier, Cross-Review Fable 5 + GPT-5.6 Sol,
+        # 15.08.2026): hinter allem, was Vorrang behalten muss - MinSOC-Schutz,
+        # beide Netzlade-Zweige, Peak-Leiter L1/L2, Balancing-Watchdog,
+        # maxsoc-Ladedeckel, Winter-/Prognose-Ladebloecke, EV-Sperre und die
+        # Halte-Stufen L3/L4. Er verdeckt ausschliesslich die beiden
+        # Ziel-SoC-Zweige und den Default. Die EV-Sperre steht bewusst davor:
+        # sonst entlaedt der Akku bei evcc-Schnellladung ins Auto.
+        #
+        # Gegen maxsoc doppelt gesichert: eigene Bedingung soc < maxsoc, und der
+        # Ladedeckel-Zweig steht ohnehin frueher (dessen 3-%-Halteband gewinnt
+        # damit im Bereich maxsoc-3..maxsoc). Kein Lade-/Entlade-Zyklus.
+        #
+        # Preisunabhaengig, sticht also auch den Preisniveau-Default-Guard:
+        # faellt die Preisreihe bei laufendem Export aus, wird 'Akku Dynamisch'
+        # gesetzt statt den passiven Modus zu halten. Gewollt - 'Dynamisch'
+        # erzwingt keinen Netzbezug (siehe Guard-Kommentar weiter unten), und
+        # ueberschuessige PV zu speichern braucht keinen Preis.
+        #
+        # Im evcc-PV-Modus (nicht: Schnellladung) konkurrieren Auto und Akku um
+        # denselben Ueberschuss. Die Formel regelt das von selbst richtig: der
+        # Wallbox-Verbrauch senkt den Export, das Auto hat damit Vorrang und der
+        # Akku bekommt nur, was uebrig bleibt.
+        # ---------------------------------------------------------------------
+        - alias: "Modus 'Dynamisch': echter Netz-Ueberschuss sticht Ziel-SoC-Deckel"
+          conditions:
+            - condition: state
+              entity_id: input_boolean.opti_pv_ueberschuss_ladung
+              state: "on"
+            - condition: sun
+              after: sunrise
+              before: sunset
+            # Entprelltes, akkuunabhaengiges Signal (opti_derived.yaml), gleiche
+            # Bauart wie die beiden Abregelungs-Waechter darueber.
+            - condition: state
+              entity_id: binary_sensor.opti_ueberschuss_veto_aktiv
+              state: "on"
+            # Kein Laden ueber den harten Deckel. numeric_state kann nicht gegen
+            # eine Entity-Obergrenze pruefen, daher Template.
+            - condition: template
+              value_template: >-
+                {{ has_value('sensor.opti_soc')
+                   and has_value('input_number.maxsoc')
+                   and (states('sensor.opti_soc') | float) < (states('input_number.maxsoc') | float(95)) }}
+          sequence:
+            - action: input_select.select_option
+              data:
+                option: "Akku Dynamisch"
               target:
                 entity_id: input_select.akkusteuerung_modus
 

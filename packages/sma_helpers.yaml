@@ -107,6 +107,60 @@ input_number:
     unit_of_measurement: W
     mode: box
 
+  # Wirtschaftliches Ueberschuss-Veto (2026-08-15): die beiden Grenzen oben sind
+  # ABREGELUNGS-Schwellen (70%-Einspeiselimit, WR-AC-Grenze) und liegen bei einer
+  # Anlage mit ~8 kW Peak so hoch, dass ihre Signale nie ausloesen. Diese Grenze
+  # ist die wirtschaftliche Leistungsschwelle. Bei prognostizierter Knappheit ist
+  # jede kWh, die bei laufendem Netzexport NICHT in den Akku geht,
+  # Einspeiseverguetung statt Abendpreis - am 15.08.2026 gingen so 19,3 kWh ins
+  # Netz, waehrend der Ziel-SoC-Deckel den Akku ~2,5 h auf Ladeleistung 0 zwang.
+  # An einem Reichtag sperrt der Knappheits-Faktor unten dieses Veto dagegen.
+  # min bewusst 200 statt 0: ein input_number ohne gespeicherten Zustand startet
+  # auf seinem Minimum. Kein `initial:` - das ueberschriebe den restaurierten Wert
+  # bei JEDEM Neustart (dieselbe Falle, die am Modus-Select entfernt wurde). Der
+  # Erststart-Wert muss deshalb ueber `min` brauchbar sein. Empfohlener
+  # Betriebswert: 500 W.
+  akkusteuerung_ueberschuss_veto_grenze:
+    name: "Akkusteuerung Überschuss-Veto Grenze"
+    min: 200
+    max: 5000
+    step: 50
+    unit_of_measurement: W
+    mode: box
+    icon: mdi:transmission-tower-export
+
+  # Ausschaltschwelle des Vetos (Hysterese-Unterkante). Bewusst als eigener
+  # Helfer statt fester Differenz: der Abstand zur Einschaltgrenze muss die
+  # Messpunkt-Unschaerfe zwischen DC-Batterieleistung und AC-Export abdecken
+  # (Wandlungsverluste ~5-10 %, bei Volllast bis ~200 W).
+  # min 100 aus demselben Grund: beim Erststart faellt der Helfer sonst auf 0 und
+  # das Halteband waere wirkungslos (das Template wertet `aus > 0` aus).
+  # Empfohlener Betriebswert: 250 W.
+  akkusteuerung_ueberschuss_veto_aus_grenze:
+    name: "Akkusteuerung Überschuss-Veto Aus-Grenze"
+    min: 100
+    max: 5000
+    step: 50
+    unit_of_measurement: W
+    mode: box
+    icon: mdi:transmission-tower-export
+
+  # Knappheits-Gate fuer das Ueberschuss-Veto (2026-08-16): das Veto sticht den
+  # Ziel-SoC nur noch, wenn der prognostizierte Rest-Ueberschuss des Tages kleiner
+  # ist als dieser Faktor mal der Energiebedarf bis Akku voll. Kein `initial:` -
+  # das ueberschriebe den restaurierten Wert bei jedem Neustart. Der Erststart
+  # faellt deshalb auf min 1: Veto nur bei echter Unterdeckung, also die
+  # konservativste Einstellung in Richtung Ziel-SoC-Rampe. Empfohlener
+  # Betriebswert: 3 als Pessimismus-Puffer gegen Forecast-Optimismus, belegt am
+  # Knappheitstag 15.08.2026.
+  akkusteuerung_ueberschuss_veto_knappheit_faktor:
+    name: "Akkusteuerung Überschuss-Veto Knappheits-Faktor"
+    min: 1
+    max: 10
+    step: 0.5
+    mode: box
+    icon: mdi:scale-balance
+
   # --- SoC-Grenzen ---
   minsoc:
     name: "Akku Min SoC"

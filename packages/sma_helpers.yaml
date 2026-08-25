@@ -8,8 +8,8 @@
 # ⚙️  WICHTIG: Die benutzerkonfigurierbaren Helfer haben bewusst KEIN `initial:`.
 #     Ohne `initial:` restauriert HA nach Neustarts den zuletzt gespeicherten
 #     Wert; frisch angelegte input_number starten auf ihrem Minimum. Daher nach
-#     dem ersten Anlegen einmalig die Erststart-Werte aus der Tabelle im README
-#     (Abschnitt "Schnell-Nachbau über Packages") über die HA-Oberfläche setzen.
+#     dem ersten Anlegen einmalig die Erststart-Werte aus der Tabelle in
+#     docs/installation.md (Schritt 8) über die HA-Oberfläche setzen.
 #     Ein vorhandenes `initial:` greift dagegen bei JEDEM HA-Start und verhindert
 #     die Wiederherstellung manueller Änderungen. Es wird unten nur dort benutzt,
 #     wo dieses feste Restart-Verhalten ausdrücklich Teil des Vertrags ist.
@@ -55,9 +55,14 @@ input_number:
 
   akkusteuerung_max_ladestaerke:
     name: "Akkusteuerung Max Ladestärke"
+    # step 1, damit exakte Hardware-Grenzen eintragbar sind (ein Box-Feld
+    # validiert gegen step: mit 100 waere z.B. 3018 W nicht speicherbar).
+    # Nebenwirkung: input_number.increment/decrement schrittet hier jetzt in
+    # 1-W-Schritten. Im Repo ruft das nichts auf; wer eigene Automationen damit
+    # gebaut hat, stellt sie auf input_number.set_value um.
     min: 0
     max: 10000
-    step: 100
+    step: 1
     unit_of_measurement: W
     mode: box
 
@@ -81,9 +86,10 @@ input_number:
 
   akkusteuerung_max_entladestaerke:
     name: "Akkusteuerung Max Entladestärke"
+    # step 1, siehe Max Ladestärke.
     min: 0
     max: 10000
-    step: 100
+    step: 1
     unit_of_measurement: W
     mode: box
 
@@ -186,7 +192,11 @@ input_number:
     # Wird automatisch vom aktuellen Strompreis befüllt wenn Netzladen aktiv ist.
     # Stellt den Preis dar, zu dem der Akku zuletzt netzgeladen wurde (EUR/kWh).
     # EINHEIT EUR/kWh (z.B. 0.306). opti_mindestentladepreis_ct_kwh rechnet ×100 nach ct.
-    min: 0
+    # min bewusst negativ: die Strategie schreibt hier nach dem Netzladen den
+    # zuletzt gezahlten Preis hinein. Bei negativem Boersenpreis wuerde ein
+    # min: 0 den input_number.set_value-Aufruf scheitern lassen - der Helfer
+    # bliebe auf dem alten Wert stehen. -1 deckt den EPEX-Preisboden ab.
+    min: -1
     max: 1
     step: 0.001
     unit_of_measurement: EUR/kWh

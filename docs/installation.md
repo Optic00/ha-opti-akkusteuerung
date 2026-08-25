@@ -150,6 +150,13 @@ der Wert jeden weiteren Neustart:
 | `input_number.opti_balancing_intervall_tage` | 0 Tage (= Watchdog aus) | 14 Tage |
 | `input_number.opti_balancing_karenz_tage` | 0 Tage | 3 Tage |
 | `input_number.opti_balancing_max_ct` | 0 ct/kWh (= kein bezahltes Netzladen) | 25 ct/kWh |
+| `input_number.opti_balancing_spreizungs_schwelle` | 0 mV (= bedarfsgesteuertes Balancing aus) | 35 mV |
+| `input_number.opti_balancing_bedarf_cooldown_tage` | 0 Tage | 5 Tage |
+| `input_number.akkusteuerung_wr_70proz_ueberschuss_grenze` | 0 W (= Override aus) | deine Einspeise-Abregelgrenze |
+| `input_number.akkusteuerung_wr_ac_ueberschuss_grenze` | 0 W (= Override aus) | AC-Nennleistung deines WR |
+| `input_number.opti_forecast_optimismus` | 0 % (= konservativ, kann so bleiben) | 40 % |
+| `input_number.ladepreis` | -1 EUR/kWh | nichts tun, wird automatisch gefüllt |
+| `input_number.mindestpreisdifferenz_lade_entladepreis` | 0 EUR/kWh | 0.08 EUR/kWh |
 | `input_boolean.opti_balancing_netzladen` | aus (= Balancing rein per PV) | nach Wunsch an |
 
 Die `opti_balancing_*`-Helfer steuern den **Balancing-/Deep-Charge-Watchdog**
@@ -165,6 +172,28 @@ daher nicht restart-dauerhaft. Der Schalter
 BMS-Balancing auch aus dem **Netz** laden darf; ohne ihn balancet er rein per PV. Er ist
 bewusst von `opti_prognose_netzladen` entkoppelt, damit Balancing-Netzladen unabhängig vom
 allgemeinen Prognose-Netzladen freigegeben werden kann.
+
+Die beiden **Überschuss-Grenzen** gehören zum Einspeise-Override: liegt die jeweilige
+Messgröße über der Grenze, lädt die Strategie auch über den Ziel-SoC hinaus, statt den
+Überschuss abregeln zu lassen.
+Die beiden Signale messen dabei Unterschiedliches.
+`wr_70proz_ueberschuss_grenze` vergleicht die **Netzeinspeisung ohne Akkueingriff**
+(Export plus Batterieleistung) und gehört auf die Leistung, ab der deine Einspeisung
+begrenzt wird - bei einer 70%-Regel also 0,7 × kWp in Watt.
+`wr_ac_ueberschuss_grenze` vergleicht die **PV-Leistung ohne Akkueingriff** und gehört auf
+die AC-Nennleistung deines Wechselrichters.
+Beide gelten bei **0 als nicht konfiguriert und schalten den Override ab** - sonst würde
+eine Grenze von 0 W jeden Export als Überschuss werten.
+Wirksam wird der Override ohnehin erst, wenn `input_boolean.opti_pv_ueberschuss_ladung`
+eingeschaltet ist (Schritt 9).
+
+`input_number.ladepreis` musst du **nicht** selbst setzen.
+Die Strategie schreibt dort den aktuellen Strompreis hinein, wenn sie den manuellen
+Netzlade-Booster (`input_boolean.hausakku_aus_netz_laden`) bei einem SoC über 99 % selbst
+abschaltet - negative Börsenpreise eingeschlossen, deshalb reicht der Helfer ins Negative.
+Zusammen mit `mindestpreisdifferenz_lade_entladepreis` ergibt er
+`sensor.opti_mindestentladepreis_ct_kwh`, der bislang nur informativ ist: er zeigt an und
+triggert die Automation, sperrt aber kein Entladen.
 
 **9. Einschalten:** die Strategie-Automation bleibt wirkungslos, solange ihr Master-Schalter
 aus ist - und frisch angelegte `input_boolean`-Helfer starten **aus** (kein `initial:`, siehe Schritt 8). Über die HA-Oberfläche auf **an** stellen:

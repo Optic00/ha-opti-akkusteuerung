@@ -391,6 +391,8 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 | `binary_sensor.opti_winter_charging_allowed` | Saisonales Lade-Gate (Standard: `true`, fail-open) |
 | `sensor.opti_peak_reserve_soc` | Reserve-SoC für kommende Preisspitzen (trigger-basiert, 36h-Horizont) |
 | `binary_sensor.opti_peak_reserve_aktiv` | Gate: Peaks im Wiederauflade-Horizont vorhanden |
+| `binary_sensor.opti_ueberschuss_70_aktiv` / `_ac_aktiv` | Überschuss-Override (30 s entprellt, mit Hysterese). Eine Grenze ≤ 0 gilt als *nicht konfiguriert* und schaltet den jeweiligen Override ab |
+| `binary_sensor.opti_ueberschuss_veto_aktiv` | Laufender Netzexport sticht den Ziel-SoC-Deckel, wenn der Rest-Forecast den Akku nicht mehr sicher füllt (Knappheits-Gate). Nur positiv belegter Überfluss sperrt das Veto; fehlt oder taugt der Forecast nicht, bleibt das Gate offen - siehe [strategie-logik.md](strategie-logik.md#das-überschuss-veto-knappheit-entscheidet-über-den-ziel-soc-deckel-option-19) |
 | `sensor.opti_balancing_watchdog` | Balancing-/Deep-Charge-Watchdog (`aus`/`pv`/`netz`): erzwingt einen Voll-Zyklus fürs BMS, wenn `counter.tage_seit_akku100` ≥ `input_number.opti_balancing_intervall_tage` (Default 14; 0 = aus). Staffelt PV (tagsüber) → Gratis-/Negativ-Netz → bezahltes Netz erst nach `opti_balancing_karenz_tage` und nur ≤ `opti_balancing_max_ct`. Beide `netz`-Zweige hängen am eigenen Schalter `input_boolean.opti_balancing_netzladen` (Default aus, PV ungegatet). Die Fälligkeit bleibt bis zu 30 bestätigten Minuten über dem Done-SoC aktiv; persistente Minuten-, Zeitstempel- und Gültigkeits-Helfer machen den Ablauf restartfest, unterscheiden HA-Erstwerte von echten Abschlüssen und begrenzen ihn auf einen Abschluss pro Tag. |
 
 **Baustein `sensor.opti_house_consumption_60min_w` (`packages/sma_statistik.yaml`):**
@@ -429,7 +431,7 @@ Details: `docs/superpowers/specs/2026-07-10-ki-analyse-schicht-design.md` (lokal
 |---|---|---|---|
 | **Nacht / Reserve halten (Entladesperre)** | `opti_forecast_score` ≤ 2, SoC < 30 %, `opti_price_level` CHEAP | **Akku nur Laden** | Gate `input_boolean.opti_prognose_netzladen` muss `on` sein |
 | **Nacht / kein Ladegrund** | Score ≤ 2, SoC > 60 %, Preis EXPENSIVE | **Akku Dynamisch** (Default) | Kein Ladeblock greift → Default-Pfad |
-| **Sonne / PV-Überschuss** | `binary_sensor.opti_ueberschuss_70_aktiv` = on (Export + Batterieleistung > 70%-Grenze, 30 s entprellt, 1 kW Hysterese), SoC < 100 % | **Akku Dynamisch** | Gate `input_boolean.opti_pv_ueberschuss_ladung` muss `on` sein |
+| **Sonne / PV-Überschuss** | `binary_sensor.opti_ueberschuss_70_aktiv` = on (Export + Batterieleistung > 70%-Grenze, 30 s entprellt, 1 kW Hysterese), SoC < 100 % | **Akku Dynamisch** | Gate `input_boolean.opti_pv_ueberschuss_ladung` muss `on` sein; eine Grenze von 0 schaltet den Override ab, statt ihn dauernd auszulösen |
 | **Tagsüber unter Ziel-SoC** | SoC < `opti_target_soc` **− 3 %**, nach Sonnenaufgang | **Akku Dynamisch** | Option „Dynamisch laden wenn SOC < ZielSoC"; das ±3 %-Band verhindert Modus-Pendeln direkt an der Ziel-Kante — siehe [strategie-logik.md](strategie-logik.md#der-intelligente-ziel-soc--herzstück-der-akkuschonung) |
 | **Entladen über Ziel-SoC** | SoC > `opti_target_soc` **+ 3 %** | **Akku nur Entladen** | Option „Nur Entladen wenn SOC > DynZielSoC" |
 | **MinSOC-Schutz** | SoC < `input_number.minsoc` | **Akku nur Laden** | Höchste Priorität, überstimmt alle anderen Blöcke |

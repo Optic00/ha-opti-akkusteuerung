@@ -121,7 +121,7 @@ Der frühere manuelle Weg mit Flachdateien liegt zur Referenz unter [`old/README
 
 ## Strategie-Logik
 
-Die Strategie-Automation entscheidet den **Modus** via `input_select.akkusteuerung_modus` und berührt keine Hardware direkt; ein nachgelagerter Cleanup pflegt nur Booster und Ladepreis. Eine vollständige, laienverständliche Block-für-Block-Erklärung aller Entscheidungsoptionen, der Preisstufenlogik (`sensor.opti_price_level`), des MinSOC-Schutzes, der Wintermodus-Blöcke und der Bausteine (P10-Sicherheitsnetz, Decision-Trace, Balancing-Watchdog):
+Die Strategie-Automation entscheidet den **Modus** via `input_select.akkusteuerung_modus` und berührt keine Hardware direkt; ein nachgelagerter Cleanup pflegt nur Booster und Ladepreis. Eine vollständige, laienverständliche Block-für-Block-Erklärung aller Entscheidungsoptionen, der Preisstufenlogik (`sensor.opti_price_level`), des MinSOC-Schutzes, der Wintermodus-Blöcke und der Bausteine (P10-Sicherheitsnetz, Decision-Trace, Balancing-Watchdog, Überschuss-Veto mit Knappheits-Gate):
 **[docs/strategie-logik.md](docs/strategie-logik.md)**
 
 ---
@@ -199,6 +199,7 @@ Dieses Projekt lebt von der Community. Besonderer Dank geht an:
 
 | Datum | Was |
 |---|---|
+| Aug 2026 | Überschuss-Veto mit Knappheits-Gate: laufender Netzexport sticht den Ziel-SoC-Deckel, wenn der Rest-Forecast den Akku nicht mehr füllt (bei fehlendem Forecast bleibt das Gate offen). Dazu Onboarding-Härtung aus dem ersten Fremd-Setup: unkonfigurierte Überschuss-Grenzen schalten den Override ab statt ihn scharf zu stellen, `input_number.ladepreis` verträgt negative Börsenpreise, die Erststart-Tabelle ist vollständig und `unique_id` vs. Entity-ID im Mapping klargestellt |
 | Jul 2026 | Entlade-Peak-Allokation: berechneter Reserve-SoC, Peak-Leiter, Negativpreis- und Vorladeregel (neuer Adapter-Modus "Akku Netzladen"), Backtest gegen echte Winterdaten, Test-Harness für die Jinja-Templates, Viertelstunden-Preisraster |
 | Jun 2026 | Canonical-`opti_*`-Layer: Strategie hardware-agnostisch, prognosebasierter Ziel-SoC mit echter Schmitt-Hysterese, anbieter-agnostisches Preisniveau (Midrank-Perzentil), Vorschau-Sensor für Soll/Ist-Vergleich |
 | Sep 2025 | Neue Modbus-Adressen für direkte Lade-/Entladeleistungssteuerung - Steuerlogik stark vereinfacht, dynamischer Ziel-SoC und Prognose-Bewertung |

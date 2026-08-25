@@ -57,7 +57,11 @@ template:
           {% set ein = states('input_number.akkusteuerung_wr_70proz_ueberschuss_grenze')|float(999999) %}
           {% set aus = ein - 1000 %}
           {% set war_an = this is defined and this.state == 'on' %}
-          {{ ok and (export_ohne_akku > ein
+          {# Grenze <= 0 = nicht konfiguriert = Funktion AUS (Repo-Idiom, wie
+             opti_balancing_spreizungs_schwelle). Ohne diesen Guard startet ein
+             frisch angelegter Helfer auf seinem min (0) und der Sensor waere
+             dauerhaft an, sobald ueberhaupt exportiert wird. #}
+          {{ ok and ein > 0 and (export_ohne_akku > ein
                      or (aus > 0 and export_ohne_akku >= aus and war_an)) }}
         attributes:
           export_ohne_akku_w: >
@@ -81,7 +85,9 @@ template:
           {% set ein = states('input_number.akkusteuerung_wr_ac_ueberschuss_grenze')|float(999999) %}
           {% set aus = ein - 300 %}
           {% set war_an = this is defined and this.state == 'on' %}
-          {{ ok and (ac_ohne_akku > ein
+          {# Grenze <= 0 = nicht konfiguriert = Funktion AUS, siehe Kommentar
+             beim 70%-Sensor oben. #}
+          {{ ok and ein > 0 and (ac_ohne_akku > ein
                      or (aus > 0 and ac_ohne_akku >= aus and war_an)) }}
         attributes:
           ac_ohne_akku_w: >

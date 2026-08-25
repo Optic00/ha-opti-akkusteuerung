@@ -153,3 +153,45 @@ def test_automation_conditions_nutzen_binaersensoren():
     assert "sensor.opti_grid_export_w" not in c70
     assert "binary_sensor.opti_ueberschuss_ac_aktiv" in cac
     assert "sensor.opti_pv_power_w" not in cac
+
+
+# --- Erststart-Guard: Grenze 0 = nicht konfiguriert = Funktion aus (2026-08-25) ---
+# Ein frisch angelegter input_number ohne `initial:` startet auf seinem Minimum.
+# Bei den Ueberschuss-Grenzen ist das 0 - ohne Guard waere der Sensor damit
+# dauerhaft an, sobald ueberhaupt exportiert wird, und der Override wuerde den
+# Ziel-SoC bei jedem Erstaufsetzer stechen (Issue #64).
+
+def test_70_grenze_null_ist_aus_trotz_export():
+    assert b70(**{"input_number.akkusteuerung_wr_70proz_ueberschuss_grenze": "0",
+                  "sensor.opti_grid_export_w": "19000"}) == "False"
+
+
+def test_ac_grenze_null_ist_aus_trotz_erzeugung():
+    assert bac(**{"input_number.akkusteuerung_wr_ac_ueberschuss_grenze": "0",
+                  "sensor.opti_pv_power_w": "10000"}) == "False"
+
+
+def test_70_grenze_null_haelt_auch_nicht_nach():
+    # Halteband darf einen bereits aktiven Sensor nicht am Leben halten,
+    # wenn die Grenze auf 0 zurueckfaellt.
+    assert b70(this_state="on",
+               **{"input_number.akkusteuerung_wr_70proz_ueberschuss_grenze": "0",
+                  "sensor.opti_grid_export_w": "19000"}) == "False"
+
+
+def test_ac_grenze_null_haelt_auch_nicht_nach():
+    assert bac(this_state="on",
+               **{"input_number.akkusteuerung_wr_ac_ueberschuss_grenze": "0",
+                  "sensor.opti_pv_power_w": "10000"}) == "False"
+
+
+def test_kleine_positive_grenze_funktioniert_weiter():
+    # Der Guard darf nur 0 (bzw. negativ) abschneiden, nicht kleine Grenzen.
+    assert b70(**{"input_number.akkusteuerung_wr_70proz_ueberschuss_grenze": "500",
+                  "sensor.opti_grid_export_w": "600"}) == "True"
+
+
+def test_fehlender_helfer_bleibt_fail_safe():
+    # Nicht existierender Helfer -> float(999999) -> praktisch nie an.
+    assert b70(**{"input_number.akkusteuerung_wr_70proz_ueberschuss_grenze": "unknown",
+                  "sensor.opti_grid_export_w": "19000"}) == "False"

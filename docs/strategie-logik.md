@@ -271,7 +271,7 @@ Empfohlener Startwert aus dem Winter-Backtest-Sweep: **5 ct**.
 **Tuning-Runde Winter-Backtest (2026-07-02).**
 Beide Hebel wurden per gestuftem Parameter-Sweep gegen einen 120-Tage-Winter-Backtest (Nov 2025 - Feb 2026, echte Preise/Last/PV) kalibriert; `opti_netzlade_spread_ct` = 10 wurde dabei bestätigt (15 drückt die VE-Abdeckung unter die Vorgabe).
 Gewinner-Kombination: `opti_peak_min_aufschlag_ct` = 5, `opti_halte_spread_ct` = 5, `opti_netzlade_spread_ct` = 10.
-Die ersten beiden Helfer haben Template-Fallbacks (10 ct bzw. 3 ct) - diese gelten aber nur, wenn der jeweilige Helfer gar nicht existiert. Ein bereits angelegter Helfer gewinnt immer gegen den Fallback, auch mit dem Erststart-Wert 0 (siehe Erststart-Werte-Tabelle im README). Nach dem ersten Anlegen der Helfer also aktiv auf die empfohlenen Startwerte setzen, sonst steuert die Strategie mit 0 statt mit 5.
+Die ersten beiden Helfer haben Template-Fallbacks (10 ct bzw. 3 ct) - diese gelten aber nur, wenn der jeweilige Helfer gar nicht existiert. Ein bereits angelegter Helfer gewinnt immer gegen den Fallback, auch mit dem Erststart-Wert 0 (siehe Erststart-Werte-Tabelle in [installation.md](installation.md)). Nach dem ersten Anlegen der Helfer also aktiv auf die empfohlenen Startwerte setzen, sonst steuert die Strategie mit 0 statt mit 5.
 Ergebnis: VE-Stunden-Abdeckung aus dem Akku steigt von 26.2 % (alt) auf 32.9 %, die Mehrkosten der Peak-Allokation sinken von 17.07 EUR auf 3.61 EUR pro Winter (inkl. Rest-SoC-Korrektur), die PV-Verdrängung von 131 kWh auf 53 kWh.
 Das ursprüngliche Ziel "billiger als alt bei mehr VE-Abdeckung" wurde damit **nicht** erreicht - die Peak-Allokation kostet im Backtest-Winter noch ~3.6 EUR Aufpreis für +6.7 Prozentpunkte VE-Abdeckung.
 

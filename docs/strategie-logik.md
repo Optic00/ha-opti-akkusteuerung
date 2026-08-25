@@ -778,7 +778,7 @@ Netzladen parallel zur Schnellladung ist bewusst erlaubt (Anschlussleistung reic
 
 | Eigenschaft | Wert |
 |---|---|
-| Bedingung | `binary_sensor.opti_ueberschuss_70_aktiv` = on (Export **plus Batterieleistung** über der 70%-Grenze, 30 s entprellt, 1 kW Hysterese), SoC < 100 %, tagsüber |
+| Bedingung | `binary_sensor.opti_ueberschuss_70_aktiv` = on (Export **plus Batterieleistung** über der 70%-Grenze, 30 s entprellt, 1 kW Hysterese), SoC < 100 %, tagsüber. Eine Grenze ≤ 0 gilt als nicht konfiguriert und hält den Sensor aus - sonst wäre er beim Erstaufsetzer dauerhaft an |
 | Preis | irrelevant |
 | Tageszeit | nach Sonnenaufgang bis Sonnenuntergang |
 | Gesetzter Modus | **Akku Dynamisch** |

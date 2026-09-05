@@ -516,8 +516,19 @@ Der Deckel schließt diese Lücke, indem er oberhalb `maxsoc` aktiv **Akku nur E
 **Bedingungen:** `binary_sensor.opti_peak_reserve_aktiv` = `off` **und** `soc >= maxsoc` (mit Hysterese).
 Das Peak-Reserve-Gate gibt der Peak-Reserve-Haltelogik (L3/L4) bei anstehender Preisspitze bewusst Vorrang - dann darf die Reserve bis knapp über `maxsoc` gehalten werden, statt sie vor dem Peak zu verlieren.
 
-**Anti-Flatter-Hysterese:** Rein bei `soc >= maxsoc`, drin bleibt der Deckel bis `soc < maxsoc − 3` (asymmetrisch, an den Modus-String gebunden - dieselbe Philosophie wie der Ziel-SoC-Entladezweig).
-So chattert der Modus nicht an der Kante.
+**Anti-Flatter-Hysterese:** Eintritt bei `soc >= maxsoc`, halten bis `soc < maxsoc - 3`.
+Den Eintritt merkt sich `binary_sensor.opti_ladedeckel_aktiv` unabhängig vom Modus.
+Ein vorheriges „Akku nur Entladen“ aus dem Ziel-SoC- oder Peak-Zweig aktiviert das Band
+nicht. Beispiel: SoC 93 %, maxsoc 95 %, Ziel steigt von 50 auf 95 %: der Deckel sperrt
+nicht, solange 95 % nicht tatsächlich erreicht wurden (Fix für #68).
+
+Der triggerbasierte Merker restauriert Zustand und zugehörige Obergrenze beim Neustart.
+Eine Änderung von `maxsoc` verlangt einen neuen Eintritt an der neuen Grenze; Datenlücken
+bewahren den Merker, berechtigen aber keine Entscheidung mit ungültigen Eingangsdaten.
+Strategie und Vorschau prüfen SoC und Grenze zusätzlich direkt. Damit wirken das Erreichen
+der Obergrenze und das Unterschreiten des Haltebands bereits vor dem nächsten Sensor-Update.
+Auch `maxsoc = 100` bleibt ein Deckel mit demselben Verhalten.
+Balancing, Peak-Prioritäten und EV-Sperre behalten ihre bisherige Reihenfolge.
 
 **Position in der Kaskade:** **nach** dem Balancing-Watchdog (der darf `maxsoc` bewusst überschreiten) und **vor** den Prognose-Ladeblöcken, Überschuss-Zweigen und dem Default - damit greift der Deckel, bevor irgendein Ladepfad über `maxsoc` hinaus aktiv werden kann.
 
@@ -526,7 +537,7 @@ So chattert der Modus nicht an der Kante.
 ## Block-für-Block-Übersicht
 
 Die Automation besteht aus mehreren Aktionsblöcken, die **sequenziell** ausgeführt werden.
-Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 20 Optionen und einem Default-Pfad.
+Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 22 Optionen und einem Default-Pfad.
 
 > **Hinweis — Counter-Pflege ausgelagert:** Der Zähler `counter.tage_seit_akku100` (Increment
 > täglich, Reset bei 30 min stabil über Done-SoC) liegt **nicht** in dieser Automation, sondern
@@ -537,7 +548,7 @@ Der wichtigste ist „Zwischen Speicherszenarien wählen" mit 20 Optionen und ei
 
 ---
 
-### Aktionsblock 1 — „Zwischen Speicherszenarien wählen" (20 Optionen + Default)
+### Aktionsblock 1 — „Zwischen Speicherszenarien wählen" (22 Optionen + Default)
 
 Dies ist das Herzstück. Die Optionen werden **der Reihe nach** geprüft;
 die erste, deren Bedingungen alle erfüllt sind, wird ausgeführt. Danach läuft die
@@ -917,7 +928,7 @@ verschenkte dieser Zweig genau die Energie, für die der Akku da ist (Live-Beleg
 
 #### Default — Akku Dynamisch
 
-Trifft keine der 20 Optionen zu (z. B. nachts ohne Ladegrund, Preis zu hoch),
+Trifft keine der 22 Optionen zu (z. B. nachts ohne Ladegrund, Preis zu hoch),
 wird der Modus auf **Akku Dynamisch** gesetzt. Der Adapter entscheidet dann
 situationsabhängig, ob leicht geladen oder entladen wird — ein sicherer Mittelweg.
 

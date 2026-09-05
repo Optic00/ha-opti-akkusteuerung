@@ -47,7 +47,7 @@
     # "Already running"-Warnungen fuer diese Automation.
     #
     # Das ist unkritisch, weil die modusabhaengigen Hysterese-Baender
-    # (Ladedeckel +3, Ziel-SoC +0/+3, L3/L4 +5/+3, Netzlade-Stopband) allesamt
+    # (Ziel-SoC +0/+3, L3/L4 +5/+3, Netzlade-Stopband) allesamt
     # Schmitt-Trigger sind: sie verbreitern die Haltezone des AKTUELLEN Modus.
     # Ein einmal erreichter Modus haelt sich damit selbst, statt zurueckzukippen.
     # In seltenen Konstellationen sind zwei Uebergaenge noetig (Beispiel aus der
@@ -58,6 +58,12 @@
       entity_id:
         - input_select.akkusteuerung_modus
       id: "Modus extern geändert"
+    # Der restaurierte Ladedeckel-Merker kann nach dem SoC-Trigger aktualisieren.
+    # Sein Update muss deshalb eine zweite Bewertung ausloesen koennen.
+    - trigger: state
+      entity_id:
+        - binary_sensor.opti_ladedeckel_aktiv
+      id: "Ladedeckel geändert"
     # Batterie-SoC (Canonical) statt Hardware-Rohsensor
     - trigger: state
       entity_id:
@@ -375,8 +381,11 @@
         # Default) den Modus auf 'Akku Dynamisch', worauf der WR freien PV-
         # Ueberschuss ueber maxsoc trickelt (beobachtet 2026-07-13: 99 % bei
         # maxsoc 95). 'Akku nur Entladen' zwingt den Adapter auf Ladeleistung 0.
-        # Asymmetrische Hysterese (rein bei >= maxsoc, drin bis < maxsoc-3) gegen
-        # Modus-Flattern an der Kante - selbe Philosophie wie der Ziel-SoC-Zweig.
+        # Asymmetrische Hysterese: rein bei >= maxsoc, halten bis < maxsoc-3.
+        # Nur der eigene Merker opti_ladedeckel_aktiv belegt einen echten Eintritt;
+        # ein fremdes "nur Entladen" aktiviert das Band nicht (#68). Der Merker
+        # muss zur aktuellen Grenze passen. Direkter SoC-Vergleich bleibt noetig:
+        # Obergrenze/Unterschreitung wirken auch vor dem naechsten Sensor-Update.
         # ---------------------------------------------------------------------
         - alias: "Modus 'nur Entladen' (Ladedeckel): SoC >= maxsoc, kein Balancing/Peak faellig"
           conditions:
@@ -393,10 +402,12 @@
               state: "off"
             - condition: template
               value_template: >-
-                {% set band = 3 if is_state('input_select.akkusteuerung_modus', 'Akku nur Entladen') else 0 %}
+                {% set maximum = states('input_number.maxsoc')|float(95) %}
+                {% set band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
+                    and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maximum else 0 %}
                 {{ has_value('sensor.opti_soc')
-                   and has_value('input_number.maxsoc')
-                   and (states('sensor.opti_soc') | float) >= (states('input_number.maxsoc') | float(95) - band) }}
+                   and is_number(states('input_number.maxsoc'))
+                   and (states('sensor.opti_soc') | float) >= maximum - band }}
           sequence:
             - action: input_select.select_option
               data:

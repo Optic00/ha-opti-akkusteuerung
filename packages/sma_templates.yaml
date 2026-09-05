@@ -26,61 +26,41 @@
 
 template:
   - sensor:
-      - unique_id: "house_battery_runtime_raw"
+      # Gleiche Restenergie-Formel wie opti_runtime_h, hier Kapazitaet in Wh
+      # und Betrag der signierten Akku-Leistung als Nenner (Entladen negativ).
+      # Keine maxsoc-Normierung; beide Vorzeichen bleiben wie bisher auswertbar.
+      - unique_id: house_battery_runtime_raw
         name: "House Battery Runtime Raw"
         unit_of_measurement: "hours"
         state_class: measurement
         availability: >
-          {{ has_value('sensor.DEINE_BATTERIE_SOC') and
-             has_value('sensor.sma_stp_se_40187_batterie_nennkapazitaet') and
-             has_value('sensor.house_battery_load_30_mins') }}
+          {{ is_number(states('sensor.DEINE_BATTERIE_SOC'))
+             and 0 <= states('sensor.DEINE_BATTERIE_SOC')|float(0) <= 100
+             and is_number(states('sensor.sma_stp_se_40187_batterie_nennkapazitaet'))
+             and states('sensor.sma_stp_se_40187_batterie_nennkapazitaet')|float(0) > 0
+             and is_number(states('sensor.house_battery_load_30_mins'))
+             and is_number(states('sensor.DEIN_PV_POWER'))
+             and is_number(states('input_number.minsoc'))
+             and 0 <= states('input_number.minsoc')|float(0) <= 100 }}
         state: >
           {% set soc = states('sensor.DEINE_BATTERIE_SOC') %}
-          {% set nennkapazitaet = states('sensor.sma_stp_se_40187_batterie_nennkapazitaet') %}
-          {% set battery_load_raw = states('sensor.house_battery_load_30_mins') %}
-          {% set pv_power = states('sensor.DEIN_PV_POWER') %}
-          {% set min_soc_helper = states('input_number.minsoc') %}
-          {% set max_soc_helper = states('input_number.maxsoc') %}
-
-          {% if soc not in ['unavailable', 'unknown', None] and
-                nennkapazitaet not in ['unavailable', 'unknown', None] and
-                battery_load_raw not in ['unavailable', 'unknown', None] and
-                pv_power not in ['unavailable', 'unknown', None] %}
-
-            {% set soc_value = soc|float(0) %}
-            {% set capacity_kwh = nennkapazitaet|float(0) / 1000 %}
-            {% set pv_power_value = pv_power|float(0) %}
-
-            {% set min_soc = min_soc_helper|float(10) if min_soc_helper not in ['unavailable', 'unknown', None] else 10 %}
-            {% set max_soc = max_soc_helper|float(95) if max_soc_helper not in ['unavailable', 'unknown', None] else 95 %}
-            {% set min_soc_safe = max(0, min(100, min_soc)) %}
-            {% set max_soc_safe = max(min_soc_safe, min(100, max_soc)) %}
-
-            {% if pv_power_value < 100 %}
-              {% set battery_load = battery_load_raw|float(0) %}
-              {% if battery_load < 0 %}
-                {% set discharge_power_kw = -battery_load / 1000 %}
-              {% else %}
-                {% set discharge_power_kw = battery_load / 1000 %}
-              {% endif %}
-
-              {% set current_soc_in_range = max(min_soc_safe, min(max_soc_safe, soc_value)) %}
-              {% set available_soc_percentage = (current_soc_in_range - min_soc_safe) / (max_soc_safe - min_soc_safe) * 100 if max_soc_safe > min_soc_safe else 0 %}
-              {% set available_energy_kwh = (available_soc_percentage / 100) * capacity_kwh %}
-
-              {% if discharge_power_kw > 0 and available_energy_kwh > 0 %}
-                {% set runtime_hours = available_energy_kwh / discharge_power_kw %}
-                {{ [runtime_hours, 24]|min|round(2) }}
-              {% elif discharge_power_kw == 0 %}
-                999
-              {% else %}
-                0
-              {% endif %}
-            {% else %}
-              0
-            {% endif %}
+          {% set cap = states('sensor.sma_stp_se_40187_batterie_nennkapazitaet') %}
+          {% set house = states('sensor.house_battery_load_30_mins') %}
+          {% set pv = states('sensor.DEIN_PV_POWER') %}
+          {% set floor = states('input_number.minsoc') %}
+          {% if not (is_number(soc) and 0 <= soc|float(0) <= 100
+                     and is_number(cap) and cap|float(0) > 0
+                     and is_number(house)
+                     and is_number(pv) and is_number(floor)
+                     and 0 <= floor|float(0) <= 100) %}
+            {{ none }}
+          {% elif pv|float(0) >= 100 %}
+            0
+          {% elif house|float(0) == 0 %}
+            999
           {% else %}
-            unavailable
+            {% set energy = [0, soc|float(0) - floor|float(0)]|max * (cap|float(0) / 1000) / 100 %}
+            {{ [24, energy / (house|float(0)|abs / 1000)]|min|round(2) }}
           {% endif %}
 
       - unique_id: "akku_dynamische_ladestaerke_akku"

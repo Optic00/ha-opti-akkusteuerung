@@ -25,3 +25,12 @@ def test_flacher_tag_kein_unterschied():
     alt = simulate_day(FLACH_50, FLACH_50, neu=False, **kwargs)
     neu = simulate_day(FLACH_50, FLACH_50, neu=True, **kwargs)
     assert abs(neu["cost_eur"] - alt["cost_eur"]) < 0.01
+
+
+def test_backtest_fuehrt_eigenes_ladedeckel_gedaechtnis():
+    result = simulate_day(FLACH_50, FLACH_50, neu=False, load_kw=0.1,
+                          pv_kwh_per_hour=[0.0] * 24, start_soc=95,
+                          cap_kwh=10, minsoc=10, maxsoc=95)
+    # Pro Stunde etwas ueber 1 Prozentpunkt Entladung: Eintritt bei 95,
+    # halten bei ca. 93.95 und 92.89, aus bei ca. 91.84.
+    assert result["ladedeckel_verlauf"][:4] == ["on", "on", "on", "off"]

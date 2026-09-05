@@ -128,6 +128,9 @@ Die Strategie-Automation entscheidet den **Modus** via `input_select.akkusteueru
 
 ## Entwicklung & Tests
 
+Architektur, Zuständigkeiten und offene Wartungsthemen:
+**[Projektüberblick](docs/projektueberblick.md)**.
+
 Für die reine Nutzung wird kein Python gebraucht - das Repo liefert HA-YAML aus.
 Wer aber an den Templates oder der Strategie schraubt, sollte die Testsuite laufen lassen:
 Sie rendert die Jinja-Templates aus den aktiven `packages/` und die Bedingungen aus `automations/` gegen einen nachgebauten HA-Zustand und prüft die Ergebnisse; `legacy/` und `old/` sind bewusst nicht abgedeckt, das sind Archive.
@@ -199,6 +202,7 @@ Dieses Projekt lebt von der Community. Besonderer Dank geht an:
 
 | Datum | Was |
 |---|---|
+| Sep 2026 | Ladedeckel-Hysterese mit eigenem restauriertem Merker (#68), PV-Verfügbarkeit und Restenergie-Formel der Laufzeitanzeigen korrigiert, BYD-Diagnosekurven mit kompatiblen Statistik-Klassen (#64) |
 | Aug 2026 | Überschuss-Veto mit Knappheits-Gate: laufender Netzexport sticht den Ziel-SoC-Deckel, wenn der Rest-Forecast den Akku nicht mehr füllt (bei fehlendem Forecast bleibt das Gate offen). Dazu Onboarding-Härtung aus dem ersten Fremd-Setup: unkonfigurierte Überschuss-Grenzen schalten den Override ab statt ihn scharf zu stellen, `input_number.ladepreis` verträgt negative Börsenpreise, die Erststart-Tabelle ist vollständig und `unique_id` vs. Entity-ID im Mapping klargestellt |
 | Jul 2026 | Entlade-Peak-Allokation: berechneter Reserve-SoC, Peak-Leiter, Negativpreis- und Vorladeregel (neuer Adapter-Modus "Akku Netzladen"), Backtest gegen echte Winterdaten, Test-Harness für die Jinja-Templates, Viertelstunden-Preisraster |
 | Jun 2026 | Canonical-`opti_*`-Layer: Strategie hardware-agnostisch, prognosebasierter Ziel-SoC mit echter Schmitt-Hysterese, anbieter-agnostisches Preisniveau (Midrank-Perzentil), Vorschau-Sensor für Soll/Ist-Vergleich |

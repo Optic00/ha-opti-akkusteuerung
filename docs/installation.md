@@ -212,6 +212,29 @@ HA-Oberfläche weiter an die eigene Anlage anpassen (alle als Helfer vorhanden).
 
 ---
 
+## Aktualisierung bestehender Installationen (September 2026)
+
+Strategie und `opti_derived.yaml` gemeinsam aktualisieren: der Ladedeckel verwendet
+jetzt `binary_sensor.opti_ladedeckel_aktiv` aus den abgeleiteten Sensoren. Keine
+zusätzlichen UI-Helfer und keine Änderung des Adapter-Vertrags sind erforderlich.
+Die direkte MaxSOC-Grenze wirkt auch ohne den neuen Merker; dessen Halteband ist
+aber erst mit der neuen Sensor-Datei verfügbar. Das private Mapping bleibt erhalten.
+
+Vor dem Einspielen die betroffenen Live-Dateien sichern. Bestehende Package-Wrapper
+(`automation:`), `initial_state`-Anpassungen und benutzerspezifische Include-Pfade
+beibehalten. Optionales BYD-Monitoring benötigt zusätzlich das aktualisierte
+`byd_modul2_fruehwarnung.yaml`; bei Nutzung der alten Laufzeitanzeige auch
+`sma_templates.yaml` mit den eigenen Quell-Entitäten aktualisieren.
+
+Nach HA-Konfigurationsprüfung und Freigabe der Betriebsunterbrechung neu starten,
+oder Templates vor den Automationen neu laden. Reloads verwerfen laufende
+Automationsausführungen; das deshalb in einem geeigneten Betriebsfenster tun.
+Prüfen: neuer Ladedeckel-Sensor vorhanden, Vorschau plausibel, Adapter-Keepalive
+aktuell, keine neuen Template- oder Statistik-Warnungen. Der Merker wird bei
+Neustart/Quelländerung und spätestens am nächsten Minutentick ausgewertet.
+Bei Erstinstallation unterhalb MaxSOC beginnt er ohne belegten Eintritt.
+Für Rollback die gesicherten Dateien gemeinsam wiederherstellen und erneut laden.
+
 ## Legacy-Setup (Referenz)
 
 Der frühere manuelle Weg mit Flachdateien (Modbus-Config, Sensoren, Helfer-Tabelle, Dashboard-Karte) ist umgezogen nach [`old/README.md`](../old/README.md).

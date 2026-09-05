@@ -51,6 +51,23 @@ Der Messzyklus läuft als Zustandsmaschine (`input_select.byd_knie_zyklus_status
 
 Das Attribut `sauberer_zyklus` markiert Zyklen ohne nennenswerte Zwischenladung (< 0,5 kWh geladen seit Voll); nur diese sind untereinander streng vergleichbar.
 
+### Statistik-Klassen der Diagnosekurven
+
+`byd_nettoenergie_seit_voll` und `byd_modul_2_nettoenergie_bis_knie` bleiben
+kWh-Diagnosekurven mit `state_class: measurement`, aber ohne `device_class: energy`.
+Die bisherige Kombination wurde von HA als ungültig gemeldet (#64).
+Ausgewertet werden die absoluten Zykluswerte und deren Min/Max/Mittelwerte,
+keine aufsummierten Energieumsätze. Insbesondere ein kleinerer Knie-Wert muss
+als kleinerer Messwert sichtbar bleiben. `total` oder `total_increasing` würden
+hier eine andere Statistik erzeugen. Die eigentlichen Energiezähler bleiben die
+beiden `utility_meter` mit ihren jeweiligen Quellzählern.
+
+Entity-IDs, Mess-Anker und Kurven bleiben erhalten. Nach einem Update die
+Statistik-Reparaturen in HA prüfen; vorhandene Recorder-Daten werden durch diese
+Dateiänderung weder gelöscht noch rückwirkend umgerechnet.
+Die [HA-Dokumentation zu Sensor-Statistiken](https://developers.home-assistant.io/docs/core/entity/sensor/#long-term-statistics)
+beschreibt die Unterscheidung zwischen Messwerten und Zählern.
+
 ### Bestätigungszähler statt `for:` - Zähler-Mechanik und Mess-Anker
 
 Die Knie-Erkennung läuft bewusst **nicht** über eine `for:`-Haltezeit.

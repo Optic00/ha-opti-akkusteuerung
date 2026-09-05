@@ -195,11 +195,12 @@ template:
           {{ ((ns.m2 | min) / 1000) | round(3) }}
 
       # Nettoenergie seit dem letzten Voll-Anker (entladen - geladen, kWh).
-      # measurement statt total_increasing (darf bei PV-Zwischenladung sinken).
+      # Diagnosewert pro Voll-Anker, kein Energiezaehler fuer das Energy-Dashboard.
+      # measurement behaelt Min/Max/Mittelwert fuer die Verlaufskurve. Die
+      # Kombination mit device_class energy ist in HA unzulaessig (#64).
       - unique_id: byd_netto_energie_seit_voll_nativ
         name: "BYD Nettoenergie seit Voll"
         unit_of_measurement: "kWh"
-        device_class: energy
         state_class: measurement
         icon: mdi:battery-minus-outline
         availability: >
@@ -465,7 +466,6 @@ template:
       - unique_id: byd_modul2_netto_bis_knie_nativ
         name: "BYD Modul-2 Nettoenergie bis Knie"
         unit_of_measurement: "kWh"
-        device_class: energy
         state_class: measurement
         icon: mdi:battery-alert-variant-outline
         state: "{{ state_attr('sensor.byd_knie_bestaetigungen', 'netto_bei_erstem_sample') }}"

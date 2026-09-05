@@ -4,7 +4,7 @@ In einer separaten venv mit homeassistant==2026.9.0 ausfuehren:
     python tools/validate_ha.py
 
 Validiert alle aktiven Template-Abschnitte und Automations-Schemas. Startet dann
-zwei isolierte HA-Instanzen in einem neuen Temp-Verzeichnis mit synthetischen
+drei isolierte HA-Instanzen in einem neuen Temp-Verzeichnis mit synthetischen
 Sensorwerten, um Ladedeckel, Daten-Recovery und Restore nach Neustart zu pruefen.
 Keine Verbindung zur echten Anlage; keine Modbus-Integration wird geladen.
 Das Temp-Verzeichnis bleibt fuer die Fehlersuche erhalten.
@@ -93,6 +93,27 @@ async def main():
     assert state and state.state=='on' and state.attributes['maxsoc']==100, state
     await restored.async_stop()
     print('Native HA cold restart: latch and maxsoc restored.',flush=True)
+
+    # A different SoC is already present BEFORE listeners are registered.
+    # Restore alone leaves the latch on; only startup evaluation can clear it.
+    changed=HomeAssistant(config_dir)
+    changed.config.time_zone = 'Europe/Berlin'
+    loader.async_setup(changed)
+    changed.config_entries = config_entries.ConfigEntries(changed, {})
+    await bootstrap.async_load_base_functionality(changed)
+    changed.states.async_set('sensor.opti_soc','50')
+    changed.states.async_set('input_number.maxsoc','100')
+    startup_latch=copy.deepcopy(latch)
+    # The minute fallback must not hide a broken homeassistant-start trigger.
+    startup_latch['triggers']=[t for t in startup_latch['triggers'] if t['trigger']!='time_pattern']
+    assert await async_setup_component(changed,'template',{'template':[startup_latch]})
+    await changed.async_block_till_done()
+    assert changed.states.get('binary_sensor.opti_ladedeckel_aktiv').state=='on'
+    await changed.async_start()
+    await changed.async_block_till_done()
+    assert changed.states.get('binary_sensor.opti_ladedeckel_aktiv').state=='off'
+    await changed.async_stop()
+    print('Native HA startup: restored latch reevaluated against changed source.',flush=True)
 
 if __name__ == "__main__":
     asyncio.run(main())

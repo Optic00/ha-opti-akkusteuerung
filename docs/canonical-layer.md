@@ -410,7 +410,8 @@ Fehlende oder nicht numerische Eingänge einschließlich PV und MinSOC ergeben
 Die bisherigen Anzeige-Konventionen bleiben: ab 100 W PV = 0, bei Last 0 = 999,
 sonst höchstens 24 Stunden. Das ist eine Schätzung ohne Verlustmodell und keine
 Garantie bis zum nächsten Netzbezug. Der Legacy-Sensor verwendet dieselbe Restenergie,
-aber weiterhin die gemittelte Akku-Entladeleistung als Nenner.
+aber weiterhin den Betrag der gemittelten signierten Akkuleistung als Nenner,
+auch wenn die Quelle gerade Laden meldet.
 
 > **Warnung — `opti_winter_charging_allowed`:** Dieses Gate ist **fail-open** (`{{ true }}`).
 > Solange kein realer Saisonal-Sensor gemappt ist, ist es immer `on`.

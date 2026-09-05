@@ -39,6 +39,7 @@ LADE_KW = 2.5  # angenommene Netz-Ladeleistung im Simulator
 _derived = load_yaml(REPO / "packages" / "opti_derived.yaml")
 _vorschau = find_template_entity(_derived, "sensor", "opti_strategie_vorschau")
 _peak_template = find_trigger_block_variables(_derived, "peak")
+_ladedeckel = find_template_entity(_derived, "binary_sensor", "opti_ladedeckel_aktiv")
 
 
 def _states(hour_price, soc, load_kw, neu, cap_kwh, peak, *,
@@ -117,7 +118,9 @@ def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
     soc = start_soc
     modus = modus_start
     cost = 0.0
-    soc_verlauf, modus_verlauf = [], []
+    soc_verlauf, modus_verlauf, ladedeckel_verlauf = [], [], []
+    deckel_state = None
+    deckel_attrs = {}
     alle_preise = list(prices_today) + list(prices_tomorrow)
     for hour in range(24):
         preis = prices_today[hour]
@@ -150,6 +153,14 @@ def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
         hass.now_value = now
         hass.states_map["sensor.opti_price_level"] = _price_level(alle_preise, preis)
         hass.states_map["input_select.akkusteuerung_modus"] = modus
+        # Auch das eigene Deckel-Gedaechtnis mit dem echten Template rechnen.
+        # Der Simulator hat ausschliesslich gueltige numerische SoC-/MaxSOC-Werte.
+        hass.this_state, hass.this_attributes = deckel_state, deckel_attrs
+        deckel_state = "on" if render_native(hass, _ladedeckel["state"]) else "off"
+        deckel_attrs = {"maxsoc": render_native(hass, _ladedeckel["attributes"]["maxsoc"])}
+        hass.states_map["binary_sensor.opti_ladedeckel_aktiv"] = deckel_state
+        hass.attrs_map["binary_sensor.opti_ladedeckel_aktiv"] = deckel_attrs
+        ladedeckel_verlauf.append(deckel_state)
         modus = render(hass, _vorschau["state"])
         # 3. Energiefluss der Stunde
         pv = pv_kwh_per_hour[hour]
@@ -172,7 +183,7 @@ def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
         soc_verlauf.append(round(soc, 1))
         modus_verlauf.append(modus)
     return {"cost_eur": round(cost, 2), "soc_verlauf": soc_verlauf,
-            "modus_verlauf": modus_verlauf}
+            "modus_verlauf": modus_verlauf, "ladedeckel_verlauf": ladedeckel_verlauf}
 
 
 SZENARIEN = {

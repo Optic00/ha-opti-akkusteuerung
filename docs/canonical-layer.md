@@ -387,7 +387,8 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 | `sensor.opti_charge_power_w` | Dynamische Ladestärke (W) nach SoC-Stufe und Forecast-Score |
 | `sensor.opti_price_level` | Preisniveau-Enum (VERY_CHEAP / CHEAP / NORMAL / EXPENSIVE / VERY_EXPENSIVE); Midrank-Perzentil (Gleichstände zählen halb) - flache Preistage (viele identische Werte) landen dadurch bei NORMAL statt fälschlich bei VERY_EXPENSIVE. Fail-closed: < 4 verwertbare Preise → `unavailable` |
 | `sensor.opti_mindestentladepreis_ct_kwh` | Mindestentladepreis = Ladepreis + Preisdifferenz (ct/kWh) |
-| `sensor.opti_runtime_h` | Geschätzte Akku-Restlaufzeit (Stunden) |
+| `sensor.opti_runtime_h` | Geschätzte Akku-Restlaufzeit aus Nennkapazität × SoC oberhalb MinSOC / Hausverbrauch |
+| `binary_sensor.opti_ladedeckel_aktiv` | Restaurierter Merker: aktuelle MaxSOC-Grenze erreicht, halten bis 3 Prozentpunkte darunter; unabhängig vom Modus |
 | `binary_sensor.opti_winter_charging_allowed` | Saisonales Lade-Gate (Standard: `true`, fail-open) |
 | `sensor.opti_peak_reserve_soc` | Reserve-SoC für kommende Preisspitzen (trigger-basiert, 36h-Horizont) |
 | `binary_sensor.opti_peak_reserve_aktiv` | Gate: Peaks im Wiederauflade-Horizont vorhanden |
@@ -399,7 +400,17 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 Gleitender 60-Minuten-Mittelwert von `sensor.opti_house_consumption_w` (Legacy-Muster, `state_characteristic: mean`).
 `opti_forecast_score`, `opti_forecast_score_tomorrow` und `opti_target_soc` lesen bevorzugt diesen geglätteten Wert statt des Momentanverbrauchs, damit kurze Lastspitzen (z. B. ein Wasserkocher) den Score nicht minütlich kippen lassen.
 Fehlt der Statistik-Sensor noch (z. B. direkt nach einem HA-Neustart), fällt die Formel auf den Momentanwert zurück.
-`sensor.opti_runtime_h` bleibt bewusst beim Momentanwert - die Restlaufzeit soll den aktuellen Verbrauchszug zeigen, keinen Mittelwert.
+`sensor.opti_runtime_h` bleibt beim momentanen Hausverbrauch. Die Formel ist
+`Kapazität_kWh * max(0, SoC - MinSOC) / 100 / Hausverbrauch_kW`.
+`maxsoc` ist eine Ladegrenze und verkleinert weder die vorhandene Energie nach einer
+Balancing-Vollladung noch vergrößert es die Nennkapazität durch Normierung.
+Bei 10 kWh, 50 % SoC, 10 % MinSOC und 1 kW Last ergibt das 4 Stunden.
+Fehlende oder nicht numerische Eingänge einschließlich PV und MinSOC ergeben
+`unavailable`; die Zustandsvorlage selbst liefert dann `none` statt eines Textwertes.
+Die bisherigen Anzeige-Konventionen bleiben: ab 100 W PV = 0, bei Last 0 = 999,
+sonst höchstens 24 Stunden. Das ist eine Schätzung ohne Verlustmodell und keine
+Garantie bis zum nächsten Netzbezug. Der Legacy-Sensor verwendet dieselbe Restenergie,
+aber weiterhin die gemittelte Akku-Entladeleistung als Nenner.
 
 > **Warnung — `opti_winter_charging_allowed`:** Dieses Gate ist **fail-open** (`{{ true }}`).
 > Solange kein realer Saisonal-Sensor gemappt ist, ist es immer `on`.

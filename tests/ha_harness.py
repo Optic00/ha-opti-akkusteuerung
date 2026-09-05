@@ -3,6 +3,7 @@ mit synthetischen States. Nachbau nur der hier benutzten HA-Funktionen/Filter.""
 from __future__ import annotations
 
 import datetime as dt
+import math
 import pathlib
 import statistics
 import types
@@ -59,6 +60,14 @@ def _float(value, default=_NO_DEFAULT):
         return default
 
 
+def _is_number(value):
+    """HA lehnt auch NaN und unendliche Zahlen als Messwerte ab."""
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
 def _int(value, default=0):
     try:
         return int(float(value))
@@ -100,6 +109,7 @@ def _setup(env, hass):
     env.globals.update(
         states=hass.states, state_attr=hass.state_attr, has_value=hass.has_value,
         is_state=hass.is_state, now=hass.now, today_at=hass.today_at,
+        is_number=_is_number,
         as_timestamp=_as_timestamp,
         timedelta=dt.timedelta, min=min, max=max,
         this=types.SimpleNamespace(attributes=hass.this_attributes,

@@ -817,62 +817,45 @@ template:
         attributes: { ladepreis_ct: "{{ (states('input_number.ladepreis')|float(0) * 100)|round(2) }}", differenz_ct: "{{ (states('input_number.mindestpreisdifferenz_lade_entladepreis')|float(0) * 100)|round(2) }}" }
 
       # -----------------------------------------------------------------------
-      # 7. Akku-Restlaufzeit (h) — übersetzt aus house_battery_runtime_raw
-      #    (SMA-Templates Z.25-80). Logik/Schwellen unverändert, nur Quellen:
-      #      Kapazität (Wh/1000) → opti_battery_capacity_kwh (bereits kWh, kein /1000)
-      #      SoC → opti_soc; PV-Gate → opti_pv_power_w; Entladelast → opti_house_consumption_w
-      #      MinSOC/MaxSOC → input_number.minsoc / input_number.maxsoc
+      # 7. Akku-Restlaufzeit (h): vorhandene Energie oberhalb von MinSOC.
+      #    Ein SoC-Prozent entspricht 1/100 der Nennkapazitaet. maxsoc ist eine
+      #    LADEgrenze und skaliert weder die Kapazitaet noch bereits gespeicherte
+      #    Energie. Momentaner Hausverbrauch als Last, ohne Verlustmodell.
+      #    Anzeige-Konvention bleibt: PV >=100 W -> 0, Last 0 -> 999, sonst <=24 h.
       # -----------------------------------------------------------------------
       - unique_id: opti_runtime_h
         name: "Opti Runtime H"
         unit_of_measurement: "hours"
         state_class: measurement
         availability: >
-          {{ has_value('sensor.opti_soc') and
-             has_value('sensor.opti_battery_capacity_kwh') and
-             has_value('sensor.opti_house_consumption_w') }}
+          {{ is_number(states('sensor.opti_soc'))
+             and 0 <= states('sensor.opti_soc')|float(0) <= 100
+             and is_number(states('sensor.opti_battery_capacity_kwh'))
+             and states('sensor.opti_battery_capacity_kwh')|float(0) > 0
+             and is_number(states('sensor.opti_house_consumption_w'))
+             and states('sensor.opti_house_consumption_w')|float(0) >= 0
+             and is_number(states('sensor.opti_pv_power_w'))
+             and is_number(states('input_number.minsoc'))
+             and 0 <= states('input_number.minsoc')|float(0) <= 100 }}
         state: >
           {% set soc = states('sensor.opti_soc') %}
-          {% set capacity_kwh_raw = states('sensor.opti_battery_capacity_kwh') %}
-          {% set house_w = states('sensor.opti_house_consumption_w') %}
-          {% set pv_power = states('sensor.opti_pv_power_w') %}
-          {% set min_soc_helper = states('input_number.minsoc') %}
-          {% set max_soc_helper = states('input_number.maxsoc') %}
-
-          {% if soc not in ['unavailable', 'unknown', None] and
-                capacity_kwh_raw not in ['unavailable', 'unknown', None] and
-                house_w not in ['unavailable', 'unknown', None] and
-                pv_power not in ['unavailable', 'unknown', None] %}
-
-            {% set soc_value = soc|float(0) %}
-            {% set capacity_kwh = capacity_kwh_raw|float(0) %}
-            {% set pv_power_value = pv_power|float(0) %}
-
-            {% set min_soc = min_soc_helper|float(10) if min_soc_helper not in ['unavailable', 'unknown', None] else 10 %}
-            {% set max_soc = max_soc_helper|float(95) if max_soc_helper not in ['unavailable', 'unknown', None] else 95 %}
-            {% set min_soc_safe = max(0, min(100, min_soc)) %}
-            {% set max_soc_safe = max(min_soc_safe, min(100, max_soc)) %}
-
-            {% if pv_power_value < 100 %}
-              {% set discharge_power_kw = house_w|float(0) / 1000 %}
-
-              {% set current_soc_in_range = max(min_soc_safe, min(max_soc_safe, soc_value)) %}
-              {% set available_soc_percentage = (current_soc_in_range - min_soc_safe) / (max_soc_safe - min_soc_safe) * 100 if max_soc_safe > min_soc_safe else 0 %}
-              {% set available_energy_kwh = (available_soc_percentage / 100) * capacity_kwh %}
-
-              {% if discharge_power_kw > 0 and available_energy_kwh > 0 %}
-                {% set runtime_hours = available_energy_kwh / discharge_power_kw %}
-                {{ [runtime_hours, 24]|min|round(2) }}
-              {% elif discharge_power_kw == 0 %}
-                999
-              {% else %}
-                0
-              {% endif %}
-            {% else %}
-              0
-            {% endif %}
+          {% set cap = states('sensor.opti_battery_capacity_kwh') %}
+          {% set house = states('sensor.opti_house_consumption_w') %}
+          {% set pv = states('sensor.opti_pv_power_w') %}
+          {% set floor = states('input_number.minsoc') %}
+          {% if not (is_number(soc) and 0 <= soc|float(0) <= 100
+                     and is_number(cap) and cap|float(0) > 0
+                     and is_number(house) and house|float(0) >= 0
+                     and is_number(pv) and is_number(floor)
+                     and 0 <= floor|float(0) <= 100) %}
+            {{ none }}
+          {% elif pv|float(0) >= 100 %}
+            0
+          {% elif house|float(0) == 0 %}
+            999
           {% else %}
-            unavailable
+            {% set energy = [0, soc|float(0) - floor|float(0)]|max * cap|float(0) / 100 %}
+            {{ [24, energy / (house|float(0) / 1000)]|min|round(2) }}
           {% endif %}
 
       # -----------------------------------------------------------------------
@@ -1021,7 +1004,9 @@ template:
           {# hv_maxsoc spiegelt das has_value-Gate des Automation-Zweigs: ohne
              maxsoc faellt der Zweig dort ZU (fail-safe), die Vorschau muss
              dasselbe tun statt mit dem Default 95 weiterzurechnen. #}
-          {% set hv_maxsoc = has_value('input_number.maxsoc') %}
+          {% set hv_maxsoc = is_number(states('input_number.maxsoc')) %}
+          {% set deckel_band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
+                and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maxsoc else 0 %}
           {% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %}
           {% if soc >= 0 and soc < minsoc %}Akku nur Laden
           {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Akku Netzladen
@@ -1030,7 +1015,7 @@ template:
           {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev %}Akku nur Entladen
           {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Akku nur Laden
           {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Akku Netzladen
-          {%- elif not aktiv and not ev and soc >= 0 and soc >= (states('input_number.maxsoc')|float(95) - (3 if states('input_select.akkusteuerung_modus') == 'Akku nur Entladen' else 0)) %}Akku nur Entladen
+          {%- elif not aktiv and not ev and hv_maxsoc and soc >= 0 and soc >= maxsoc - deckel_band %}Akku nur Entladen
           {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden
           {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden
           {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden
@@ -1108,7 +1093,9 @@ template:
             {# hv_maxsoc spiegelt das has_value-Gate des Automation-Zweigs: ohne
                maxsoc faellt der Zweig dort ZU (fail-safe), die Vorschau muss
                dasselbe tun statt mit dem Default 95 weiterzurechnen. #}
-            {% set hv_maxsoc = has_value('input_number.maxsoc') %}
+            {% set hv_maxsoc = is_number(states('input_number.maxsoc')) %}
+            {% set deckel_band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
+                  and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maxsoc else 0 %}
             {% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %}
             {% if soc >= 0 and soc < minsoc %}MinSOC-Schutz (SoC<{{minsoc}})
             {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct)
@@ -1117,7 +1104,7 @@ template:
             {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%)
             {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Balancing-Watchdog (PV-Vollladung)
             {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Balancing-Watchdog (Netz-Vollladung)
-            {%- elif not aktiv and not ev and soc >= 0 and soc >= (states('input_number.maxsoc')|float(95) - (3 if states('input_select.akkusteuerung_modus') == 'Akku nur Entladen' else 0)) %}Ladedeckel (maxsoc erreicht)
+            {%- elif not aktiv and not ev and hv_maxsoc and soc >= 0 and soc >= maxsoc - deckel_band %}Ladedeckel (maxsoc erreicht)
             {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht)
             {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL)
             {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus
@@ -1358,3 +1345,38 @@ template:
         state: >
           {{ peak.gueltig and has_value('sensor.opti_battery_capacity_kwh')
              and peak.benoetigt_kwh > 0 }}
+
+  # Eigenes Gedaechtnis fuer den Ladedeckel (#68). Der aktuelle Modus ist KEIN
+  # Beleg, dass maxsoc erreicht wurde. Ein geaenderter Deckel muss neu erreicht
+  # werden. Trigger-basierte Binary-Sensoren restaurieren Zustand + Attribute.
+  # Bei Datenluecken keine Neubewertung; die Verbraucher pruefen aktuelle Werte
+  # und die zum Merker gehoerende Grenze selbst, auch vor diesem Sensor-Update.
+  - triggers:
+      - trigger: state
+        entity_id:
+          - sensor.opti_soc
+          - input_number.maxsoc
+      - trigger: homeassistant
+        event: start
+      # Erstauswertung auch nach Template-Reload ohne neue Quellwerte.
+      - trigger: time_pattern
+        minutes: "/1"
+    conditions:
+      - condition: template
+        value_template: >
+          {{ is_number(states('sensor.opti_soc'))
+             and 0 <= states('sensor.opti_soc')|float(0) <= 100
+             and is_number(states('input_number.maxsoc'))
+             and 0 <= states('input_number.maxsoc')|float(0) <= 100 }}
+    binary_sensor:
+      - unique_id: opti_ladedeckel_aktiv
+        name: "Opti Ladedeckel Aktiv"
+        icon: mdi:battery-lock
+        state: >
+          {% set soc = states('sensor.opti_soc')|float(0) %}
+          {% set maximum = states('input_number.maxsoc')|float(0) %}
+          {% set gehalten = this is defined and this.state == 'on'
+              and this.attributes.get('maxsoc')|float(-1) == maximum %}
+          {{ soc >= maximum or (gehalten and soc >= maximum - 3) }}
+        attributes:
+          maxsoc: "{{ states('input_number.maxsoc')|float(0) }}"

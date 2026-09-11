@@ -289,7 +289,7 @@ Grenze: Die Prognose-Sensoren tragen kein Datum. Rollt die Ganztagsprognose erst
 `binary_sensor.opti_pv_reichtag` schaltet ab Score 10 ein, hält einen bereits aktiven Zustand bei Score 9 und schaltet ab Score 8 aus.
 Zusätzlich muss der ausgewählte Sonnenaufgang in den Monaten April bis August liegen **und** echt vor 06:30 Uhr Ortszeit stattfinden. Schließt das Monatstor oder der 06:30-Riegel, bleibt der Sensor unabhängig von der Score-Hysterese aus und es gilt wieder der konservative 3-h-Puffer. Der Sensor liest denselben `sensor.opti_forecast_score_sonnentag` wie die Horizont-Entscheidung.
 
-Score 10 ist dabei ein **Sättigungssignal**, kein Top-Tag-Detektor: Die Prognose des Sonnenaufgangstags deckt voraussichtlich mindestens den 24-h-Hausverbrauch, der Fit-Quotient ist bei 10 gekappt.
+Score 10 ist dabei ein **Sättigungssignal**, kein Top-Tag-Detektor: Wegen der Rundung genügt schon eine Prognose des Sonnenaufgangstags von rund 95 % des auf 24 h hochgerechneten Hausverbrauchs, der Fit-Quotient ist bei 10 gekappt. Eine vollständige Akkuladung weist Score 10 damit nicht nach.
 Bis 09/2026 las der Sensor zwischen Mitternacht und Sonnenaufgang den Tages-Score, dessen Quotient über `needed = cap * (1 - soc / 100)` an den aktuellen SoC rückgekoppelt ist. Vor Mitternacht galt schon damals die SoC-unabhängige Morgen-Formel; seit Issue #70 gilt sie die ganze Nacht, damit dieselbe Nacht nicht mit zwei verschiedenen Formeln bewertet wird.
 
 Der Tagessummen-Score kennt die **Morgenrampe** nicht. Ein Nebel- oder Inversionstag kann trotz später PV-Rampe Score 10 erreichen. Der 1-h-Puffer deckt solche Fälle mit später Rampe bewusst nicht ab.

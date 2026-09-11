@@ -282,7 +282,7 @@ Bis 09/2026 entschied nach Mitternacht `sensor.opti_forecast_score`. Dessen Tage
 
 `binary_sensor.opti_peak_horizont_lang` hält die Entscheidung mit einer Hysterese: bis Score 1 an (36 h), ab Score 3 aus (Sonnenaufgang + Puffer), bei Score 2 bleibt der Vorzustand.
 Ein einzelner Ausschlag von 3 auf 2 verlängert den Horizont damit nicht mehr, ein Anstieg von 1 auf 2 verkürzt ihn nicht.
-Ohne Vorzustand, also direkt nach einem HA-Neustart, gilt die frühere Schwelle: Score 2 schaltet an.
+Ohne gespeicherten Vorzustand, etwa bei der Erstinstallation, gilt die frühere Schwelle: Score 2 schaltet an. Über einen HA-Neustart stellt HA den Zustand wieder her.
 Ein fehlender oder nicht numerischer Score schaltet immer an.
 Grenze: Die Prognose-Sensoren tragen kein Datum. Rollt die Ganztagsprognose erst einige Sekunden nach 00:00 auf den neuen Tag, zählt so lange noch der Wert des Vortags.
 
@@ -415,8 +415,8 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
   Bis 07/2026 lieferte es hier stattdessen `NORMAL`.
   Das war ein Fail-open: ein Datenausfall sah für die Strategie wie ein gültiges Mittelpreis-Signal aus, die Peak-Leiter L1 fiel durch, und der Modus sprang zwischen der Leiter und dem Default `Akku Dynamisch` (Live-Befund 23./24.07.2026, rund 15 Episoden in 7 Tagen).
 - **Ausfall des Reichtag-Scores:** `binary_sensor.opti_pv_reichtag` hält bei `unknown` oder `unavailable` seinen vorherigen Zustand.
-  State-basierte Template-Entities restaurieren ihren Zustand nicht: Bei jedem HA-Neustart ist `this.state` beim ersten Rendern `unknown`, daher fällt der Sensor zunächst auf `off` und der bisherige 3-h-Puffer gilt.
-  Ein Neustart um 03:00 bei Score 9 an einem echten Reichtag schaltet den Horizont für diese Nacht somit zurück auf den konservativen 3-h-Puffer; erst ein Score ab 10 schaltet den Sensor wieder ein.
+  HA stellt zustandsbasierte Template-Binärsensoren über einen Neustart wieder her, bevor ihre Templates starten (geprüft am Quellcode von HA 2026.9.1); `this.state` trägt beim ersten Rendern also den gespeicherten Zustand.
+  Nur ohne gespeicherten Zustand, etwa bei der Erstinstallation, fällt der Sensor zunächst auf `off`, und der 3-h-Puffer gilt, bis ein Score ab 10 ihn einschaltet.
   Der Horizont hängt davon unabhängig an `binary_sensor.opti_peak_horizont_lang`, der bei fehlendem Sonnentag-Score sofort auf `on` schaltet: Ist der Reichtag-Sensor noch `on`, der Score aber gerade nicht lesbar, gewinnt deshalb unverändert der konservative 36-h-Horizont.
 - **Ausfall der Horizont-Entscheidung:** Der Peak-Rechenkern verkürzt den Horizont nur bei einem ausdrücklichen `off` von `binary_sensor.opti_peak_horizont_lang`; `on`, `unknown` und `unavailable` ergeben 36 h.
 - **Fehlender nächster Sonnenaufgang:** Fehlt `sun.sun` das Attribut `next_rising`, fällt `binary_sensor.opti_pv_reichtag` unabhängig vom Vorzustand auf `off`. Der Peak-Rechenkern kann dann keinen Sonnenaufgangspuffer bestimmen und nutzt den konservativen 36-h-Horizont.

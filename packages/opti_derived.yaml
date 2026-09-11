@@ -307,9 +307,12 @@ template:
       #     bis Score 1 an, ab Score 3 aus, Score 2 haelt den Vorzustand. Vorher
       #     kippte der Horizont bei jedem einzelnen Tick zwischen 2 und 3 und
       #     mit ihm der Reserve-SoC (Issue #70: 29,6 % gegen 92,8 %).
-      #     Ohne Vorzustand (Neustart, this.state unknown) gilt die fruehere
-      #     Schwelle: Score 2 -> an. Fehlender oder nicht numerischer Score ->
-      #     an, also konservativ der 36-h-Horizont wie bisher.
+      #     HA stellt den Zustand auch ueber Neustarts wieder her (HA 2026.9.1:
+      #     StateBinarySensorEntity restauriert _attr_is_on vor dem Template-
+      #     Start). Nur ohne gespeicherten Zustand (this.state unknown, z.B.
+      #     Erstinstallation) gilt die fruehere Schwelle: Score 2 -> an.
+      #     Fehlender oder nicht numerischer Score -> an, also konservativ der
+      #     36-h-Horizont wie bisher.
       # -----------------------------------------------------------------------
       - unique_id: opti_peak_horizont_lang
         name: "Opti Peak Horizont Lang"

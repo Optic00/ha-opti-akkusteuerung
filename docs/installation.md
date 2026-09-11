@@ -239,8 +239,9 @@ Horizont-Fix (Issue #70): `opti_derived.yaml` legt zusätzlich `sensor.opti_fore
 und `binary_sensor.opti_peak_horizont_lang` an. Helfer oder Mapping-Änderungen sind nicht
 nötig; der Sonnentag-Score liest die bereits gemappten `sensor.opti_forecast_today_kwh` und
 `sensor.opti_forecast_tomorrow_kwh`. Fehlt die Ganztagsprognose für heute, gilt zwischen
-Mitternacht und Sonnenaufgang konservativ der 36-h-Horizont. Direkt nach Reload oder Neustart
-hat der Horizont-Sensor keinen Vorzustand und behandelt Score 2 wie bisher als langen Horizont.
+Mitternacht und Sonnenaufgang konservativ der 36-h-Horizont. Bei Score 2 hält der Horizont-Sensor
+seinen Vorzustand, den HA auch über Neustarts wiederherstellt; nur ohne gespeicherten Zustand,
+etwa bei der Erstinstallation, gilt Score 2 wie bisher als langer Horizont.
 
 ## Legacy-Setup (Referenz)
 

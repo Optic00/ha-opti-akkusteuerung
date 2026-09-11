@@ -118,8 +118,10 @@ template:
     action:
       - action: tibber.get_prices
         data:
-          start: "{{ now().replace(hour=0, minute=0, second=0).isoformat() }}"
-          end: "{{ (now() + timedelta(days=1)).replace(hour=23, minute=59).isoformat() }}"
+          # today_at() liefert Mitternacht ohne Sekunden/Mikrosekunden. Ein Start
+          # auch nur Millisekunden nach 00:00 laesst Tibber den 00:00-Slot weg.
+          start: "{{ today_at('00:00').isoformat() }}"
+          end: "{{ (today_at('00:00') + timedelta(days=2)).isoformat() }}"
         response_variable: preise
     sensor:
       - name: "Opti Preis-Reihe Tibber"
@@ -178,7 +180,7 @@ state: "{{ states('sensor.awattar_current_price') | float(0) * 100 }}"
 > **Hinweis:** Falls die Quelle bereits ct/kWh liefert, `* 100` weglassen und
 > den Availability-Check entsprechend anpassen.
 
-> **Raster-Kontrakt:** `today`/`tomorrow` müssen Stundenlisten (Länge 20-27) oder Viertelstundenlisten (Länge 80-108) sein - die Peak-Reserve (`sensor.opti_peak_reserve_soc`) leitet die Slot-Länge je Liste aus der Listenlänge ab und deaktiviert sich bei anderen Listenlängen automatisch (`gueltig: false`).
+> **Raster-Kontrakt:** `today`/`tomorrow` müssen vollständige Tageslisten ab 00:00 sein, also Stundenlisten (Länge 23, 24 oder 25) oder Viertelstundenlisten (Länge 92, 96 oder 100; 23 bzw. 25 Einträge und 92 bzw. 100 gelten für Zeitumstellungstage). Eine Liste mit fehlendem Slot, etwa 95 Einträge, wird verworfen statt verschoben ausgewertet - die Peak-Reserve (`sensor.opti_peak_reserve_soc`) leitet die Slot-Länge je Liste aus der Listenlänge ab und deaktiviert sich bei anderen Listenlängen automatisch (`gueltig: false`).
 
 ---
 

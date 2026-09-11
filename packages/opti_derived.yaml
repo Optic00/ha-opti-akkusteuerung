@@ -1297,8 +1297,9 @@ template:
         {% endfor %}
         {% set n = ns.prices | length if ns.raster_ok else 0 %}
         {# 2. Wiederauflade-Horizont: bis naechster Sonnenaufgang plus Puffer
-           (1 h an einem PV-Reichtag, sonst 3 h), solange fuer den Tag dieses
-           Sonnenaufgangs ein guter Score in Sicht ist; sonst 36 h.
+           (1 h bei binary_sensor.opti_pv_reichtag on, sonst 3 h), solange fuer
+           den Tag dieses Sonnenaufgangs ein guter Score in Sicht ist; sonst
+           36 h.
            Tagsueber + guter Heute-Score -> leer. #}
         {% set s_heute = states('sensor.opti_forecast_score') | float(-1) %}
         {% set horizont_max = now() + timedelta(hours=36) %}
@@ -1311,8 +1312,9 @@ template:
           {% set rising = state_attr('sun.sun', 'next_rising') %}
           {% set rise = (rising | as_datetime | as_local) if rising else none %}
           {# Score-Auswahl und Hysterese liegen ausschliesslich in
-             binary_sensor.opti_peak_horizont_lang (Issue #70), Reichtag-
-             Hysterese, Monatstor und 06:30-Riegel in opti_pv_reichtag. Beide
+             binary_sensor.opti_peak_horizont_lang (Issue #70), Score-
+             Hysterese, Monatstor und 06:30-Riegel des 1-h-Puffers in
+             opti_pv_reichtag. Beide
              lesen denselben Sonnentag-Score; die Pruefungen daher nicht hier
              inlinen. Nur ein ausdrueckliches off verkuerzt den Horizont: on,
              unknown und unavailable behalten konservativ die 36 h, ebenso ein

@@ -409,8 +409,10 @@ Die Regel wartet also nicht ewig auf einen Wert, der nicht mehr existiert.
 - **Fehlender nächster Sonnenaufgang:** Fehlt `sun.sun` das Attribut `next_rising`, fällt `binary_sensor.opti_pv_reichtag` unabhängig vom Vorzustand auf `off`. Der Peak-Rechenkern kann dann keinen Sonnenaufgangspuffer bestimmen und nutzt den konservativen 36-h-Horizont.
 - **Raster-Erkennung:** Die Preislisten liefern keine Zeitstempel.
   Die Slot-Länge (`slot_h`) wird pro Liste (`today`/`tomorrow` getrennt) aus der Listenlänge abgeleitet: 24 geteilt durch die Anzahl der Einträge.
-  Unterstützt werden Stundenraster (Listenlänge 20-27, inklusive Zeitumstellungstage) und Viertelstundenraster (Listenlänge 80-108, inklusive Zeitumstellungstage) - seit der Tibber-Umstellung auf 15-Minuten-Day-Ahead-Preise (Juli 2026) liefert `sensor.opti_price_series` 96 Werte pro Tag statt 24.
+  Unterstützt werden Stundenraster (Listenlänge 23, 24 oder 25) und Viertelstundenraster (Listenlänge 92, 96 oder 100), jeweils inklusive der beiden Zeitumstellungstage - seit der Tibber-Umstellung auf 15-Minuten-Day-Ahead-Preise (Juli 2026) liefert `sensor.opti_price_series` 96 Werte pro Tag statt 24.
   Jede andere Listenlänge macht die komplette Preisbasis `gueltig=false`.
+  Das verwirft insbesondere eine 95er-Liste nach einem fehlenden 00:00-Slot: Weil die Zeitstempel aus dem Index entstehen, würde sie sonst alle Slots bis zu 15 Minuten zu früh einordnen, ohne dass es auffällt (Issue #71).
+  Vollständigkeit oder richtige Zeitzuordnung weist die Längenprüfung nicht nach: 23 oder 92 Einträge passieren auch an einem normalen Tag.
   An Tagen mit Zeitumstellung ist `slot_h` (z. B. 24/92 oder 24/100 bei Viertelstunden) leicht ungenau - akzeptiertes, bekanntes Verhalten.
   Das Fenster beginnt weiterhin an der aktuellen vollen Stunde (nicht am aktuellen Slot): bei Viertelstundenraster zählen dadurch bis zu drei bereits vergangene Slots der laufenden Stunde konservativ mit.
 

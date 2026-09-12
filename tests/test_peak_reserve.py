@@ -526,16 +526,34 @@ def test_gemischtes_raster():
 
 
 def test_unplausible_laenge_ungueltig():
-    # 40 Werte passen weder ins Stundenraster (20-27) noch ins
-    # Viertelstundenraster (80-108) -> komplette Preisbasis wird verworfen.
+    # 40 Werte sind weder eine Stunden- noch eine Viertelstunden-Tagesliste
+    # -> komplette Preisbasis wird verworfen.
     today = [50.0] * 40
     peak = _peak(_hass(today, [50.0] * 24))
     assert peak["gueltig"] is False
 
 
+def test_fehlender_slot_ungueltig_statt_verschoben():
+    # Issue #71: das alte Tibber-Rezept lieferte 95 statt 96 Viertelstunden
+    # (00:00-Slot fehlte). slot_h = 24/95 haette alle Zeitstempel still
+    # verschoben; die Liste muss stattdessen fail-closed verworfen werden.
+    # Gleiches gilt fuer die Nachbarn der legitimen Stunden-/DST-Laengen.
+    for laenge in (22, 26, 91, 93, 95, 97, 99, 101):
+        peak = _peak(_hass([50.0] * laenge, [50.0] * 24))
+        assert peak["gueltig"] is False, laenge
+        peak = _peak(_hass([50.0] * 24, [50.0] * laenge))
+        assert peak["gueltig"] is False, laenge
+
+
+def test_legitime_tageslaengen_gueltig():
+    for laenge in (23, 24, 25, 92, 96, 100):
+        peak = _peak(_hass([50.0] * laenge, [50.0] * 24))
+        assert peak["gueltig"] is True, laenge
+
+
 def test_dst_grenzfall_92_und_100_gueltig():
     # DST-Tage koennen 92 (Fruehjahr, -1h) oder 100 (Herbst, +1h) Viertelstunden
-    # haben statt 96 - beide Grenzfaelle bleiben gueltig (Bereich 80-108).
+    # haben statt 96 - beide Grenzfaelle bleiben gueltig.
     today_92 = [50.0] * 92
     peak_92 = _peak(_hass(today_92, [50.0] * 24))
     assert peak_92["gueltig"] is True

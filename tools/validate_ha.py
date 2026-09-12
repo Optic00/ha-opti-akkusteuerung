@@ -1,6 +1,6 @@
 """Optionale Integration-Pruefung mit echtem Home Assistant, ausschliesslich lokal.
 
-In einer separaten venv mit homeassistant==2026.9.0 ausfuehren:
+In einer separaten venv mit homeassistant==2026.9.1 ausfuehren:
     python tools/validate_ha.py
 
 Validiert alle aktiven Template-Abschnitte und Automations-Schemas. Startet dann

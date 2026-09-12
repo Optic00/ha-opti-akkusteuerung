@@ -471,10 +471,9 @@ template:
       #    morgen, zwischen Mitternacht und Sonnenaufgang heute. Formel und
       #    alpha-Blend wie score_tomorrow, nur die Quelle wechselt mit dem
       #    Datum des Sonnenaufgangs. So bewertet der Wiederauflade-Horizont
-      #    die ganze Nacht mit derselben Formel. opti_forecast_score rechnet
-      #    nach Mitternacht dagegen die Tagesformel: Hausverbrauch mal Stunden
-      #    bis Sonnenuntergang (~17 h) macht sie nachts zum Rauschverstaerker.
-      #    Konsumenten: binary_sensor.opti_peak_horizont_lang und
+      #    die ganze Nacht mit derselben Formel. opti_forecast_score nutzt
+      #    diesen Score ebenfalls zwischen Mitternacht und Sonnenaufgang.
+      #    Weitere Konsumenten: binary_sensor.opti_peak_horizont_lang und
       #    binary_sensor.opti_pv_reichtag. Ohne naechsten Sonnenaufgang gibt es
       #    keinen Sonnentag -> unavailable.
       #    Grenze: die Prognose-Sensoren tragen kein Datum. Rollt Solcast den

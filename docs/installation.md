@@ -235,6 +235,14 @@ Neustart/Quelländerung und spätestens am nächsten Minutentick ausgewertet.
 Bei Erstinstallation unterhalb MaxSOC beginnt er ohne belegten Eintritt.
 Für Rollback die gesicherten Dateien gemeinsam wiederherstellen und erneut laden.
 
+Horizont-Fix (Issue #70): `opti_derived.yaml` legt zusätzlich `sensor.opti_forecast_score_sonnentag`
+und `binary_sensor.opti_peak_horizont_lang` an. Helfer oder Mapping-Änderungen sind nicht
+nötig; der Sonnentag-Score liest die bereits gemappten `sensor.opti_forecast_today_kwh` und
+`sensor.opti_forecast_tomorrow_kwh`. Fehlt die Ganztagsprognose für heute, gilt zwischen
+Mitternacht und Sonnenaufgang konservativ der 36-h-Horizont. Bei Score 2 hält der Horizont-Sensor
+seinen Vorzustand, den HA auch über Neustarts wiederherstellt; nur ohne gespeicherten Zustand,
+etwa bei der Erstinstallation, gilt Score 2 wie bisher als langer Horizont.
+
 ## Legacy-Setup (Referenz)
 
 Der frühere manuelle Weg mit Flachdateien (Modbus-Config, Sensoren, Helfer-Tabelle, Dashboard-Karte) ist umgezogen nach [`old/README.md`](../old/README.md).

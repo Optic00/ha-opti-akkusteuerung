@@ -384,6 +384,7 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 |---|---|
 | `sensor.opti_forecast_score` | PV-Fit heute (0–10); nutzt `estimate10` als P10-Sicherheitsnetz; nach dem heutigen Sonnenuntergang Fallback auf `opti_forecast_score_tomorrow`, falls verfügbar (sonst alte Formel) |
 | `sensor.opti_forecast_score_tomorrow` | PV-Fit morgen (0–10) |
+| `sensor.opti_forecast_score_sonnentag` | PV-Fit des Tages, auf den der nächste Sonnenaufgang fällt (0–10): vor Mitternacht aus der Prognose für morgen, zwischen Mitternacht und Sonnenaufgang aus der Ganztagsprognose für heute. Gleiche Formel wie `opti_forecast_score_tomorrow`, damit der Wert über Mitternacht nicht die Formel wechselt. Grundlage für den Wiederauflade-Horizont und `binary_sensor.opti_pv_reichtag` |
 | `sensor.opti_forecast_effective_remaining_kwh` | Effektive Rest-Prognose (kWh): Blend aus Median und P10 über `input_number.opti_forecast_optimismus` (0–100 %, Default 0 = `min(median, P10)`). Einzige Quelle für Score und Ziel-SoC. |
 | `sensor.opti_target_soc` | Ziel-SoC (%) basierend auf Restprognose und geglättetem Hausverbrauch |
 | `sensor.opti_charge_power_w` | Dynamische Ladestärke (W) nach SoC-Stufe und Forecast-Score |
@@ -394,13 +395,14 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 | `binary_sensor.opti_winter_charging_allowed` | Saisonales Lade-Gate (Standard: `true`, fail-open) |
 | `sensor.opti_peak_reserve_soc` | Reserve-SoC für kommende Preisspitzen (trigger-basiert, 36h-Horizont) |
 | `binary_sensor.opti_peak_reserve_aktiv` | Gate: Peaks im Wiederauflade-Horizont vorhanden |
+| `binary_sensor.opti_peak_horizont_lang` | Entscheidung für den 36-h-Wiederauflade-Horizont mit Hysterese auf dem Sonnentag-Score: bis Score 1 an, ab Score 3 aus, bei Score 2 bleibt der Vorzustand. Ohne gespeicherten Vorzustand (etwa bei der Erstinstallation; über Neustarts stellt HA ihn wieder her) gilt Score 2 als an; ein fehlender Score schaltet immer an (konservativ) |
 | `binary_sensor.opti_ueberschuss_70_aktiv` / `_ac_aktiv` | Überschuss-Override (30 s entprellt, mit Hysterese). Eine Grenze ≤ 0 gilt als *nicht konfiguriert* und schaltet den jeweiligen Override ab |
 | `binary_sensor.opti_ueberschuss_veto_aktiv` | Laufender Netzexport sticht den Ziel-SoC-Deckel, wenn der Rest-Forecast den Akku nicht mehr sicher füllt (Knappheits-Gate). Nur positiv belegter Überfluss sperrt das Veto; fehlt oder taugt der Forecast nicht, bleibt das Gate offen - siehe [strategie-logik.md](strategie-logik.md#das-überschuss-veto-knappheit-entscheidet-über-den-ziel-soc-deckel-option-19) |
 | `sensor.opti_balancing_watchdog` | Balancing-/Deep-Charge-Watchdog (`aus`/`pv`/`netz`): erzwingt einen Voll-Zyklus fürs BMS, wenn `counter.tage_seit_akku100` ≥ `input_number.opti_balancing_intervall_tage` (Default 14; 0 = aus). Staffelt PV (tagsüber) → Gratis-/Negativ-Netz → bezahltes Netz erst nach `opti_balancing_karenz_tage` und nur ≤ `opti_balancing_max_ct`. Beide `netz`-Zweige hängen am eigenen Schalter `input_boolean.opti_balancing_netzladen` (Default aus, PV ungegatet). Die Fälligkeit bleibt bis zu 30 bestätigten Minuten über dem Done-SoC aktiv; persistente Minuten-, Zeitstempel- und Gültigkeits-Helfer machen den Ablauf restartfest, unterscheiden HA-Erstwerte von echten Abschlüssen und begrenzen ihn auf einen Abschluss pro Tag. |
 
 **Baustein `sensor.opti_house_consumption_60min_w` (`packages/sma_statistik.yaml`):**
 Gleitender 60-Minuten-Mittelwert von `sensor.opti_house_consumption_w` (Legacy-Muster, `state_characteristic: mean`).
-`opti_forecast_score`, `opti_forecast_score_tomorrow` und `opti_target_soc` lesen bevorzugt diesen geglätteten Wert statt des Momentanverbrauchs, damit kurze Lastspitzen (z. B. ein Wasserkocher) den Score nicht minütlich kippen lassen.
+`opti_forecast_score`, `opti_forecast_score_tomorrow`, `opti_forecast_score_sonnentag` und `opti_target_soc` lesen bevorzugt diesen geglätteten Wert statt des Momentanverbrauchs, damit kurze Lastspitzen (z. B. ein Wasserkocher) den Score nicht minütlich kippen lassen.
 Fehlt der Statistik-Sensor noch (z. B. direkt nach einem HA-Neustart), fällt die Formel auf den Momentanwert zurück.
 `sensor.opti_runtime_h` bleibt beim momentanen Hausverbrauch. Die Formel ist
 `Kapazität_kWh * max(0, SoC - MinSOC) / 100 / Hausverbrauch_kW`.

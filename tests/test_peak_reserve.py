@@ -15,9 +15,19 @@ REICHTAG_MORGEN = dt.datetime(2026, 7, 27, 3, 40, tzinfo=TZ)
 def _hass(today, tomorrow, *, now=WINTER_ABEND, score_heute="1", score_morgen="1",
           cap="12.8", verbrauch="0.9", minsoc="10", maxsoc="95",
           sun_state="below_horizon", next_rising="2026-01-16T08:15:00+01:00",
-          aufschlag="0", reichtag="off"):
+          aufschlag="0", reichtag="off", horizont_lang=None):
     # aufschlag default "0" = alte Tests bleiben semantisch unveraendert (keine
     # oekonomische Filterung); neue Tests setzen aufschlag explizit aktiv.
+    if horizont_lang is None:
+        # Spiegelt binary_sensor.opti_peak_horizont_lang ohne Vorzustand: der
+        # Score des Sonnenaufgangstags <= 2 oder fehlend -> 36-h-Horizont.
+        rise = dt.datetime.fromisoformat(next_rising)
+        score = score_heute if rise.date() == now.date() else score_morgen
+        try:
+            lang = float(score) <= 2
+        except ValueError:
+            lang = True
+        horizont_lang = "on" if lang else "off"
     return FakeHass(
         now=now,
         states={
@@ -29,6 +39,7 @@ def _hass(today, tomorrow, *, now=WINTER_ABEND, score_heute="1", score_morgen="1
             "input_number.maxsoc": maxsoc,
             "input_number.opti_peak_min_aufschlag_ct": aufschlag,
             "binary_sensor.opti_pv_reichtag": reichtag,
+            "binary_sensor.opti_peak_horizont_lang": horizont_lang,
             "sun.sun": sun_state,
         },
         attrs={
@@ -44,7 +55,7 @@ def _peak(hass):
     return render_native(hass, template)
 
 
-def _reichtag(*, score_heute="unknown", score_morgen="unknown",
+def _reichtag(*, score="unknown",
               now=REICHTAG_MORGEN,
               next_rising="2026-07-27T05:45:00+02:00", this_state=None,
               part="state"):
@@ -52,10 +63,7 @@ def _reichtag(*, score_heute="unknown", score_morgen="unknown",
     entity = find_template_entity(cfg, "binary_sensor", "opti_pv_reichtag")
     hass = FakeHass(
         now=now,
-        states={
-            "sensor.opti_forecast_score": score_heute,
-            "sensor.opti_forecast_score_tomorrow": score_morgen,
-        },
+        states={"sensor.opti_forecast_score_sonnentag": score},
         attrs={"sun.sun": {"next_rising": next_rising}},
         this_state=this_state,
     )
@@ -194,24 +202,24 @@ def test_reichtag_laesst_heutige_abendspitze_im_horizont():
 
 
 def test_reichtag_hysterese_und_failsafe():
-    assert _reichtag(score_heute="10", this_state="off") == "True"
-    assert _reichtag(score_heute="9", this_state="on") == "True"
-    assert _reichtag(score_heute="9", this_state="off") == "False"
-    assert _reichtag(score_heute="8", this_state="on") == "False"
-    assert _reichtag(score_heute="unavailable", this_state="on") == "True"
-    assert _reichtag(score_heute="unknown", this_state="off") == "False"
-    assert _reichtag(score_heute="unavailable", this_state=None) == "False"
+    assert _reichtag(score="10", this_state="off") == "True"
+    assert _reichtag(score="9", this_state="on") == "True"
+    assert _reichtag(score="9", this_state="off") == "False"
+    assert _reichtag(score="8", this_state="on") == "False"
+    assert _reichtag(score="unavailable", this_state="on") == "True"
+    assert _reichtag(score="unknown", this_state="off") == "False"
+    assert _reichtag(score="unavailable", this_state=None) == "False"
 
 
 def test_reichtag_monatstor_sperrt_dst_loch_im_maerz():
     zustand = _reichtag(
-        score_heute="10",
+        score="10",
         now=dt.datetime(2026, 3, 20, 3, 40, tzinfo=TZ),
         next_rising="2026-03-20T06:15:00+01:00",
         this_state="off",
     )
     branch = _reichtag(
-        score_heute="10",
+        score="10",
         now=dt.datetime(2026, 3, 20, 3, 40, tzinfo=TZ),
         next_rising="2026-03-20T06:15:00+01:00",
         this_state="off",
@@ -226,13 +234,13 @@ def test_reichtag_monatstor_sperrt_dst_loch_im_maerz():
 
 def test_reichtag_monatstor_oeffnet_im_april():
     zustand = _reichtag(
-        score_heute="10",
+        score="10",
         now=dt.datetime(2026, 4, 20, 3, 40, tzinfo=TZ),
         next_rising="2026-04-20T06:15:00+02:00",
         this_state="off",
     )
     branch = _reichtag(
-        score_heute="10",
+        score="10",
         now=dt.datetime(2026, 4, 20, 3, 40, tzinfo=TZ),
         next_rising="2026-04-20T06:15:00+02:00",
         this_state="off",
@@ -246,13 +254,13 @@ def test_reichtag_monatstor_oeffnet_im_april():
 
 def test_reichtag_monatstor_sperrt_im_september():
     zustand = _reichtag(
-        score_heute="10",
+        score="10",
         now=dt.datetime(2026, 9, 5, 3, 40, tzinfo=TZ),
         next_rising="2026-09-05T06:25:00+02:00",
         this_state="off",
     )
     branch = _reichtag(
-        score_heute="10",
+        score="10",
         now=dt.datetime(2026, 9, 5, 3, 40, tzinfo=TZ),
         next_rising="2026-09-05T06:25:00+02:00",
         this_state="off",
@@ -266,13 +274,13 @@ def test_reichtag_monatstor_sperrt_im_september():
 
 def test_reichtag_ohne_next_rising_ist_auch_bei_vorzustand_an_aus():
     assert _reichtag(
-        score_heute="10",
+        score="10",
         next_rising=None,
         this_state="on",
     ) == "False"
 
     branch = _reichtag(
-        score_heute="10",
+        score="10",
         next_rising=None,
         this_state="on",
         part="branch",
@@ -287,28 +295,28 @@ def test_reichtag_saisonriegel_sperrt_spaeten_sonnenaufgang():
     frueh = "2026-07-27T05:45:00+02:00"
 
     assert _reichtag(
-        score_heute="10", now=spaet_now,
+        score="10", now=spaet_now,
         next_rising=spaet, this_state="off") == "False"
     assert _reichtag(
-        score_heute="10", next_rising=frueh, this_state="off") == "True"
+        score="10", next_rising=frueh, this_state="off") == "True"
     assert "Sonnenaufgang=07:40" in _reichtag(
-        score_heute="10", now=spaet_now,
+        score="10", now=spaet_now,
         next_rising=spaet, this_state="off", part="branch")
     assert "Monatstor=zu" in _reichtag(
-        score_heute="10", now=spaet_now,
+        score="10", now=spaet_now,
         next_rising=spaet, this_state="off", part="branch")
     assert "06:30-Riegel=zu" in _reichtag(
-        score_heute="10", now=spaet_now,
+        score="10", now=spaet_now,
         next_rising=spaet, this_state="off", part="branch")
     assert "Monatstor=offen" in _reichtag(
-        score_heute="10", next_rising=frueh, this_state="off", part="branch")
+        score="10", next_rising=frueh, this_state="off", part="branch")
     assert "06:30-Riegel=offen" in _reichtag(
-        score_heute="10", next_rising=frueh, this_state="off", part="branch")
+        score="10", next_rising=frueh, this_state="off", part="branch")
 
 
 def test_reichtag_saisonriegel_sticht_haltezone():
     assert _reichtag(
-        score_heute="9",
+        score="9",
         now=dt.datetime(2026, 10, 15, 3, 40, tzinfo=TZ),
         next_rising="2026-10-15T07:40:00+02:00",
         this_state="on",
@@ -319,23 +327,23 @@ def test_reichtag_saisonriegel_ist_um_0630_bereits_zu():
     # Die Freigabe verlangt bewusst "echt frueher als 06:30":
     # 06:29 ist offen, die Schwelle selbst bereits geschlossen.
     vor_kante = _reichtag(
-        score_heute="10",
+        score="10",
         next_rising="2026-07-27T06:29:00+02:00",
         this_state="off",
     )
     vor_kante_branch = _reichtag(
-        score_heute="10",
+        score="10",
         next_rising="2026-07-27T06:29:00+02:00",
         this_state="off",
         part="branch",
     )
     an_kante = _reichtag(
-        score_heute="10",
+        score="10",
         next_rising="2026-07-27T06:30:00+02:00",
         this_state="off",
     )
     an_kante_branch = _reichtag(
-        score_heute="10",
+        score="10",
         next_rising="2026-07-27T06:30:00+02:00",
         this_state="off",
         part="branch",
@@ -351,7 +359,7 @@ def test_spaeter_sonnenaufgang_behaelt_drei_stunden_und_l4_halt():
     now = dt.datetime(2026, 10, 15, 3, 40, tzinfo=TZ)
     next_rising = "2026-10-15T07:40:00+02:00"
     reichtag = _reichtag(
-        score_heute="10",
+        score="10",
         now=now,
         next_rising=next_rising,
         this_state="off",
@@ -374,30 +382,15 @@ def test_spaeter_sonnenaufgang_behaelt_drei_stunden_und_l4_halt():
 
 
 def test_reichtag_nicht_numerischer_score_ist_fail_closed():
-    assert _reichtag(score_heute="kein-score", this_state="on") == "False"
+    assert _reichtag(score="kein-score", this_state="on") == "False"
 
 
 def test_reichtag_branch_zeigt_vorzustand_in_der_haltezone():
-    gehalten = _reichtag(score_heute="9", this_state="on", part="branch")
-    neustart = _reichtag(score_heute="9", this_state=None, part="branch")
+    gehalten = _reichtag(score="9", this_state="on", part="branch")
+    neustart = _reichtag(score="9", this_state=None, part="branch")
 
     assert "war_an=True" in gehalten
     assert "war_an=False" in neustart
-
-
-def test_reichtag_waehlt_score_des_sonnenaufgangstags():
-    assert _reichtag(
-        score_heute="10",
-        score_morgen="8",
-        this_state="off",
-    ) == "True"
-    assert _reichtag(
-        score_heute="10",
-        score_morgen="8",
-        now=dt.datetime(2026, 7, 27, 21, 0, tzinfo=TZ),
-        next_rising="2026-07-28T05:45:00+02:00",
-        this_state="off",
-    ) == "False"
 
 
 def test_reichtag_ist_trigger_des_peak_blocks():
@@ -405,6 +398,7 @@ def test_reichtag_ist_trigger_des_peak_blocks():
     block = next(b for b in cfg["template"] if "peak" in b.get("variables", {}))
     state_trigger = next(t for t in block["triggers"] if t["trigger"] == "state")
     assert "binary_sensor.opti_pv_reichtag" in state_trigger["entity_id"]
+    assert "binary_sensor.opti_peak_horizont_lang" in state_trigger["entity_id"]
 
 
 def test_reichtag_on_scoreausfall_im_peak_block_nutzt_36_stunden():

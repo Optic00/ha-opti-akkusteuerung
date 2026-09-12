@@ -133,6 +133,8 @@ def simulate_day(prices_today, prices_tomorrow, *, load_kw, pv_kwh_per_hour,
                 "sensor.opti_forecast_score": "1",
                 "sensor.opti_forecast_score_tomorrow": "1",
                 "binary_sensor.opti_pv_reichtag": "off",
+                # Score 1 -> langer 36-h-Horizont wie vor Issue #70.
+                "binary_sensor.opti_peak_horizont_lang": "on",
                 "input_number.opti_peak_verbrauch_kw": str(load_kw),
                 "input_number.minsoc": str(minsoc),
                 "input_number.maxsoc": str(maxsoc),

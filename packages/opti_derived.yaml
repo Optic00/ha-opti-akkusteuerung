@@ -1291,9 +1291,13 @@ template:
            Stundenraster -> slot_h=1.0, Viertelstundenraster -> slot_h=0.25.
            today/tomorrow koennen unterschiedliche Raster haben (z.B. waehrend
            der Tibber-Umstellung auf 15-min-Day-Ahead-Preise).
-           Raster-Guard: nur Laengen 20-27 (Stundenraster inkl. DST) oder
-           80-108 (Viertelstundenraster inkl. DST) sind gueltig; jede andere
-           nicht-leere Laenge verwirft die GESAMTE Preisbasis (raster_ok=false).
+           Raster-Guard: nur die Tageslaengen 23/24/25 (Stundenraster) und
+           92/96/100 (Viertelstundenraster) sind gueltig, jeweils normaler Tag
+           plus die beiden Zeitumstellungstage. Jede andere nicht-leere Laenge
+           verwirft die GESAMTE Preisbasis (raster_ok=false). Ein frueheres
+           Band 80-108 liess z.B. 95 durch (ein fehlender 00:00-Slot): weil
+           slot_h aus der Anzahl kommt, verschob das still alle Zeitstempel
+           um bis zu 15 min statt fail-closed zu greifen (Issue #71).
            Eine leere Liste (today/tomorrow fehlt) ist erlaubt und traegt
            einfach nichts bei. Bei DST-Tagen ist slot_h leicht ungenau
            (24/92 bzw. 24/100) - akzeptiert. #}
@@ -1303,7 +1307,7 @@ template:
           {% set arr = state_attr('sensor.opti_price_series', key) %}
           {% if arr is iterable and arr is not string and arr | length > 0 %}
             {% set laenge = arr | length %}
-            {% if not ((20 <= laenge <= 27) or (80 <= laenge <= 108)) %}
+            {% if laenge not in [23, 24, 25, 92, 96, 100] %}
               {% set ns.raster_ok = false %}
             {% endif %}
             {% set slot_h = 24 / laenge %}

@@ -356,7 +356,18 @@ template:
       #    vom Ganztags-Sensor - das Ganztags-P10 enthaelt die schon gelaufene
       #    Produktion und waere nachmittags kein Sicherheitsnetz mehr.
       #    Availability spiegelt die Zweige: der Abend-Zweig braucht nur den
-      #    Morgen-Score, die Tages-Formel Rest-Prognose + Kapazitaet + SoC.
+      #    Morgen-Score, der Nacht-Zweig nur den Sonnentag-Score, die
+      #    Tages-Formel Rest-Prognose + Kapazitaet + SoC.
+      #    Nacht-Zweig (Mitternacht bis Sonnenaufgang): Der Abend-Fallback
+      #    endet um 00:00, weil next_setting dann wieder auf heute zeigt. Die
+      #    Tages-Formel sah bis zum Rollover der Rest-Prognose remaining=0,
+      #    fiel jede Nacht fuer Sekundenbruchteile auf 0 und konnte dabei
+      #    Strategie-Zweige kurz umschalten; danach zog sie rund 17 h
+      #    Hausverbrauch ab. Bis Sonnenaufgang zaehlt deshalb
+      #    opti_forecast_score_sonnentag (gleiche Formel wie der Abend-Zweig,
+      #    aus der Ganztagsprognose heute). Der Formelwechsel liegt damit am
+      #    Sonnenaufgang statt um Mitternacht. Die Attribute (pv_surplus_kwh,
+      #    needed_full_kwh) bleiben unveraendert Tages-Formel.
       # -----------------------------------------------------------------------
       - unique_id: opti_forecast_score
         name: "Opti Forecast Score"
@@ -364,7 +375,10 @@ template:
         availability: >
           {% set setting = state_attr('sun.sun', 'next_setting') %}
           {% set nach_sunset = setting is not none and (setting | as_datetime | as_local).date() != now().date() %}
+          {% set rising = state_attr('sun.sun', 'next_rising') %}
+          {% set vor_aufgang = rising is not none and (rising | as_datetime | as_local).date() == now().date() %}
           {{ (nach_sunset and has_value('sensor.opti_forecast_score_tomorrow'))
+             or (vor_aufgang and has_value('sensor.opti_forecast_score_sonnentag'))
              or (has_value('sensor.opti_forecast_remaining_today_kwh')
                  and has_value('sensor.opti_forecast_effective_remaining_kwh')
                  and has_value('sensor.opti_battery_capacity_kwh')
@@ -372,8 +386,12 @@ template:
         state: >
           {% set setting = state_attr('sun.sun', 'next_setting') %}
           {% set nach_sunset = setting is not none and (setting | as_datetime | as_local).date() != now().date() %}
+          {% set rising = state_attr('sun.sun', 'next_rising') %}
+          {% set vor_aufgang = rising is not none and (rising | as_datetime | as_local).date() == now().date() %}
           {% if nach_sunset and has_value('sensor.opti_forecast_score_tomorrow') %}
           {{ states('sensor.opti_forecast_score_tomorrow') | int(0) }}
+          {% elif vor_aufgang and has_value('sensor.opti_forecast_score_sonnentag') %}
+          {{ states('sensor.opti_forecast_score_sonnentag') | int(0) }}
           {% else %}
           {% set remaining = states('sensor.opti_forecast_effective_remaining_kwh') | float(0) %}
           {% set cap = states('sensor.opti_battery_capacity_kwh') | float(0) %}
@@ -408,7 +426,9 @@ template:
           reason: >
             {% set setting = state_attr('sun.sun', 'next_setting') %}
             {% set nach_sunset = setting is not none and (setting | as_datetime | as_local).date() != now().date() %}
-            {{ 'Abend -> Morgen-Score' if (nach_sunset and has_value('sensor.opti_forecast_score_tomorrow')) else ('Nacht' if (state_attr('sun.sun','next_setting') is none) else ('Akku voll' if (states('sensor.opti_battery_capacity_kwh')|float(0)*(1-(states('sensor.opti_soc')|float(0))/100)) <= 0 else 'PV-Fit')) }}
+            {% set rising = state_attr('sun.sun', 'next_rising') %}
+            {% set vor_aufgang = rising is not none and (rising | as_datetime | as_local).date() == now().date() %}
+            {{ 'Abend -> Morgen-Score' if (nach_sunset and has_value('sensor.opti_forecast_score_tomorrow')) else ('Nacht -> Sonnentag-Score' if (vor_aufgang and has_value('sensor.opti_forecast_score_sonnentag')) else ('Nacht' if (state_attr('sun.sun','next_setting') is none) else ('Akku voll' if (states('sensor.opti_battery_capacity_kwh')|float(0)*(1-(states('sensor.opti_soc')|float(0))/100)) <= 0 else 'PV-Fit'))) }}
 
       # -----------------------------------------------------------------------
       # 2. Forecast Score morgen (0-10) — PV-Fit der Morgen-Prognose
@@ -451,10 +471,9 @@ template:
       #    morgen, zwischen Mitternacht und Sonnenaufgang heute. Formel und
       #    alpha-Blend wie score_tomorrow, nur die Quelle wechselt mit dem
       #    Datum des Sonnenaufgangs. So bewertet der Wiederauflade-Horizont
-      #    die ganze Nacht mit derselben Formel. opti_forecast_score rechnet
-      #    nach Mitternacht dagegen die Tagesformel: Hausverbrauch mal Stunden
-      #    bis Sonnenuntergang (~17 h) macht sie nachts zum Rauschverstaerker.
-      #    Konsumenten: binary_sensor.opti_peak_horizont_lang und
+      #    die ganze Nacht mit derselben Formel. opti_forecast_score nutzt
+      #    diesen Score ebenfalls zwischen Mitternacht und Sonnenaufgang.
+      #    Weitere Konsumenten: binary_sensor.opti_peak_horizont_lang und
       #    binary_sensor.opti_pv_reichtag. Ohne naechsten Sonnenaufgang gibt es
       #    keinen Sonnentag -> unavailable.
       #    Grenze: die Prognose-Sensoren tragen kein Datum. Rollt Solcast den

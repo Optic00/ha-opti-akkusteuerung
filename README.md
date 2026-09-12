@@ -165,6 +165,30 @@ Der HA-Nachbau steckt in `tests/ha_harness.py`.
 Er bildet die Filter und das Rundungsverhalten von Home Assistant nach, ist aber kein vollständiges HA:
 Verhalten, das an echten Integrationen hängt, muss weiterhin an der Anlage verifiziert werden.
 
+Die optionalen nativen Prüfungen verwenden isolierte Home-Assistant-Instanzen
+mit synthetischen Werten. Sie prüfen zusätzlich die Template- und
+Automationsschemas, Zustandsänderungen, Hysterese und Wiederherstellung nach
+Neustarts. Die Nachtprüfung umfasst auch den Quellenwechsel um Mitternacht
+und eine verspätete Aktualisierung der Ganztagsprognose.
+
+```bash
+python3.14 -m venv .venv-ha
+.venv-ha/bin/pip install -r requirements-dev.txt homeassistant==2026.9.1
+.venv-ha/bin/python tools/validate_ha.py
+.venv-ha/bin/python tools/validate_night_ha.py
+```
+
+Diese Prüfungen laufen auch in GitHub Actions. Sie verbinden sich mit keiner
+Anlage. Der Mitternachtstest löst die Auswertung nach dem Zeitwechsel über ein
+Sensorereignis aus; er bildet den internen Minutentimer nicht nach.
+
+Für einen lokalen Vergleich zweier Forecast-Versionen kann
+`tools/replay_forecast_history.py` Recorder-Exporte wiedergeben. Eingabeformat,
+benötigte Sensoren und Grenzen stehen in
+[Forecast-Verlauf wiedergeben](docs/forecast-replay.md). Echte Exporte und
+Ergebnisse bleiben außerhalb des Repositories. Eine Wiedergabe belegt weder
+das genaue HA-Ereignistiming noch das Verhalten der Hardware.
+
 Vor dem Merge eines nicht-trivialen Pull Requests gilt zusätzlich die [Cross-Model Review Policy](REVIEW_POLICY.md).
 
 ---

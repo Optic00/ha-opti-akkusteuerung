@@ -382,7 +382,7 @@ des betreffenden Sensors testen — häufig ist der Quell-Sensor noch falsch ben
 
 | Sensor | Beschreibung |
 |---|---|
-| `sensor.opti_forecast_score` | PV-Fit heute (0–10); nutzt `estimate10` als P10-Sicherheitsnetz; nach dem heutigen Sonnenuntergang Fallback auf `opti_forecast_score_tomorrow`, falls verfügbar (sonst alte Formel) |
+| `sensor.opti_forecast_score` | PV-Fit heute (0–10); nutzt `estimate10` als P10-Sicherheitsnetz; nach dem heutigen Sonnenuntergang Fallback auf `opti_forecast_score_tomorrow`, zwischen Mitternacht und Sonnenaufgang auf `opti_forecast_score_sonnentag`, jeweils falls verfügbar (sonst alte Formel) |
 | `sensor.opti_forecast_score_tomorrow` | PV-Fit morgen (0–10) |
 | `sensor.opti_forecast_score_sonnentag` | PV-Fit des Tages, auf den der nächste Sonnenaufgang fällt (0–10): vor Mitternacht aus der Prognose für morgen, zwischen Mitternacht und Sonnenaufgang aus der Ganztagsprognose für heute. Gleiche Formel wie `opti_forecast_score_tomorrow`, damit der Wert über Mitternacht nicht die Formel wechselt. Grundlage für den Wiederauflade-Horizont und `binary_sensor.opti_pv_reichtag` |
 | `sensor.opti_forecast_effective_remaining_kwh` | Effektive Rest-Prognose (kWh): Blend aus Median und P10 über `input_number.opti_forecast_optimismus` (0–100 %, Default 0 = `min(median, P10)`). Einzige Quelle für Score und Ziel-SoC. |

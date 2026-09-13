@@ -214,7 +214,7 @@ BRANCHES = [
      "Akku nur Entladen", "ueber Ziel-SoC"),
 ]
 
-DEFAULT_BRANCH = ("default", "default_nacht", {}, "Akku Dynamisch", "Default")
+DEFAULT_BRANCH = ("default", "default_nacht", {}, "Akku Dynamisch", "Standardfreigabe")
 
 
 @pytest.mark.parametrize(

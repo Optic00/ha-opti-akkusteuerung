@@ -1229,7 +1229,7 @@ template:
             {%- elif soc >= 0 and not has_value('sensor.opti_price_level')
                and states('input_select.akkusteuerung_modus')
                    in ['Akku Dynamisch', 'Akku nur Entladen'] %}Preisniveau fehlt (passiver Modus gehalten)
-            {%- elif soc >= 0 %}Default (Nacht/keine Aktion)
+            {%- elif soc >= 0 %}Standardfreigabe (kein vorrangiger Zweig)
             {%- else %}opti_soc fehlt{% endif %}
           ist_modus: "{{ states('input_select.akkusteuerung_modus') }}"
           soc: "{{ states('sensor.opti_soc') }}"
@@ -1268,6 +1268,7 @@ template:
       - trigger: state
         entity_id:
           - sensor.opti_price_series
+          - sun.sun
           - sensor.opti_forecast_score
           - sensor.opti_forecast_score_tomorrow
           - binary_sensor.opti_pv_reichtag
@@ -1329,7 +1330,12 @@ template:
            Tagsueber + guter Heute-Score -> leer. #}
         {% set s_heute = states('sensor.opti_forecast_score') | float(-1) %}
         {% set horizont_max = now() + timedelta(hours=36) %}
-        {% if is_state('sun.sun', 'above_horizon') and s_heute > 2 %}
+        {# Wie beim Score beginnt der Abend mit dem Wechsel von next_setting.
+           sun.sun kann noch kurz above_horizon melden; der Morgen-Score darf
+           dann nicht als gute Restprognose fuer heute die Reserve leeren. #}
+        {% set setting = state_attr('sun.sun', 'next_setting') %}
+        {% set nach_sunset = setting is not none and (setting | as_datetime | as_local).date() != now().date() %}
+        {% if is_state('sun.sun', 'above_horizon') and not nach_sunset and s_heute > 2 %}
           {# Auf die volle Stunde gekappt (== Fensterstart), damit das Fenster
              wirklich leer ist - now() liesse die laufende Stunde durchrutschen,
              sobald Minute > 0. #}

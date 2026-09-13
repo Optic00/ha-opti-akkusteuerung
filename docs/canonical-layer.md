@@ -107,7 +107,7 @@ state: "{{ states('sensor.DEIN_TIBBER_SENSOR') | float(0) * 100 }}"
 
 **Alternative: trigger-basiertes Rezept über den Service `tibber.get_prices`.**
 Liefert dein Preis-Sensor kein `today`/`tomorrow`-Attribut, kannst du die Preis-Reihe
-stattdessen stündlich per Service abrufen und in einen eigenen Template-Sensor schreiben:
+stattdessen stündlich sowie nach Mitternacht per Service abrufen und in einen eigenen Template-Sensor schreiben:
 
 ```yaml
 # packages/opti_mapping.yaml — Tibber-Preisreihe per Service (Alternativ-Rezept)
@@ -115,6 +115,8 @@ template:
   - trigger:
       - trigger: time_pattern
         minutes: 5
+      - trigger: time
+        at: "00:00:05"
     action:
       - action: tibber.get_prices
         data:
@@ -143,6 +145,12 @@ template:
             {% endfor %}
             {{ ns.preise }}
 ```
+
+Der zusätzliche Mitternachtstrigger aktualisiert die Tageszuordnung, ohne bis
+00:05 zu warten. Bis der Service-Aufruf erfolgreich abgeschlossen ist, bleiben
+die bisherigen Attribute jedoch bestehen. Das verkürzt die Lücke aus #75,
+beseitigt sie aber nicht vollständig. Für eine durchgängige Absicherung braucht
+die Preisreihe ein Bezugsdatum oder datierte Intervalle, die der Rechenkern prüft.
 
 `preise` ist die `response_variable` des `tibber.get_prices`-Service-Aufrufs. Laut
 aktueller Service-Doku liefert er `prices: {<home_id>: [{start_time, price}, ...]}` -

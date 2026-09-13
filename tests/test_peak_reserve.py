@@ -628,3 +628,25 @@ def test_peak_preis_ve_avg_none_ohne_peaks():
                        sun_state="above_horizon"))
     assert peak["ve_stunden"] == 0
     assert peak["ve_preis_avg_ct"] is None
+
+
+def test_peak_abend_score_bei_noch_above_horizon_behaelt_reserve():
+    """next_setting kann vor dem sun-Zustand auf morgen wechseln."""
+    hass = _hass(
+        [20.0] * 19 + [80.0] * 3 + [20.0] * 2, [20.0] * 24,
+        now=dt.datetime(2026, 9, 12, 19, 51, tzinfo=TZ),
+        score_heute="10", score_morgen="10", sun_state="above_horizon",
+        next_rising="2026-09-13T07:00:00+02:00",
+    )
+    hass.attrs_map["sun.sun"]["next_setting"] = "2026-09-13T19:48:00+02:00"
+    peak = _peak(hass)
+    assert peak["benoetigt_kwh"] > 0
+    hass.states_map["sun.sun"] = "below_horizon"
+    assert _peak(hass) == peak
+
+
+def test_peak_reagiert_auf_sonnenstatus_ohne_score_aenderung():
+    cfg = load_yaml(REPO / "packages" / "opti_derived.yaml")
+    block = next(b for b in cfg["template"] if "peak" in b.get("variables", {}))
+    assert any(t.get("trigger") == "state" and "sun.sun" in t.get("entity_id", [])
+               for t in block["triggers"])

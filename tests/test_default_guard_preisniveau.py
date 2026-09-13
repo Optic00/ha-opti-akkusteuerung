@@ -209,7 +209,7 @@ def test_vorschau_default_unveraendert_mit_preisniveau():
     hass = _hass({PRICE: "NORMAL", "sensor.opti_soc": "60",
                   "sensor.opti_target_soc": "95", "sun.sun": "below_horizon"})
     assert _vorschau(hass) == "Akku Dynamisch"
-    assert "Default" in _vorschau(hass, "grund")
+    assert "Standardfreigabe" in _vorschau(hass, "grund")
 
 
 # --- Struktur: der Guard muss ueberhaupt ausgewertet werden ----------------

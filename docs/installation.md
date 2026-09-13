@@ -251,3 +251,26 @@ Empfohlen bleibt die Package-Struktur oben.
 > 💡 Nutzt du noch die alten Sensor-Namen (`akkusteuerung_dynamische_ladestaerke`,
 > `akku_target_soc_intelligent`)? Erklärung und Alt↔Neu-Mapping:
 > **[old/README.md#konzepte-legacy-namen](../old/README.md#konzepte-legacy-namen-oldtemplatesyaml)**
+
+
+### Manuelle Ladegrenze bei PV-Überschuss
+
+Für eine Ladegrenze unabhängig von der Prognose-Schonung schalte
+`input_boolean.opti_manuelle_ladegrenze` ein und setze
+`input_number.akkusteuerung_max_ladestaerke` auf die gewünschte Obergrenze in Watt (0 bis 10000 W).
+Die zulässige Leistung deiner Hardware bleibt maßgeblich. Der Sensor
+`opti_charge_power_w` berücksichtigt weiterhin Temperaturdrosselung und
+Abschaltung, den SoC-Taper ab 97 % sowie die Balancing-Deckel. Der manuelle
+Schalter startet nach einem HA-Neustart ausgeschaltet.
+
+Für die manuelle Moduswahl schalte zusätzlich die Opti-Automatik aus. Das allein
+stoppt weder den Adapter noch seine laufenden Registerschreibvorgänge.
+„Akku Dynamisch“ und „Akku nur Laden“ verwenden weiterhin denselben Leistungssensor;
+„Akku schnell laden“ ist wegen möglichem Netzbezug kein Ersatz.
+
+Für Überschussladen setze die Mindestladestärke auf 0 W. Eine Obergrenze garantiert
+allein keinen netzbezugsfreien Betrieb; prüfe das Verhalten an deinem Wechselrichter.
+Der Adapter behält seinen Einschwing-Deckel nach dem Wechsel zu „Akku Dynamisch“.
+Liegt eine positive Mindestladestärke über der berechneten Obergrenze, sperrt der
+Adapter das Ladefenster. Der manuelle Schalter umgeht bewusst die prognoseabhängige
+Schonung und gilt auch bei automatisch gewählten Lademodi.

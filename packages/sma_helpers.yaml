@@ -394,6 +394,11 @@ input_number:
     icon: mdi:timer-sand
 
 input_boolean:
+  opti_manuelle_ladegrenze:
+    name: "Opti manuelle Ladegrenze"
+    icon: mdi:battery-edit
+    initial: false
+
   akku_opti_automatik:
     name: "Akku Opti-Automatik"
     icon: mdi:battery-sync

@@ -787,6 +787,13 @@ template:
               {% endif %}
             {% endif %}
 
+            {# Explizite manuelle Grenze ersetzt nur die Prognose-Schonung.
+               Ab 97 % bleibt der regulaere obere SoC-Taper erhalten. #}
+            {% if is_state('input_boolean.opti_manuelle_ladegrenze', 'on') %}
+              {% set max_helper = [[max_helper, 0] | max, 10000] | min %}
+              {% set manuell = max_helper %}
+              {% set c = [manuell, c] | min if soc >= 97 else manuell %}
+            {% endif %}
             {% set ladeleistung = [c * temp_faktor, max_helper] | min %}
             {# Balancing-spezifischer Vollladungs-Taper: nur zusaetzlich deckeln,
                niemals den regulaeren SoC-/Temperatur-Taper erhoehen. #}

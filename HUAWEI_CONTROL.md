@@ -1,6 +1,6 @@
 # Huawei Solar / LUNA2000 Steuerung
 
-Öffentliche Beta 0.5.2b6. Aktive Hardwaresteuerung ist weiterhin
+Beta-Kandidat 0.5.2b6. Aktive Hardwaresteuerung ist weiterhin
 experimentell und ohne eigene Hardwareabnahme.
 Die vorhandene Huawei-Solar-Integration bleibt verantwortlich für Anmeldung,
 Gerätekommunikation und Modbus. Opti Akku ruft deren HA-Entitäten und Aktionen

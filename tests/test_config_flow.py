@@ -70,6 +70,35 @@ async def test_config_flow_cannot_connect(hass):
     assert result["errors"] == {"base": "cannot_connect"}
 
 
+async def test_initial_unsupported_device_preserves_connection_for_retry(hass):
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"backend": "sma_modbus"}
+    )
+    submitted = {
+        "host": " inverter.local ",
+        "port": 1502,
+        "unit_id": 7,
+        "profile": "sma_stp_se",
+        "shadow_mode": True,
+        "migrate_legacy": False,
+    }
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value={})):
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], submitted)
+
+    assert result["step_id"] == "sma_connection"
+    assert result["errors"] == {"base": "unsupported_device"}
+    assert form_values(result) == {**submitted, "host": "inverter.local"}
+
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], form_values(result)
+        )
+    assert result["step_id"] == "sources"
+
+
 async def test_serial_alias_is_duplicate(hass):
     MockConfigEntry(domain=DOMAIN, unique_id="sma_stp_se:1234567890", data=CONNECTION).add_to_hass(hass)
     with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
@@ -988,3 +1017,70 @@ async def test_unchanged_sma_connection_preserves_single_writer_confirmation(has
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options["single_writer_confirmed"] is True
     assert entry.data == data
+
+
+async def test_failed_sma_reconnect_keeps_entry_and_retry_values(hass):
+    data = {**CONNECTION, "backend": "sma_modbus", "serial_number": PROBE["serial_number"]}
+    options = {"single_writer_confirmed": True, "single_inverter": True, "sources": {}}
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="sma_stp_se:1234567890",
+        data=data,
+        options=options,
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "connection"}
+    )
+    submitted = {
+        "host": " replacement.local ",
+        "port": 2502,
+        "unit_id": 4,
+        "profile": "sma_stp_se",
+    }
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value={})):
+        result = await hass.config_entries.options.async_configure(result["flow_id"], submitted)
+
+    assert result["step_id"] == "connection"
+    assert result["errors"] == {"base": "unsupported_device"}
+    assert form_values(result) == {**submitted, "host": "replacement.local"}
+    assert dict(entry.data) == data
+    assert dict(entry.options) == options
+
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], form_values(result)
+        )
+    assert result["type"] == FlowResultType.MENU
+    assert dict(entry.data) == data
+    assert dict(entry.options) == options
+
+
+async def test_runtime_limit_change_during_options_flow_is_not_overwritten(hass):
+    from custom_components.opti_akku.config_flow import DEFINITIONS
+
+    options = {"single_inverter": True, "sources": {}}
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, options=options)
+    entry.add_to_hass(hass)
+    runtime_settings = {key: definition["default"] for key, definition in DEFINITIONS.items()}
+    entry.runtime_data = SimpleNamespace(settings=runtime_settings, write_enabled=False)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "battery"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {"maxsoc": 90})
+    )
+    runtime_settings["input_number.minsoc"] = 96
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "finish"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result)
+    )
+
+    assert result["step_id"] == "finish"
+    assert result["errors"] == {"base": "invalid_limits"}
+    assert dict(entry.options) == options

@@ -1,0 +1,42 @@
+name: Prepare release
+
+on:
+  push:
+    tags: ['20*']
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Build and verify release package
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python tools/build_package.py --tag "$RELEASE_TAG" --output "$RUNNER_TEMP/package"
+          python tools/build_package.py --tag "$RELEASE_TAG" --output "$RUNNER_TEMP/package-check"
+          cmp "$RUNNER_TEMP/package/opti_akku-$RELEASE_TAG.zip" "$RUNNER_TEMP/package-check/opti_akku-$RELEASE_TAG.zip"
+      - name: Create draft with verified package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          flags=()
+          if [[ "$RELEASE_TAG" == *-beta* ]]; then flags+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP/package/opti_akku-$RELEASE_TAG.zip" \
+            --verify-tag --draft --title "Opti Akku $RELEASE_TAG" --generate-notes "${flags[@]}"

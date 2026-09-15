@@ -60,6 +60,8 @@ class TibberPriceSnapshot:
             tomorrow_prices = _price_slots(tomorrow_slots, 1, tomorrow) if tomorrow_slots else []
         except ValueError as err:
             raise TibberPriceError("invalid_price_series") from err
+        # A validated complete local day contains ``now``. Keep the guard for
+        # future providers that may supply explicitly sparse intervals.
         current = next((i for i in self.intervals if i.start <= now < i.end), None)
         if current is None:
             raise TibberPriceError("missing_or_stale")

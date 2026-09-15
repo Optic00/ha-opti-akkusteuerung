@@ -88,6 +88,55 @@ async def test_service_rejects_zero_or_multiple_response_homes(hass, service, ho
         await async_fetch_prices(hass)
 
 
+async def test_service_rejects_empty_home_name(hass, service):
+    service[0]["prices"] = {"": native_day(date(2026, 9, 13))}
+    with pytest.raises(TibberPriceError, match="tibber_home_count"):
+        await async_fetch_prices(hass)
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [],
+        ["invalid"],
+        native_day(date(2026, 9, 14)),
+    ],
+)
+async def test_service_rejects_missing_or_malformed_today(hass, service, rows):
+    service[0]["prices"][HOME] = rows
+    with pytest.raises(TibberPriceError, match="invalid_price_series"):
+        await async_fetch_prices(hass)
+
+
+async def test_service_rejects_timestamp_gap_with_complete_slot_count(hass, service):
+    rows = service[0]["prices"][HOME]
+    rows[5]["start_time"] = (
+        datetime.fromisoformat(rows[5]["start_time"]) + timedelta(minutes=1)
+    ).isoformat()
+    with pytest.raises(TibberPriceError, match="invalid_price_series"):
+        await async_fetch_prices(hass)
+
+
+async def test_service_failure_is_reported_without_exception_details(hass, service):
+    with patch.object(
+        type(hass.services), "async_call", AsyncMock(side_effect=RuntimeError("private detail"))
+    ):
+        with pytest.raises(TibberPriceError, match="^tibber_fetch_failed$"):
+            await async_fetch_prices(hass)
+
+
+async def test_tibber_entry_change_during_fetch_invalidates_response(hass, service):
+    response = deepcopy(service[0])
+
+    async def changed_account(*args, **kwargs):
+        MockConfigEntry(domain="tibber", title="Replacement").add_to_hass(hass)
+        return response
+
+    with patch.object(type(hass.services), "async_call", side_effect=changed_account):
+        with pytest.raises(TibberPriceError, match="tibber_config_entries"):
+            await async_fetch_prices(hass)
+
+
 @pytest.mark.parametrize("overrides,error", [
     ({"tibber_home": "another-home"}, "tibber_home_mismatch"),
     ({"tibber_home": ""}, "tibber_home_required"),

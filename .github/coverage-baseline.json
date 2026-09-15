@@ -32,5 +32,5 @@
   "custom_components/opti_akku/sma.py": {"max_missing": 10, "min_percent": 96.36},
   "custom_components/opti_akku/sources.py": {"max_missing": 5, "min_percent": 97.47},
   "custom_components/opti_akku/switch.py": {"max_missing": 1, "min_percent": 97.95},
-  "custom_components/opti_akku/tibber_prices.py": {"max_missing": 9, "min_percent": 91.74}
+  "custom_components/opti_akku/tibber_prices.py": {"max_missing": 1, "min_percent": 99.08}
 }

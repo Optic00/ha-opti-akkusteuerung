@@ -1,16 +1,11 @@
-# Arbeitskontext / Session-Übergaben — nicht versionieren
-SESSION-HANDOVER.md
-
-# Superpowers-Planungs-/Arbeitsartefakte — nicht versionieren
-.superpowers/
-docs/superpowers/
-
-# Isolierte Implementierungs-Worktrees
-.worktrees/
-
-# Privates Canonical-Mapping mit echten Entitäts-IDs — nicht committen
-packages/opti_mapping.yaml
-
-# Lokale Python-Test-Umgebung
-.venv/
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+.coverage
+htmlcov/
+HANDOFF*.md
+.build/
+opti_akku_shadow/
+uv.lock

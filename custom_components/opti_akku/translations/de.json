@@ -1,0 +1,991 @@
+{
+  "title": "Opti Akku",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Willkommen: Wechselrichter verbinden",
+        "description": "Wähle die Anbindung deiner Batterie: SMA STP SE oder eine vorhandene Huawei-Solar-Integration. Verbindung und Betriebsweise richtest du in den folgenden Schritten ein.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.",
+        "data": {
+          "backend": "Akku-Anbindung",
+          "host": "Host",
+          "port": "Port",
+          "unit_id": "Unit-ID",
+          "profile": "Geräteprofil",
+          "shadow_mode": "Strikt lesender Shadow-Modus (später nicht abschaltbar)",
+          "migrate_legacy": "Bisherige Opti-Automation übernehmen (immer Shadow)"
+        }
+      },
+      "sma_connection": {
+        "title": "SMA-Wechselrichter verbinden",
+        "description": "Die Verbindungsprüfung liest nur.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "unit_id": "Unit-ID",
+          "profile": "Geräteprofil",
+          "shadow_mode": "Strikt lesender Shadow-Modus",
+          "migrate_legacy": "Bisherige Opti-Automation übernehmen (immer Shadow)"
+        }
+      },
+      "huawei_device": {
+        "title": "Huawei-Solar-Gerät wählen",
+        "description": "Wähle den Batterie-Wechselrichter eines geladenen Huawei-Solar-Eintrags. Shadow bleibt dauerhaft schreibgeschützt. Für spätere Steuerung einen Standard-Eintrag wählen; dessen Schreibfreigabe beginnt ebenfalls ausgeschaltet.",
+        "data": {
+          "huawei_device_id": "Huawei-Wechselrichter",
+          "shadow_mode": "Shadow-Modus (dauerhaft nur lesen)"
+        }
+      },
+      "huawei_sources": {
+        "title": "Huawei-Solar-Messwerte zuordnen",
+        "description": "Ordne frische Huawei-Messwerte dem Batterie-Wechselrichter zu. Kapazität in Wh oder kWh; Netzleistung mit ausdrücklich gewählter Vorzeichenrichtung. Weitere Erzeuger folgen unter Anlage und Quellen.",
+        "data": {
+          "soc": "Akkuladestand",
+          "battery_capacity_kwh": "Akkukapazität",
+          "battery_power_w": "Akkuleistung",
+          "pv_power_w": "PV-Ausgangsleistung",
+          "grid_power_w": "Netzleistung",
+          "battery_temp": "Akkutemperatur (optional)",
+          "pv_generation_w": "PV-Eingangsleistung (optional)",
+          "grid_positive": "Positive Netzleistung bedeutet"
+        }
+      },
+      "sources": {
+        "title": "Anlage und Messwerte",
+        "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig.",
+        "data": {
+          "house_consumption": "Hausverbrauch",
+          "pv_generation": "PV-Erzeugung DC (nur Anzeige, optional)",
+          "pv_power": "Hybrid-AC-Leistung einschließlich Batterie (optional)",
+          "single_inverter": "Hausverbrauch aus diesem einzigen Wechselrichter berechnen",
+          "plant_mode": "Berechnung des Hausverbrauchs",
+          "additional_ac_sources": "Weitere Wechselrichter: AC-Ausgangsleistung",
+          "excluded_load_sources": "Aus der Prognose auszunehmende Verbraucher",
+          "plant_meter_confirmed": "Der Netzzähler erfasst alle gewählten Erzeuger und Verbraucher",
+          "forecast_min_load_w": "Mindestgrundlast für die Prognose",
+          "strategy_enabled": "Automatische Strategie aktivieren",
+          "huawei_battery_temp": "Huawei-Batterietemperatur"
+        }
+      },
+      "battery": {
+        "title": "Akku und Leistungsgrenzen",
+        "description": "Lege den gewünschten Ladestand und die zulässigen Lade- und Entladeleistungen fest. Übernimm die Grenzen deiner Batterie bzw. deiner bisherigen Steuerung. Dies sind Strategiegrenzen, keine bestätigten Hardware-Schutzgrenzen. Kapazität und Temperatur werden automatisch gelesen.",
+        "data": {
+          "minsoc": "Minimaler Ladestand",
+          "maxsoc": "Maximaler Ladestand",
+          "akkusteuerung_max_ladestaerke": "Max. Ladeleistung",
+          "akkusteuerung_max_entladestaerke": "Max. Entladeleistung",
+          "opti_pv_ueberschuss_ladung": "PV-Überschussladen erlauben"
+        }
+      },
+      "tariff": {
+        "title": "Stromtarif",
+        "description": "Tibber übernimmt datierte Preise aus deiner bereits eingerichteten HA-Integration. Im nächsten Schritt bestätigst du dein Zuhause und den Euro-Tarif. Bei anderen Anbietern beide Preisentitäten auswählen; today/tomorrow müssen vollständige Intervalle mit Start, Ende und Zeitzone enthalten. Ohne Preisoptimierung Entitäten wählen und beide Preisfelder leer lassen.",
+        "data": {
+          "price_current": "Aktueller Strompreis",
+          "price_series": "Preisreihe heute/morgen",
+          "price_unit": "Einheit der Strompreisquelle",
+          "ladepreis": "Referenz-Ladepreis",
+          "mindestpreisdifferenz_lade_entladepreis": "Mindestgewinn beim Entladen",
+          "opti_einspeiseverguetung_ct": "Einspeisevergütung",
+          "opti_netzlade_spread_ct": "Preisabstand für Netzladen",
+          "opti_peak_min_aufschlag_ct": "Mindestaufschlag in Spitzenzeiten",
+          "opti_halte_spread_ct": "Preisabstand fürs Halten",
+          "hausakku_aus_netz_laden": "Netzladen im Winter erlauben",
+          "price_provider": "Preisquelle"
+        },
+        "data_description": {
+          "ladepreis": "-1 bedeutet: noch kein Referenz-Ladepreis bekannt. Vorhandene gespeicherte Werte bleiben beim Upgrade erhalten."
+        }
+      },
+      "forecast": {
+        "title": "PV-Prognose",
+        "description": "Wähle die drei Prognosesensoren in kWh oder Wh. Solcast und Forecast.Solar benötigen passend aufbereitete Sensoren; keine Anbieteranmeldung wird hier eingerichtet. Ohne Prognose alle drei Felder leer lassen; vorausschauende Reserveplanung ist dann eingeschränkt. Optimismus mischt verfügbare konservative und normale Prognosen.",
+        "data": {
+          "forecast_today": "PV-Prognose heute",
+          "forecast_tomorrow": "PV-Prognose morgen",
+          "forecast_remaining": "PV-Prognose verbleibend heute",
+          "opti_forecast_optimismus": "Prognose-Optimismus",
+          "opti_peak_verbrauch_kw": "Erwarteter Hausverbrauch",
+          "opti_prognose_netzladen": "Reserveplanung mit Netzladen erlauben"
+        }
+      },
+      "ev": {
+        "title": "Wallbox: evcc-Anbindung (optional)",
+        "description": "Nur für evcc-Ladepunkte. Modus und Ladestatus müssen zusammen ausgewählt werden. Bei now oder minpv und aktivem Laden kann die Entladung des Hausakkus gesperrt werden; Laden des Hausakkus bleibt möglich. Ohne Wallbox alle Quellen leer und die Sperre ausgeschaltet lassen. Zum Entfernen alle Quellen leeren und die Sperre ausschalten.",
+        "data": {
+          "ev1_mode": "EV 1 Modus",
+          "ev1_charging": "EV 1 lädt",
+          "ev1_power": "EV 1 Ladeleistung",
+          "ev2_mode": "EV 2 Modus",
+          "ev2_charging": "EV 2 lädt",
+          "ev2_power": "EV 2 Ladeleistung",
+          "opti_ev_akku_pause": "Entladung bei Autoladung sperren"
+        }
+      },
+      "balancing": {
+        "title": "Balancing (optional)",
+        "description": "Optional. Intervall 0 deaktiviert die Balancing-Planung vollständig. Bei aktivierter Planung kann eine Zellspreizung zusätzlichen Bedarf auslösen. Netzladen benötigt eine eigene Freigabe. Neue Einträge übernehmen keine Zähler der bisherigen Automation; vorhandene Integrationszähler bleiben erhalten. Die Zellspreizungsquelle ist optional und kann entfernt werden.",
+        "data": {
+          "cell_spread": "BYD-Zellspreizung in Ruhe",
+          "opti_balancing_intervall_tage": "Balancing alle … Tage",
+          "opti_balancing_karenz_tage": "Balancing-Karenz",
+          "opti_balancing_max_ct": "Balancing-Preisgrenze",
+          "opti_balancing_done_soc": "Balancing-Zielladestand",
+          "opti_balancing_spreizungs_schwelle": "Zellabweichung für Balancing",
+          "opti_balancing_bedarf_cooldown_tage": "Balancing-Abstand bei Bedarf",
+          "opti_balancing_netzladen": "Netzladen für Balancing erlauben"
+        }
+      },
+      "finish": {
+        "title": "Prüfen und speichern",
+        "description": "Verbindung: {connection}\nBetriebsart: {mode}\nLadestand: {limits}\nAusgewählte Quellen: {sources}\nStrompreis: {price}\nPV-Prognose: {forecast}\n\n„—“ bedeutet nicht eingerichtet. Strategie berechnen aktiviert allein keine Schreibzugriffe. Shadow bleibt dauerhaft lesend; die vorhandene Steuerung darf weiterlaufen. Bei einem neuen Standard-Eintrag muss Schreiben später separat freigegeben werden. Den 24-Stunden-Test startest du anschließend über die Gerätetaste. Speichern übernimmt den Entwurf; Abbrechen verwirft ihn.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.",
+        "data": {
+          "shadow_reference_mode": "Bestehende Modus-Entität zum Vergleich (optional)",
+          "single_writer_confirmed": "Andere Wechselrichter-Steuerungen sind deaktiviert",
+          "akku_opti_automatik": "Strategie berechnen"
+        }
+      },
+      "advanced": {
+        "title": "Erweiterte Einstellungen",
+        "description": "Für Feinanpassungen. Standardwerte reichen zum Einstieg. Quellenalter wird in Sekunden geprüft; zu kurze Fristen können unveränderte Quellen als ausgefallen behandeln. Änderungen werden erst mit Prüfen und speichern übernommen.",
+        "data": {
+          "akkusteuerung_ladestaerke_soll": "Ladeleistung (manuell)",
+          "akkusteuerung_min_ladestaerke": "Min. Ladeleistung",
+          "akkusteuerung_entladestaerke_soll": "Entladeleistung (manuell)",
+          "akkusteuerung_min_entladestaerke": "Min. Entladeleistung",
+          "akkusteuerung_wr_ac_ueberschuss_grenze": "AC-Überschussgrenze",
+          "akkusteuerung_wr_70proz_ueberschuss_grenze": "70%-PV-Grenze",
+          "akkusteuerung_ueberschuss_veto_grenze": "Einspeisung: Freigabe ab",
+          "akkusteuerung_ueberschuss_veto_aus_grenze": "Einspeisung: Sperre unter",
+          "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Knappheitsfaktor",
+          "source_max_age": "Maximales Alter normaler Quellen (Sekunden)",
+          "forecast_max_age": "Maximales Alter von Prognosen (Sekunden)",
+          "price_max_age": "Maximales Alter von Strompreisen (Sekunden)"
+        }
+      },
+      "features": {
+        "title": "Optionale Funktionen",
+        "description": "Nur benötigte Funktionen auswählen. Ohne Auswahl bleiben die Wallbox-Entladesperre und Balancing-Planung aus. Später unter Konfigurieren → Optionale Funktionen einrichten.",
+        "data": {
+          "configure_ev": "Wallboxen einrichten",
+          "configure_balancing": "Balancing einrichten"
+        }
+      },
+      "migration_review": {
+        "title": "Übernahme prüfen",
+        "description": "Lesende Aufnahme: {captured_at}\n\n{report}\n\nNicht übernommen: [missing] fehlt/nicht ausgewählt, [invalid] ungültiger Zustand oder Bereich, [unit] abweichende Einheit, [pair] Grenzpaar fehlt oder widerspricht sich. Dafür bleiben die im weiteren Assistenten sichtbaren Vorgaben erhalten.\n\nDie Bestätigung übernimmt genau diesen Entwurf, nicht später geänderte Helferwerte. Zuordnungen bearbeiten erstellt eine neue Aufnahme. Hauptfreigabe, EV-Sperre, Schreibrechte, manuelle Modi, Zähler und Historie werden nicht übernommen. Balancing kann deshalb vom Altbetrieb abweichen. Der neue Eintrag bleibt strikt lesend. Die alte Steuerung bleibt unverändert. Quellen prüfst du anschließend; alte Mapping-Sensoren dürfen erst nach Neuzuordnung entfernt werden.",
+        "data": {
+          "accept": "Angezeigte gültige Werte in den Entwurf übernehmen",
+          "adjust_mapping": "Abweichende Helfer zuordnen / Auswahl ändern"
+        }
+      },
+      "migration_mapping": {
+        "title": "Alte Helfer zuordnen",
+        "description": "Leere Felder werden nicht übernommen. Speichern liest eine neue Aufnahme zur Prüfung. Einheiten werden nicht umgerechnet.",
+        "data": {
+          "akkusteuerung_ladestaerke_soll": "input_number.akkusteuerung_ladestaerke_soll",
+          "akkusteuerung_min_ladestaerke": "input_number.akkusteuerung_min_ladestaerke",
+          "akkusteuerung_max_ladestaerke": "input_number.akkusteuerung_max_ladestaerke",
+          "akkusteuerung_entladestaerke_soll": "input_number.akkusteuerung_entladestaerke_soll",
+          "akkusteuerung_min_entladestaerke": "input_number.akkusteuerung_min_entladestaerke",
+          "akkusteuerung_max_entladestaerke": "input_number.akkusteuerung_max_entladestaerke",
+          "akkusteuerung_wr_ac_ueberschuss_grenze": "input_number.akkusteuerung_wr_ac_ueberschuss_grenze",
+          "akkusteuerung_wr_70proz_ueberschuss_grenze": "input_number.akkusteuerung_wr_70proz_ueberschuss_grenze",
+          "akkusteuerung_ueberschuss_veto_grenze": "input_number.akkusteuerung_ueberschuss_veto_grenze",
+          "akkusteuerung_ueberschuss_veto_aus_grenze": "input_number.akkusteuerung_ueberschuss_veto_aus_grenze",
+          "akkusteuerung_ueberschuss_veto_knappheit_faktor": "input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor",
+          "minsoc": "input_number.minsoc",
+          "maxsoc": "input_number.maxsoc",
+          "ladepreis": "input_number.ladepreis",
+          "mindestpreisdifferenz_lade_entladepreis": "input_number.mindestpreisdifferenz_lade_entladepreis",
+          "opti_peak_verbrauch_kw": "input_number.opti_peak_verbrauch_kw",
+          "opti_einspeiseverguetung_ct": "input_number.opti_einspeiseverguetung_ct",
+          "opti_netzlade_spread_ct": "input_number.opti_netzlade_spread_ct",
+          "opti_peak_min_aufschlag_ct": "input_number.opti_peak_min_aufschlag_ct",
+          "opti_forecast_optimismus": "input_number.opti_forecast_optimismus",
+          "opti_halte_spread_ct": "input_number.opti_halte_spread_ct",
+          "opti_balancing_intervall_tage": "input_number.opti_balancing_intervall_tage",
+          "opti_balancing_karenz_tage": "input_number.opti_balancing_karenz_tage",
+          "opti_balancing_max_ct": "input_number.opti_balancing_max_ct",
+          "opti_balancing_done_soc": "input_number.opti_balancing_done_soc",
+          "opti_balancing_spreizungs_schwelle": "input_number.opti_balancing_spreizungs_schwelle",
+          "opti_balancing_bedarf_cooldown_tage": "input_number.opti_balancing_bedarf_cooldown_tage",
+          "hausakku_aus_netz_laden": "input_boolean.hausakku_aus_netz_laden",
+          "opti_prognose_netzladen": "input_boolean.opti_prognose_netzladen",
+          "opti_pv_ueberschuss_ladung": "input_boolean.opti_pv_ueberschuss_ladung",
+          "opti_balancing_netzladen": "input_boolean.opti_balancing_netzladen"
+        }
+      },
+      "tibber": {
+        "title": "Tibber verbinden",
+        "description": "Nutzt deine bestehende Tibber-Anmeldung in Home Assistant, ohne zusätzlichen Token oder Helfer. Aktuell wird genau ein Tibber-Konto mit einem Zuhause unterstützt. Aktueller Preis und Planung stammen aus derselben datierten Reihe. Der HA-Dienst liefert keine Währung: Bestätige deshalb ausdrücklich, dass dein Tibber-Tarif in EUR/kWh abgerechnet wird. Bei einem anderen Tarif diesen Schritt abbrechen.",
+        "data": {
+          "tibber_home": "Tibber-Zuhause",
+          "tibber_eur_confirmed": "Mein Tibber-Tarif verwendet EUR/kWh"
+        }
+      },
+      "notifications": {
+        "title": "Benachrichtigungen",
+        "description": "Probleme erscheinen immer als Home-Assistant-Meldung. Optional zusätzlich einen vorhandenen Push-Dienst auswählen. Der Testknopf auf der Geräteseite prüft die Zustellung. Während HA selbst ausfällt, kann die Integration nicht alarmieren.",
+        "data": {
+          "notification_service": "Zusätzlicher Push-Dienst"
+        }
+      },
+      "huawei_controls": {
+        "title": "Huawei-Steuerung zuordnen",
+        "description": "Ordne die vorhandenen Huawei-Solar-Aktoren des Batterie-Wechselrichters zu. Betriebsmodus, Überschuss-PV und Zwangsstatus müssen zum selben Batteries-Gerät gehören. Fehlen Aktoren, prüfe die Berechtigung zur Parameterkonfiguration in Huawei Solar.\n\nDie Zusatzoption für AC-Erzeuger ist anlagenabhängig und standardmäßig aus.\n\nAchtung: Schreiben greift aktiv in die Akkusteuerung ein. Zeitpläne und Leistungsgrenzen können einen HA-Ausfall überdauern. Abschalten setzt eine bestmögliche Pause; es stellt nicht automatisch die vorherige Konfiguration wieder her. Vor Aktivierung andere Akkusteuerungen abschalten und einen Rückweg prüfen. Die Schreibfreigabe bleibt nach Einrichtung aus. Eine nicht bestätigte Pause wird gespeichert und bei Wiederverbindung nur mit unveränderter Gerätebindung und Allein-Writer-Bestätigung nachgeholt.",
+        "data": {
+          "mode": "Batterie-Betriebsmodus",
+          "excess_pv": "Verwendung überschüssiger PV-Energie",
+          "grid_charge": "Laden aus dem Netz",
+          "charge_limit": "Maximale Ladeleistung",
+          "discharge_limit": "Maximale Entladeleistung",
+          "grid_limit": "Maximale Netzladeleistung",
+          "cutoff_soc": "Netz-Ladeabschaltung (SoC)",
+          "forced_status": "Status erzwungenes Laden/Entladen",
+          "huawei_grid_surplus": "Netzladen im Eigenverbrauch für zusätzliche AC-Erzeuger zulassen"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Verbindung zum Wechselrichter fehlgeschlagen.",
+      "unsupported_device": "Das Gerät ist kein unterstützter SMA STP SE.",
+      "house_required": "Hausverbrauch auswählen oder passende Einzelwechselrichter-Berechnung bestätigen.",
+      "missing_or_stale": "Quelle fehlt, ist nicht verfügbar oder zu alt.",
+      "invalid_value": "Quelle liefert keinen gültigen Zahlenwert.",
+      "unsupported_unit": "Einheit passt nicht zur Quelle.",
+      "negative_value": "Diese Quelle darf keinen negativen Wert liefern.",
+      "invalid_price_series": "Preisreihe benötigt vollständige Stunden- oder Viertelstundenwerte.",
+      "self_reference": "Keine Entität von Opti Akku als eigene Eingangsquelle verwenden.",
+      "price_pair_required": "Aktuellen Preis und Preisreihe gemeinsam auswählen oder beide leer lassen.",
+      "forecast_set_required": "Alle drei Prognosen auswählen oder alle leer lassen.",
+      "ev_pair_required": "Für jede verwendete Wallbox Modus und Ladestatus auswählen.",
+      "invalid_limits": "Werte prüfen: Minima dürfen Maxima nicht überschreiten.",
+      "price_unit_mismatch": "Die ausgewählte Preiseinheit stimmt nicht mit der Sensor-Einheit überein.",
+      "already_configured": "Dieser Wechselrichter ist bereits eingerichtet.",
+      "configuration_changed": "Diese Konfiguration wurde inzwischen geändert. Bitte den Dialog schließen und neu öffnen.",
+      "migration_confirmation_required": "Bitte die Übernahme bestätigen oder Zuordnungen bearbeiten.",
+      "tibber_unavailable": "Tibber konnte keine eindeutige, datierte Preisreihe liefern. Prüfe die Tibber-Integration. Unterstützt wird ein Konto mit einem Zuhause; anschließend erneut versuchen.",
+      "tibber_home_changed": "Das ausgewählte Tibber-Zuhause ist nicht mehr vorhanden. Bitte die Zuordnung prüfen.",
+      "tibber_eur_required": "Bitte EUR/kWh ausdrücklich bestätigen. Andere Währungen werden nicht unterstützt.",
+      "tibber_price_age": "Für Tibber muss das maximale Preisalter unter Erweiterte Einstellungen mindestens 60 Sekunden betragen.",
+      "notification_service_unavailable": "Benachrichtigungsdienst nicht verfügbar",
+      "plant_confirmation_required": "Gemeinsame Messgrenze bestätigen.",
+      "plant_duplicate_source": "Eine Quelle wurde mehrfach oder in widersprüchlichen Rollen ausgewählt.",
+      "plant_sources_invalid": "Anlagenquellen prüfen: Messgrenze, Mehrfachauswahl und Berechnungsmodus müssen zusammenpassen.",
+      "huawei_device_unavailable": "Das Huawei-Gerät muss genau einem geladenen Huawei-Solar-Eintrag gehören.",
+      "huawei_required_data": "Huawei-Pflichtmesswerte fehlen, sind veraltet, ungültig oder haben eine nicht unterstützte Einheit.",
+      "sources_changed": "Mindestens eine gewählte Quelle hat sich geändert oder ist nicht mehr verfügbar. Prüfe die betroffenen Quellenabschnitte vor dem Speichern.",
+      "stop_writes_before_strategy_change": "Vor dem Ein- oder Ausschalten der Strategie zuerst Schreibzugriffe ausschalten.",
+      "huawei_write_access_missing": "Die benötigten Huawei-Aktoren oder Aktionen fehlen, sind nicht verfügbar oder gehören nicht zum gewählten Batterie-Wechselrichter.",
+      "huawei_cutoff_soc_unsupported": "Der maximale Ladestand liegt außerhalb der Huawei-Netzladeabschaltung (typisch 20–100 %).",
+      "huawei_temperature_required": "Eine gültige Huawei-Batterietemperatur fehlt. Wähle sie unter Anlagen und Messwerte oder Verbindung aus. Rein lesende Messwerte sind im Shadow-Modus ohne Strategie möglich.",
+      "huawei_house_source_required": "Huawei benötigt einen vorhandenen Hausverbrauchssensor. Die SMA-Ein-Wechselrichter-Bilanz ist hier nicht verfügbar."
+    },
+    "abort": {
+      "already_configured": "Diese Modbus-Verbindung ist bereits eingerichtet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opti Akku konfigurieren",
+        "description": "Bereich wählen, ändern und abschließend Prüfen und speichern öffnen. Bis dahin bleibt alles ein Entwurf.",
+        "menu_options": {
+          "connection": "Verbindung",
+          "sources": "Anlage und Messwerte",
+          "battery": "Akku und Leistungsgrenzen",
+          "tariff": "Stromtarif",
+          "forecast": "PV-Prognose",
+          "finish": "Prüfen und speichern",
+          "advanced": "Erweiterte Einstellungen",
+          "features": "Optionale Funktionen",
+          "notifications": "Benachrichtigungen",
+          "demand": "Bedarfsprofil und Peak-Reserve",
+          "observation": "Messquellen und Bilanz vergleichen",
+          "ev_preparation": "PV-Vorbereitung fürs Auto"
+        }
+      },
+      "connection": {
+        "title": "Verbindung",
+        "description": "Die neue Verbindung wird ausschließlich lesend geprüft. Änderungen entziehen die bisherige Schreibbestätigung. Der Shadow-Modus ist unveränderlich. Erst Prüfen und speichern übernimmt die Verbindung.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "unit_id": "Unit-ID",
+          "profile": "Geräteprofil"
+        }
+      },
+      "sources": {
+        "title": "Anlage und Messwerte",
+        "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig.",
+        "data": {
+          "house_consumption": "Hausverbrauch",
+          "pv_generation": "PV-Erzeugung DC (nur Anzeige, optional)",
+          "pv_power": "Hybrid-AC-Leistung einschließlich Batterie (optional)",
+          "single_inverter": "Hausverbrauch aus diesem einzigen Wechselrichter berechnen",
+          "plant_mode": "Berechnung des Hausverbrauchs",
+          "additional_ac_sources": "Weitere Wechselrichter: AC-Ausgangsleistung",
+          "excluded_load_sources": "Aus der Prognose auszunehmende Verbraucher",
+          "plant_meter_confirmed": "Der Netzzähler erfasst alle gewählten Erzeuger und Verbraucher",
+          "forecast_min_load_w": "Mindestgrundlast für die Prognose",
+          "strategy_enabled": "Automatische Strategie aktivieren",
+          "huawei_battery_temp": "Huawei-Batterietemperatur"
+        }
+      },
+      "battery": {
+        "title": "Akku und Leistungsgrenzen",
+        "description": "Lege den gewünschten Ladestand und die zulässigen Lade- und Entladeleistungen fest. Übernimm die Grenzen deiner Batterie bzw. deiner bisherigen Steuerung. Dies sind Strategiegrenzen, keine bestätigten Hardware-Schutzgrenzen. Kapazität und Temperatur werden automatisch gelesen.",
+        "data": {
+          "minsoc": "Minimaler Ladestand",
+          "maxsoc": "Maximaler Ladestand",
+          "akkusteuerung_max_ladestaerke": "Max. Ladeleistung",
+          "akkusteuerung_max_entladestaerke": "Max. Entladeleistung",
+          "opti_pv_ueberschuss_ladung": "PV-Überschussladen erlauben"
+        }
+      },
+      "tariff": {
+        "title": "Stromtarif",
+        "description": "Tibber übernimmt datierte Preise aus deiner bereits eingerichteten HA-Integration. Im nächsten Schritt bestätigst du dein Zuhause und den Euro-Tarif. Bei anderen Anbietern beide Preisentitäten auswählen; today/tomorrow müssen vollständige Intervalle mit Start, Ende und Zeitzone enthalten. Ohne Preisoptimierung Entitäten wählen und beide Preisfelder leer lassen.",
+        "data": {
+          "price_current": "Aktueller Strompreis",
+          "price_series": "Preisreihe heute/morgen",
+          "price_unit": "Einheit der Strompreisquelle",
+          "ladepreis": "Referenz-Ladepreis",
+          "mindestpreisdifferenz_lade_entladepreis": "Mindestgewinn beim Entladen",
+          "opti_einspeiseverguetung_ct": "Einspeisevergütung",
+          "opti_netzlade_spread_ct": "Preisabstand für Netzladen",
+          "opti_peak_min_aufschlag_ct": "Mindestaufschlag in Spitzenzeiten",
+          "opti_halte_spread_ct": "Preisabstand fürs Halten",
+          "hausakku_aus_netz_laden": "Netzladen im Winter erlauben",
+          "price_provider": "Preisquelle"
+        },
+        "data_description": {
+          "ladepreis": "-1 bedeutet: noch kein Referenz-Ladepreis bekannt. Vorhandene gespeicherte Werte bleiben beim Upgrade erhalten."
+        }
+      },
+      "forecast": {
+        "title": "PV-Prognose",
+        "description": "Wähle die drei Prognosesensoren in kWh oder Wh. Solcast und Forecast.Solar benötigen passend aufbereitete Sensoren; keine Anbieteranmeldung wird hier eingerichtet. Ohne Prognose alle drei Felder leer lassen; vorausschauende Reserveplanung ist dann eingeschränkt. Optimismus mischt verfügbare konservative und normale Prognosen.",
+        "data": {
+          "forecast_today": "PV-Prognose heute",
+          "forecast_tomorrow": "PV-Prognose morgen",
+          "forecast_remaining": "PV-Prognose verbleibend heute",
+          "opti_forecast_optimismus": "Prognose-Optimismus",
+          "opti_peak_verbrauch_kw": "Erwarteter Hausverbrauch",
+          "opti_prognose_netzladen": "Reserveplanung mit Netzladen erlauben"
+        }
+      },
+      "ev": {
+        "title": "Wallbox: evcc-Anbindung (optional)",
+        "description": "Nur für evcc-Ladepunkte. Modus und Ladestatus müssen zusammen ausgewählt werden. Bei now oder minpv und aktivem Laden kann die Entladung des Hausakkus gesperrt werden; Laden des Hausakkus bleibt möglich. Ohne Wallbox alle Quellen leer und die Sperre ausgeschaltet lassen. Zum Entfernen alle Quellen leeren und die Sperre ausschalten.",
+        "data": {
+          "ev1_mode": "EV 1 Modus",
+          "ev1_charging": "EV 1 lädt",
+          "ev1_power": "EV 1 Ladeleistung",
+          "ev2_mode": "EV 2 Modus",
+          "ev2_charging": "EV 2 lädt",
+          "ev2_power": "EV 2 Ladeleistung",
+          "opti_ev_akku_pause": "Entladung bei Autoladung sperren"
+        }
+      },
+      "balancing": {
+        "title": "Balancing (optional)",
+        "description": "Optional. Intervall 0 deaktiviert die Balancing-Planung vollständig. Bei aktivierter Planung kann eine Zellspreizung zusätzlichen Bedarf auslösen. Netzladen benötigt eine eigene Freigabe. Neue Einträge übernehmen keine Zähler der bisherigen Automation; vorhandene Integrationszähler bleiben erhalten. Die Zellspreizungsquelle ist optional und kann entfernt werden.",
+        "data": {
+          "cell_spread": "BYD-Zellspreizung in Ruhe",
+          "opti_balancing_intervall_tage": "Balancing alle … Tage",
+          "opti_balancing_karenz_tage": "Balancing-Karenz",
+          "opti_balancing_max_ct": "Balancing-Preisgrenze",
+          "opti_balancing_done_soc": "Balancing-Zielladestand",
+          "opti_balancing_spreizungs_schwelle": "Zellabweichung für Balancing",
+          "opti_balancing_bedarf_cooldown_tage": "Balancing-Abstand bei Bedarf",
+          "opti_balancing_netzladen": "Netzladen für Balancing erlauben"
+        }
+      },
+      "finish": {
+        "title": "Prüfen und speichern",
+        "description": "Verbindung: {connection}\nBetriebsart: {mode}\nLadestand: {limits}\nAusgewählte Quellen: {sources}\nStrompreis: {price}\nPV-Prognose: {forecast}\n\n„—“ bedeutet nicht eingerichtet. Strategie berechnen aktiviert allein keine Schreibzugriffe. Shadow bleibt dauerhaft lesend; die vorhandene Steuerung darf weiterlaufen. Bei einem neuen Standard-Eintrag muss Schreiben später separat freigegeben werden. Den 24-Stunden-Test startest du anschließend über die Gerätetaste. Speichern übernimmt den Entwurf; Abbrechen verwirft ihn.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.",
+        "data": {
+          "shadow_reference_mode": "Bestehende Modus-Entität zum Vergleich (optional)",
+          "single_writer_confirmed": "Andere Wechselrichter-Steuerungen sind deaktiviert",
+          "akku_opti_automatik": "Strategie berechnen"
+        }
+      },
+      "advanced": {
+        "title": "Erweiterte Einstellungen",
+        "description": "Für Feinanpassungen. Standardwerte reichen zum Einstieg. Quellenalter wird in Sekunden geprüft; zu kurze Fristen können unveränderte Quellen als ausgefallen behandeln. Änderungen werden erst mit Prüfen und speichern übernommen.",
+        "data": {
+          "akkusteuerung_ladestaerke_soll": "Ladeleistung (manuell)",
+          "akkusteuerung_min_ladestaerke": "Min. Ladeleistung",
+          "akkusteuerung_entladestaerke_soll": "Entladeleistung (manuell)",
+          "akkusteuerung_min_entladestaerke": "Min. Entladeleistung",
+          "akkusteuerung_wr_ac_ueberschuss_grenze": "AC-Überschussgrenze",
+          "akkusteuerung_wr_70proz_ueberschuss_grenze": "70%-PV-Grenze",
+          "akkusteuerung_ueberschuss_veto_grenze": "Einspeisung: Freigabe ab",
+          "akkusteuerung_ueberschuss_veto_aus_grenze": "Einspeisung: Sperre unter",
+          "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Knappheitsfaktor",
+          "source_max_age": "Maximales Alter normaler Quellen (Sekunden)",
+          "forecast_max_age": "Maximales Alter von Prognosen (Sekunden)",
+          "price_max_age": "Maximales Alter von Strompreisen (Sekunden)"
+        }
+      },
+      "features": {
+        "title": "Optionale Funktionen",
+        "description": "Nur benötigte Zusatzfunktionen einrichten. Änderungen werden erst unter Prüfen und speichern übernommen.",
+        "menu_options": {
+          "ev": "Wallbox / evcc",
+          "balancing": "Balancing",
+          "init": "Zurück zur Übersicht"
+        }
+      },
+      "tibber": {
+        "title": "Tibber verbinden",
+        "description": "Nutzt deine bestehende Tibber-Anmeldung in Home Assistant, ohne zusätzlichen Token oder Helfer. Aktuell wird genau ein Tibber-Konto mit einem Zuhause unterstützt. Aktueller Preis und Planung stammen aus derselben datierten Reihe. Der HA-Dienst liefert keine Währung: Bestätige deshalb ausdrücklich, dass dein Tibber-Tarif in EUR/kWh abgerechnet wird. Bei einem anderen Tarif diesen Schritt abbrechen.",
+        "data": {
+          "tibber_home": "Tibber-Zuhause",
+          "tibber_eur_confirmed": "Mein Tibber-Tarif verwendet EUR/kWh"
+        }
+      },
+      "notifications": {
+        "title": "Benachrichtigungen",
+        "description": "Probleme erscheinen immer als Home-Assistant-Meldung. Optional zusätzlich einen vorhandenen Push-Dienst auswählen. Der Testknopf auf der Geräteseite prüft die Zustellung. Während HA selbst ausfällt, kann die Integration nicht alarmieren.",
+        "data": {
+          "notification_service": "Zusätzlicher Push-Dienst"
+        }
+      },
+      "huawei_controls": {
+        "title": "Huawei-Steuerung zuordnen",
+        "description": "Ordne die vorhandenen Huawei-Solar-Aktoren des Batterie-Wechselrichters zu. Betriebsmodus, Überschuss-PV und Zwangsstatus müssen zum selben Batteries-Gerät gehören. Fehlen Aktoren, prüfe die Berechtigung zur Parameterkonfiguration in Huawei Solar.\n\nDie Zusatzoption für AC-Erzeuger ist anlagenabhängig und standardmäßig aus.\n\nAchtung: Schreiben greift aktiv in die Akkusteuerung ein. Zeitpläne und Leistungsgrenzen können einen HA-Ausfall überdauern. Abschalten setzt eine bestmögliche Pause; es stellt nicht automatisch die vorherige Konfiguration wieder her. Vor Aktivierung andere Akkusteuerungen abschalten und einen Rückweg prüfen. Die Schreibfreigabe bleibt nach Einrichtung aus. Eine nicht bestätigte Pause wird gespeichert und bei Wiederverbindung nur mit unveränderter Gerätebindung und Allein-Writer-Bestätigung nachgeholt.",
+        "data": {
+          "mode": "Batterie-Betriebsmodus",
+          "excess_pv": "Verwendung überschüssiger PV-Energie",
+          "grid_charge": "Laden aus dem Netz",
+          "charge_limit": "Maximale Ladeleistung",
+          "discharge_limit": "Maximale Entladeleistung",
+          "grid_limit": "Maximale Netzladeleistung",
+          "cutoff_soc": "Netz-Ladeabschaltung (SoC)",
+          "forced_status": "Status erzwungenes Laden/Entladen",
+          "huawei_grid_surplus": "Netzladen im Eigenverbrauch für zusätzliche AC-Erzeuger zulassen"
+        }
+      },
+      "demand": {
+        "title": "Bedarfsprofil und Peak-Reserve",
+        "description": "Die Nacht-/PV-Prognose bleibt beobachtend. Optional beeinflusst das Stundenprofil aktiv die Peak-Reserve: vergleichbare historische oder gelernte Stunden, 20 % Prognosepuffer, sonst eingestellter Ersatzverbrauch. Dies verändert die Akkusteuerung. Heizungs- und Warmwasserverbrauch ist bereits im Hausprofil enthalten; zukünftige Zyklen werden nicht zeitlich vorhergesagt. Bei unklarem Heizkontext oder erkennbarem, unbeziffertem Warmwasserbedarf bleibt der Ersatzverbrauch. Ein eigener Wärmepumpenzähler wird im aktiven Peak-Profil noch nicht unterstützt.",
+        "data": {
+          "enabled": "Bedarfsprofil lernen und Prognose beobachten",
+          "heat_power": "Elektrische Gesamtleistung der Wärmepumpe, im Hausverbrauch enthalten",
+          "summer_mode": "Sommermodus (an = Sommer, aus = Winter)",
+          "heating_active": "Heizbetrieb aktiv",
+          "dhw_active": "Warmwasserbereitung aktiv",
+          "dhw_due": "Warmwasser vor PV erwartet (optionales Bedarfssignal)",
+          "water_temperature": "Warmwasser-Isttemperatur",
+          "water_target": "Warmwasser-Solltemperatur",
+          "pv_today": "Solcast heute mit detailedForecast/P10",
+          "pv_tomorrow": "Solcast morgen mit detailedForecast/P10",
+          "dhw_cycle_kwh": "Gemessener Strombedarf je Warmwasserzyklus (0 = unbekannt)",
+          "outdoor_temperature": "Außentemperatur (Vergleichstage)",
+          "context_water_temperature": "Warmwasser Ist (Kontext und Bedarfsprüfung)",
+          "context_water_target": "Warmwasser Soll (Kontext und Bedarfsprüfung)",
+          "history_house": "Historischer Hausverbrauch (gleicher Messumfang)",
+          "temperature_matching": "Ähnliche Außentemperaturen bevorzugen (experimentell)",
+          "use_for_peak_reserve": "Stundenprofil für aktive Peak-Reserve verwenden"
+        }
+      },
+      "observation": {
+        "title": "Messquellen beobachten",
+        "description": "Rein lesend: keine Änderung der aktiven Hausquelle. Bilanz benötigt denselben Netzanschlusspunkt, weitere Wechselrichter und abgezogene Lasten. Zeitstempel sind HA-Meldungen, kein Beweis einer neuen Gerätemessung. Vergleich: eigener zeitgewichteter 60-Minuten-Wert gegen Legacy-Glättung; Unterschiede der Mittelungsverfahren bleiben sichtbar.",
+        "data": {
+          "enabled": "Beobachtung aktivieren",
+          "meter_confirmed": "Netzzähler erfasst die gesamte Anlage",
+          "legacy_floor_w": "Untergrenze des Legacy-Mittelwerts",
+          "instant_house": "Ungemittelter Hausverbrauch ohne ausgeschlossene Lasten",
+          "watch_sources": "Zusätzliche Quellen zur Zeitstempelprüfung",
+          "additional_ac_sources": "Weitere Wechselrichter AC-Leistung",
+          "excluded_load_sources": "Abzuziehende Lasten (z. B. Wallbox)",
+          "gross_house": "Gesamter Hausverbrauch vor Lastabzug (momentan)"
+        }
+      },
+      "ev_preparation": {
+        "title": "PV-Vorbereitung fürs Auto",
+        "description": "Bei niedrigem Fahrzeug-SoC vorhandenen PV-Überschuss im Hausakku vorziehen, auch unterwegs. Kein zusätzliches Netzladen. Auto lädt: normale Hausakkuladung und Entladung pausieren; vorrangige Schutzladungen bleiben bestehen. Fahrzeug-SoC verfällt nach 24 Stunden; unbekanntes Ladesignal sperrt die Vorbereitung. Nur Automatik. Anwesenheit und Rückkehrzeit sind nicht nötig. Bei aktivierter automatischer Auto-Vorbereitung wird die Mindest-Entladeleistung immer auf 0 W begrenzt, auch ohne aktuellen Ladebedarf. Das verhindert erzwungene Einspeisung; normaler Hausverbrauch aus dem Akku bleibt möglich.",
+        "data": {
+          "enabled": "Aktivieren",
+          "vehicle_soc": "Fahrzeug-Ladezustand",
+          "charging": "Auto lädt (an = lädt)",
+          "away": "Längere Abwesenheit (optional)",
+          "vehicle_threshold": "Ladebedarf unter Fahrzeug-SoC",
+          "house_target": "Hausakku vorbereiten bis"
+        }
+      }
+    },
+    "error": {
+      "already_configured": "Dieser Wechselrichter ist bereits eingerichtet.",
+      "cannot_connect": "Verbindung zum Wechselrichter fehlgeschlagen.",
+      "unsupported_device": "Das Gerät ist kein unterstützter SMA STP SE.",
+      "house_required": "Hausverbrauch auswählen oder passende Einzelwechselrichter-Berechnung bestätigen.",
+      "missing_or_stale": "Quelle fehlt, ist nicht verfügbar oder zu alt.",
+      "invalid_value": "Quelle liefert keinen gültigen Zahlenwert.",
+      "unsupported_unit": "Einheit passt nicht zur Quelle.",
+      "negative_value": "Diese Quelle darf keinen negativen Wert liefern.",
+      "invalid_price_series": "Preisreihe benötigt vollständige Stunden- oder Viertelstundenwerte.",
+      "self_reference": "Keine Entität von Opti Akku als eigene Eingangsquelle verwenden.",
+      "price_pair_required": "Aktuellen Preis und Preisreihe gemeinsam auswählen oder beide leer lassen.",
+      "forecast_set_required": "Alle drei Prognosen auswählen oder alle leer lassen.",
+      "ev_pair_required": "Für jede verwendete Wallbox Modus und Ladestatus auswählen.",
+      "invalid_limits": "Werte prüfen: Minima dürfen Maxima nicht überschreiten.",
+      "price_unit_mismatch": "Die ausgewählte Preiseinheit stimmt nicht mit der Sensor-Einheit überein.",
+      "configuration_changed": "Diese Konfiguration wurde inzwischen geändert. Bitte den Dialog schließen und neu öffnen.",
+      "tibber_unavailable": "Tibber konnte keine eindeutige, datierte Preisreihe liefern. Prüfe die Tibber-Integration. Unterstützt wird ein Konto mit einem Zuhause; anschließend erneut versuchen.",
+      "tibber_home_changed": "Das ausgewählte Tibber-Zuhause ist nicht mehr vorhanden. Bitte die Zuordnung prüfen.",
+      "tibber_eur_required": "Bitte EUR/kWh ausdrücklich bestätigen. Andere Währungen werden nicht unterstützt.",
+      "tibber_price_age": "Für Tibber muss das maximale Preisalter unter Erweiterte Einstellungen mindestens 60 Sekunden betragen.",
+      "notification_service_unavailable": "Benachrichtigungsdienst nicht verfügbar",
+      "plant_confirmation_required": "Gemeinsame Messgrenze bestätigen.",
+      "plant_duplicate_source": "Eine Quelle wurde mehrfach oder in widersprüchlichen Rollen ausgewählt.",
+      "plant_sources_invalid": "Anlagenquellen prüfen: Messgrenze, Mehrfachauswahl und Berechnungsmodus müssen zusammenpassen.",
+      "sources_changed": "Mindestens eine gewählte Quelle hat sich geändert oder ist nicht mehr verfügbar. Prüfe die betroffenen Quellenabschnitte vor dem Speichern.",
+      "stop_writes_before_strategy_change": "Vor dem Ein- oder Ausschalten der Strategie zuerst Schreibzugriffe ausschalten.",
+      "huawei_write_access_missing": "Die benötigten Huawei-Aktoren oder Aktionen fehlen, sind nicht verfügbar oder gehören nicht zum gewählten Batterie-Wechselrichter.",
+      "huawei_cutoff_soc_unsupported": "Der maximale Ladestand liegt außerhalb der Huawei-Netzladeabschaltung (typisch 20–100 %).",
+      "demand_water_pair": "Ist- und Solltemperatur gemeinsam auswählen.",
+      "demand_heat_meter": "Einen getrennten elektrischen Wärmepumpenzähler auswählen.",
+      "observation_sources": "Vorhandene, eindeutige Sensoren wählen; maximal 8 je Liste und insgesamt 16.",
+      "ev_soc_unit": "Fahrzeug-SoC muss Prozent (%) liefern.",
+      "huawei_temperature_required": "Eine gültige Huawei-Batterietemperatur fehlt. Wähle sie unter Anlagen und Messwerte oder Verbindung aus. Rein lesende Messwerte sind im Shadow-Modus ohne Strategie möglich.",
+      "huawei_house_source_required": "Huawei benötigt einen vorhandenen Hausverbrauchssensor. Die SMA-Ein-Wechselrichter-Bilanz ist hier nicht verfügbar."
+    }
+  },
+  "entity": {
+    "switch": {
+      "write_enabled": {
+        "name": "Schreibzugriffe freigeben"
+      },
+      "akku_opti_automatik": {
+        "name": "Strategie berechnen"
+      },
+      "hausakku_aus_netz_laden": {
+        "name": "Netzladen im Winter erlauben"
+      },
+      "opti_prognose_netzladen": {
+        "name": "Reserveplanung mit Netzladen erlauben"
+      },
+      "opti_pv_ueberschuss_ladung": {
+        "name": "PV-Überschussladen erlauben"
+      },
+      "opti_ev_akku_pause": {
+        "name": "Entladung bei Autoladung sperren"
+      },
+      "opti_balancing_netzladen": {
+        "name": "Netzladen für Balancing erlauben"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Betriebsart",
+        "state": {
+          "observation": "Beobachtung"
+        }
+      }
+    },
+    "binary_sensor": {
+      "connection": {
+        "name": "Verbindung"
+      }
+    },
+    "sensor": {
+      "mode": {
+        "name": "Aktiver Modus"
+      },
+      "reason": {
+        "name": "Entscheidungsgrund"
+      },
+      "last_write": {
+        "name": "Letzter Schreibzugriff"
+      },
+      "last_error": {
+        "name": "Letzter Fehler"
+      },
+      "source_errors": {
+        "name": "Quellenfehler"
+      },
+      "shadow_status": {
+        "name": "Shadow-Aufzeichnung"
+      },
+      "value_soc": {
+        "name": "Ladezustand"
+      },
+      "value_battery_temp": {
+        "name": "Batterietemperatur"
+      },
+      "value_battery_capacity_kwh": {
+        "name": "Batteriekapazität"
+      },
+      "value_battery_power_w": {
+        "name": "Batterieleistung"
+      },
+      "value_pv_power_w": {
+        "name": "Wechselrichterleistung"
+      },
+      "value_pv_generation_w": {
+        "name": "PV-Erzeugung"
+      },
+      "value_grid_import_w": {
+        "name": "Netzbezug"
+      },
+      "value_grid_export_w": {
+        "name": "Einspeisung"
+      },
+      "value_house_consumption_w": {
+        "name": "Hausverbrauch"
+      },
+      "value_target_soc": {
+        "name": "Ziel-Ladestand"
+      },
+      "value_charge_power_w": {
+        "name": "Geplante Ladeleistung"
+      },
+      "value_price_current_ct_kwh": {
+        "name": "Strompreis"
+      },
+      "price_provider_error": {
+        "name": "Preisabruf-Fehler"
+      },
+      "price_last_success": {
+        "name": "Letzter erfolgreicher Preisabruf"
+      },
+      "notification_error": {
+        "name": "Benachrichtigungsfehler"
+      },
+      "load_profile": {
+        "name": "Lastprofil",
+        "state": {
+          "legacy": "Bisherige Berechnung",
+          "warming_up": "Aufwärmphase",
+          "ready": "Bereit",
+          "missing": "Aktuelle Messwerte fehlen"
+        }
+      },
+      "control_release": {
+        "name": "Rückgabe an Gerätesteuerung",
+        "state": {
+          "not_supported": "Nicht unterstützt",
+          "not_confirmed": "Nicht bestätigt"
+        }
+      },
+      "device_errors": {
+        "name": "Gerätequellenfehler"
+      },
+      "command_confirmation": {
+        "name": "Befehlsbestätigung",
+        "state": {
+          "pending": "Rückmeldung oder Aktualisierung ausstehend",
+          "idle_or_confirmed": "Kein offener Befehl",
+          "waiting_ready": "Wartet auf Betriebsbereitschaft"
+        }
+      },
+      "pause_pending": {
+        "name": "Ausstehende Huawei-Pause",
+        "state": {
+          "pending": "Pause nicht bestätigt",
+          "clear": "Keine offene Pause"
+        }
+      },
+      "reserve_plan": {
+        "name": "Reserveplanung",
+        "state": {
+          "planned": "Peakreserve geplant",
+          "disabled": "Strategie deaktiviert",
+          "observation": "Reserveplanung ohne Steuerung",
+          "manual": "Manuelle Steuerung aktiv",
+          "no_peak": "Keine aktive Peakreserve",
+          "unconfirmed": "Steuerbefehl unbestätigt",
+          "hold_requested": "Reserve halten angefordert",
+          "discharge_requested": "Reserve für Preispeak freigegeben",
+          "charge_requested": "Vorladen für Preispeak angefordert",
+          "no_valid_plan": "Keine gültige Reserveplanung"
+        },
+        "state_attributes": {
+          "planned_reserve_soc": {
+            "name": "Geplante Gesamtreserve (%)"
+          },
+          "priority_reserve_soc": {
+            "name": "Reserve für teuerste Zeitfenster (%)"
+          },
+          "horizon_end": {
+            "name": "Planung bis"
+          },
+          "assumed_load_w": {
+            "name": "Angenommener Hausverbrauch (W)"
+          },
+          "assumed_discharge_efficiency": {
+            "name": "Angenommener Entladewirkungsgrad"
+          },
+          "required_battery_kwh": {
+            "name": "Berechneter Energiebedarf (kWh)"
+          },
+          "current_soc": {
+            "name": "Aktueller Ladestand (%)"
+          },
+          "expensive_hours": {
+            "name": "Teure Stunden"
+          },
+          "very_expensive_hours": {
+            "name": "Sehr teure Stunden"
+          },
+          "decision_reason": {
+            "name": "Entscheidungsgrund"
+          },
+          "battery_power_w": {
+            "name": "Gemessene Akkuleistung (W; negativ = Entladen)"
+          },
+          "day_target_soc": {
+            "name": "Tagesziel (%)"
+          },
+          "requested_mode": {
+            "name": "Angeforderter Modus"
+          },
+          "command_confirmation": {
+            "name": "Befehlsstatus"
+          },
+          "last_confirmed_command_at": {
+            "name": "Letzter bestätigter Befehl"
+          },
+          "hold_threshold_soc": {
+            "name": "Aktuelle Haltereserve (%)"
+          }
+        }
+      },
+      "operating_report": {
+        "name": "Betriebsbericht",
+        "state": {
+          "collecting": "Messwerte werden erfasst",
+          "data_missing": "Messdaten fehlen",
+          "error": "Bericht nicht verfügbar"
+        },
+        "state_attributes": {
+          "started_at": {
+            "name": "Bericht seit"
+          },
+          "last_observation": {
+            "name": "Letzte Beobachtung"
+          },
+          "totals": {
+            "name": "Gesamtbeobachtung"
+          },
+          "last_peak": {
+            "name": "Letztes beobachtetes teures Zeitfenster"
+          },
+          "current_peak": {
+            "name": "Aktuelles teures Zeitfenster"
+          },
+          "incidents": {
+            "name": "Letzte 20 Ereignisse"
+          },
+          "coverage_percent": {
+            "name": "Messabdeckung (%)"
+          },
+          "observed_mean_load_w": {
+            "name": "Beobachteter mittlerer Hausverbrauch (W)"
+          },
+          "write_failures": {
+            "name": "Fehlgeschlagene Schreibversuche"
+          },
+          "disconnects": {
+            "name": "Verbindungsausfälle"
+          },
+          "source_error_episodes": {
+            "name": "Phasen mit Quellenfehlern"
+          },
+          "sampling_gaps": {
+            "name": "Abtastlücken"
+          },
+          "restarts": {
+            "name": "Bericht nach Neustart fortgesetzt"
+          },
+          "last_control": {
+            "name": "Letzte Steuerentscheidung"
+          }
+        }
+      },
+      "price_status": {
+        "name": "Preisversorgung",
+        "state": {
+          "loading": "Preisdaten werden geladen",
+          "ready": "Preisdaten verfügbar",
+          "error": "Preisversorgung gestört",
+          "not_used": "Preisstrategie deaktiviert"
+        }
+      },
+      "demand_forecast": {
+        "name": "Bedarfsprognose (Beobachtung)",
+        "state": {
+          "disabled": "Aus",
+          "learning": "Lernt Verbrauchsprofil",
+          "ready": "Vergleich verfügbar",
+          "data_missing": "Daten fehlen",
+          "no_pv_timing": "PV-Deckung nicht bestimmbar",
+          "error": "Berechnungsfehler"
+        }
+      },
+      "source_observation": {
+        "name": "Messquellenvergleich",
+        "state": {
+          "disabled": "Deaktiviert",
+          "ready": "Vergleich bereit",
+          "warming_up": "Mittelwert wird aufgebaut",
+          "data_missing": "Messdaten fehlen",
+          "error": "Diagnosefehler"
+        }
+      },
+      "connection_status": {
+        "name": "Wechselrichter-Bereitschaft",
+        "state": {
+          "offline": "Nicht erreichbar",
+          "recovering": "Wiederanlauf wird geprüft",
+          "not_ready": "Noch nicht betriebsbereit",
+          "ready": "Betriebsbereit"
+        }
+      },
+      "ev_preparation": {
+        "name": "PV-Vorbereitung fürs Auto",
+        "state": {
+          "disabled": "Deaktiviert",
+          "car_charging": "Auto lädt",
+          "data_missing": "Daten fehlen",
+          "away": "Längere Abwesenheit",
+          "target_reached": "Vorbereitungsziel erreicht",
+          "no_demand": "Kein Ladebedarf",
+          "waiting_surplus": "Wartet auf PV-Überschuss",
+          "ready": "Bereit",
+          "preparing": "Hausakku wird vorbereitet",
+          "higher_priority": "Andere Regel hat Vorrang"
+        }
+      }
+    },
+    "button": {
+      "shadow_start": {
+        "name": "24-Stunden-Test starten"
+      },
+      "shadow_stop": {
+        "name": "Shadow-Test beenden"
+      },
+      "notification_test": {
+        "name": "Benachrichtigung testen"
+      },
+      "demand_history_import": {
+        "name": "Bedarfsprognose: Historie importieren"
+      }
+    },
+    "number": {
+      "akkusteuerung_ladestaerke_soll": {
+        "name": "Ladeleistung (manuell)"
+      },
+      "akkusteuerung_min_ladestaerke": {
+        "name": "Min. Ladeleistung"
+      },
+      "akkusteuerung_max_ladestaerke": {
+        "name": "Max. Ladeleistung"
+      },
+      "akkusteuerung_entladestaerke_soll": {
+        "name": "Entladeleistung (manuell)"
+      },
+      "akkusteuerung_min_entladestaerke": {
+        "name": "Min. Entladeleistung"
+      },
+      "akkusteuerung_max_entladestaerke": {
+        "name": "Max. Entladeleistung"
+      },
+      "akkusteuerung_wr_ac_ueberschuss_grenze": {
+        "name": "AC-Überschussgrenze"
+      },
+      "akkusteuerung_wr_70proz_ueberschuss_grenze": {
+        "name": "70%-PV-Grenze"
+      },
+      "akkusteuerung_ueberschuss_veto_grenze": {
+        "name": "Einspeisung: Freigabe ab"
+      },
+      "akkusteuerung_ueberschuss_veto_aus_grenze": {
+        "name": "Einspeisung: Sperre unter"
+      },
+      "akkusteuerung_ueberschuss_veto_knappheit_faktor": {
+        "name": "Knappheitsfaktor"
+      },
+      "minsoc": {
+        "name": "Minimaler Ladestand"
+      },
+      "maxsoc": {
+        "name": "Maximaler Ladestand"
+      },
+      "ladepreis": {
+        "name": "Referenz-Ladepreis"
+      },
+      "mindestpreisdifferenz_lade_entladepreis": {
+        "name": "Mindestgewinn beim Entladen"
+      },
+      "opti_peak_verbrauch_kw": {
+        "name": "Erwarteter Hausverbrauch"
+      },
+      "opti_einspeiseverguetung_ct": {
+        "name": "Einspeisevergütung"
+      },
+      "opti_netzlade_spread_ct": {
+        "name": "Preisabstand für Netzladen"
+      },
+      "opti_peak_min_aufschlag_ct": {
+        "name": "Mindestaufschlag in Spitzenzeiten"
+      },
+      "opti_forecast_optimismus": {
+        "name": "Prognose-Optimismus"
+      },
+      "opti_halte_spread_ct": {
+        "name": "Preisabstand fürs Halten"
+      },
+      "opti_balancing_intervall_tage": {
+        "name": "Balancing alle … Tage"
+      },
+      "opti_balancing_karenz_tage": {
+        "name": "Balancing-Karenz"
+      },
+      "opti_balancing_max_ct": {
+        "name": "Balancing-Preisgrenze"
+      },
+      "opti_balancing_done_soc": {
+        "name": "Balancing-Zielladestand"
+      },
+      "opti_balancing_spreizungs_schwelle": {
+        "name": "Zellabweichung für Balancing"
+      },
+      "opti_balancing_bedarf_cooldown_tage": {
+        "name": "Balancing-Abstand bei Bedarf"
+      }
+    }
+  },
+  "selector": {
+    "backend": {
+      "options": {
+        "sma_modbus": "SMA Modbus",
+        "huawei_solar": "Huawei Solar (LUNA2000, experimentell)"
+      }
+    },
+    "grid_positive": {
+      "options": {
+        "export": "Einspeisung",
+        "import": "Netzbezug"
+      }
+    },
+    "price_provider": {
+      "options": {
+        "entities": "Preisentitäten",
+        "tibber": "Tibber (vorhandene HA-Integration)"
+      }
+    },
+    "plant_mode": {
+      "options": {
+        "legacy": "Bisherige Berechnung (Migration)",
+        "balance": "Anlagenbilanz aus AC-Leistungen und Netzzähler",
+        "external": "Ungeglätteter Hausverbrauch aus vorhandenem Sensor"
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+schema_version: 1
+source_revision: 7f4d5214ff49a86a7eaf2f0551720fe96830bde3
+source_repository: ha-akkusteuerung-sma
+source_files:
+  packages/opti_derived.yaml:
+    sha256: f9c29cbe822a4cda97366fa2c1241206de733fea05c6a039fbb205ccb07b7267
+  packages/opti_ev_sperre.yaml:
+    sha256: e04b2432b0aabec1de7c22ac2394cc342fde7318315a25ec84623799394ab0a4
+  packages/sma_helpers.yaml:
+    sha256: abfef8b1ff36f80f2063d3ed40ecfb5ed98a07d228cce0d5e3af72f6f8ba5f24
+  packages/sma_statistik.yaml:
+    sha256: 4342987b53945b7239da1db05fd57c2bc53ffa71cb16812f6651306f7d907656
+  automations/opti_strategie.yaml:
+    sha256: f5b6f8334fec211e91ed0b02fae2a1fcc9c872212b90002557b15104424627de
+  automations/opti_balancing_counter.yaml:
+    sha256: 26f93dd08200a6602d7481849f2771863c00d38cfa04fa25ba9c694a0c9218fb

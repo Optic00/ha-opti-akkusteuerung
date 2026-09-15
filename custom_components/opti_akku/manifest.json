@@ -1,0 +1,20 @@
+{
+  "domain": "opti_akku",
+  "name": "Opti Akku",
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@Optic00"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "modbus",
+    "persistent_notification"
+  ],
+  "documentation": "https://github.com/Optic00/ha-opti-akkusteuerung",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/Optic00/ha-opti-akkusteuerung/issues",
+  "requirements": [],
+  "version": "0.5.2b6"
+}

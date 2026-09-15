@@ -1,0 +1,2311 @@
+{
+  "schema_version": 1,
+  "source_revision": "7f4d5214ff49a86a7eaf2f0551720fe96830bde3",
+  "source_repository": "ha-akkusteuerung-sma",
+  "source_files": {
+    "packages/opti_derived.yaml": {
+      "sha256": "f9c29cbe822a4cda97366fa2c1241206de733fea05c6a039fbb205ccb07b7267"
+    },
+    "packages/opti_ev_sperre.yaml": {
+      "sha256": "e04b2432b0aabec1de7c22ac2394cc342fde7318315a25ec84623799394ab0a4"
+    },
+    "packages/sma_helpers.yaml": {
+      "sha256": "abfef8b1ff36f80f2063d3ed40ecfb5ed98a07d228cce0d5e3af72f6f8ba5f24"
+    },
+    "packages/sma_statistik.yaml": {
+      "sha256": "4342987b53945b7239da1db05fd57c2bc53ffa71cb16812f6651306f7d907656"
+    },
+    "automations/opti_strategie.yaml": {
+      "sha256": "f5b6f8334fec211e91ed0b02fae2a1fcc9c872212b90002557b15104424627de"
+    },
+    "automations/opti_balancing_counter.yaml": {
+      "sha256": "26f93dd08200a6602d7481849f2771863c00d38cfa04fa25ba9c694a0c9218fb"
+    }
+  },
+  "helper_definitions": {
+    "input_select.akkusteuerung_modus": {
+      "domain": "input_select",
+      "name": "Akkusteuerung Modus",
+      "options": [
+        "Akku Automatisch",
+        "Akku schnell Laden",
+        "Akku schnell Entladen",
+        "Akku Pause",
+        "Akku nur Laden",
+        "Akku Netzladen",
+        "Akku nur Entladen",
+        "Akku Dynamisch",
+        "Akku 0.2C Laden"
+      ],
+      "icon": "mdi:battery-charging"
+    },
+    "input_number.akkusteuerung_ladestaerke_soll": {
+      "domain": "input_number",
+      "name": "Akkusteuerung Ladestärke Soll",
+      "min": 100,
+      "max": 10000,
+      "step": 100,
+      "unit_of_measurement": "W",
+      "mode": "box",
+      "icon": "mdi:battery-arrow-up"
+    },
+    "input_number.akkusteuerung_min_ladestaerke": {
+      "domain": "input_number",
+      "name": "Akkusteuerung Min Ladestärke",
+      "min": 0,
+      "max": 2000,
+      "step": 50,
+      "unit_of_measurement": "W",
+      "mode": "box"
+    },
+    "input_number.akkusteuerung_max_ladestaerke": {
+      "domain": "input_number",
+      "name": "Akkusteuerung Max Ladestärke",
+      "min": 0,
+      "max": 10000,
+      "step": 1,
+      "unit_of_measurement": "W",
+      "mode": "box"
+    },
+    "input_number.akkusteuerung_entladestaerke_soll": {
+      "domain": "input_number",
+      "name": "Akkusteuerung Entladestärke Soll",
+      "min": 100,
+      "max": 10000,
+      "step": 100,
+      "unit_of_measurement": "W",
+      "mode": "box",
+      "icon": "mdi:battery-arrow-down"
+    },
+    "input_number.akkusteuerung_min_entladestaerke": {
+      "domain": "input_number",
+      "name": "Akkusteuerung Min Entladestärke",
+      "min": 0,
+      "max": 2000,
+      "step": 50,
+      "unit_of_measurement": "W",
+      "mode": "box"
+    },
+    "input_number.akkusteuerung_max_entladestaerke": {
+      "domain": "input_number",
+      "name": "Akkusteuerung Max Entladestärke",
+      "min": 0,
+      "max": 10000,
+      "step": 1,
+      "unit_of_measurement": "W",
+      "mode": "box"
+    },
+    "input_number.akkusteuerung_wr_ac_ueberschuss_grenze": {
+      "domain": "input_number",
+      "name": "Akkusteuerung AC-Überschuss Grenze",
+      "min": 0,
+      "max": 15000,
+      "step": 100,
+      "unit_of_measurement": "W",
+      "mode": "box",
+      "icon": "mdi:transmission-tower-export"
+    },
+    "input_number.akkusteuerung_wr_70proz_ueberschuss_grenze": {
+      "domain": "input_number",
+      "name": "Akkusteuerung 70%-Überschuss Grenze",
+      "min": 0,
+      "max": 25000,
+      "step": 100,
+      "unit_of_measurement": "W",
+      "mode": "box"
+    },
+    "input_number.akkusteuerung_ueberschuss_veto_grenze": {
+      "domain": "input_number",
+      "name": "Akkusteuerung Überschuss-Veto Grenze",
+      "min": 200,
+      "max": 5000,
+      "step": 50,
+      "unit_of_measurement": "W",
+      "mode": "box",
+      "icon": "mdi:transmission-tower-export"
+    },
+    "input_number.akkusteuerung_ueberschuss_veto_aus_grenze": {
+      "domain": "input_number",
+      "name": "Akkusteuerung Überschuss-Veto Aus-Grenze",
+      "min": 100,
+      "max": 5000,
+      "step": 50,
+      "unit_of_measurement": "W",
+      "mode": "box",
+      "icon": "mdi:transmission-tower-export"
+    },
+    "input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor": {
+      "domain": "input_number",
+      "name": "Akkusteuerung Überschuss-Veto Knappheits-Faktor",
+      "min": 1,
+      "max": 10,
+      "step": 0.5,
+      "mode": "box",
+      "icon": "mdi:scale-balance"
+    },
+    "input_number.minsoc": {
+      "domain": "input_number",
+      "name": "Akku Min SoC",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit_of_measurement": "%",
+      "mode": "slider",
+      "icon": "mdi:battery-low"
+    },
+    "input_number.maxsoc": {
+      "domain": "input_number",
+      "name": "Akku Max SoC",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit_of_measurement": "%",
+      "mode": "slider",
+      "icon": "mdi:battery-high"
+    },
+    "input_number.ladepreis": {
+      "domain": "input_number",
+      "name": "Akku Ladepreis (Referenz)",
+      "min": -1,
+      "max": 1,
+      "step": 0.001,
+      "unit_of_measurement": "EUR/kWh",
+      "mode": "box",
+      "icon": "mdi:currency-eur"
+    },
+    "input_number.mindestpreisdifferenz_lade_entladepreis": {
+      "domain": "input_number",
+      "name": "Mindestpreisdifferenz Laden/Entladen",
+      "min": 0,
+      "max": 0.3,
+      "step": 0.005,
+      "unit_of_measurement": "EUR/kWh",
+      "mode": "box",
+      "icon": "mdi:cash-plus"
+    },
+    "input_number.opti_peak_verbrauch_kw": {
+      "domain": "input_number",
+      "name": "Opti Peak-Verbrauch",
+      "min": 0.1,
+      "max": 5,
+      "step": 0.1,
+      "unit_of_measurement": "kW",
+      "mode": "box",
+      "icon": "mdi:home-lightning-bolt"
+    },
+    "input_number.opti_einspeiseverguetung_ct": {
+      "domain": "input_number",
+      "name": "Opti Einspeiseverguetung",
+      "min": 0,
+      "max": 30,
+      "step": 0.1,
+      "unit_of_measurement": "ct/kWh",
+      "mode": "box",
+      "icon": "mdi:solar-power-variant"
+    },
+    "input_number.opti_netzlade_spread_ct": {
+      "domain": "input_number",
+      "name": "Opti Netzlade-Spread",
+      "min": 0,
+      "max": 100,
+      "step": 0.5,
+      "unit_of_measurement": "ct/kWh",
+      "mode": "box",
+      "icon": "mdi:swap-vertical-bold"
+    },
+    "input_number.opti_peak_min_aufschlag_ct": {
+      "domain": "input_number",
+      "name": "Opti Peak Mindestaufschlag",
+      "min": 0,
+      "max": 100,
+      "step": 0.5,
+      "unit_of_measurement": "ct/kWh",
+      "mode": "box",
+      "icon": "mdi:filter-outline"
+    },
+    "input_number.opti_forecast_optimismus": {
+      "domain": "input_number",
+      "name": "Opti Forecast-Optimismus",
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "unit_of_measurement": "%",
+      "mode": "slider",
+      "icon": "mdi:weather-sunny"
+    },
+    "input_number.opti_halte_spread_ct": {
+      "domain": "input_number",
+      "name": "Opti Halte-Spread",
+      "min": 0,
+      "max": 50,
+      "step": 0.5,
+      "unit_of_measurement": "ct/kWh",
+      "mode": "box",
+      "icon": "mdi:hand-back-right-outline"
+    },
+    "input_number.opti_balancing_intervall_tage": {
+      "domain": "input_number",
+      "name": "Opti Balancing Intervall",
+      "min": 0,
+      "max": 60,
+      "step": 1,
+      "unit_of_measurement": "Tage",
+      "mode": "box",
+      "icon": "mdi:calendar-refresh"
+    },
+    "input_number.opti_balancing_karenz_tage": {
+      "domain": "input_number",
+      "name": "Opti Balancing Karenz",
+      "min": 0,
+      "max": 14,
+      "step": 1,
+      "unit_of_measurement": "Tage",
+      "mode": "box",
+      "icon": "mdi:timer-sand"
+    },
+    "input_number.opti_balancing_max_ct": {
+      "domain": "input_number",
+      "name": "Opti Balancing Preisdeckel",
+      "min": 0,
+      "max": 50,
+      "step": 0.5,
+      "unit_of_measurement": "ct/kWh",
+      "mode": "box",
+      "icon": "mdi:cash-lock"
+    },
+    "input_number.opti_balancing_done_soc": {
+      "domain": "input_number",
+      "name": "Opti Balancing Done-SoC",
+      "initial": 98.5,
+      "min": 90,
+      "max": 100,
+      "step": 0.5,
+      "unit_of_measurement": "%",
+      "mode": "box",
+      "icon": "mdi:battery-heart-variant"
+    },
+    "input_number.opti_balancing_spreizungs_schwelle": {
+      "domain": "input_number",
+      "name": "Opti Balancing Spreizungs-Schwelle",
+      "min": 0,
+      "max": 49,
+      "step": 1,
+      "unit_of_measurement": "mV",
+      "mode": "box",
+      "icon": "mdi:arrow-collapse-vertical"
+    },
+    "input_number.opti_balancing_bedarf_cooldown_tage": {
+      "domain": "input_number",
+      "name": "Opti Balancing Bedarf-Cooldown Tage",
+      "min": 0,
+      "max": 30,
+      "step": 1,
+      "unit_of_measurement": "Tage",
+      "mode": "box",
+      "icon": "mdi:timer-sand"
+    },
+    "input_boolean.akku_opti_automatik": {
+      "domain": "input_boolean",
+      "name": "Akku Opti-Automatik",
+      "icon": "mdi:battery-sync"
+    },
+    "input_boolean.hausakku_aus_netz_laden": {
+      "domain": "input_boolean",
+      "name": "Hausakku aus Netz laden",
+      "icon": "mdi:transmission-tower"
+    },
+    "input_boolean.hausakku_wurde_netzgeladen": {
+      "domain": "input_boolean",
+      "name": "Hausakku wurde netzgeladen (Flag)",
+      "icon": "mdi:battery-check"
+    },
+    "input_boolean.akku_nach_preis_laden": {
+      "domain": "input_boolean",
+      "name": "Akku nach Preis laden",
+      "icon": "mdi:currency-eur"
+    },
+    "input_boolean.speicher_eco_netzladen": {
+      "domain": "input_boolean",
+      "name": "Speicher Eco Netzladen",
+      "icon": "mdi:leaf"
+    },
+    "input_boolean.opti_prognose_netzladen": {
+      "domain": "input_boolean",
+      "name": "Opti Reserve-halten bei schlechter Prognose",
+      "icon": "mdi:transmission-tower"
+    },
+    "input_boolean.opti_pv_ueberschuss_ladung": {
+      "domain": "input_boolean",
+      "name": "Opti PV-Überschussladung erlauben",
+      "icon": "mdi:solar-power"
+    },
+    "input_boolean.opti_ev_akku_pause": {
+      "domain": "input_boolean",
+      "name": "Opti EV Akku-Pause",
+      "icon": "mdi:car-electric"
+    },
+    "input_boolean.opti_balancing_netzladen": {
+      "domain": "input_boolean",
+      "name": "Opti Balancing darf ans Netz",
+      "icon": "mdi:battery-heart-variant"
+    },
+    "input_boolean.opti_balancing_abschluss_gueltig": {
+      "domain": "input_boolean",
+      "name": "Opti Balancing Abschluss gültig",
+      "icon": "mdi:calendar-check"
+    },
+    "counter.tage_seit_akku100": {
+      "domain": "counter",
+      "name": "Tage seit Akku 100%",
+      "step": 1,
+      "icon": "mdi:counter"
+    },
+    "counter.opti_balancing_done_minuten": {
+      "domain": "counter",
+      "name": "Opti Balancing Done-Minuten",
+      "minimum": 0,
+      "maximum": 30,
+      "step": 1,
+      "icon": "mdi:timer-check-outline"
+    },
+    "input_text.akkusteuerung_modbus_letzter_schreibwert": {
+      "domain": "input_text",
+      "name": "Akkusteuerung Modbus Letzter Schreibwert",
+      "max": 255
+    },
+    "input_text.byd_bms_warnung_zuletzt_gemeldet": {
+      "domain": "input_text",
+      "name": "BYD Zuletzt gemeldete BMS-Warnung",
+      "max": 255
+    },
+    "input_datetime.opti_balancing_letzter_abschluss": {
+      "domain": "input_datetime",
+      "name": "Opti Balancing letzter Abschluss",
+      "has_date": true,
+      "has_time": true
+    },
+    "input_datetime.akkusteuerung_modbus_letzter_schreibzeitpunkt": {
+      "domain": "input_datetime",
+      "name": "Akkusteuerung Modbus Letzter Schreibzeitpunkt",
+      "has_date": true,
+      "has_time": true
+    }
+  },
+  "helper_defaults": {
+    "input_select.akkusteuerung_modus": "Akku Pause",
+    "input_number.akkusteuerung_ladestaerke_soll": 2000,
+    "input_number.akkusteuerung_min_ladestaerke": 0,
+    "input_number.akkusteuerung_max_ladestaerke": 3000,
+    "input_number.akkusteuerung_entladestaerke_soll": 2000,
+    "input_number.akkusteuerung_min_entladestaerke": 0,
+    "input_number.akkusteuerung_max_entladestaerke": 5000,
+    "input_number.akkusteuerung_wr_ac_ueberschuss_grenze": 0,
+    "input_number.akkusteuerung_wr_70proz_ueberschuss_grenze": 0,
+    "input_number.akkusteuerung_ueberschuss_veto_grenze": 500,
+    "input_number.akkusteuerung_ueberschuss_veto_aus_grenze": 250,
+    "input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor": 1,
+    "input_number.minsoc": 10,
+    "input_number.maxsoc": 95,
+    "input_number.ladepreis": -1,
+    "input_number.mindestpreisdifferenz_lade_entladepreis": 0.08,
+    "input_number.opti_peak_verbrauch_kw": 0.8,
+    "input_number.opti_einspeiseverguetung_ct": 0,
+    "input_number.opti_netzlade_spread_ct": 10,
+    "input_number.opti_peak_min_aufschlag_ct": 5,
+    "input_number.opti_forecast_optimismus": 0,
+    "input_number.opti_halte_spread_ct": 5,
+    "input_number.opti_balancing_intervall_tage": 0,
+    "input_number.opti_balancing_karenz_tage": 3,
+    "input_number.opti_balancing_max_ct": 0,
+    "input_number.opti_balancing_done_soc": 98.5,
+    "input_number.opti_balancing_spreizungs_schwelle": 0,
+    "input_number.opti_balancing_bedarf_cooldown_tage": 5,
+    "input_boolean.akku_opti_automatik": "off",
+    "input_boolean.hausakku_aus_netz_laden": "off",
+    "input_boolean.hausakku_wurde_netzgeladen": "off",
+    "input_boolean.akku_nach_preis_laden": "off",
+    "input_boolean.speicher_eco_netzladen": "off",
+    "input_boolean.opti_prognose_netzladen": "on",
+    "input_boolean.opti_pv_ueberschuss_ladung": "on",
+    "input_boolean.opti_ev_akku_pause": "off",
+    "input_boolean.opti_balancing_netzladen": "off",
+    "input_boolean.opti_balancing_abschluss_gueltig": "off",
+    "counter.tage_seit_akku100": 0,
+    "counter.opti_balancing_done_minuten": 0,
+    "input_text.akkusteuerung_modbus_letzter_schreibwert": "",
+    "input_text.byd_bms_warnung_zuletzt_gemeldet": "",
+    "input_datetime.opti_balancing_letzter_abschluss": "",
+    "input_datetime.akkusteuerung_modbus_letzter_schreibzeitpunkt": ""
+  },
+  "template_blocks": [
+    {
+      "source": "packages/opti_derived.yaml",
+      "binary_sensor": [
+        {
+          "unique_id": "opti_winter_charging_allowed",
+          "name": "Opti Winter Charging Allowed",
+          "state": "{{ true }}"
+        },
+        {
+          "unique_id": "opti_ueberschuss_70_aktiv",
+          "name": "Opti Ueberschuss 70 Aktiv",
+          "icon": "mdi:transmission-tower-export",
+          "delay_on": {
+            "seconds": 30
+          },
+          "delay_off": {
+            "seconds": 30
+          },
+          "state": "{% set ok = has_value('sensor.opti_grid_export_w')\n            and has_value('sensor.opti_battery_power_w') %}\n{% set export_ohne_akku = [0, states('sensor.opti_grid_export_w')|float(0)\n                              + states('sensor.opti_battery_power_w')|float(0)] | max %}\n{% set ein = states('input_number.akkusteuerung_wr_70proz_ueberschuss_grenze')|float(999999) %} {% set aus = ein - 1000 %} {% set war_an = this is defined and this.state == 'on' %} {# Grenze <= 0 = nicht konfiguriert = Funktion AUS (Repo-Idiom, wie\n   opti_balancing_spreizungs_schwelle). Ohne diesen Guard startet ein\n   frisch angelegter Helfer auf seinem min (0) und der Sensor waere\n   dauerhaft an, sobald ueberhaupt exportiert wird. #}\n{{ ok and ein > 0 and (export_ohne_akku > ein\n           or (aus > 0 and export_ohne_akku >= aus and war_an)) }}\n",
+          "attributes": {
+            "export_ohne_akku_w": "{{ [0, states('sensor.opti_grid_export_w')|float(0)\n       + states('sensor.opti_battery_power_w')|float(0)] | max | round(0) }}\n",
+            "grenze_ein_w": "{{ states('input_number.akkusteuerung_wr_70proz_ueberschuss_grenze') }}",
+            "hysterese_w": 1000
+          }
+        },
+        {
+          "unique_id": "opti_ueberschuss_ac_aktiv",
+          "name": "Opti Ueberschuss AC Aktiv",
+          "icon": "mdi:sine-wave",
+          "delay_on": {
+            "seconds": 30
+          },
+          "delay_off": {
+            "seconds": 30
+          },
+          "state": "{% set ok = has_value('sensor.opti_pv_power_w')\n            and has_value('sensor.opti_battery_power_w') %}\n{% set ac_ohne_akku = [0, states('sensor.opti_pv_power_w')|float(0)\n                          + states('sensor.opti_battery_power_w')|float(0)] | max %}\n{% set ein = states('input_number.akkusteuerung_wr_ac_ueberschuss_grenze')|float(999999) %} {% set aus = ein - 300 %} {% set war_an = this is defined and this.state == 'on' %} {# Grenze <= 0 = nicht konfiguriert = Funktion AUS, siehe Kommentar\n   beim 70%-Sensor oben. #}\n{{ ok and ein > 0 and (ac_ohne_akku > ein\n           or (aus > 0 and ac_ohne_akku >= aus and war_an)) }}\n",
+          "attributes": {
+            "ac_ohne_akku_w": "{{ [0, states('sensor.opti_pv_power_w')|float(0)\n       + states('sensor.opti_battery_power_w')|float(0)] | max | round(0) }}\n",
+            "grenze_ein_w": "{{ states('input_number.akkusteuerung_wr_ac_ueberschuss_grenze') }}",
+            "hysterese_w": 300
+          }
+        },
+        {
+          "unique_id": "opti_ueberschuss_veto_aktiv",
+          "name": "Opti Ueberschuss Veto Aktiv",
+          "icon": "mdi:battery-plus-variant",
+          "delay_on": {
+            "seconds": 60
+          },
+          "delay_off": {
+            "seconds": 60
+          },
+          "state": "{% set ok = has_value('sensor.opti_grid_export_w')\n            and has_value('sensor.opti_grid_import_w')\n            and has_value('sensor.opti_battery_power_w') %}\n{% set export_ohne_akku = [0, states('sensor.opti_grid_export_w')|float(0)\n                              - states('sensor.opti_grid_import_w')|float(0)\n                              + states('sensor.opti_battery_power_w')|float(0)] | max %}\n{% set ein = states('input_number.akkusteuerung_ueberschuss_veto_grenze')|float(999999) %} {% set aus = states('input_number.akkusteuerung_ueberschuss_veto_aus_grenze')|float(ein) %} {% set war_an = this is defined and this.state == 'on' %} {% set surplus = state_attr('sensor.opti_forecast_score', 'pv_surplus_kwh')|float(none) %} {% set needed = state_attr('sensor.opti_forecast_score', 'needed_full_kwh')|float(none) %} {% set f = states('input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor')|float(1) %} {% if needed is not none and needed <= 0 %}\n  {% set knappheit_gate_offen = false %}\n{% elif surplus is none or needed is none %}\n  {% set knappheit_gate_offen = true %}\n{% else %}\n  {% set knappheit_gate_offen = surplus < needed * f\n      or (war_an and surplus < needed * f * 1.2) %}\n{% endif %} {{ ok and knappheit_gate_offen and (export_ohne_akku > ein\n           or (aus > 0 and export_ohne_akku >= aus and war_an)) }}\n",
+          "attributes": {
+            "export_ohne_akku_w": "{{ [0, states('sensor.opti_grid_export_w')|float(0)\n       - states('sensor.opti_grid_import_w')|float(0)\n       + states('sensor.opti_battery_power_w')|float(0)] | max | round(0) }}\n",
+            "grenze_ein_w": "{{ states('input_number.akkusteuerung_ueberschuss_veto_grenze') }}",
+            "grenze_aus_w": "{{ states('input_number.akkusteuerung_ueberschuss_veto_aus_grenze') }}",
+            "knappheit_faktor": "{{ states('input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor')|float(1) }}\n",
+            "pv_surplus_kwh": "{{ state_attr('sensor.opti_forecast_score', 'pv_surplus_kwh') }}\n",
+            "needed_full_kwh": "{{ state_attr('sensor.opti_forecast_score', 'needed_full_kwh') }}\n",
+            "knappheit_gate_offen": "{% set surplus = state_attr('sensor.opti_forecast_score', 'pv_surplus_kwh')|float(none) %} {% set needed = state_attr('sensor.opti_forecast_score', 'needed_full_kwh')|float(none) %} {% set f = states('input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor')|float(1) %} {% set war_an = this is defined and this.state == 'on' %} {% if needed is not none and needed <= 0 %}\n  {{ false }}\n{% elif surplus is none or needed is none %}\n  {{ true }}\n{% else %}\n  {{ surplus < needed * f\n     or (war_an and surplus < needed * f * 1.2) }}\n{% endif %}\n"
+          }
+        },
+        {
+          "unique_id": "opti_pv_reichtag",
+          "name": "Opti PV Reichtag",
+          "icon": "mdi:weather-sunny",
+          "state": "{% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {% set war_an = this is defined and this.state == 'on' %} {# Grobes, DST-festes Saisontor: April bis einschliesslich August. #} {% set saison_start_monat = 4 %} {% set saison_ende_monat = 8 %} {# Feines Breitengrad-Kriterium: echt vor 06:30 Uhr Ortszeit.\n   rise ist bereits as_local, daher gilt die lokale Wanduhrzeit. #}\n{% set minuten_pro_stunde = 60 %} {% set sonnenaufgang_grenze_minuten = 6 * minuten_pro_stunde + 30 %} {% if rise is not none %}\n  {% set monatstor_offen =\n       saison_start_monat <= rise.month <= saison_ende_monat %}\n  {% set sonnenaufgang_minuten =\n       rise.hour * minuten_pro_stunde + rise.minute %}\n  {% set uhrzeitriegel_offen =\n       sonnenaufgang_minuten < sonnenaufgang_grenze_minuten %}\n  {# Derselbe Sonnentag-Score wie binary_sensor.opti_peak_horizont_lang\n     (Issue #70): vor Mitternacht Prognose morgen, danach heute. #}\n  {% set score_entity = 'sensor.opti_forecast_score_sonnentag' %}\n  {% if not monatstor_offen or not uhrzeitriegel_offen %}\n    {{ false }}\n  {% elif has_value(score_entity) %}\n    {% set score = states(score_entity) | float(-1) %}\n    {{ score >= 10 or (war_an and score >= 9) }}\n  {% else %}\n    {{ war_an }}\n  {% endif %}\n{% else %}\n  {{ false }}\n{% endif %}\n",
+          "attributes": {
+            "branch": "{% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {% set war_an = this is defined and this.state == 'on' %} {# Gleiche benannte Monatsgrenzen wie im State-Template. #} {% set saison_start_monat = 4 %} {% set saison_ende_monat = 8 %} {# Gleiche benannte Ortszeitgrenze wie im State-Template. #} {% set minuten_pro_stunde = 60 %} {% set sonnenaufgang_grenze_minuten = 6 * minuten_pro_stunde + 30 %} {% if rise is none %}\n  Sonnenaufgang=unbekannt -> aus (war_an={{ war_an }})\n{% else %}\n  {% set monatstor_offen =\n       saison_start_monat <= rise.month <= saison_ende_monat %}\n  {% set sonnenaufgang_minuten =\n       rise.hour * minuten_pro_stunde + rise.minute %}\n  {% set uhrzeitriegel_offen =\n       sonnenaufgang_minuten < sonnenaufgang_grenze_minuten %}\n  {% set score_entity = 'sensor.opti_forecast_score_sonnentag' %}\n  {% set diagnose = 'Sonnenaufgang=' ~ rise.strftime('%H:%M')\n                    ~ ', Monatstor='\n                    ~ ('offen' if monatstor_offen else 'zu')\n                    ~ ', 06:30-Riegel='\n                    ~ ('offen' if uhrzeitriegel_offen else 'zu') %}\n  {% if not monatstor_offen and not uhrzeitriegel_offen %}\n    {{ diagnose }} -> aus (Monatstor und 06:30-Riegel geschlossen, war_an={{ war_an }})\n  {% elif not monatstor_offen %}\n    {{ diagnose }} -> aus (Monatstor geschlossen, war_an={{ war_an }})\n  {% elif not uhrzeitriegel_offen %}\n    {{ diagnose }} -> aus (06:30-Riegel geschlossen, war_an={{ war_an }})\n  {% elif has_value(score_entity) %}\n    {% set score = states(score_entity) | float(none) %}\n    {% if score is none %}\n      {{ diagnose }}, {{ score_entity }}={{ states(score_entity) }} nicht numerisch -> aus (war_an={{ war_an }})\n    {% else %}\n      {{ diagnose }}, {{ score_entity }}={{ states(score_entity) }} (ein >= 10, halten >= 9, aus <= 8, war_an={{ war_an }})\n    {% endif %}\n  {% else %}\n    {{ diagnose }}, {{ score_entity }} unavailable -> Vorzustand gehalten (war_an={{ war_an }})\n  {% endif %}\n{% endif %}\n"
+          }
+        },
+        {
+          "unique_id": "opti_peak_horizont_lang",
+          "name": "Opti Peak Horizont Lang",
+          "icon": "mdi:timer-sand",
+          "state": "{% set war_aus = this is defined and this.state == 'off' %} {% set score = states('sensor.opti_forecast_score_sonnentag') | float(none) %} {% if score is none %}\n  {{ true }}\n{% else %}\n  {{ score <= 1 or (score < 3 and not war_aus) }}\n{% endif %}\n",
+          "attributes": {
+            "branch": "{% set war_aus = this is defined and this.state == 'off' %} {% set roh = states('sensor.opti_forecast_score_sonnentag') %} {% set score = roh | float(none) %} {% if score is none %}\n  Score={{ roh }} fehlt -> an (36 h)\n{% elif score <= 1 %}\n  Score={{ roh }} -> an (36 h, ein <= 1)\n{% elif score >= 3 %}\n  Score={{ roh }} -> aus (Sonnenaufgang + Puffer, aus >= 3)\n{% else %}\n  Score={{ roh }} -> Vorzustand gehalten: {{ 'aus' if war_aus else 'an' }} (war_aus={{ war_aus }})\n{% endif %}\n"
+          }
+        }
+      ]
+    },
+    {
+      "source": "packages/opti_derived.yaml",
+      "sensor": [
+        {
+          "unique_id": "opti_forecast_score",
+          "name": "Opti Forecast Score",
+          "state_class": "measurement",
+          "availability": "{% set setting = state_attr('sun.sun', 'next_setting') %} {% set nach_sunset = setting is not none and (setting | as_datetime | as_local).date() != now().date() %} {% set rising = state_attr('sun.sun', 'next_rising') %} {% set vor_aufgang = rising is not none and (rising | as_datetime | as_local).date() == now().date() %} {{ (nach_sunset and has_value('sensor.opti_forecast_score_tomorrow'))\n   or (vor_aufgang and has_value('sensor.opti_forecast_score_sonnentag'))\n   or (has_value('sensor.opti_forecast_remaining_today_kwh')\n       and has_value('sensor.opti_forecast_effective_remaining_kwh')\n       and has_value('sensor.opti_battery_capacity_kwh')\n       and has_value('sensor.opti_soc')) }}\n",
+          "state": "{% set setting = state_attr('sun.sun', 'next_setting') %} {% set nach_sunset = setting is not none and (setting | as_datetime | as_local).date() != now().date() %} {% set rising = state_attr('sun.sun', 'next_rising') %} {% set vor_aufgang = rising is not none and (rising | as_datetime | as_local).date() == now().date() %} {% if nach_sunset and has_value('sensor.opti_forecast_score_tomorrow') %} {{ states('sensor.opti_forecast_score_tomorrow') | int(0) }} {% elif vor_aufgang and has_value('sensor.opti_forecast_score_sonnentag') %} {{ states('sensor.opti_forecast_score_sonnentag') | int(0) }} {% else %} {% set remaining = states('sensor.opti_forecast_effective_remaining_kwh') | float(0) %} {% set cap = states('sensor.opti_battery_capacity_kwh') | float(0) %} {% set needed = cap * (1 - (states('sensor.opti_soc') | float(0))/100) %} {% set sunset = state_attr('sun.sun','next_setting') %} {% set h = ((sunset | as_datetime - now()).total_seconds()/3600) if sunset else 0 %} {% set hausverbrauch = states('sensor.opti_house_consumption_60min_w') | float(states('sensor.opti_house_consumption_w') | float(400)) %} {% set verbrauch = hausverbrauch / 1000 * ([h,0]|max) %} {% set surplus = [remaining - verbrauch, 0] | max %} {% if h <= 0 %}0{% elif needed <= 0 %}10 {% else %}{{ (([surplus / needed, 1]|min) * 10) | round(0) | int }}{% endif %} {% endif %}\n",
+          "attributes": {
+            "remaining_kwh": "{{ states('sensor.opti_forecast_effective_remaining_kwh') | float(0) | round(2) }}\n",
+            "needed_full_kwh": "{{ (states('sensor.opti_battery_capacity_kwh')|float(0) * (1-(states('sensor.opti_soc')|float(0))/100))|round(2) }}",
+            "hours_to_sunset": "{{ (((state_attr('sun.sun','next_setting')|as_datetime - now()).total_seconds()/3600) if state_attr('sun.sun','next_setting') else 0)|round(1) }}",
+            "pv_surplus_kwh": "{% set rem = states('sensor.opti_forecast_effective_remaining_kwh') | float(0) %} {% set sunset = state_attr('sun.sun','next_setting') %} {% set h = ((sunset|as_datetime - now()).total_seconds()/3600) if sunset else 0 %} {% set hausverbrauch = states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %} {{ [rem - (hausverbrauch/1000*([h,0]|max)), 0]|max|round(2) }}\n",
+            "ueberschuss_ueber_voll_kwh": "{% set rem = states('sensor.opti_forecast_effective_remaining_kwh') | float(0) %} {% set sunset = state_attr('sun.sun','next_setting') %} {% set h = ((sunset|as_datetime - now()).total_seconds()/3600) if sunset else 0 %} {% set hausverbrauch = states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %} {% set surplus = [rem - (hausverbrauch/1000*([h,0]|max)),0]|max %} {% set needed = states('sensor.opti_battery_capacity_kwh')|float(0)*(1-(states('sensor.opti_soc')|float(0))/100) %} {{ [surplus - needed, 0]|max|round(2) }}\n",
+            "reason": "{% set setting = state_attr('sun.sun', 'next_setting') %} {% set nach_sunset = setting is not none and (setting | as_datetime | as_local).date() != now().date() %} {% set rising = state_attr('sun.sun', 'next_rising') %} {% set vor_aufgang = rising is not none and (rising | as_datetime | as_local).date() == now().date() %} {{ 'Abend -> Morgen-Score' if (nach_sunset and has_value('sensor.opti_forecast_score_tomorrow')) else ('Nacht -> Sonnentag-Score' if (vor_aufgang and has_value('sensor.opti_forecast_score_sonnentag')) else ('Nacht' if (state_attr('sun.sun','next_setting') is none) else ('Akku voll' if (states('sensor.opti_battery_capacity_kwh')|float(0)*(1-(states('sensor.opti_soc')|float(0))/100)) <= 0 else 'PV-Fit'))) }}\n"
+          }
+        },
+        {
+          "unique_id": "opti_forecast_score_tomorrow",
+          "name": "Opti Forecast Score Tomorrow",
+          "state_class": "measurement",
+          "availability": "{{ has_value('sensor.opti_forecast_tomorrow_kwh') and has_value('sensor.opti_house_consumption_w') }}\n",
+          "state": "{% set hausverbrauch = states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %} {% set verbrauch_w = [hausverbrauch, 1]|max %} {% set denom_kwh = verbrauch_w * 24 / 1000 %} {% set median_t = states('sensor.opti_forecast_tomorrow_kwh')|float(0) %} {% set p10_raw_t = state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(median_t) %} {% set p10_t = p10_raw_t if p10_raw_t > 0 else median_t %} {# Forecast-Optimismus (Feature #30) jetzt auch fuer den Morgen-Score:\n   gleicher alpha-Blend wie opti_forecast_effective_remaining_kwh, damit\n   EIN Regler konsistent Tag- UND Nacht-Pfad steuert. alpha=0 ->\n   min(median, P10), bit-identisch zum alten Verhalten. Wichtig, weil der\n   Peak-Reserve-Horizont abends an score_tomorrow haengt - sonst hielt die\n   Reserve nachts bei pessimistischem Solcast-P10 unnoetig Ladung (-> Netzbezug). #}\n{% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus')|float(0)]|min]|max) / 100 %} {% set blended_t = alpha * median_t + (1 - alpha) * p10_t %} {% set tomorrow = [median_t, blended_t]|min %} {{ (([ [tomorrow / denom_kwh, 1]|min, 0]|max) * 10)|round(0)|int }}\n",
+          "attributes": {
+            "alpha": "{{ ([0, [100, states('input_number.opti_forecast_optimismus')|float(0)]|min]|max) / 100 }}",
+            "median_kwh": "{{ states('sensor.opti_forecast_tomorrow_kwh')|float(0)|round(2) }}",
+            "p10_kwh": "{% set m = states('sensor.opti_forecast_tomorrow_kwh')|float(0) %} {% set p = state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(m) %} {{ (p if p > 0 else m)|round(2) }}\n"
+          }
+        },
+        {
+          "unique_id": "opti_forecast_score_sonnentag",
+          "name": "Opti Forecast Score Sonnentag",
+          "state_class": "measurement",
+          "availability": "{% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {% set quelle = 'sensor.opti_forecast_today_kwh'\n                if rise is not none and rise.date() == now().date()\n                else 'sensor.opti_forecast_tomorrow_kwh' %}\n{{ rise is not none and has_value(quelle)\n   and has_value('sensor.opti_house_consumption_w') }}\n",
+          "state": "{% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {% set quelle = 'sensor.opti_forecast_today_kwh'\n                if rise is not none and rise.date() == now().date()\n                else 'sensor.opti_forecast_tomorrow_kwh' %}\n{% set hausverbrauch = states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %} {% set verbrauch_w = [hausverbrauch, 1]|max %} {% set denom_kwh = verbrauch_w * 24 / 1000 %} {% set median = states(quelle)|float(0) %} {% set p10_raw = state_attr(quelle, 'estimate10')|float(median) %} {% set p10 = p10_raw if p10_raw > 0 else median %} {% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus')|float(0)]|min]|max) / 100 %} {% set blended = alpha * median + (1 - alpha) * p10 %} {% set prognose = [median, blended]|min %} {{ (([ [prognose / denom_kwh, 1]|min, 0]|max) * 10)|round(0)|int }}\n",
+          "attributes": {
+            "quelle": "{% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {{ 'sensor.opti_forecast_today_kwh'\n   if rise is not none and rise.date() == now().date()\n   else 'sensor.opti_forecast_tomorrow_kwh' }}\n"
+          }
+        },
+        {
+          "unique_id": "opti_forecast_effective_remaining_kwh",
+          "name": "Opti Forecast Effective Remaining kWh",
+          "unit_of_measurement": "kWh",
+          "state_class": "measurement",
+          "availability": "{{ has_value('sensor.opti_forecast_remaining_today_kwh') }}\n",
+          "state": "{% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %} {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(median) %} {% set p10 = p10_raw if p10_raw > 0 else median %} {% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus') | float(0)] | min] | max) / 100 %} {% set blended = alpha * median + (1 - alpha) * p10 %} {# Roh, NICHT gerundet: haelt alpha=0 bit-identisch zum alten\n   min(median, P10) und vermeidet einen Rundungs-Kipp an den\n   Ziel-SoC-Stufengrenzen. Anzeige-Rundung nur in den Attributen. #}\n{{ [median, blended] | min }}\n",
+          "attributes": {
+            "median_kwh": "{{ states('sensor.opti_forecast_remaining_today_kwh') | float(0) | round(3) }}",
+            "p10_kwh": "{% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %} {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(median) %} {{ (p10_raw if p10_raw > 0 else median) | round(3) }}\n",
+            "alpha": "{{ ([0, [100, states('input_number.opti_forecast_optimismus') | float(0)] | min] | max) / 100 }}"
+          }
+        },
+        {
+          "unique_id": "opti_target_soc",
+          "name": "Opti Target SoC",
+          "unit_of_measurement": "%",
+          "state_class": "measurement",
+          "availability": "{{ has_value('sensor.opti_battery_capacity_kwh') and\n   has_value('sensor.opti_forecast_remaining_today_kwh') and\n   has_value('sensor.opti_forecast_effective_remaining_kwh') }}\n",
+          "state": "{% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %} {% set restproduktion = states('sensor.opti_forecast_effective_remaining_kwh') | float(0) %} {# Verbrauch geglaettet (60-min-Mittelwert, Legacy-Muster): sonst kippt eine\n   kurze Lastspitze das Ziel-SoC-Band und erzeugt Flattern. #}\n{% set hausverbrauch  = states('sensor.opti_house_consumption_60min_w') | float(states('sensor.opti_house_consumption_w') | float(1500)) %} {% set max_soc        = states('input_number.maxsoc') | float(95) %} {% set min_soc        = states('input_number.minsoc') | float(10) %} {% set netzladen      = states('input_boolean.hausakku_aus_netz_laden') %}\n{% if netzladen == 'on' %}\n  {{ max_soc | round(0) }}\n{% else %}\n  {% set sunset_time = state_attr('sun.sun', 'next_setting') %}\n  {% if sunset_time %}\n    {% set remaining_hours = (sunset_time | as_datetime - now()).total_seconds() / 3600 %}\n    {% set remaining_hours = [0.5, [12, remaining_hours] | min] | max %}\n  {% else %}\n    {% set remaining_hours = 6 %}\n  {% endif %}\n\n  {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}\n  {# Guard: cap_kwh <= 0 -> ratio 0 statt Division durch 0 (level 0 = maxsoc,\n     konservativ wie der Peak-Rechenkern bei fehlender Kapazitaet). #}\n  {% set ratio = 0 if cap_kwh <= 0 else net_available / cap_kwh %}\n  {# Schmitt-Hysterese: vorige Stufe (Attribut 'level') halten, bis ratio die\n     naechste Grenze um die Marge m ueber-/unterschreitet. Ersetzt die alte\n     0.25-Quantisierung (= nur Kink-Verschiebung, kein Halteband).\n     bounds = die alten effektiven 0.25-Rundungsgrenzen (akkuschonende Kennlinie\n     1:1 wiederhergestellt), jetzt als Hysterese-Zentren mit Marge m. #}\n  {% set m = 0.10 %}\n  {% set bounds  = [0.375, 0.875, 1.375, 1.875, 2.875] %}\n  {% set targets = [max_soc, 90, 80, 70, 60, 50] %}\n  {% set plain = bounds | select('le', ratio) | list | count %}\n  {% set prev = this.attributes.get('level', plain) | int(plain) %}\n  {% set ns = namespace(l = prev) %}\n  {% for _ in bounds %}\n    {% if ns.l < 5 and ratio >= bounds[ns.l] + m %}{% set ns.l = ns.l + 1 %}{% endif %}\n  {% endfor %}\n  {% for _ in bounds %}\n    {% if ns.l > 0 and ratio < bounds[ns.l - 1] - m %}{% set ns.l = ns.l - 1 %}{% endif %}\n  {% endfor %}\n  {% set target = targets[ns.l] %}\n\n  {{ [min_soc, [max_soc, target] | min] | max | round(0) }}\n{% endif %}\n",
+          "attributes": {
+            "branch": "{% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %} {% set restproduktion = states('sensor.opti_forecast_effective_remaining_kwh') | float(0) %} {% set hausverbrauch  = states('sensor.opti_house_consumption_60min_w') | float(states('sensor.opti_house_consumption_w') | float(1500)) %} {% set max_soc        = states('input_number.maxsoc') | float(95) %} {% set netzladen      = states('input_boolean.hausakku_aus_netz_laden') %} {% if netzladen == 'on' %}\n  netzladen → maxsoc\n{% else %}\n  {% set sunset_time = state_attr('sun.sun', 'next_setting') %}\n  {% if sunset_time %}\n    {% set remaining_hours = (sunset_time | as_datetime - now()).total_seconds() / 3600 %}\n    {% set remaining_hours = [0.5, [12, remaining_hours] | min] | max %}\n  {% else %}\n    {% set remaining_hours = 6 %}\n  {% endif %}\n  {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}\n  {% set ratio = 0 if cap_kwh <= 0 else net_available / cap_kwh %}\n  {% set m = 0.10 %}\n  {% set bounds  = [0.375, 0.875, 1.375, 1.875, 2.875] %}\n  {% set targets = [max_soc, 90, 80, 70, 60, 50] %}\n  {% set plain = bounds | select('le', ratio) | list | count %}\n  {% set prev = this.attributes.get('level', plain) | int(plain) %}\n  {% set ns = namespace(l = prev) %}\n  {% for _ in bounds %}\n    {% if ns.l < 5 and ratio >= bounds[ns.l] + m %}{% set ns.l = ns.l + 1 %}{% endif %}\n  {% endfor %}\n  {% for _ in bounds %}\n    {% if ns.l > 0 and ratio < bounds[ns.l - 1] - m %}{% set ns.l = ns.l - 1 %}{% endif %}\n  {% endfor %}\n  ratio={{ ratio | round(2) }} plain={{ plain }} → level {{ ns.l }} → {{ targets[ns.l] | round(0) }}%{{ ' (gehalten)' if ns.l != plain else '' }}\n{% endif %}\n",
+            "level": "{% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %} {% set restproduktion = states('sensor.opti_forecast_effective_remaining_kwh') | float(0) %} {% set hausverbrauch  = states('sensor.opti_house_consumption_60min_w') | float(states('sensor.opti_house_consumption_w') | float(1500)) %} {% set max_soc        = states('input_number.maxsoc') | float(95) %} {% set netzladen      = states('input_boolean.hausakku_aus_netz_laden') %} {% if netzladen == 'on' %}\n  0\n{% else %}\n  {% set sunset_time = state_attr('sun.sun', 'next_setting') %}\n  {% if sunset_time %}\n    {% set remaining_hours = (sunset_time | as_datetime - now()).total_seconds() / 3600 %}\n    {% set remaining_hours = [0.5, [12, remaining_hours] | min] | max %}\n  {% else %}\n    {% set remaining_hours = 6 %}\n  {% endif %}\n  {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}\n  {% set ratio = 0 if cap_kwh <= 0 else net_available / cap_kwh %}\n  {% set m = 0.10 %}\n  {% set bounds = [0.375, 0.875, 1.375, 1.875, 2.875] %}\n  {% set plain = bounds | select('le', ratio) | list | count %}\n  {% set prev = this.attributes.get('level', plain) | int(plain) %}\n  {% set ns = namespace(l = prev) %}\n  {% for _ in bounds %}\n    {% if ns.l < 5 and ratio >= bounds[ns.l] + m %}{% set ns.l = ns.l + 1 %}{% endif %}\n  {% endfor %}\n  {% for _ in bounds %}\n    {% if ns.l > 0 and ratio < bounds[ns.l - 1] - m %}{% set ns.l = ns.l - 1 %}{% endif %}\n  {% endfor %}\n  {{ ns.l }}\n{% endif %}\n",
+            "ratio": "{% set cap_kwh        = states('sensor.opti_battery_capacity_kwh') | float(12.8) %} {% set restproduktion = states('sensor.opti_forecast_effective_remaining_kwh') | float(0) %} {% set hausverbrauch  = states('sensor.opti_house_consumption_60min_w') | float(states('sensor.opti_house_consumption_w') | float(1500)) %} {% set sunset_time = state_attr('sun.sun', 'next_setting') %} {% if sunset_time %}\n  {% set remaining_hours = (sunset_time | as_datetime - now()).total_seconds() / 3600 %}\n  {% set remaining_hours = [0.5, [12, remaining_hours] | min] | max %}\n{% else %}\n  {% set remaining_hours = 6 %}\n{% endif %} {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %} {{ (0 if cap_kwh <= 0 else net_available / cap_kwh) | round(3) }}\n",
+            "net_available_kwh": "{% set restproduktion = states('sensor.opti_forecast_effective_remaining_kwh') | float(0) %} {% set hausverbrauch  = states('sensor.opti_house_consumption_60min_w') | float(states('sensor.opti_house_consumption_w') | float(1500)) %} {% set sunset_time = state_attr('sun.sun', 'next_setting') %} {% if sunset_time %}\n  {% set remaining_hours = (sunset_time | as_datetime - now()).total_seconds() / 3600 %}\n  {% set remaining_hours = [0.5, [12, remaining_hours] | min] | max %}\n{% else %}\n  {% set remaining_hours = 6 %}\n{% endif %} {{ [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max | round(2) }}\n",
+            "remaining_hours": "{% set sunset_time = state_attr('sun.sun', 'next_setting') %} {% if sunset_time %}\n  {% set h = (sunset_time | as_datetime - now()).total_seconds() / 3600 %}\n  {{ ([0.5, [12, h] | min] | max) | round(1) }}\n{% else %}\n  6.0\n{% endif %}\n"
+          }
+        },
+        {
+          "unique_id": "opti_charge_power_w",
+          "name": "Opti Charge Power W",
+          "unit_of_measurement": "W",
+          "state_class": "measurement",
+          "availability": "{{ has_value('sensor.opti_soc') and\n   has_value('sensor.opti_battery_temp') and\n   has_value('sensor.opti_battery_capacity_kwh') }}\n",
+          "state": "{% set soc       = states('sensor.opti_soc') | float(50) %} {% set temp      = states('sensor.opti_battery_temp') | float(25) %} {% set cap       = states('sensor.opti_battery_capacity_kwh') | float(12.8) * 1000 %} {% set max_helper = states('input_number.akkusteuerung_max_ladestaerke') | float(3000) %} {% set score     = states('sensor.opti_forecast_score') | int(10) %} {# fehlender Forecast → konservativ/schonend (Score≥5 = GENTLE) #} {% set strategie_grund = state_attr('sensor.opti_strategie_vorschau', 'grund') | default('', true) %} {# Watchdog allein bedeutet nur \"faellig\". Erst der paritaetsgetestete\n   Vorschau-Grund bestaetigt, dass kein hoeherer Strategie-Zweig gewann. #}\n{% set balancing = states('sensor.opti_balancing_watchdog') in ['pv', 'netz']\n                   and strategie_grund[0:18] == 'Balancing-Watchdog' %}\n\n{% if temp >= 50 or temp <= -5 %}\n  0\n{% else %}\n  {# Temperaturdrosselung bei Extremen #}\n  {% if   temp >= 45 %} {% set temp_faktor = 0.5 %}\n  {% elif temp <=  0 %} {% set temp_faktor = 0.25 %}\n  {% else %}            {% set temp_faktor = 1.0 %}\n  {% endif %}\n\n  {# SOC-Stufen: prognoseabhängig verschoben (Score-Bänder) #}\n  {% if score <= 1 %}\n    {# Schlechter Tag: aggressiv laden, Grenzen hoch #}\n    {% if   soc < 40 %} {% set c = cap * 0.40 %}\n    {% elif soc < 70 %} {% set c = cap * 0.30 %}\n    {% elif soc < 90 %} {% set c = cap * 0.20 %}\n    {% elif soc < 97 %} {% set c = cap * 0.10 %}\n    {% else %}          {% set c = cap * 0.05 %}\n    {% endif %}\n  {% elif score <= 4 %}\n    {# Mittelmäßiger Tag: moderat #}\n    {% if   soc < 35 %} {% set c = cap * 0.35 %}\n    {% elif soc < 65 %} {% set c = cap * 0.25 %}\n    {% elif soc < 87 %} {% set c = cap * 0.15 %}\n    {% elif soc < 97 %} {% set c = cap * 0.08 %}\n    {% else %}          {% set c = cap * 0.05 %}\n    {% endif %}\n  {% else %}\n    {# Guter Tag: schonend, viel Zeit #}\n    {% if   soc < 30 %} {% set c = cap * 0.30 %}\n    {% elif soc < 60 %} {% set c = cap * 0.20 %}\n    {% elif soc < 85 %} {% set c = cap * 0.15 %}\n    {% elif soc < 97 %} {% set c = cap * 0.08 %}\n    {% else %}          {% set c = cap * 0.05 %}\n    {% endif %}\n  {% endif %}\n\n  {% set ladeleistung = [c * temp_faktor, max_helper] | min %}\n  {# Balancing-spezifischer Vollladungs-Taper: nur zusaetzlich deckeln,\n     niemals den regulaeren SoC-/Temperatur-Taper erhoehen. #}\n  {% if balancing and soc >= 96 %}\n    {% set ladeleistung = [ladeleistung, cap * 0.02] | min %}\n  {% elif balancing and soc >= 92 %}\n    {% set ladeleistung = [ladeleistung, cap * 0.05] | min %}\n  {% endif %}\n\n  {{ ladeleistung | round(0) }}\n{% endif %}\n"
+        },
+        {
+          "unique_id": "opti_price_level",
+          "name": "Opti Price Level",
+          "icon": "mdi:cash-clock",
+          "availability": "{% set ns = namespace(c=0) %} {% for key in ['today', 'tomorrow'] %}\n  {% set arr = state_attr('sensor.opti_price_series', key) %}\n  {% if arr is iterable and arr is not string %}\n    {% for it in arr %}\n      {% if it is mapping %}\n        {% set p = it.get('total', it.get('price', it.get('value'))) %}\n      {% else %}\n        {% set p = it %}\n      {% endif %}\n      {% if (p | float(none)) is not none %}\n        {% set ns.c = ns.c + 1 %}\n      {% endif %}\n    {% endfor %}\n  {% endif %}\n{% endfor %} {{ has_value('sensor.opti_price_current_ct_kwh') and ns.c >= 4 }}\n",
+          "state": "{% set current = states('sensor.opti_price_current_ct_kwh') | float(0) %} {% set ns = namespace(prices=[]) %} {% for key in ['today', 'tomorrow'] %}\n  {% set arr = state_attr('sensor.opti_price_series', key) %}\n  {% if arr is iterable and arr is not string %}\n    {% for it in arr %}\n      {% if it is mapping %}\n        {% set p = it.get('total', it.get('price', it.get('value'))) %}\n      {% else %}\n        {% set p = it %}\n      {% endif %}\n      {% set p = p | float(none) %}\n      {% if p is not none %}\n        {% set ns.prices = ns.prices + [p] %}\n      {% endif %}\n    {% endfor %}\n  {% endif %}\n{% endfor %} {% set prices = ns.prices %} {% if prices | length >= 4 %}\n  {# Midrank-Perzentil: Gleichstaende zaehlen halb. Fix fuer den Tie-Bug\n     (select('le') machte bei flachen Preisen alles zu VERY_EXPENSIVE). #}\n  {% set kleiner = prices | select('lt', current) | list | length %}\n  {% set gleich  = prices | select('eq', current) | list | length %}\n  {% set pct = (kleiner + 0.5 * gleich) / (prices | length) %}\n  {% if   pct < 0.20 %}{% set level = 'VERY_CHEAP' %}\n  {% elif pct < 0.40 %}{% set level = 'CHEAP' %}\n  {% elif pct < 0.60 %}{% set level = 'NORMAL' %}\n  {% elif pct < 0.80 %}{% set level = 'EXPENSIVE' %}\n  {% else %}{% set level = 'VERY_EXPENSIVE' %}\n  {% endif %}\n  {{ level }}\n{% else %}\n  {# Zweite Verteidigungslinie zur availability oben: auch wenn dieses\n     Gate mal wegfaellt, darf eine leere Preisreihe kein Preisniveau\n     erfinden. HA setzt den Sensor bei diesem Renderergebnis\n     unavailable. #}\n  unavailable\n{% endif %}\n",
+          "attributes": {
+            "perzentil": "{% set current = states('sensor.opti_price_current_ct_kwh') | float(0) %} {% set ns = namespace(prices=[]) %} {% for key in ['today', 'tomorrow'] %}\n  {% set arr = state_attr('sensor.opti_price_series', key) %}\n  {% if arr is iterable and arr is not string %}\n    {% for it in arr %}\n      {% if it is mapping %}{% set p = it.get('total', it.get('price', it.get('value'))) %}{% else %}{% set p = it %}{% endif %}\n      {% set p = p | float(none) %}\n      {% if p is not none %}{% set ns.prices = ns.prices + [p] %}{% endif %}\n    {% endfor %}\n  {% endif %}\n{% endfor %} {% set prices = ns.prices %} {% if prices | length >= 4 %}{{ (((prices | select('lt', current) | list | length) + 0.5 * (prices | select('eq', current) | list | length)) / (prices | length) * 100) | round(1) }}{% else %}none{% endif %}\n",
+            "aktueller_preis": "{{ states('sensor.opti_price_current_ct_kwh') | float(0) }}",
+            "anzahl_preise": "{% set ns = namespace(c=0) %} {% for key in ['today', 'tomorrow'] %}\n  {% set arr = state_attr('sensor.opti_price_series', key) %}\n  {% if arr is iterable and arr is not string %}{% set ns.c = ns.c + (arr | list | length) %}{% endif %}\n{% endfor %} {{ ns.c }}\n"
+          }
+        },
+        {
+          "unique_id": "opti_mindestentladepreis_ct_kwh",
+          "name": "Opti Mindestentladepreis ct kWh",
+          "unit_of_measurement": "ct/kWh",
+          "availability": "{{ has_value('input_number.ladepreis') and has_value('input_number.mindestpreisdifferenz_lade_entladepreis') }}",
+          "state": "{{ ((states('input_number.ladepreis')|float(0) + states('input_number.mindestpreisdifferenz_lade_entladepreis')|float(0)) * 100)|round(2) }}",
+          "attributes": {
+            "ladepreis_ct": "{{ (states('input_number.ladepreis')|float(0) * 100)|round(2) }}",
+            "differenz_ct": "{{ (states('input_number.mindestpreisdifferenz_lade_entladepreis')|float(0) * 100)|round(2) }}"
+          }
+        },
+        {
+          "unique_id": "opti_runtime_h",
+          "name": "Opti Runtime H",
+          "unit_of_measurement": "hours",
+          "state_class": "measurement",
+          "availability": "{{ is_number(states('sensor.opti_soc'))\n   and 0 <= states('sensor.opti_soc')|float(0) <= 100\n   and is_number(states('sensor.opti_battery_capacity_kwh'))\n   and states('sensor.opti_battery_capacity_kwh')|float(0) > 0\n   and is_number(states('sensor.opti_house_consumption_w'))\n   and states('sensor.opti_house_consumption_w')|float(0) >= 0\n   and is_number(states('sensor.opti_pv_power_w'))\n   and is_number(states('input_number.minsoc'))\n   and 0 <= states('input_number.minsoc')|float(0) <= 100 }}\n",
+          "state": "{% set soc = states('sensor.opti_soc') %} {% set cap = states('sensor.opti_battery_capacity_kwh') %} {% set house = states('sensor.opti_house_consumption_w') %} {% set pv = states('sensor.opti_pv_power_w') %} {% set floor = states('input_number.minsoc') %} {% if not (is_number(soc) and 0 <= soc|float(0) <= 100\n           and is_number(cap) and cap|float(0) > 0\n           and is_number(house) and house|float(0) >= 0\n           and is_number(pv) and is_number(floor)\n           and 0 <= floor|float(0) <= 100) %}\n  {{ none }}\n{% elif pv|float(0) >= 100 %}\n  0\n{% elif house|float(0) == 0 %}\n  999\n{% else %}\n  {% set energy = [0, soc|float(0) - floor|float(0)]|max * cap|float(0) / 100 %}\n  {{ [24, energy / (house|float(0) / 1000)]|min|round(2) }}\n{% endif %}\n"
+        },
+        {
+          "unique_id": "opti_balancing_watchdog",
+          "name": "Opti Balancing Watchdog",
+          "icon": "mdi:battery-heart-variant",
+          "state": "{% set soc = states('sensor.opti_soc')|float(-1) %} {% set counter = states('counter.tage_seit_akku100')|int(0) %} {% set intervall = states('input_number.opti_balancing_intervall_tage')|int(0) %} {% set karenz = states('input_number.opti_balancing_karenz_tage')|int(0) %} {% set maxct = states('input_number.opti_balancing_max_ct')|float(0) %} {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %} {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %} {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %} {% set price = states('sensor.opti_price_level') %} {% set day = is_state('sun.sun','above_horizon') %} {% set bal_netz = states('input_boolean.opti_balancing_netzladen') == 'on' %} {% set spreiz = states('sensor.byd_zellspreizung_ruhe')|float(-1) %} {% set schwelle = states('input_number.opti_balancing_spreizungs_schwelle')|float(0) %} {% set cooldown = states('input_number.opti_balancing_bedarf_cooldown_tage')|int(0) %} {# Bedarf: Ruhe-Zellspreizung ueber Schwelle UND Mindestabstand (cooldown)\n   seit letztem Vollzyklus -> zieht das Balancing vor. schwelle=0 = aus. #}\n{% set bedarf = schwelle > 0 and spreiz >= 0 and spreiz >= schwelle and counter >= cooldown %} {# soc<100 bewusst NICHT mehr in faellig: der Watchdog haelt bis zum\n   counter-Reset (30min stabil >done_soc) oben - sonst kappt der maxsoc-\n   Ladedeckel bei 100% zu frueh und der Balancing-Zyklus wird nie fertig. #}\n{% set faellig = intervall > 0 and soc >= 0 and (counter >= intervall or bedarf) %} {# 'netz' hat einen EIGENEN Schalter opti_balancing_netzladen (Default aus),\n   entkoppelt vom allgemeinen opti_prognose_netzladen. So bleibt die harte\n   Netzlade-Garantie (docs/canonical-layer.md #26) erhalten: Balancing zieht\n   nur Netzstrom, wenn dieser Wartungs-Schalter bewusst an ist. 'pv' bleibt\n   ungegatet - PV-Vollladung zieht keinen Netzstrom. #}\n{% if not faellig %}aus {%- elif day %}pv {%- elif bal_netz and hv_cur and cur < eeg %}netz {%- elif bal_netz and counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct %}netz {%- else %}aus{% endif %}\n",
+          "attributes": {
+            "grund": "{% set soc = states('sensor.opti_soc')|float(-1) %} {% set counter = states('counter.tage_seit_akku100')|int(0) %} {% set intervall = states('input_number.opti_balancing_intervall_tage')|int(0) %} {% set karenz = states('input_number.opti_balancing_karenz_tage')|int(0) %} {% set maxct = states('input_number.opti_balancing_max_ct')|float(0) %} {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %} {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %} {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %} {% set price = states('sensor.opti_price_level') %} {% set day = is_state('sun.sun','above_horizon') %} {% set bal_netz = states('input_boolean.opti_balancing_netzladen') == 'on' %} {% set spreiz = states('sensor.byd_zellspreizung_ruhe')|float(-1) %} {% set schwelle = states('input_number.opti_balancing_spreizungs_schwelle')|float(0) %} {% set cooldown = states('input_number.opti_balancing_bedarf_cooldown_tage')|int(0) %} {% set bedarf = schwelle > 0 and spreiz >= 0 and spreiz >= schwelle and counter >= cooldown %} {% set faellig = intervall > 0 and soc >= 0 and (counter >= intervall or bedarf) %} {% if intervall <= 0 %}Watchdog aus (Intervall 0) {%- elif soc < 0 %}opti_soc fehlt {%- elif not faellig %}nicht faellig ({{counter}}/{{intervall}} Tage, Spreizung {{spreiz}}/{{schwelle}}mV) {%- elif day %}PV-Vollladung ({{ 'Zeit' if counter>=intervall else 'Spreizung '~spreiz~'mV' }}, {{counter}} Tage seit voll) {%- elif bal_netz and hv_cur and cur < eeg %}Gratis-Netz ({{cur}}ct < EEG {{eeg}}ct) {%- elif bal_netz and counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct %}Bezahltes Netz ({{cur}}ct <= Deckel {{maxct}}ct, nach Karenz) {%- elif not bal_netz and (hv_cur and cur < eeg or counter >= intervall + karenz and hv_cur and price in ['VERY_CHEAP','CHEAP'] and maxct > 0 and cur <= maxct) %}Netz-Balancing gesperrt (opti_balancing_netzladen aus) {%- else %}warte auf besseres Fenster{% endif %}\n",
+            "soc": "{{ states('sensor.opti_soc') }}",
+            "tage_seit_voll": "{{ states('counter.tage_seit_akku100') }}",
+            "intervall_tage": "{{ states('input_number.opti_balancing_intervall_tage') }}",
+            "faellig_grund": "{% set counter = states('counter.tage_seit_akku100')|int(0) %} {% set intervall = states('input_number.opti_balancing_intervall_tage')|int(0) %} {% set spreiz = states('sensor.byd_zellspreizung_ruhe')|float(-1) %} {% set schwelle = states('input_number.opti_balancing_spreizungs_schwelle')|float(0) %} {% set cooldown = states('input_number.opti_balancing_bedarf_cooldown_tage')|int(0) %} {% set bedarf = schwelle > 0 and spreiz >= 0 and spreiz >= schwelle and counter >= cooldown %} {% set faellig = intervall > 0 and (counter >= intervall or bedarf) %} {% if not faellig %}keiner{% elif counter >= intervall %}zeit{% else %}spreizung{% endif %}\n",
+            "ruhe_spreizung_mv": "{{ states('sensor.byd_zellspreizung_ruhe') }}",
+            "schwelle_mv": "{{ states('input_number.opti_balancing_spreizungs_schwelle') }}"
+          }
+        },
+        {
+          "unique_id": "opti_strategie_vorschau",
+          "name": "Opti Strategie Vorschau",
+          "icon": "mdi:eye-check",
+          "availability": "{{ has_value('sensor.opti_soc') and has_value('sensor.opti_battery_capacity_kwh') }}",
+          "state": "{% set soc = states('sensor.opti_soc')|float(-1) %} {% set s = states('sensor.opti_forecast_score')|float(-1) %} {% set st = states('sensor.opti_forecast_score_tomorrow')|float(-1) %} {% set price = states('sensor.opti_price_level') %} {% set target = states('sensor.opti_target_soc')|float(100) %} {% set minsoc = states('input_number.minsoc')|float(10) %} {% set day = is_state('sun.sun','above_horizon') %} {% set prog = states('input_boolean.opti_prognose_netzladen') == 'on' %} {% set ueb = states('input_boolean.opti_pv_ueberschuss_ladung') == 'on' %} {% set win = states('binary_sensor.opti_winter_charging_allowed') == 'on' %} {% set hv_s = has_value('sensor.opti_forecast_score') %} {% set hv_st = has_value('sensor.opti_forecast_score_tomorrow') %} {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %} {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %} {% set p_c = price in ['VERY_CHEAP','CHEAP'] %} {% set H = 3 %} {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %} {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %} {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %} {% set spread = states('input_number.opti_netzlade_spread_ct')|float(10) %} {% set aktiv = is_state('binary_sensor.opti_peak_reserve_aktiv','on') %} {% set ges_res = states('sensor.opti_peak_reserve_soc')|float(101) %} {% set ve_res = state_attr('sensor.opti_peak_reserve_soc','reserve_ve_soc')|float(101) %} {% set minv_raw = state_attr('sensor.opti_peak_reserve_soc','min_preis_vor_peak_ct') %} {% set minv = minv_raw|float(none) if minv_raw is not none else none %} {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %} {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_ve_avg_ct')|float(none) %} {% set halte_spread = states('input_number.opti_halte_spread_ct')|float(3) %} {% set band = 2 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 0 %} {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %} {% set fenster = (minv is none) or (cur <= minv + 0.5) %} {% set ev = states('input_boolean.opti_ev_akku_pause') == 'on'\n            and is_state('binary_sensor.opti_ev_schnellladung', 'on') %}\n{% set maxsoc = states('input_number.maxsoc')|float(95) %} {# hv_maxsoc spiegelt das has_value-Gate des Automation-Zweigs: ohne\n   maxsoc faellt der Zweig dort ZU (fail-safe), die Vorschau muss\n   dasselbe tun statt mit dem Default 95 weiterzurechnen. #}\n{% set hv_maxsoc = is_number(states('input_number.maxsoc')) %} {% set deckel_band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')\n      and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maxsoc else 0 %}\n{% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %} {% if soc >= 0 and soc < minsoc %}Akku nur Laden {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Akku Netzladen {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' and not ev %}Akku nur Entladen {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev %}Akku nur Entladen {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Akku nur Laden {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Akku Netzladen {%- elif not aktiv and not ev and hv_maxsoc and soc >= 0 and soc >= maxsoc - deckel_band %}Akku nur Entladen {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}Akku nur Laden {# EV-Schnelllade-Sperre: nach den Lade-Zweigen, vor allen Zweigen,\n   die Dynamisch/Entladen liefern koennen (inkl. Akku voll). Sperr-\n   Modus 'Akku nur Laden' = reine Entladesperre, PV-Laden bleibt. #}\n{%- elif ev %}Akku nur Laden {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}Akku Dynamisch {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}Akku Dynamisch {%- elif soc > 99 %}Akku Dynamisch {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and soc <= ve_res + band and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Akku nur Laden {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Akku nur Laden {# Ueberschuss-Veto (2026-08-15/16): knapper Resttag und laufender\n   Netzexport stechen den Ziel-SoC-Deckel. Das Knappheits-Gate lebt\n   im Binary Sensor. Position identisch zur Strategie - hinter L3/L4,\n   vor den Ziel-SoC-Zweigen (Paritaet). #}\n{%- elif ueb and day and veto and hv_maxsoc and soc >= 0 and soc < maxsoc %}Akku Dynamisch {%- elif soc > minsoc and soc < target - H and day %}Akku Dynamisch {# Asymmetrische Hysterese gegen Ziel-SoC-Flattern (v.a. mittags, wenn\n   PV den SoC ueber die Schwelle drueckt): rein bei target+H, drin\n   bleiben bis target. Ohne das flippt der Modus im Minutentakt\n   Entladen<->Dynamisch, weil das Entladen selbst den SoC wieder\n   unter die Kante zieht. #}\n{%- elif soc > target + (0 if is_state('input_select.akkusteuerung_modus','Akku nur Entladen') else H) %}Akku nur Entladen {#- Default-Guard wie in der Strategie: ohne Preisniveau setzt die\n    Strategie den Modus auf Dynamisch. Bereits oben\n    gepruefte Schutz- und Ziel-SoC-Grenzen bleiben vorrangig. #}\n{%- elif soc >= 0 and not has_value('sensor.opti_price_level') %}Akku Dynamisch\n{%- elif soc >= 0 %}Akku Dynamisch {%- else %}unbekannt{% endif %}\n",
+          "attributes": {
+            "grund": "{% set soc = states('sensor.opti_soc')|float(-1) %} {% set s = states('sensor.opti_forecast_score')|float(-1) %} {% set st = states('sensor.opti_forecast_score_tomorrow')|float(-1) %} {% set price = states('sensor.opti_price_level') %} {% set target = states('sensor.opti_target_soc')|float(100) %} {% set minsoc = states('input_number.minsoc')|float(10) %} {% set day = is_state('sun.sun','above_horizon') %} {% set prog = states('input_boolean.opti_prognose_netzladen') == 'on' %} {% set ueb = states('input_boolean.opti_pv_ueberschuss_ladung') == 'on' %} {% set win = states('binary_sensor.opti_winter_charging_allowed') == 'on' %} {% set hv_s = has_value('sensor.opti_forecast_score') %} {% set hv_st = has_value('sensor.opti_forecast_score_tomorrow') %} {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %} {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %} {% set p_c = price in ['VERY_CHEAP','CHEAP'] %} {% set H = 3 %} {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %} {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %} {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %} {% set spread = states('input_number.opti_netzlade_spread_ct')|float(10) %} {% set aktiv = is_state('binary_sensor.opti_peak_reserve_aktiv','on') %} {% set ges_res = states('sensor.opti_peak_reserve_soc')|float(101) %} {% set ve_res = state_attr('sensor.opti_peak_reserve_soc','reserve_ve_soc')|float(101) %} {% set minv_raw = state_attr('sensor.opti_peak_reserve_soc','min_preis_vor_peak_ct') %} {% set minv = minv_raw|float(none) if minv_raw is not none else none %} {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %} {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_ve_avg_ct')|float(none) %} {% set halte_spread = states('input_number.opti_halte_spread_ct')|float(3) %} {% set band = 2 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 0 %} {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %} {% set fenster = (minv is none) or (cur <= minv + 0.5) %} {% set ev = states('input_boolean.opti_ev_akku_pause') == 'on'\n            and is_state('binary_sensor.opti_ev_schnellladung', 'on') %}\n{% set maxsoc = states('input_number.maxsoc')|float(95) %} {# hv_maxsoc spiegelt das has_value-Gate des Automation-Zweigs: ohne\n   maxsoc faellt der Zweig dort ZU (fail-safe), die Vorschau muss\n   dasselbe tun statt mit dem Default 95 weiterzurechnen. #}\n{% set hv_maxsoc = is_number(states('input_number.maxsoc')) %} {% set deckel_band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')\n      and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maxsoc else 0 %}\n{% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %} {% if soc >= 0 and soc < minsoc %}MinSOC-Schutz (SoC<{{minsoc}}) {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct) {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%) {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' and not ev %}Peak-Leiter L1 (VE entladen) {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%) {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Balancing-Watchdog (PV-Vollladung) {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Balancing-Watchdog (Netz-Vollladung) {%- elif not aktiv and not ev and hv_maxsoc and soc >= 0 and soc >= maxsoc - deckel_band %}Ladedeckel (maxsoc erreicht) {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht) {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL) {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}SOC<15 Notfall {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}SOC<45 sehr guenstig {%- elif ev %}EV-Sperre (Schnellladung, Entladesperre) {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}70% Ueberschuss (tag, entprellt) {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}AC Ueberschuss (tag, entprellt) {%- elif soc > 99 %}Akku voll {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and soc <= ve_res + band and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%, Spread {{(ve_avg - cur)|round(1)}}ct) {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%) {%- elif ueb and day and veto and hv_maxsoc and soc >= 0 and soc < maxsoc %}Ueberschuss-Veto ({{ state_attr('binary_sensor.opti_ueberschuss_veto_aktiv','export_ohne_akku_w') }}W Export sticht Ziel-SoC {{target}}%) {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag) {%- elif soc > target + (0 if is_state('input_select.akkusteuerung_modus','Akku nur Entladen') else H) %}ueber Ziel-SoC {%- elif soc >= 0 and not has_value('sensor.opti_price_level')\n   %}Preisniveau fehlt (Dynamisch)\n{%- elif soc >= 0 %}Default (Nacht/keine Aktion) {%- else %}opti_soc fehlt{% endif %}\n",
+            "ist_modus": "{{ states('input_select.akkusteuerung_modus') }}",
+            "soc": "{{ states('sensor.opti_soc') }}",
+            "ziel_soc": "{{ states('sensor.opti_target_soc') }}",
+            "score_heute": "{{ states('sensor.opti_forecast_score') }}",
+            "score_morgen": "{{ states('sensor.opti_forecast_score_tomorrow') }}",
+            "price_level": "{{ states('sensor.opti_price_level') }}",
+            "tag": "{{ is_state('sun.sun','above_horizon') }}",
+            "annahme": "Toggles opti_prognose_netzladen/opti_pv_ueberschuss_ladung existieren live, aktueller Zustand: prognose={{ states('input_boolean.opti_prognose_netzladen') }}, ueberschuss={{ states('input_boolean.opti_pv_ueberschuss_ladung') }}"
+          }
+        }
+      ]
+    },
+    {
+      "source": "packages/opti_derived.yaml",
+      "triggers": [
+        {
+          "trigger": "homeassistant",
+          "event": "start"
+        },
+        {
+          "trigger": "time_pattern",
+          "minutes": "/15"
+        },
+        {
+          "trigger": "state",
+          "entity_id": [
+            "sensor.opti_price_series",
+            "sensor.opti_forecast_score",
+            "sensor.opti_forecast_score_tomorrow",
+            "binary_sensor.opti_pv_reichtag",
+            "binary_sensor.opti_peak_horizont_lang",
+            "sensor.opti_battery_capacity_kwh",
+            "input_number.opti_peak_verbrauch_kw",
+            "input_number.minsoc",
+            "input_number.maxsoc",
+            "input_number.opti_peak_min_aufschlag_ct"
+          ]
+        }
+      ],
+      "variables": {
+        "peak": "{% set cap_kwh = states('sensor.opti_battery_capacity_kwh') | float(0) %} {% set verbrauch_kw = states('input_number.opti_peak_verbrauch_kw') | float(0.8) %} {% set min_soc = states('input_number.minsoc') | float(10) %} {% set max_soc = states('input_number.maxsoc') | float(95) %} {% set aufschlag = states('input_number.opti_peak_min_aufschlag_ct') | float(10) %} {% set eta = 0.9 %} {# Integration adaptation: validate each list against the actual local calendar day (23/24/25h or 92/96/100 quarter-hours). Add fixed-duration slots to UTC midnight; this preserves both occurrences of a repeated hour without inventing a spring-forward hour. #}\n{% set ns = namespace(prices=[], future=[], raster_ok=true) %} {% set heute = today_at('00:00') %} {% for key in ['today', 'tomorrow'] %}\n  {% set arr = state_attr('sensor.opti_price_series', key) %}\n  {% if arr is iterable and arr is not string and arr | length > 0 %}\n    {% set laenge = arr | length %}\n    {% set base = heute if key == 'today' else heute + timedelta(days=1) %} {% set day_hours = ((base + timedelta(days=1)).timestamp() - base.timestamp()) / 3600 %} {% if laenge not in [day_hours, day_hours * 4] %}\n      {% set ns.raster_ok = false %}\n    {% endif %}\n    {% set slot_h = 1 if laenge == day_hours else 0.25 %}\n    {% for it in arr %}\n      {% if it is mapping %}{% set p = it.get('total', it.get('price', it.get('value'))) %}{% else %}{% set p = it %}{% endif %}\n      {% set p = p | float(none) %}\n      {% if p is not none %}\n        {% set ns.prices = ns.prices + [p] %}\n        {% set ns.future = ns.future + [[(base | as_utc) + timedelta(hours=loop.index0 * slot_h), p, slot_h]] %}\n      {% endif %}\n    {% endfor %}\n  {% endif %}\n{% endfor %} {% set n = ns.prices | length if ns.raster_ok else 0 %} {# 2. Wiederauflade-Horizont: bis naechster Sonnenaufgang plus Puffer\n   (1 h bei binary_sensor.opti_pv_reichtag on, sonst 3 h), solange fuer\n   den Tag dieses Sonnenaufgangs ein guter Score in Sicht ist; sonst\n   36 h.\n   Tagsueber + guter Heute-Score -> leer. #}\n{% set s_heute = states('sensor.opti_forecast_score') | float(-1) %} {% set horizont_max = ((now() | as_utc) + timedelta(hours=36)) | as_local %} {% if is_state('sun.sun', 'above_horizon') and s_heute > 2 %}\n  {# Auf die volle Stunde gekappt (== Fensterstart), damit das Fenster\n     wirklich leer ist - now() liesse die laufende Stunde durchrutschen,\n     sobald Minute > 0. #}\n  {% set horizont_ende = now().replace(minute=0, second=0, microsecond=0) %}\n{% else %}\n  {% set rising = state_attr('sun.sun', 'next_rising') %}\n  {% set rise = (rising | as_datetime | as_local) if rising else none %}\n  {# Score-Auswahl und Hysterese liegen ausschliesslich in\n     binary_sensor.opti_peak_horizont_lang (Issue #70), Score-\n     Hysterese, Monatstor und 06:30-Riegel des 1-h-Puffers in\n     opti_pv_reichtag. Beide\n     lesen denselben Sonnentag-Score; die Pruefungen daher nicht hier\n     inlinen. Nur ein ausdrueckliches off verkuerzt den Horizont: on,\n     unknown und unavailable behalten konservativ die 36 h, ebenso ein\n     fehlender Sonnenaufgang. #}\n  {% if rise is not none and is_state('binary_sensor.opti_peak_horizont_lang', 'off') %}\n    {# 1 h ist bewusst nicht 0 h: Bei Sonnenaufgang liefert auch ein\n       freigegebener PV-Reichtag noch nichts. Am 27.07.2026 lag der\n       Schnittpunkt von PV und Hausverbrauch erst ca. 06:30 bei\n       Sonnenaufgang 05:45. #}\n    {% set puffer = 1 if is_state('binary_sensor.opti_pv_reichtag','on') else 3 %}\n    {% set horizont_ende = [rise + timedelta(hours=puffer), horizont_max] | min %}\n  {% else %}\n    {% set horizont_ende = horizont_max %}\n  {% endif %}\n{% endif %} {# 3a. Erster Durchlauf: Horizont-Tief (fenster_min) unter den\n   Zukunftsstunden im Horizont bestimmen - Basis fuer die oekonomische\n   Peak-Filterung (Hebel 1: nur Stunden, die den Aufschlag ueber dem\n   Horizont-Tief bringen, zaehlen als Peak). #}\n{% set start = now().replace(minute=0, second=0, microsecond=0) %} {% set fw = namespace(min=none) %} {% if n >= 4 %}\n  {% for eintrag in ns.future %}\n    {% set t = eintrag[0] %}\n    {% set p = eintrag[1] %}\n    {% if t >= start and t < horizont_ende %}\n      {% set fw.min = p if fw.min is none else ([fw.min, p] | min) %}\n    {% endif %}\n  {% endfor %}\n{% endif %} {% set fenster_min = fw.min %} {# 3b. Zweiter Durchlauf: Zukunftsslots im Horizont klassifizieren\n   (Midrank-Perzentil, Grenzen unveraendert) UND zusaetzlich oekonomisch\n   filtern (p >= fenster_min + aufschlag). Fenster ab der aktuellen\n   vollen Stunde: die laufenden Peak-Slots zaehlen mit, damit das Gate\n   waehrend der Spitze nicht abfaellt (laufende Stunde konservativ voll\n   gerechnet - bei Viertelstundenraster zaehlen dadurch bis zu 3 bereits\n   vergangene Slots der laufenden Stunde mit). min_preis_vor_peak_ct\n   bezieht sich weiterhin auf die erste GEZAEHLTE (also gefilterte)\n   Peak-Stunde. f.ve/f.exp summieren STUNDEN (slot_h je Slot), nicht\n   Slot-Anzahlen, da today/tomorrow unterschiedliche slot_h haben\n   koennen - deshalb Namespace-Summe statt Zaehler * Konstante. #}\n{% set load_hours = state_attr('sensor.opti_peak_load_profile', 'hours') %}\n{% set load_methods = state_attr('sensor.opti_peak_load_profile', 'methods') %}\n{% set f = namespace(ve=0.0, exp=0.0, ve_energy=0.0, exp_energy=0.0, profile_hours=0.0, minpre=none, summe=0.0, anz=0, peak_gesehen=false, ve_summe=0.0, ve_anz=0) %} {% if n >= 4 %}\n  {% for eintrag in ns.future %}\n    {% set t = eintrag[0] %}\n    {% set p = eintrag[1] %}\n    {% set slot_h = eintrag[2] %}\n    {% set load_key = ((t.timestamp() // 3600) * 3600) | int | string %}\n    {% set load_w = load_hours.get(load_key) | float(none) if load_hours is mapping else none %}\n    {% set slot_kw = load_w / 1000 if load_w is not none and 0 <= load_w <= 50000 else verbrauch_kw %}\n    {% set load_method = load_methods.get(load_key, 'fixed_setting') if load_methods is mapping else 'fixed_setting' %}\n    {% if t >= start and t < horizont_ende %}\n      {% set kleiner = ns.prices | select('lt', p) | list | length %}\n      {% set gleich  = ns.prices | select('eq', p) | list | length %}\n      {% set pct = (kleiner + 0.5 * gleich) / n %}\n      {% set ist_peak_preis = fenster_min is none or p >= fenster_min + aufschlag %}\n      {% if pct >= 0.80 and ist_peak_preis %}\n        {% set f.ve = f.ve + slot_h %}{% set f.ve_energy = f.ve_energy + slot_kw * slot_h %}{% if 'profile' in load_method %}{% set f.profile_hours = f.profile_hours + slot_h %}{% endif %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}\n        {% set f.ve_summe = f.ve_summe + p %}{% set f.ve_anz = f.ve_anz + 1 %}\n      {% elif pct >= 0.60 and ist_peak_preis %}\n        {% set f.exp = f.exp + slot_h %}{% set f.exp_energy = f.exp_energy + slot_kw * slot_h %}{% if 'profile' in load_method %}{% set f.profile_hours = f.profile_hours + slot_h %}{% endif %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}\n      {% elif not f.peak_gesehen %}\n        {% set f.minpre = p if f.minpre is none else ([f.minpre, p] | min) %}\n      {% endif %}\n    {% endif %}\n  {% endfor %}\n{% endif %} {# 4. Reserve in kWh und SoC (mit Entladeverlusten), Kappung bei maxsoc.\n   Stundenlast je Slot aus Profil oder Ersatzwert; Energie bereits\n   separat fuer VE und EXP integriert (siehe 3b). #}\n{% set ve_kwh = f.ve_energy / eta %} {% set ges_kwh = (f.ve_energy + f.exp_energy) / eta %} {% if cap_kwh > 0 %}\n  {% set ve_soc = [min_soc + ve_kwh / cap_kwh * 100, max_soc] | min %}\n  {% set ges_soc = [min_soc + ges_kwh / cap_kwh * 100, max_soc] | min %}\n{% else %}\n  {% set ve_soc = max_soc %}\n  {% set ges_soc = max_soc %}\n{% endif %} {{ {'gueltig': n >= 4,\n    've_soc': ve_soc | round(1),\n    'ges_soc': ges_soc | round(1),\n    've_stunden': f.ve | round(2),\n    'exp_stunden': f.exp | round(2),\n    'benoetigt_kwh': ges_kwh | round(2),\n    'profile_hours': f.profile_hours,\n    'assumed_load_w': ((f.ve_energy + f.exp_energy) / (f.ve + f.exp) * 1000) | round(1) if f.ve + f.exp > 0 else verbrauch_kw * 1000,\n    'min_preis_vor_peak_ct': (f.minpre | round(2)) if f.minpre is not none else none,\n    'peak_preis_avg_ct': ((f.summe / f.anz) | round(2)) if f.anz > 0 else none,\n    've_preis_avg_ct': ((f.ve_summe / f.ve_anz) | round(2)) if f.ve_anz > 0 else none,\n    'fenster_min_ct': (fenster_min | round(2)) if fenster_min is not none else none,\n    'horizont_ende': horizont_ende.isoformat(),\n    'branch': 've=' ~ f.ve ~ ' exp=' ~ f.exp ~ ' n=' ~ n ~ ' ende=' ~ horizont_ende.strftime('%d.%m %H:%M')} }}\n"
+      },
+      "sensor": [
+        {
+          "unique_id": "opti_peak_reserve_soc",
+          "name": "Opti Peak Reserve SoC",
+          "unit_of_measurement": "%",
+          "state_class": "measurement",
+          "icon": "mdi:battery-lock",
+          "availability": "{{ peak.gueltig and has_value('sensor.opti_battery_capacity_kwh') }}",
+          "state": "{{ peak.ges_soc }}",
+          "attributes": {
+            "reserve_ve_soc": "{{ peak.ve_soc }}",
+            "peak_stunden_ve": "{{ peak.ve_stunden }}",
+            "peak_stunden_exp": "{{ peak.exp_stunden }}",
+            "benoetigt_kwh": "{{ peak.benoetigt_kwh }}",
+            "profile_hours": "{{ peak.profile_hours }}",
+            "assumed_load_w": "{{ peak.assumed_load_w }}",
+            "min_preis_vor_peak_ct": "{{ peak.min_preis_vor_peak_ct }}",
+            "peak_preis_avg_ct": "{{ peak.peak_preis_avg_ct }}",
+            "peak_preis_ve_avg_ct": "{{ peak.ve_preis_avg_ct }}",
+            "fenster_min_ct": "{{ peak.fenster_min_ct }}",
+            "horizont_ende": "{{ peak.horizont_ende }}",
+            "branch": "{{ peak.branch }}"
+          }
+        }
+      ],
+      "binary_sensor": [
+        {
+          "unique_id": "opti_peak_reserve_aktiv",
+          "name": "Opti Peak Reserve Aktiv",
+          "icon": "mdi:shield-lock",
+          "state": "{{ peak.gueltig and has_value('sensor.opti_battery_capacity_kwh')\n   and peak.benoetigt_kwh > 0 }}\n"
+        }
+      ]
+    },
+    {
+      "source": "packages/opti_derived.yaml",
+      "triggers": [
+        {
+          "trigger": "state",
+          "entity_id": [
+            "sensor.opti_soc",
+            "input_number.maxsoc"
+          ]
+        },
+        {
+          "trigger": "homeassistant",
+          "event": "start"
+        },
+        {
+          "trigger": "time_pattern",
+          "minutes": "/1"
+        }
+      ],
+      "conditions": [
+        {
+          "condition": "template",
+          "value_template": "{{ is_number(states('sensor.opti_soc'))\n   and 0 <= states('sensor.opti_soc')|float(0) <= 100\n   and is_number(states('input_number.maxsoc'))\n   and 0 <= states('input_number.maxsoc')|float(0) <= 100 }}\n"
+        }
+      ],
+      "binary_sensor": [
+        {
+          "unique_id": "opti_ladedeckel_aktiv",
+          "name": "Opti Ladedeckel Aktiv",
+          "icon": "mdi:battery-lock",
+          "state": "{% set soc = states('sensor.opti_soc')|float(0) %} {% set maximum = states('input_number.maxsoc')|float(0) %} {% set gehalten = this is defined and this.state == 'on'\n    and this.attributes.get('maxsoc')|float(-1) == maximum %}\n{{ soc >= maximum or (gehalten and soc >= maximum - 3) }}\n",
+          "attributes": {
+            "maxsoc": "{{ states('input_number.maxsoc')|float(0) }}"
+          }
+        }
+      ]
+    },
+    {
+      "source": "packages/opti_ev_sperre.yaml",
+      "binary_sensor": [
+        {
+          "unique_id": "opti_ev_schnellladung",
+          "name": "Opti EV Schnellladung",
+          "icon": "mdi:ev-station",
+          "delay_off": {
+            "seconds": 300
+          },
+          "state": "{% set on = is_state('binary_sensor.opti_ev_lp1_schnell', 'on')\n            or is_state('binary_sensor.opti_ev_lp2_schnell', 'on') %}\n{% set alle_valide = has_value('binary_sensor.opti_ev_lp1_schnell')\n                     and has_value('binary_sensor.opti_ev_lp2_schnell') %}\n{% set prev = is_state('binary_sensor.opti_ev_schnellladung', 'on') %} {{ on or (prev and not alle_valide) }}",
+          "attributes": {
+            "haltegrund": "{% set on = is_state('binary_sensor.opti_ev_lp1_schnell', 'on')\n            or is_state('binary_sensor.opti_ev_lp2_schnell', 'on') %}\n{% set alle_valide = has_value('binary_sensor.opti_ev_lp1_schnell')\n                     and has_value('binary_sensor.opti_ev_lp2_schnell') %}\n{% set prev = is_state('binary_sensor.opti_ev_schnellladung', 'on') %} {% if on %}aktiv erkannt {%- elif prev and not alle_valide %}gehalten (evcc-Daten invalide) {%- else %}-{% endif %}",
+            "lp1_modus": "{{ state_attr('binary_sensor.opti_ev_lp1_schnell', 'modus') }}",
+            "lp1_leistung_kw": "{{ state_attr('binary_sensor.opti_ev_lp1_schnell', 'leistung_kw') }}",
+            "lp2_modus": "{{ state_attr('binary_sensor.opti_ev_lp2_schnell', 'modus') }}",
+            "lp2_leistung_kw": "{{ state_attr('binary_sensor.opti_ev_lp2_schnell', 'leistung_kw') }}"
+          }
+        }
+      ]
+    }
+  ],
+  "statistics": [
+    {
+      "platform": "statistics",
+      "name": "House Battery Load 30 mins",
+      "unique_id": "house_battery_load_30_mins",
+      "entity_id": "sensor.opti_battery_power_w",
+      "state_characteristic": "mean",
+      "max_age": {
+        "minutes": 30
+      },
+      "sampling_size": 360,
+      "precision": 0
+    },
+    {
+      "platform": "statistics",
+      "name": "Haus Stromverbrauch 60 min",
+      "unique_id": "haus_stromverbrauch_60_min",
+      "entity_id": "sensor.opti_house_consumption_w",
+      "state_characteristic": "mean",
+      "max_age": {
+        "minutes": 60
+      },
+      "sampling_size": 360,
+      "precision": 0
+    },
+    {
+      "platform": "statistics",
+      "name": "Opti House Consumption 60min W",
+      "unique_id": "opti_house_consumption_60min_w",
+      "entity_id": "sensor.opti_house_consumption_w",
+      "state_characteristic": "mean",
+      "max_age": {
+        "minutes": 60
+      },
+      "sampling_size": 1500,
+      "precision": 0
+    }
+  ],
+  "strategy": {
+    "id": "opti_canonical_strategie",
+    "alias": "Akku Opti Strategie",
+    "description": "Strategie auf dem Canonical-opti_*-Layer (Paket 3). Waehlt den Akkumodus; der nachgelagerte Cleanup pflegt nur Booster und Ladepreis. Prognosebasierte SOC-Ladeblöcke (Score+Preis), PV-/AC-Überschussblöcke, MinSOC-Schutz und Cleanup. Quellen/Gates getauscht; aufgeschobene und arbitrage-basierte Zweige entfernt. id/Alias sind der Live-Realität angeglichen (2026-07-01): id war zuvor eine HA-generierte Zahl ohne Bedeutung, Alias hieß zuvor \"Akku Lade- Entladesteuerung Opti 2.0\" bzw. live \"Akku Opti Canonical (opti_*-Layer)\".",
+    "mode": "single",
+    "triggers": [
+      {
+        "trigger": "homeassistant",
+        "event": "start",
+        "id": "HA-Start"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "sensor.opti_price_level"
+        ],
+        "id": "Preisniveau geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "input_boolean.akku_opti_automatik"
+        ],
+        "to": "on",
+        "id": "Akku Opti-Automatik AN/AUS"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "input_select.akkusteuerung_modus"
+        ],
+        "id": "Modus extern geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "binary_sensor.opti_ladedeckel_aktiv"
+        ],
+        "id": "Ladedeckel geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "sensor.opti_soc"
+        ],
+        "id": "SoC Änderung"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "sensor.opti_battery_capacity_kwh"
+        ],
+        "id": "Batteriekapazität geändert"
+      },
+      {
+        "trigger": "numeric_state",
+        "entity_id": [
+          "sensor.opti_mindestentladepreis_ct_kwh"
+        ],
+        "below": "sensor.opti_price_current_ct_kwh",
+        "id": "Entladeschwelle"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "binary_sensor.opti_ueberschuss_ac_aktiv"
+        ],
+        "to": [
+          "on",
+          "off"
+        ],
+        "id": "AC-Überschuss geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "binary_sensor.opti_ueberschuss_70_aktiv"
+        ],
+        "to": [
+          "on",
+          "off"
+        ],
+        "id": "PV-70%-Überschuss geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "binary_sensor.opti_ueberschuss_veto_aktiv"
+        ],
+        "to": [
+          "on",
+          "off"
+        ],
+        "id": "Überschuss-Veto geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "sensor.opti_forecast_score",
+          "sensor.opti_forecast_score_tomorrow"
+        ],
+        "id": "Prognose-Score geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "sensor.opti_charge_power_w"
+        ],
+        "id": "Dynamische Ladestärke geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "sensor.opti_target_soc"
+        ],
+        "id": "Target SoC geändert"
+      },
+      {
+        "trigger": "numeric_state",
+        "entity_id": [
+          "sensor.opti_soc"
+        ],
+        "above": 99,
+        "id": "Akku ist voll"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "input_number.minsoc"
+        ],
+        "id": "MinSOC geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "input_number.maxsoc"
+        ],
+        "id": "MaxSOC geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "input_boolean.opti_prognose_netzladen"
+        ],
+        "id": "Prognose-Netzladen-Toggle geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "input_boolean.opti_pv_ueberschuss_ladung"
+        ],
+        "id": "PV-Überschuss-Toggle geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "binary_sensor.opti_winter_charging_allowed"
+        ],
+        "id": "Winterladefreigabe geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "sensor.opti_price_current_ct_kwh"
+        ],
+        "id": "Preis geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "sensor.opti_peak_reserve_soc",
+          "binary_sensor.opti_peak_reserve_aktiv"
+        ],
+        "id": "Peak-Reserve geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "sensor.opti_balancing_watchdog"
+        ],
+        "id": "Balancing-Watchdog geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "binary_sensor.opti_ev_schnellladung"
+        ],
+        "to": [
+          "on",
+          "off"
+        ],
+        "id": "EV-Schnellladung geändert"
+      },
+      {
+        "trigger": "state",
+        "entity_id": [
+          "input_boolean.opti_ev_akku_pause"
+        ],
+        "id": "EV-Sperre-Toggle geändert"
+      }
+    ],
+    "conditions": [
+      {
+        "condition": "state",
+        "entity_id": "input_boolean.akku_opti_automatik",
+        "state": "on"
+      },
+      {
+        "condition": "numeric_state",
+        "entity_id": "sensor.opti_soc",
+        "above": -0.1,
+        "below": 100.1
+      },
+      {
+        "condition": "numeric_state",
+        "entity_id": "sensor.opti_battery_capacity_kwh",
+        "above": 0
+      }
+    ],
+    "actions": [
+      {
+        "alias": "Zwischen Speicherszenarien wählen",
+        "choose": [
+          {
+            "alias": "Modus 'nur Laden' (Entladesperre): MinSOC-Schutz, SOC unter MinSOC (tag+nacht)",
+            "conditions": [
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_soc",
+                "below": "input_number.minsoc"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "minimum_soc",
+                "data": {
+                  "option": "Akku nur Laden"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'Netzladen': Preis unter Einspeiseverguetung, Prognose schlecht (tag+nacht)",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.opti_prognose_netzladen",
+                "state": "on"
+              },
+              {
+                "condition": "template",
+                "value_template": "{% set stopband = 0 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 3 %} {{ has_value('sensor.opti_price_current_ct_kwh')\n   and has_value('sensor.opti_forecast_score')\n   and has_value('sensor.opti_soc')\n   and (states('sensor.opti_forecast_score') | float) < 3\n   and (states('sensor.opti_soc') | float) < (states('input_number.maxsoc') | float(95) - stopband)\n   and (states('sensor.opti_price_current_ct_kwh') | float) < (states('input_number.opti_einspeiseverguetung_ct') | float(0)) }}"
+              },
+              {
+                "alias": "Ladefenster: kein guenstigeres Fenster vor der naechsten Spitze",
+                "condition": "template",
+                "value_template": "{% set cur = states('sensor.opti_price_current_ct_kwh') | float(0) %} {% set minv = state_attr('sensor.opti_peak_reserve_soc', 'min_preis_vor_peak_ct') %} {{ minv is none or cur <= (minv | float(cur)) + 0.5 }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "negative_price",
+                "data": {
+                  "option": "Akku Netzladen"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'Netzladen' (Peak-Vorladen): Spread zur kommenden Spitze gross genug (tag+nacht)",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.opti_prognose_netzladen",
+                "state": "on"
+              },
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.opti_peak_reserve_aktiv",
+                "state": "on"
+              },
+              {
+                "condition": "template",
+                "value_template": "{% set cur = states('sensor.opti_price_current_ct_kwh') | float(none) %} {% set soc = states('sensor.opti_soc') | float(none) %} {% set ges = states('sensor.opti_peak_reserve_soc') | float(none) %} {% set avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_avg_ct') | float(none) %} {% set spread_min = states('input_number.opti_netzlade_spread_ct') | float(10) %} {% set minv = state_attr('sensor.opti_peak_reserve_soc', 'min_preis_vor_peak_ct') %} {% set stopband = 0 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 3 %} {{ cur is not none and soc is not none and ges is not none and avg is not none\n   and soc < ges - stopband\n   and (avg - cur) >= spread_min\n   and (minv is none or cur <= (minv | float(cur)) + 0.5) }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "peak_precharge",
+                "data": {
+                  "option": "Akku Netzladen"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Peak-Leiter L1 'nur Entladen': Preisspitze VERY_EXPENSIVE",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.opti_peak_reserve_aktiv",
+                "state": "on"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ has_value('sensor.opti_soc') }}"
+              },
+              {
+                "condition": "state",
+                "entity_id": "sensor.opti_price_level",
+                "state": "VERY_EXPENSIVE"
+              },
+              {
+                "alias": "EV-Sperre inaktiv (Schnellladung sperrt Entladung)",
+                "condition": "template",
+                "value_template": "{{ not (is_state('input_boolean.opti_ev_akku_pause', 'on')\n        and is_state('binary_sensor.opti_ev_schnellladung', 'on')) }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "peak_l1",
+                "data": {
+                  "option": "Akku nur Entladen"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Peak-Leiter L2 'nur Entladen': EXPENSIVE, SoC ueber VE-Reserve",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.opti_peak_reserve_aktiv",
+                "state": "on"
+              },
+              {
+                "condition": "state",
+                "entity_id": "sensor.opti_price_level",
+                "state": "EXPENSIVE"
+              },
+              {
+                "condition": "template",
+                "value_template": "{% set soc = states('sensor.opti_soc') | float(none) %} {% set ve = state_attr('sensor.opti_peak_reserve_soc', 'reserve_ve_soc') | float(none) %} {% set band = 2 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden') else 0 %} {{ soc is not none and ve is not none and soc > ve + band }}"
+              },
+              {
+                "alias": "EV-Sperre inaktiv (Schnellladung sperrt Entladung)",
+                "condition": "template",
+                "value_template": "{{ not (is_state('input_boolean.opti_ev_akku_pause', 'on')\n        and is_state('binary_sensor.opti_ev_schnellladung', 'on')) }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "peak_l2",
+                "data": {
+                  "option": "Akku nur Entladen"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'nur Laden' (Balancing-Watchdog): tagsueber PV-Vollladung fuers BMS-Balancing",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "sensor.opti_balancing_watchdog",
+                "state": "pv"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "balancing_pv",
+                "data": {
+                  "option": "Akku nur Laden"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'Netzladen' (Balancing-Watchdog): guenstiges/gratis Netzladen fuers BMS-Balancing",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "sensor.opti_balancing_watchdog",
+                "state": "netz"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "balancing_grid",
+                "data": {
+                  "option": "Akku Netzladen"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'nur Entladen' (Ladedeckel): SoC >= maxsoc, kein Balancing/Peak faellig",
+            "conditions": [
+              {
+                "alias": "EV-Sperre inaktiv (Schnellladung sperrt Entladung)",
+                "condition": "template",
+                "value_template": "{{ not (is_state('input_boolean.opti_ev_akku_pause', 'on')\n        and is_state('binary_sensor.opti_ev_schnellladung', 'on')) }}"
+              },
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.opti_peak_reserve_aktiv",
+                "state": "off"
+              },
+              {
+                "condition": "template",
+                "value_template": "{% set maximum = states('input_number.maxsoc')|float(95) %} {% set band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')\n    and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maximum else 0 %}\n{{ has_value('sensor.opti_soc')\n   and is_number(states('input_number.maxsoc'))\n   and (states('sensor.opti_soc') | float) >= maximum - band }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "maximum_soc",
+                "data": {
+                  "option": "Akku nur Entladen"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'nur Laden' (Reserve halten): Prognose heute+morgen schlecht, SOC unter 20% (tag+nacht)",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.opti_prognose_netzladen",
+                "state": "on"
+              },
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.opti_winter_charging_allowed",
+                "state": "on"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ has_value('sensor.opti_forecast_score')\n   and has_value('sensor.opti_forecast_score_tomorrow') }}"
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_soc",
+                "below": 20
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_forecast_score",
+                "below": 3
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_forecast_score_tomorrow",
+                "below": 3
+              },
+              {
+                "alias": "Aktuelles Preisniveau VERY_CHEAP bis EXPENSIVE",
+                "condition": "or",
+                "conditions": [
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "VERY_CHEAP"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "CHEAP"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "NORMAL"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "EXPENSIVE"
+                  }
+                ]
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "reserve_low",
+                "data": {
+                  "option": "Akku nur Laden"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'nur Laden' (Reserve halten): Prognose heute+morgen schlecht, SOC unter 75%, Preis bis NORMAL (tag+nacht)",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.opti_prognose_netzladen",
+                "state": "on"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ has_value('sensor.opti_forecast_score')\n   and has_value('sensor.opti_forecast_score_tomorrow') }}"
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_soc",
+                "below": 75
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_forecast_score",
+                "below": 3
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_forecast_score_tomorrow",
+                "below": 3
+              },
+              {
+                "alias": "Aktuelles Preisniveau VERY_CHEAP bis NORMAL",
+                "condition": "or",
+                "conditions": [
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "VERY_CHEAP"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "CHEAP"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "NORMAL"
+                  }
+                ]
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "reserve_forecast",
+                "data": {
+                  "option": "Akku nur Laden"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'nur Laden' (Reserve halten): Prognose schlecht, Wintermodus, SOC unter 80% (tag+nacht)",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.opti_prognose_netzladen",
+                "state": "on"
+              },
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.opti_winter_charging_allowed",
+                "state": "on"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ has_value('sensor.opti_forecast_score')\n   and has_value('sensor.opti_forecast_score_tomorrow') }}"
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_soc",
+                "below": 80
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_forecast_score",
+                "below": 3
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_forecast_score_tomorrow",
+                "below": 3
+              },
+              {
+                "alias": "Aktuelles Preisniveau VERY_CHEAP bis EXPENSIVE",
+                "condition": "or",
+                "conditions": [
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "VERY_CHEAP"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "CHEAP"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "NORMAL"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "EXPENSIVE"
+                  }
+                ]
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "reserve_winter",
+                "data": {
+                  "option": "Akku nur Laden"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'nur Laden' (Reserve halten): heute schlecht, SOC unter 15% (tag+nacht)",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.opti_prognose_netzladen",
+                "state": "on"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ has_value('sensor.opti_forecast_score') }}"
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_soc",
+                "below": 15
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_forecast_score",
+                "below": 3
+              },
+              {
+                "alias": "Aktuelles Preisniveau VERY_CHEAP bis EXPENSIVE",
+                "condition": "or",
+                "conditions": [
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "VERY_CHEAP"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "CHEAP"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "NORMAL"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "EXPENSIVE"
+                  }
+                ]
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "reserve_today_low",
+                "data": {
+                  "option": "Akku nur Laden"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'nur Laden' (Reserve halten): heute schlecht, SOC unter 45%, Strom sehr günstig (tag+nacht)",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.opti_prognose_netzladen",
+                "state": "on"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ has_value('sensor.opti_forecast_score') }}"
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_soc",
+                "below": 45
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_forecast_score",
+                "below": 3
+              },
+              {
+                "alias": "Aktuelles Preisniveau VERY_CHEAP oder CHEAP",
+                "condition": "or",
+                "conditions": [
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "VERY_CHEAP"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "CHEAP"
+                  }
+                ]
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "reserve_cheap",
+                "data": {
+                  "option": "Akku nur Laden"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'nur Laden' (EV-Sperre): evcc-Schnellladung aktiv, Entladung gesperrt",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.opti_ev_akku_pause",
+                "state": "on"
+              },
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.opti_ev_schnellladung",
+                "state": "on"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "ev_lock",
+                "data": {
+                  "option": "Akku nur Laden"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'Dynamisch': 70% PV-Überschuss in den Akku (nur tagsüber)",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.opti_pv_ueberschuss_ladung",
+                "state": "on"
+              },
+              {
+                "condition": "sun",
+                "after": "sunrise",
+                "before": "sunset"
+              },
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.opti_ueberschuss_70_aktiv",
+                "state": "on"
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_soc",
+                "below": 100
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "surplus_70",
+                "data": {
+                  "option": "Akku Dynamisch"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'Dynamisch': AC-PV-Überschuss in den Akku (nur tagsüber)",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.opti_pv_ueberschuss_ladung",
+                "state": "on"
+              },
+              {
+                "condition": "sun",
+                "after": "sunrise",
+                "before": "sunset"
+              },
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.opti_ueberschuss_ac_aktiv",
+                "state": "on"
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_soc",
+                "below": 100
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "surplus_ac",
+                "data": {
+                  "option": "Akku Dynamisch"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'Dynamisch': Akku voll (SOC über 99%)",
+            "conditions": [
+              {
+                "condition": "template",
+                "value_template": "{{ has_value('sensor.opti_soc')\n   and has_value('sensor.opti_battery_capacity_kwh') }}"
+              },
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_soc",
+                "above": 99
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "battery_full",
+                "data": {
+                  "option": "Akku Dynamisch"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Peak-Leiter L3 'nur Laden' (halten): EXPENSIVE, Reserve fuer VERY_EXPENSIVE",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.opti_peak_reserve_aktiv",
+                "state": "on"
+              },
+              {
+                "condition": "state",
+                "entity_id": "sensor.opti_price_level",
+                "state": "EXPENSIVE"
+              },
+              {
+                "condition": "template",
+                "value_template": "{% set soc = states('sensor.opti_soc') | float(none) %} {% set ve = state_attr('sensor.opti_peak_reserve_soc', 'reserve_ve_soc') | float(none) %} {% set band = 2 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden') else 0 %} {{ soc is not none and ve is not none and soc <= ve + band }}"
+              },
+              {
+                "condition": "template",
+                "value_template": "{% set ve_avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_ve_avg_ct') | float(none) %} {% set cur = states('sensor.opti_price_current_ct_kwh') | float(none) %} {% set halte_spread = states('input_number.opti_halte_spread_ct') | float(3) %} {{ ve_avg is not none and cur is not none and (ve_avg - cur) >= halte_spread }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "peak_l3",
+                "data": {
+                  "option": "Akku nur Laden"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Peak-Leiter L4 'nur Laden' (halten): Preis normal/billig, Reserve fuer Peaks",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.opti_peak_reserve_aktiv",
+                "state": "on"
+              },
+              {
+                "alias": "Preisniveau NORMAL oder billiger",
+                "condition": "or",
+                "conditions": [
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "VERY_CHEAP"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "CHEAP"
+                  },
+                  {
+                    "condition": "state",
+                    "entity_id": "sensor.opti_price_level",
+                    "state": "NORMAL"
+                  }
+                ]
+              },
+              {
+                "condition": "template",
+                "value_template": "{% set soc = states('sensor.opti_soc') | float(none) %} {% set ges = states('sensor.opti_peak_reserve_soc') | float(none) %} {% set band = 2 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden') else 0 %} {{ soc is not none and ges is not none and soc <= ges + band }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "peak_l4",
+                "data": {
+                  "option": "Akku nur Laden"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'Dynamisch': echter Netz-Ueberschuss sticht Ziel-SoC-Deckel",
+            "conditions": [
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.opti_pv_ueberschuss_ladung",
+                "state": "on"
+              },
+              {
+                "condition": "sun",
+                "after": "sunrise",
+                "before": "sunset"
+              },
+              {
+                "condition": "state",
+                "entity_id": "binary_sensor.opti_ueberschuss_veto_aktiv",
+                "state": "on"
+              },
+              {
+                "condition": "template",
+                "value_template": "{{ has_value('sensor.opti_soc')\n   and has_value('input_number.maxsoc')\n   and (states('sensor.opti_soc') | float) < (states('input_number.maxsoc') | float(95)) }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "surplus_veto",
+                "data": {
+                  "option": "Akku Dynamisch"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'Dynamisch': SOC zwischen MinSoC und Ziel-SoC (nur tagsüber)",
+            "conditions": [
+              {
+                "condition": "template",
+                "value_template": "{{ has_value('sensor.opti_soc')\n   and has_value('sensor.opti_battery_capacity_kwh')\n   and has_value('sensor.opti_target_soc')\n   and (states('sensor.opti_soc') | float) > (states('input_number.minsoc') | float(10))\n   and (states('sensor.opti_soc') | float) < (states('sensor.opti_target_soc') | float - 3) }}"
+              },
+              {
+                "condition": "sun",
+                "after": "sunrise",
+                "before": "sunset"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "below_target",
+                "data": {
+                  "option": "Akku Dynamisch"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          },
+          {
+            "alias": "Modus 'nur Entladen': SOC über Ziel-SoC",
+            "conditions": [
+              {
+                "condition": "template",
+                "value_template": "{% set off = 0 if is_state('input_select.akkusteuerung_modus', 'Akku nur Entladen') else 3 %} {{ has_value('sensor.opti_soc')\n   and has_value('sensor.opti_battery_capacity_kwh')\n   and has_value('sensor.opti_target_soc')\n   and (states('sensor.opti_soc') | float) > (states('sensor.opti_target_soc') | float + off) }}"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "decision_id": "above_target",
+                "data": {
+                  "option": "Akku nur Entladen"
+                },
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                }
+              }
+            ]
+          }
+        ],
+        "default": [
+          {
+            "choose": [
+              {
+                "conditions": [
+                  {
+                    "condition": "template",
+                    "value_template": "{{ has_value('sensor.opti_soc')\n   and has_value('sensor.opti_battery_capacity_kwh') }}"
+                  }
+                ],
+                "sequence": [
+                  {
+                    "action": "input_select.select_option",
+                    "decision_id": "default",
+                    "data": {
+                      "option": "Akku Dynamisch"
+                    },
+                    "target": {
+                      "entity_id": "input_select.akkusteuerung_modus"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "alias": "Netzladen: Booster deaktivieren wenn Akku voll",
+        "choose": [
+          {
+            "conditions": [
+              {
+                "condition": "numeric_state",
+                "entity_id": "sensor.opti_soc",
+                "above": 99
+              },
+              {
+                "condition": "state",
+                "entity_id": "input_boolean.hausakku_aus_netz_laden",
+                "state": "on"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_boolean.turn_off",
+                "data": {},
+                "target": {
+                  "entity_id": "input_boolean.hausakku_aus_netz_laden"
+                }
+              },
+              {
+                "action": "input_number.set_value",
+                "alias": "Ladepreis Helfer nach aktuellem Strompreis (EUR/kWh)",
+                "data": {
+                  "value": "{{ states('sensor.opti_price_current_ct_kwh') | float(0) / 100 }}"
+                },
+                "target": {
+                  "entity_id": "input_number.ladepreis"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "fail_safe": {
+    "id": "opti_canonical_strategie_fail_safe",
+    "alias": "Akku Opti Strategie Fail-safe",
+    "description": "Setzt den Akku bei deaktivierter Opti-Automatik oder ungueltigen Core-Daten sicher auf Pause. Beim HA-Start sofort, im laufenden Betrieb nach zehn Sekunden stabil unplausibler Kerndaten. Nach einem Automation-Reload werden bereits ungueltige Kerndaten ebenfalls sofort geprueft. Die Hauptstrategie uebernimmt nach Daten-Recovery durch ihre SoC-/Kapazitaets-Trigger wieder.",
+    "mode": "restart",
+    "triggers": [
+      {
+        "trigger": "state",
+        "entity_id": "input_boolean.akku_opti_automatik",
+        "to": "off",
+        "id": "master_aus"
+      },
+      {
+        "trigger": "template",
+        "value_template": "{% set soc = states('sensor.opti_soc') | float(none) %} {% set kapazitaet =\n   states('sensor.opti_battery_capacity_kwh') | float(none) %}\n{{ soc is none or soc <= -0.1 or soc >= 100.1\n   or kapazitaet is none or kapazitaet <= 0 }}",
+        "for": "00:00:10",
+        "id": "core_ungueltig"
+      },
+      {
+        "trigger": "homeassistant",
+        "event": "start",
+        "id": "ha_start"
+      },
+      {
+        "trigger": "event",
+        "event_type": "automation_reloaded",
+        "id": "automationen_neu_geladen"
+      }
+    ],
+    "actions": [
+      {
+        "alias": "Unsicheren Zustand auf Akku Pause abbilden",
+        "choose": [
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": "master_aus"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                },
+                "data": {
+                  "option": "Akku Pause"
+                }
+              }
+            ]
+          },
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": "core_ungueltig"
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                },
+                "data": {
+                  "option": "Akku Pause"
+                }
+              }
+            ]
+          },
+          {
+            "conditions": [
+              {
+                "condition": "trigger",
+                "id": [
+                  "ha_start",
+                  "automationen_neu_geladen"
+                ]
+              },
+              {
+                "condition": "or",
+                "conditions": [
+                  {
+                    "condition": "state",
+                    "entity_id": "input_boolean.akku_opti_automatik",
+                    "state": "off"
+                  },
+                  {
+                    "condition": "template",
+                    "value_template": "{% set soc = states('sensor.opti_soc') | float(none) %} {% set kapazitaet =\n   states('sensor.opti_battery_capacity_kwh') | float(none) %}\n{{ soc is none or soc <= -0.1 or soc >= 100.1\n   or kapazitaet is none or kapazitaet <= 0 }}"
+                  }
+                ]
+              }
+            ],
+            "sequence": [
+              {
+                "action": "input_select.select_option",
+                "target": {
+                  "entity_id": "input_select.akkusteuerung_modus"
+                },
+                "data": {
+                  "option": "Akku Pause"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "balancing_automations": [
+    {
+      "id": "opti_balancing_counter_increment",
+      "alias": "Opti Balancing: Tage seit letztem Abschluss hochzählen",
+      "description": "Zaehlt counter.tage_seit_akku100 am Tagesende hoch, wenn an diesem Kalendertag kein bestaetigter Balancing-Abschluss stattgefunden hat.",
+      "mode": "single",
+      "triggers": [
+        {
+          "trigger": "time",
+          "at": "23:59:00"
+        }
+      ],
+      "conditions": [
+        {
+          "condition": "template",
+          "alias": "Heute noch kein Balancing-Abschluss",
+          "value_template": "{% set gueltig =\n   is_state('input_boolean.opti_balancing_abschluss_gueltig', 'on') %}\n{% set letzter = states('input_datetime.opti_balancing_letzter_abschluss')\n   | as_datetime %}\n{{ not gueltig\n   or letzter is none\n   or (letzter | as_local).date() != now().date() }}"
+        }
+      ],
+      "actions": [
+        {
+          "action": "counter.increment",
+          "target": {
+            "entity_id": "counter.tage_seit_akku100"
+          }
+        }
+      ]
+    },
+    {
+      "id": "opti_balancing_counter_reset",
+      "alias": "Opti Balancing: Abschluss nach erreichtem Done-SoC",
+      "description": "Schliesst einen Balancing-Zyklus nach 30 bestaetigten Minuten oberhalb des Done-SoC ab. Persistente Minuten machen die Bestaetigung restartfest; der Abschluss-Zeitstempel verhindert Mehrfachabschluesse am selben Tag.",
+      "mode": "queued",
+      "triggers": [
+        {
+          "trigger": "time_pattern",
+          "minutes": "/1",
+          "id": "minute"
+        },
+        {
+          "trigger": "template",
+          "value_template": "{% set soc = states('sensor.opti_soc') | float(none) %} {% set done = states('input_number.opti_balancing_done_soc') | float(none) %} {{ soc is not none and done is not none and soc <= done }}",
+          "id": "rueckfall"
+        },
+        {
+          "trigger": "state",
+          "entity_id": "sensor.opti_soc",
+          "to": [
+            "unknown",
+            "unavailable"
+          ],
+          "id": "sensorfehler"
+        },
+        {
+          "trigger": "state",
+          "entity_id": "input_number.opti_balancing_done_soc",
+          "to": [
+            "unknown",
+            "unavailable"
+          ],
+          "id": "sensorfehler"
+        },
+        {
+          "trigger": "homeassistant",
+          "event": "start",
+          "id": "ha_start"
+        }
+      ],
+      "actions": [
+        {
+          "alias": "Done-SoC minutenweise bestaetigen",
+          "choose": [
+            {
+              "alias": "Bestaetigungen bei Rueckfall oder Sensorfehler verwerfen",
+              "conditions": [
+                {
+                  "condition": "trigger",
+                  "id": [
+                    "rueckfall",
+                    "sensorfehler"
+                  ]
+                }
+              ],
+              "sequence": [
+                {
+                  "action": "counter.reset",
+                  "target": {
+                    "entity_id": "counter.opti_balancing_done_minuten"
+                  }
+                }
+              ]
+            },
+            {
+              "alias": "Nach heutigem Abschluss nicht erneut bestaetigen",
+              "conditions": [
+                {
+                  "condition": "state",
+                  "entity_id": "input_boolean.opti_balancing_abschluss_gueltig",
+                  "state": "on"
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{% set letzter =\n   states('input_datetime.opti_balancing_letzter_abschluss')\n   | as_datetime %}\n{{ letzter is not none\n   and (letzter | as_local).date() == now().date() }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "action": "counter.reset",
+                  "target": {
+                    "entity_id": "counter.opti_balancing_done_minuten"
+                  }
+                }
+              ]
+            },
+            {
+              "alias": "Restaurierten Stand beim HA-Start plausibilisieren",
+              "conditions": [
+                {
+                  "condition": "trigger",
+                  "id": "ha_start"
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{{ has_value('sensor.opti_soc')\n   and has_value('input_number.opti_balancing_done_soc')\n   and (states('sensor.opti_soc') | float(0))\n       <= (states('input_number.opti_balancing_done_soc')\n           | float(100)) }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "action": "counter.reset",
+                  "target": {
+                    "entity_id": "counter.opti_balancing_done_minuten"
+                  }
+                }
+              ]
+            },
+            {
+              "alias": "Bestaetigungen beim Minuten-Tick plausibilisieren",
+              "conditions": [
+                {
+                  "condition": "trigger",
+                  "id": "minute"
+                },
+                {
+                  "condition": "template",
+                  "value_template": "{{ not has_value('sensor.opti_soc')\n   or not has_value('input_number.opti_balancing_done_soc')\n   or (states('sensor.opti_soc') | float(0))\n      <= (states('input_number.opti_balancing_done_soc')\n          | float(100)) }}"
+                }
+              ],
+              "sequence": [
+                {
+                  "action": "counter.reset",
+                  "target": {
+                    "entity_id": "counter.opti_balancing_done_minuten"
+                  }
+                }
+              ]
+            },
+            {
+              "alias": "Gueltige Minute oberhalb des Done-SoC bestaetigen",
+              "conditions": [
+                {
+                  "condition": "trigger",
+                  "id": "minute"
+                },
+                {
+                  "condition": "numeric_state",
+                  "entity_id": "sensor.opti_soc",
+                  "above": "input_number.opti_balancing_done_soc"
+                }
+              ],
+              "sequence": [
+                {
+                  "choose": [
+                    {
+                      "alias": "Dreissigste Minute bestaetigt",
+                      "conditions": [
+                        {
+                          "condition": "numeric_state",
+                          "entity_id": "counter.opti_balancing_done_minuten",
+                          "above": 28
+                        }
+                      ],
+                      "sequence": [
+                        {
+                          "action": "counter.reset",
+                          "target": {
+                            "entity_id": "counter.tage_seit_akku100"
+                          }
+                        },
+                        {
+                          "action": "counter.reset",
+                          "target": {
+                            "entity_id": "counter.opti_balancing_done_minuten"
+                          }
+                        },
+                        {
+                          "action": "input_datetime.set_datetime",
+                          "target": {
+                            "entity_id": "input_datetime.opti_balancing_letzter_abschluss"
+                          },
+                          "data": {
+                            "datetime": "{{ now().isoformat() }}"
+                          }
+                        },
+                        {
+                          "action": "input_boolean.turn_on",
+                          "target": {
+                            "entity_id": "input_boolean.opti_balancing_abschluss_gueltig"
+                          }
+                        }
+                      ]
+                    }
+                  ],
+                  "default": [
+                    {
+                      "action": "counter.increment",
+                      "target": {
+                        "entity_id": "counter.opti_balancing_done_minuten"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "porting_notes": [
+    "Internal entity IDs are virtual state keys, never input_* entities installed in HA.",
+    "Core-data failure pauses immediately; source YAML debounces running-state failure for ten seconds.",
+    "Pending binary-sensor delays restart after engine restore; offline time is not confirmation.",
+    "Statistics use evaluate observations, a bounded arithmetic sample mean; source event frequency can differ from HA statistics.",
+    "Balancing confirms at most one minute per observed minute boundary; offline minutes never count.",
+    "Balancing daily increments are observed at 23:59 local time; missed offline days are not backfilled.",
+    "The configurable balancing done-SoC persists, unlike the YAML initial value applied on every HA restart.",
+    "BYD-specific raw cell monitoring and AI analysis are optional external features, not bundled hardware support.",
+    "Peak slots use actual local calendar day lengths and UTC arithmetic, correcting the source DST approximation. The source hourly floor for quarter-hour reserve remains conservative."
+  ]
+}

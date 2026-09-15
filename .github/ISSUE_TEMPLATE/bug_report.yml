@@ -1,0 +1,98 @@
+# Adapted from pail23/stiebel_eltron_isg_component; see ../ISSUE_TEMPLATE_LICENSE.md.
+name: Fehler melden
+description: Unerwartetes Verhalten der Opti-Akku-Integration beschreiben
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bitte zuerst die [bestehenden Issues](https://github.com/Optic00/ha-opti-akkusteuerung/issues) durchsuchen.
+        Dieses Formular ist öffentlich. Keine Tokens, Passwörter, Seriennummern,
+        IP-Adressen, Hostnamen, Personen-, Standort- oder Fahrzeugdaten veröffentlichen.
+        Keine vollständigen HA-Backups, Konfigurationen oder Shadow-Aufzeichnungen anhängen.
+        Logs und Screenshots vor dem Teilen selbst prüfen; automatische Anonymisierung wird nicht zugesichert.
+        Ausgewählte Diagnosewerte oder ein kurzer bereinigter Fehlertext reichen für den Einstieg.
+        Schreibzugriffe nicht eigens zur Reproduktion eines Fehlers aktivieren.
+  - type: checkboxes
+    id: preparation
+    attributes:
+      label: Vor dem Absenden
+      options:
+        - label: Ich habe nach vorhandenen Meldungen gesucht.
+          required: true
+        - label: Ich habe Text und Anhänge auf private Daten und Zugangsdaten geprüft.
+          required: true
+  - type: input
+    id: integration_version
+    attributes:
+      label: Opti-Akku-Version
+      description: Version aus HACS oder manifest.json; bei manueller Installation möglichst auch den Commit angeben.
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home-Assistant-Version
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Anbindung
+      options:
+        - SMA STP SE über HA-Modbus
+        - Huawei über vorhandene Huawei-Solar-Integration (experimentell)
+        - Einrichtung scheitert vor der Auswahl
+        - Unbekannt
+    validations:
+      required: true
+  - type: input
+    id: equipment
+    attributes:
+      label: Geräte und Firmware
+      description: Wechselrichtermodell, Batteriemodell und bekannte Firmwarestände. Bei Huawei auch die Version der Huawei-Solar-Integration. Keine Seriennummern oder Typenschildfotos.
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installationsweg
+      options:
+        - HACS-Neuinstallation
+        - Manuell installiert oder aktualisiert
+        - Bestehende manuelle Integration durch HACS übernommen
+        - Migration von YAML mit der Migrationshilfe
+        - Anderer Weg oder unbekannt
+    validations:
+      required: true
+  - type: dropdown
+    id: operating_mode
+    attributes:
+      label: Betriebszustand beim Fehler
+      options:
+        - Shadow (dauerhaft lesend)
+        - Schreibfähiger Eintrag mit Schreibfreigabe aus
+        - Schreibfreigabe an, Strategie aktiviert
+        - Schreibfreigabe an, manueller Modus
+        - Einrichtung scheitert oder Zustand unbekannt
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Beobachtung und Erwartung
+      description: Was passierte und was sollte stattdessen passieren? Bei Ladeentscheidungen ungefähren Zeitpunkt mit Zeitzone sowie relevante SoC-, Leistungs- und Preiswerte nennen. Personenbezogene Zeitabläufe weglassen.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Schritte und relevante Einstellungen
+      description: Nur nötige Einstellungen nennen, etwa SoC-Grenzen, Strategieoptionen oder externe Quellen. Weitere Steuerungen desselben Geräts erwähnen, aber keine vollständige Konfiguration einfügen. Falls nicht reproduzierbar, das angeben.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Bereinigter Fehlertext oder ausgewählte Diagnosewerte (optional)
+      description: Nur zum Fehler passende Werte von Diagnoseentitäten oder kurze Logauszüge. Ausgewählte Werte der Diagnoseentitäten reichen aus; vollständige Aufzeichnungen sind nicht nötig. Auch Entity-IDs und Fehlermeldungen können private Angaben enthalten.
+      render: text

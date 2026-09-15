@@ -1,254 +1,55 @@
-# ha-opti-akkusteuerung
+<img src="https://raw.githubusercontent.com/Optic00/ha-opti-akkusteuerung/main/custom_components/opti_akku/brand/icon.png" alt="Opti Akku" width="128">
 
-[![Tests](https://github.com/Optic00/ha-opti-akkusteuerung/actions/workflows/tests.yml/badge.svg)](https://github.com/Optic00/ha-opti-akkusteuerung/actions/workflows/tests.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+# Opti Akku für Home Assistant
 
-Prognosebasierte Akku-Ladesteuerung für Home Assistant - die Strategie ist hardware-agnostisch (Canonical-`opti_*`-Layer), als Referenz-Adapter dient der **SMA STP SE Hybrid-Wechselrichter** (direkt über Modbus, ohne Grid Guard Code).
+Opti Akku verbindet lokale Akkusteuerung mit einer optionalen Strategie für PV-Überschuss, Strompreise und Verbrauchsreserve. Die Einrichtung erfolgt über einen geführten Assistenten. Zusätzliche YAML-Automationen oder manuell angelegte Helfer sind für die Integration nicht erforderlich.
 
-> ⚠️ **Disclaimer:** Dieses Projekt wird nicht von SMA begleitet oder supportet. Nutzung auf eigene Gefahr. Kein persönlicher Support, aber die Community hilft gerne über [Issues](https://github.com/Optic00/ha-opti-akkusteuerung/issues).
+**Beta-Kandidat 0.5.2b6, noch ohne Release.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md) umstellen.
 
-> **Für wen?** HA-Nutzer mit dynamischem Stromtarif und PV-Speicher, die den Akku prognosebasiert statt stumpf auf 100 % steuern wollen.
-> **Konkret getestet:** SMA STP SE Hybrid-WR + BYD-Akku, direkt über Modbus TCP.
-> **Theoretisch adaptierbar:** andere Wechselrichter (Huawei, …) über den Canonical-Layer - erfordert aber eigenes Hardware-Mapping und ggf. Register-Recherche, ist also Eigenarbeit.
-
----
-
-## Was macht das hier?
-
-Prognosebasierte Akku-Ladesteuerung, **hardware-agnostisch** über einen separaten Modbus-Adapter, komplett als HA-Packages paketiert.
-
-**Prognosebasierter Ziel-SoC** (Kernfeature, `sensor.opti_target_soc`)
-Lädt den Akku morgens **nicht** stumpf auf 100 %, sondern nur so weit, dass die erwartete
-Rest-PV des Tages ihn bis zum Abend von selbst voll macht - schont die Zellen und maximiert
-den PV-Eigenverbrauch. Der Zielwert ergibt sich aus Solcast-Restprognose, Hausverbrauch und
-Restzeit bis Sonnenuntergang, als Stufenkennlinie mit echter Hysterese (kein Flattern).
-→ **[Herleitung in docs/strategie-logik.md](docs/strategie-logik.md#der-intelligente-ziel-soc--herzstück-der-akkuschonung)**
-
-**Entlade-Peak-Allokation** (`sensor.opti_peak_reserve_soc`, Peak-Leiter L1-L4)
-Reserviert einen Teil des SoC gezielt für die kommenden teuersten Stunden, statt ihn
-undifferenziert an eine beliebige Stunde davor zu verlieren. Dazu kommen eine
-Negativpreis-Laderegel und eine spread-basierte Peak-Vorladeregel, beide mit
-selbstkorrigierender Ladefenster-Wahl.
-→ **[Details in docs/strategie-logik.md](docs/strategie-logik.md#entlade-peak-allokation-reserve-für-die-teuersten-stunden)**
+> **Aktive Akkusteuerung:** Freigegebene Schreibzugriffe verändern das Lade- und Entladeverhalten. Falsche Einstellungen oder Fehler können zusätzliche Kosten und unerwünschten Betrieb verursachen. Herstellervorgaben beachten und andere schreibende Steuerungen vor der Freigabe deaktivieren. Neue Einträge starten ohne Schreibfreigabe; Shadow-Einträge bleiben dauerhaft lesend.
 
-**Strategie** (`automations/opti_strategie.yaml`)
-Entscheidet prognosebasiert, welcher Modus wann gilt: Lädt bei schlechter PV-Prognose aus
-dem Netz (gestaffelt nach SoC und Preisniveau), nutzt PV-Überschuss tagsüber und schützt
-MinSOC-Grenzen. Schreibt primär `input_select.akkusteuerung_modus` - keine direkte
-Hardware-Ansteuerung.
+## Unabhängiges Projekt und Nutzungshinweise
 
-**Hardware-Adapter** (separates Repo: [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter))
-Liest den Modus aus `input_select.akkusteuerung_modus` und steuert den WR via Modbus TCP.
-Läuft als eigenständiger Blueprint-Adapter - Strategie und Hardware-Ansteuerung sind
-bewusst getrennt (Single-Writer-Regel: immer nur ein Adapter aktiv).
+Opti Akku ist ein unabhängiges Community-Projekt, keine offizielle Integration von SMA, Huawei, BYD oder Tibber. Aus der genannten Kompatibilität folgt keine Freigabe, Zertifizierung oder Supportzusage dieser Unternehmen. Hersteller- und Produktnamen dienen zur Beschreibung der unterstützten Geräte und Schnittstellen; die Rechte daran verbleiben bei den jeweiligen Rechteinhabern.
 
-**Canonical-Layer** (`opti_mapping.example.yaml` → `packages/opti_mapping.yaml`)
-Bildet hardware-spezifische Entitäten (SMA, Huawei oder andere WR) auf 13 kanonische
-`sensor.opti_*`-Sensoren ab. Strategie und abgeleitete Sensoren konsumieren nur diese
-kanonischen Namen - keine Seriennummern im Code. → **[docs/canonical-layer.md](docs/canonical-layer.md)**
+Die Software wird unter der [MIT-Lizenz](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/LICENSE) ohne zugesicherte Fehlerfreiheit, Verfügbarkeit oder Eignung für eine bestimmte Anlage bereitgestellt. Es gibt keine Zusage bestimmter Einsparungen oder einer bestimmten Batterielebensdauer. Aktive Steuerung kann Kosten, Batterieverschleiß oder Schäden verursachen. Der Lizenztext enthält Gewährleistungs- und Haftungsausschlüsse; zwingende gesetzliche Rechte bleiben unberührt. Warnhinweise und eine Schreibfreigabe sind kein pauschaler Haftungsverzicht. Herstellerbedingungen, Anlagenparameter und einen geeigneten Rückweg vor dem Schreibbetrieb prüfen.
 
-### Architektur in einem Bild
+## Voraussetzungen und Geräte
 
-```
-Strategie  →  input_select.akkusteuerung_modus  →  [ ADAPTER-BLUEPRINT ]  →  Modbus-Register  →  WR
-(setzt Modus)        (+ input_number.* in W)              übersetzt
-```
+- Home Assistant ab **2026.9.1**, HACS für die komfortable Installation.
+- **SMA Sunny Tripower Smart Energy** STP5.0/6.0/8.0/10.0-3SE-40 mit aktiviertem Modbus TCP. Die Einrichtung prüft Geräteprofil und Identität lesend. Der bisherige praktische Pilotumfang ersetzt keine Abnahme jeder Modell-/Firmwarekombination.
+- **Huawei Solar ist experimentell:** nutzt eine bereits eingerichtete Huawei-Solar-Integration und deren Entitäten/Dienste. Sie wird nicht ersetzt. Voraussetzungen und Grenzen: [Huawei](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/HUAWEI_CONTROL.md).
+- Stromtarif, PV-Prognose, Wärmepumpe und Fahrzeug sind optionale externe Quellen. Anbieter müssen bereits in HA eingerichtet sein.
 
-Die Strategie (dieses Repo) entscheidet nur den **Modus** - der Hardware-Adapter (separates Repo) übersetzt ihn in Modbus. Das macht die Strategie unabhängig vom Speicherfabrikat.
-→ Wer genau was liefert, in welcher Reihenfolge, plus Versions-Kompatibilität: **[docs/installation.md](docs/installation.md#komponenten-und-reihenfolge)**
+## Installation mit HACS
 
----
+1. In HACS unter **Benutzerdefinierte Repositories** `https://github.com/Optic00/ha-opti-akkusteuerung` als Typ **Integration** hinzufügen.
+2. **Opti Akku** herunterladen. Solange kein Vorabrelease veröffentlicht ist, bietet HACS nur den Hauptzweig an. Dieser ist Entwicklungsstand und keine stabile Freigabe. Sobald ein Vorabrelease existiert, die Beta-Auswahl aktivieren und die gewünschte Beta wählen.
+3. Home Assistant neu starten.
+4. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen → Opti Akku** den Assistenten starten. Für den ersten Vergleich Shadow eingeschaltet lassen.
 
-## Voraussetzungen
+Dies ist ein benutzerdefiniertes HACS-Repository, keine behauptete Aufnahme in die HACS-Standardliste. Wurde das Repository unter einer anderen Kategorie hinzugefügt, in HACS entfernen und als Integration neu hinzufügen. Eine bereits manuell installierte Opti-Akku-Integration nicht löschen oder neu anlegen: [Übernahme durch HACS](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md#manuell-installierte-integration).
 
-- Home Assistant mit **SMA-Integration** (für SoC, PV-Leistung, etc.) - das ist der getestete SMA-Referenzweg; bei anderer Hardware stattdessen deren Integration + eigenes Canonical-Mapping
-- **Solcast-Integration** für PV-Prognosen
-- Ein dynamischer Stromtarif mit stündlicher `today`/`tomorrow`-Preisliste (z. B. Tibber, Nordpool, EPEX)
-- **Home Assistant 2025.1 oder neuer** (getestet mit 2026.6; technische Untergrenze ist 2024.10, weil die abgeleiteten Sensoren trigger-basierte Template-Sensoren mit `variables:` nutzen)
-- Aktuelle WR-Firmware - **kein Beta-Firmware und kein Grid Guard Code nötig**
-- Modbus TCP am WR erreichbar (Standard-Port 502)
+## Funktionen
 
-> 💡 **Wichtig:** Die prognosebasierte Akkusteuerung im SMA Home Manager / SunnyPortal muss deaktiviert sein, sonst überschreibt sie die Modbus-Werte regelmäßig wieder.
+- SMA-Telemetrie und Steuerung über die Modbus-Schnittstelle von HA; wahlweise Beobachtung, Strategie oder manuelle Betriebsarten.
+- Lade-/Entladegrenzen, Hysterese, Preisfenster, Reserveplanung und optionale Balancing-Planung.
+- Native Tibber-Preise über die vorhandene HA-Integration oder zugeordnete Preisentitäten.
+- Optionales Stundenverbrauchsprofil mit Recorder-Import und gesonderter Aktivierung für die Peak-Reserve.
+- Optionale EV-Entladesperre und frühere PV-Ladung des Hausakkus bei Fahrzeug-Ladebedarf.
+- Geführtes Einstellungsmenü, Diagnoseentitäten und lesende 24-Stunden-Shadow-Aufzeichnung.
 
----
+BYD-Zellüberwachung, KI-Tagesreport und eine eigene Wallbox-/Wärmepumpensteuerung gehören nicht dazu. Eine vollständige zukünftige Heizlast- oder Fahrzeug-Rückkehrprognose wird nicht versprochen. Huawei-Hardwarepilot und vollständige EV-/Nacht-/Preispeak-Abnahme des öffentlichen Kandidaten stehen vor einer stabilen Freigabe noch aus.
 
-## Schnell-Start
+## Dokumentation
 
-Der Minimalpfad. Voller Ablauf mit beiden Einspiel-Varianten, allen Erststart-Werten und der Watchdog-Konfiguration: **[docs/installation.md](docs/installation.md)**.
-
-1. **Packages aktivieren** in `configuration.yaml`:
-   ```yaml
-   homeassistant:
-     packages: !include_dir_named packages/
-   ```
-2. **Hardware-Mapping:** `opti_mapping.example.yaml` → `packages/opti_mapping.yaml` kopieren, alle `DEIN_*`-Platzhalter durch echte Entitäts-IDs ersetzen (→ [docs/canonical-layer.md](docs/canonical-layer.md)).
-3. **Package-Dateien** aus [`packages/`](packages/) ins HA-`packages/`-Verzeichnis kopieren (Überblick unter [Dateien](#dateien); `sma_templates.yaml`/`opti_ki_analyse.yaml`/`byd_monitoring.yaml` sind optional; `legacy/` bleibt draußen). In `sma_modbus.yaml` die **WR-IP** anpassen - oder die Datei weglassen, falls der Modbus-Hub schon aus dem Adapter-Repo kommt (siehe „Nur aus einer Quelle" unten).
-4. **Home Assistant neu starten.**
-5. ✅ **Verify-Gate - erst prüfen, dann scharf schalten:** In den Entwicklertools sicherstellen, dass `sensor.opti_target_soc`, `sensor.opti_charge_power_w` und `sensor.opti_price_level` plausible Werte zeigen und **nicht** `unavailable`/`unknown` sind. Stimmt etwas nicht → zuerst das Mapping korrigieren, nicht weitergehen.
-   > **Im laufenden Betrieb** ist `sensor.opti_price_level` = `unavailable` dagegen ein *gewollter* Zustand: fällt die Preisquelle aus, meldet der Sensor das ehrlich, statt ein Preisniveau zu erfinden. Die preisunabhängigen Zweige laufen weiter. Bleibt der Sensor dauerhaft `unavailable`, ist die Ursache zu klären (Mapping, Anbieter oder Netzwerk) - außer du fährst bewusst ohne Preisquelle.
-6. **Adapter-Blueprint importieren** aus [`ha-modbus-akku-adapter`](https://github.com/Optic00/ha-modbus-akku-adapter) und die Eingaben auf deine Entitäten mappen (Modbus-Hub, WR-Status, `input_select.akkusteuerung_modus`, `sensor.opti_charge_power_w`, dazu `battery_capacity_sensor` und `inverter_ok_states` - die Blueprint-Vorschlagswerte prüfen, nicht ungeprüft übernehmen).
-7. **Strategie einspielen** aus `automations/opti_strategie.yaml` (zwei Wege - anhängen an `automations.yaml` oder als Package: → [docs/installation.md](docs/installation.md#schritt-für-schritt)).
-8. **Erststart-Werte setzen (VOR dem Einschalten):** `input_number`-Helfer ohne `initial:` starten auf ihrem **Minimum** - bei `maxsoc` und den Max-Ladestärken ist das **0**, was jedes Laden/Entladen blockiert. Also `maxsoc` (~95 %), `minsoc` (~10 %) und die Max-Lade-/Entladestärken einmalig über die HA-Oberfläche setzen. Vollständige Startwert-Tabelle: **[docs/installation.md](docs/installation.md#schritt-für-schritt)**.
-9. **Erst jetzt einschalten:** Master-Schalter `input_boolean.akku_opti_automatik` auf **an**.
-
-> ⚠️ **Single-Writer-Regel:** Nur **eine** Automation darf den WR via Modbus schreiben - keine zweite Steuer-Automatik parallel aktiv lassen.
->
-> ⚠️ **Nur aus einer Quelle:** Helfer und Modbus-Hub entweder aus dem Adapter-Repo **oder** aus diesem Repo - nie beides (Duplicate-Key-Fehler). Details: [docs/installation.md](docs/installation.md#komponenten-und-reihenfolge).
+- [Einrichtung und Einstellungen](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/configuration.md)
+- [Betrieb, Shadow und Schreibschutz](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/operation.md)
+- [Migration und Rückweg](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md)
+- [Strompreise](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/PRICE_SOURCES.md), [Anlagenbilanz](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/PLANT_MODEL.md), [Huawei](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/HUAWEI_CONTROL.md)
+- [Bedarfsprofil, Peak-Reserve und EV-Vorbereitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/forecast-and-ev.md)
+- [Entwicklung und Prüfung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/development.md)
 
----
+Die Strategiequellen liegen unter `strategy/`; das daraus erzeugte JSON wird mit der Integration ausgeliefert. Herkunft und Anpassungen sind dort dokumentiert. Gerätetreiber und Strategie bleiben intern getrennt, damit später andere Adapter oder eine eigenständige Strategie angebunden werden können.
 
-## Dateien
-
-| Pfad | Beschreibung |
-|---|---|
-| `opti_mapping.example.yaml` | Vorlage für das Hardware-Mapping (→ nach `packages/opti_mapping.yaml` kopieren, Platzhalter ersetzen) |
-| `packages/opti_mapping.yaml` | **Dein** Hardware-Mapping (gitignored - enthält echte Entitäts-IDs) |
-| `packages/opti_derived.yaml` | Abgeleitete Entscheidungs-Sensoren (Score, Ziel-SoC, Preisniveau, …) |
-| `packages/sma_modbus.yaml` | Modbus-TCP-Verbindung zum WR |
-| `packages/sma_helpers.yaml` | Alle Helfer (input_select, input_number, input_boolean, counter, input_text/input_datetime für Adapter-Write-on-Change ab v1.2.0) |
-| `packages/sma_templates.yaml` | Legacy-Template-Sensoren - teils durch `opti_derived.yaml` abgelöst, teils noch ohne Canonical-Äquivalent (Sollkurve/P-Regler, Abregelung) |
-| `packages/sma_statistik.yaml` | Gleitende Mittelwert-Sensoren für Verbrauch & Batterielast |
-| `packages/opti_ki_analyse.yaml` | **optional** - täglicher KI-Tagesreport (rein lesend) |
-| `packages/byd_monitoring.yaml` | **optional** - BYD-Zell-Monitoring + Akku-Alarme über die native Modbus-Integration (→ [docs/byd-monitoring-nativ.md](docs/byd-monitoring-nativ.md)) |
-| `packages/byd_modul2_fruehwarnung.yaml` | **optional** - BYD Modul-2-Frühwarnung (Degradations-Trend des schwächsten Moduls, rein beobachtend, kein Alarm); setzt `byd_monitoring.yaml` voraus (→ [docs/byd-modul2-fruehwarnung.md](docs/byd-modul2-fruehwarnung.md)) |
-| `legacy/` | Abgelöste Packages (BYD via bydlogc→MQTT, alte Modul-2-Frühwarnung) - **nicht mehr einbauen**, siehe Deprecation-Header in den Dateien |
-| `packages/opti_ev_sperre.yaml` | **optional** - EV-Schnelllade-Entladesperre (Hausakku entlädt nicht ins Auto, wenn evcc im Modus now/minpv lädt); braucht HACS `evcc_intg` + Ladepunkt-Block im Mapping → [docs/strategie-logik.md](docs/strategie-logik.md) (Option 13) |
-| `automations/opti_strategie.yaml` | Strategie-Automation (editierbar, kein Blueprint) |
-
-Der frühere manuelle Weg mit Flachdateien liegt zur Referenz unter [`old/README.md`](old/README.md) - für Neuaufbauten nicht empfohlen. Vollständige Datei-Liste und Legacy-Namens-Mapping: **[docs/installation.md](docs/installation.md#legacy-setup-referenz)**.
-
----
-
-## Strategie-Logik
-
-Die Strategie-Automation entscheidet den **Modus** via `input_select.akkusteuerung_modus` und berührt keine Hardware direkt; ein nachgelagerter Cleanup pflegt nur Booster und Ladepreis. Eine vollständige, laienverständliche Block-für-Block-Erklärung aller Entscheidungsoptionen, der Preisstufenlogik (`sensor.opti_price_level`), des MinSOC-Schutzes, der Wintermodus-Blöcke und der Bausteine (P10-Sicherheitsnetz, Decision-Trace, Balancing-Watchdog, Überschuss-Veto mit Knappheits-Gate):
-**[docs/strategie-logik.md](docs/strategie-logik.md)**
-
----
-
-## Entwicklung & Tests
-
-Architektur, Zuständigkeiten und offene Wartungsthemen:
-**[Projektüberblick](docs/projektueberblick.md)**.
-
-Für die reine Nutzung wird kein Python gebraucht - das Repo liefert HA-YAML aus.
-Wer aber an den Templates oder der Strategie schraubt, sollte die Testsuite laufen lassen:
-Sie rendert die Jinja-Templates aus den aktiven `packages/` und die Bedingungen aus `automations/` gegen einen nachgebauten HA-Zustand und prüft die Ergebnisse; `legacy/` und `old/` sind bewusst nicht abgedeckt, das sind Archive.
-Damit fallen kaputte Templates auf, bevor sie in einer echten Anlage landen.
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-
-pytest -q                                  # alles
-pytest -q tests/test_strategie_paritaet.py  # einzelne Datei
-```
-
-Getestet gegen Python 3.11 bis 3.14; `requirements-dev.txt` braucht nur `pytest`, `Jinja2` und `PyYAML`.
-Dieselben Tests laufen bei jedem Pull Request und bei jedem Push auf `main` automatisch über [GitHub Actions](.github/workflows/tests.yml).
-
-**Was die Suite abdeckt** (`tests/`, aktuell über 400 Tests):
-
-| Bereich | Beispiele |
-|---|---|
-| Template-Syntax | `test_yaml_jinja_parst.py` prüft jedes Jinja-Template in `packages/*.yaml`, `automations/*.yaml` und der Beispiel-Mapping-Datei mit echtem Jinja2 auf Syntax |
-| Strategie-Entscheidungen | `test_strategie_paritaet.py`, `test_strategie_fail_safe.py`, `test_strategie_vorschau.py` |
-| Abgeleitete Sensoren | `test_derived_sensoren.py`, `test_price_level.py`, `test_target_soc_hysterese.py`, `test_peak_reserve.py` |
-| BYD-Monitoring | `test_byd_monitoring.py`, `test_byd_modul2_fruehwarnung.py`, `test_byd_knie_spreizung.py` |
-| Mapping & Privacy | `test_opti_mapping.py` scannt alle getrackten Dateien **und die Commit-Historie** auf echte WR-Seriennummern |
-
-12 Tests überspringen sich selbst, solange `packages/opti_mapping.yaml` fehlt - sie prüfen ein echtes, ausgefülltes Mapping und können deshalb weder in CI noch in einem frischen Clone laufen.
-Das ist erwartet, kein Fehler.
-
-Der HA-Nachbau steckt in `tests/ha_harness.py`.
-Er bildet die Filter und das Rundungsverhalten von Home Assistant nach, ist aber kein vollständiges HA:
-Verhalten, das an echten Integrationen hängt, muss weiterhin an der Anlage verifiziert werden.
-
-Die optionalen nativen Prüfungen verwenden isolierte Home-Assistant-Instanzen
-mit synthetischen Werten. Sie prüfen zusätzlich die Template- und
-Automationsschemas, Zustandsänderungen, Hysterese und Wiederherstellung nach
-Neustarts. Die Nachtprüfung umfasst auch den Quellenwechsel um Mitternacht
-und eine verspätete Aktualisierung der Ganztagsprognose.
-
-```bash
-python3.14 -m venv .venv-ha
-.venv-ha/bin/pip install -r requirements-dev.txt homeassistant==2026.9.1
-.venv-ha/bin/python tools/validate_ha.py
-.venv-ha/bin/python tools/validate_night_ha.py
-```
-
-Diese Prüfungen laufen auch in GitHub Actions. Sie verbinden sich mit keiner
-Anlage. Der Mitternachtstest löst die Auswertung nach dem Zeitwechsel über ein
-Sensorereignis aus; er bildet den internen Minutentimer nicht nach.
-
-Für einen lokalen Vergleich zweier Forecast-Versionen kann
-`tools/replay_forecast_history.py` Recorder-Exporte wiedergeben. Eingabeformat,
-benötigte Sensoren und Grenzen stehen in
-[Forecast-Verlauf wiedergeben](docs/forecast-replay.md). Echte Exporte und
-Ergebnisse bleiben außerhalb des Repositories. Eine Wiedergabe belegt weder
-das genaue HA-Ereignistiming noch das Verhalten der Hardware.
-
-Vor dem Merge eines nicht-trivialen Pull Requests gilt zusätzlich die [Cross-Model Review Policy](REVIEW_POLICY.md).
-
----
-
-## Fehlerbehebung
-
-**Ladestrom springt alle 4 Minuten zurück:**
-Die prognosebasierte Akkusteuerung im SMA Home Manager / SunnyPortal überschreibt die Modbus-Werte. Im SunnyPortal unter den WR-Einstellungen deaktivieren.
-
-**Ladeleistung fällt alle 6 Minuten kurz auf 0:**
-Shadefix zieht periodisch den Stecker. In den WR-Einstellungen auf 30 Minuten setzen oder deaktivieren, falls Shadefix nicht benötigt wird.
-
-**Automation bleibt mittendrin stecken:**
-Unter *Einstellungen → Automationen → [Automation] → Traces* die Ausführung Schritt für Schritt nachvollziehen.
-
-**Modbus-Register-Referenz:** Alle bekannten Registeradressen mit Wertebeschreibungen werden kanonisch im Adapter-Repo gepflegt: → [ha-modbus-akku-adapter/docs/modbus-register-referenz.md](https://github.com/Optic00/ha-modbus-akku-adapter/blob/main/docs/modbus-register-referenz.md) (inoffizielle Community-Sammlung, keine Gewähr).
-
----
-
-## Danksagung
-
-Dieses Projekt lebt von der Community. Besonderer Dank geht an:
-
-- **[@Skybarks](https://github.com/Skybarks)** – für unzählige hilfreiche Antworten im Issues-Tracker, Recherche zu offiziellen SMA Modbus-Dokumenten und geduldige Hilfe beim Einrichten bei anderen Usern
-- **[@mvdberge](https://github.com/mvdberge)** – für den Anstoß zur Modbus-Register-Dokumentation und das Angebot zur Mitarbeit
-- **[@steel4me](https://github.com/steel4me)** – für das Aufspüren und Melden des Template-Fehlers (`| int` ohne Default)
-- **[@WardinT](https://github.com/WardinT)** – für die genaue Code-Analyse, das Finden des doppelten Automation-Blocks und konstruktive Verbesserungsvorschläge
-- **[@CarlosEllan](https://github.com/CarlosEllan)** – für Modbus-Registerforschung bei weiteren WR-Modellen
-- **[@Michl09](https://github.com/Michl09)** – für das Testen des Dual-WR-Setups und Feedback
-- **ajay123** im Photovoltaikforum – für die Entdeckung der neuen Modbus-Steueradressen (Sep 2025) durch direkten Kontakt mit dem SMA-Support, was die gesamte Steuerlogik stark vereinfacht hat ([Quell-Post](https://www.photovoltaikforum.com/thread/215473-begrenzen-der-lade-entladeleistung-byd-mit-stp-se/?postID=4033278#post4033278))
-
----
-
-## Changelog
-
-| Datum | Was |
-|---|---|
-| Sep 2026 | Ladedeckel-Hysterese mit eigenem restauriertem Merker (#68), PV-Verfügbarkeit und Restenergie-Formel der Laufzeitanzeigen korrigiert, BYD-Diagnosekurven mit kompatiblen Statistik-Klassen (#64) |
-| Aug 2026 | Überschuss-Veto mit Knappheits-Gate: laufender Netzexport sticht den Ziel-SoC-Deckel, wenn der Rest-Forecast den Akku nicht mehr füllt (bei fehlendem Forecast bleibt das Gate offen). Dazu Onboarding-Härtung aus dem ersten Fremd-Setup: unkonfigurierte Überschuss-Grenzen schalten den Override ab statt ihn scharf zu stellen, `input_number.ladepreis` verträgt negative Börsenpreise, die Erststart-Tabelle ist vollständig und `unique_id` vs. Entity-ID im Mapping klargestellt |
-| Jul 2026 | Entlade-Peak-Allokation: berechneter Reserve-SoC, Peak-Leiter, Negativpreis- und Vorladeregel (neuer Adapter-Modus "Akku Netzladen"), Backtest gegen echte Winterdaten, Test-Harness für die Jinja-Templates, Viertelstunden-Preisraster |
-| Jun 2026 | Canonical-`opti_*`-Layer: Strategie hardware-agnostisch, prognosebasierter Ziel-SoC mit echter Schmitt-Hysterese, anbieter-agnostisches Preisniveau (Midrank-Perzentil), Vorschau-Sensor für Soll/Ist-Vergleich |
-| Sep 2025 | Neue Modbus-Adressen für direkte Lade-/Entladeleistungssteuerung - Steuerlogik stark vereinfacht, dynamischer Ziel-SoC und Prognose-Bewertung |
-| Jul 2024 | Modbus-Direktsteuerung ohne Grid Guard Code mit aktuellem Firmware-Stand möglich |
-
-## Roadmap
-
-**Strategie**
-- [ ] Netzladen zu Off-Peak-Zeiten / Paragraf-14a-Fenster (pauschal günstigere Nachtstunden)
-- [ ] Mindestentladepreis als echte Entlade-Bedingung nutzen (bisher nur informativ)
-- [x] Akku regelmäßig automatisch auf 100 % balancen - erledigt als saison-übergreifender **Balancing-/Deep-Charge-Watchdog** (`sensor.opti_balancing_watchdog`). Details: [`docs/strategie-logik.md`](docs/strategie-logik.md#balancing-deep-charge-watchdog)
-- [x] Hysterese-Band für die PV-Überschuss-Grenzen - erledigt als entprellte Binärsensoren `opti_ueberschuss_70_aktiv`/`opti_ueberschuss_ac_aktiv`
-- [ ] `opti_peak_verbrauch_kw` statistisch aus der Verbrauchshistorie ableiten statt fix zu konfigurieren
-- [ ] Wirkleistungsbegrenzung bei negativen Strompreisen über Modbus (Register 41255) - experimentell
-
-**Weitere Geräte & Versionen**
-- [ ] SBS-Unterstützung (suche Tester → [Issue öffnen](https://github.com/Optic00/ha-opti-akkusteuerung/issues))
-- [ ] English version?
-
----
-
-## Lizenz
-
-[MIT](LICENSE) - frei nutzbar, anpassbar und weiterverteilbar, solange der Copyright- und Lizenzhinweis erhalten bleibt. Nutzung auf eigene Gefahr, ohne Gewähr (siehe Disclaimer oben).
+Fehler bitte über die [Issue-Vorlage](https://github.com/Optic00/ha-opti-akkusteuerung/issues/new/choose) mit Version, Gerät/Firmware, erwartetem Verhalten und ausgewählten bereinigten Diagnosewerten melden. Issues und Anhänge sind öffentlich. Keine Zugangsdaten, Seriennummern, Adressen, Standort-/Fahrzeugdaten, vollständigen HA-Konfigurationen oder privaten Messhistorien anhängen. Logs, Screenshots und Shadow-Dateien nicht als automatisch anonymisiert ansehen; nur den nötigen Ausschnitt nach eigener Prüfung teilen. Für einen Bericht sind keine vollständigen Dateien erforderlich. Lizenz: [MIT](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/LICENSE).

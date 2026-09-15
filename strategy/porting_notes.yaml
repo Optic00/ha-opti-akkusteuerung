@@ -1,0 +1,13 @@
+porting_notes:
+- Internal entity IDs are virtual state keys, never input_* entities installed in HA.
+- Core-data failure pauses immediately; source YAML debounces running-state failure for ten seconds.
+- Pending binary-sensor delays restart after engine restore; offline time is not confirmation.
+- Statistics use evaluate observations, a bounded arithmetic sample mean; source event frequency can differ
+  from HA statistics.
+- Balancing confirms at most one minute per observed minute boundary; offline minutes never count.
+- Balancing daily increments are observed at 23:59 local time; missed offline days are not backfilled.
+- The configurable balancing done-SoC persists, unlike the YAML initial value applied on every HA restart.
+- BYD-specific raw cell monitoring and AI analysis are optional external features, not bundled hardware
+  support.
+- Peak slots use actual local calendar day lengths and UTC arithmetic, correcting the source DST approximation.
+  The source hourly floor for quarter-hour reserve remains conservative.

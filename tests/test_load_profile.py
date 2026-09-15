@@ -100,7 +100,9 @@ def test_floor_is_applied_after_mean_and_zero_remains_zero_without_floor():
     assert floored.forecast_w == 80
 
 
-@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), -1, "invalid", True])
+@pytest.mark.parametrize(
+    "bad_value", [float("nan"), float("inf"), -1, "invalid", True, object()]
+)
 def test_non_finite_observation_is_invalid(bad_value):
     profile = LoadProfile()
     result = observe(profile, 0, bad_value)

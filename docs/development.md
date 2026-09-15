@@ -22,8 +22,9 @@ Die Suite prüft unter anderem HA-Lifecycle, Konfigurationsdialoge, Migration, n
 
 Die CI verhindert zusätzlich Rückschritte bei der Abdeckung einzelner Module.
 Neue Module müssen mindestens 95 Prozent erreichen. Die Typprüfung startet bewusst
-mit dem Gerätevertrag und dem Befehlsnachweis; weitere Module werden erst nach ihrer
-Bereinigung in die verbindliche Liste aufgenommen. Ruff prüft neben Syntax und
+mit Gerätevertrag, Befehlsnachweis, Wiederanlauf-Gate, Lastprofil, Anlagenbilanz und
+nativen Tibber-Preisen; weitere Module werden erst nach ihrer Bereinigung in die
+verbindliche Liste aufgenommen. Ruff prüft neben Syntax und
 undefinierten Namen auch häufige Python-Fehler über die Bugbear-Regeln.
 
 Hassfest und die HACS-Anforderungen laufen ebenfalls in der CI. Vor folgenreichen

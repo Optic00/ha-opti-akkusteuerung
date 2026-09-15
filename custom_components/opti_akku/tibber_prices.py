@@ -41,7 +41,9 @@ class TibberPriceSnapshot:
     intervals: tuple[PriceInterval, ...]
     entry_id: str
 
-    def normalized(self, now: datetime, max_age: float, home: str) -> tuple[float, dict, dict]:
+    def normalized(
+        self, now: datetime, max_age: float, home: str
+    ) -> tuple[float, dict[str, Any], dict[str, Any]]:
         """Select today's actual intervals, never relabel the day of a cached array."""
         if home != self.home:
             raise TibberPriceError("tibber_home_mismatch")

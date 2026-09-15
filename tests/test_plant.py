@@ -327,3 +327,93 @@ def test_balance_rejects_divergent_strategy_ac_override():
     options = {"plant_mode": "balance", "plant_meter_confirmed": True,
                "forecast_min_load_w": 0, "sources": {"pv_power": "sensor.other_ac"}}
     assert validate_plant_sources(options, {}, NOW)["pv_power"] == "not_allowed_in_balance_mode"
+
+
+@pytest.mark.parametrize(
+    ("options", "field"),
+    [
+        (balance_options(additional_ac_sources=[" "]), "additional_ac_sources"),
+        (balance_options(source_max_age=True), "source_max_age"),
+        (
+            {
+                "plant_mode": "external",
+                "forecast_min_load_w": 0,
+                "sources": {"house_consumption": " "},
+            },
+            "house_consumption",
+        ),
+    ],
+)
+def test_blank_sources_and_invalid_freshness_are_configuration_errors(options, field):
+    result = evaluate_plant(NATIVE, options, {}, NOW)
+    assert result.house_w is None
+    assert field in result.errors
+
+
+@pytest.mark.parametrize(
+    ("reported", "expected"),
+    [(None, "missing_or_stale"), (datetime(2026, 9, 13, 10), "missing_or_stale")],
+)
+def test_external_source_requires_compatible_fresh_timestamp(reported, expected):
+    external = state(500)
+    external.last_reported = reported
+    result = evaluate_plant(
+        {},
+        {
+            "plant_mode": "external",
+            "forecast_min_load_w": 0,
+            "sources": {"house_consumption": "sensor.house"},
+        },
+        {"sensor.house": external},
+        NOW,
+    )
+    assert result.errors["house_consumption"] == expected
+
+
+def test_kw_overflow_and_negative_native_grid_are_rejected():
+    overflow = evaluate_plant(
+        NATIVE,
+        balance_options(additional_ac_sources=["sensor.huge"]),
+        {"sensor.huge": state(1e308, "kW")},
+        NOW,
+    )
+    assert overflow.errors["sensor.huge"] == "invalid_value"
+
+    negative = evaluate_plant(
+        {**NATIVE, "sensor.opti_grid_import_w": -1}, balance_options(), {}, NOW
+    )
+    assert negative.errors["grid_import"] == "negative_value"
+
+    invalid = evaluate_plant(
+        {**NATIVE, "sensor.opti_pv_power_w": float("nan")}, balance_options(), {}, NOW
+    )
+    assert invalid.errors["pv_power"] == "invalid_value"
+
+
+def test_additional_source_sum_overflow_is_rejected():
+    result = evaluate_plant(
+        NATIVE,
+        balance_options(additional_ac_sources=["sensor.a", "sensor.b"]),
+        {"sensor.a": state(1e308), "sensor.b": state(1e308)},
+        NOW,
+    )
+    assert result.errors["additional_ac_sources"] == "invalid_sum"
+
+
+def test_legacy_source_validation_reports_configuration_errors():
+    assert validate_plant_sources({"source_max_age": True}, {}, NOW) == {
+        "source_max_age": "invalid_value"
+    }
+
+
+def test_external_entity_dependency_and_validation_are_explicit():
+    options = {
+        "plant_mode": "external",
+        "forecast_min_load_w": 0,
+        "sources": {"house_consumption": "sensor.house"},
+    }
+    assert plant_entity_ids({}) == ()
+    assert plant_entity_ids(options) == ("sensor.house",)
+    assert validate_plant_sources(options, {}, NOW) == {
+        "house_consumption": "missing_or_stale"
+    }

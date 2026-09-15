@@ -255,6 +255,8 @@ def evaluate_plant(
         return _invalid_result(config, errors)
 
     base_load = house - excluded_total
+    # Both operands are currently validated as finite and non-negative. Keep this
+    # guard for future balance inputs that may relax either invariant.
     if not math.isfinite(base_load):
         errors["base_load"] = "invalid_sum"
         return _invalid_result(config, errors)

@@ -8,6 +8,12 @@ Opti Akku verbindet lokale Akkusteuerung mit einer optionalen Strategie für PV-
 
 > **Aktive Akkusteuerung:** Freigegebene Schreibzugriffe verändern das Lade- und Entladeverhalten. Falsche Einstellungen oder Fehler können zusätzliche Kosten und unerwünschten Betrieb verursachen. Herstellervorgaben beachten und andere schreibende Steuerungen vor der Freigabe deaktivieren. Neue Einträge starten ohne Schreibfreigabe; Shadow-Einträge bleiben dauerhaft lesend.
 
+## Unabhängiges Projekt und Nutzungshinweise
+
+Opti Akku ist ein unabhängiges Community-Projekt, keine offizielle Integration von SMA, Huawei, BYD oder Tibber. Aus der genannten Kompatibilität folgt keine Freigabe, Zertifizierung oder Supportzusage dieser Unternehmen. Hersteller- und Produktnamen dienen zur Beschreibung der unterstützten Geräte und Schnittstellen; die Rechte daran verbleiben bei den jeweiligen Rechteinhabern.
+
+Die Software wird unter der [MIT-Lizenz](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/LICENSE) ohne zugesicherte Fehlerfreiheit, Verfügbarkeit oder Eignung für eine bestimmte Anlage bereitgestellt. Es gibt keine Zusage bestimmter Einsparungen oder einer bestimmten Batterielebensdauer. Aktive Steuerung kann Kosten, Batterieverschleiß oder Schäden verursachen. Der Lizenztext enthält Gewährleistungs- und Haftungsausschlüsse; zwingende gesetzliche Rechte bleiben unberührt. Warnhinweise und eine Schreibfreigabe sind kein pauschaler Haftungsverzicht. Herstellerbedingungen, Anlagenparameter und einen geeigneten Rückweg vor dem Schreibbetrieb prüfen.
+
 ## Voraussetzungen und Geräte
 
 - Home Assistant ab **2026.9.1**, HACS für die komfortable Installation.
@@ -46,4 +52,4 @@ BYD-Zellüberwachung, KI-Tagesreport und eine eigene Wallbox-/Wärmepumpensteuer
 
 Die Strategiequellen liegen unter `strategy/`; das daraus erzeugte JSON wird mit der Integration ausgeliefert. Herkunft und Anpassungen sind dort dokumentiert. Gerätetreiber und Strategie bleiben intern getrennt, damit später andere Adapter oder eine eigenständige Strategie angebunden werden können.
 
-Fehler bitte mit Version, Gerät/Firmware, erwartetem Verhalten und bereinigten Werten der Diagnoseentitäten als [Issue](https://github.com/Optic00/ha-opti-akkusteuerung/issues) melden. Keine Zugangsdaten, vollständigen HA-Konfigurationen oder privaten Messhistorien öffentlich anhängen. Lizenz: [MIT](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/LICENSE).
+Fehler bitte über die [Issue-Vorlage](https://github.com/Optic00/ha-opti-akkusteuerung/issues/new/choose) mit Version, Gerät/Firmware, erwartetem Verhalten und ausgewählten bereinigten Diagnosewerten melden. Issues und Anhänge sind öffentlich. Keine Zugangsdaten, Seriennummern, Adressen, Standort-/Fahrzeugdaten, vollständigen HA-Konfigurationen oder privaten Messhistorien anhängen. Logs, Screenshots und Shadow-Dateien nicht als automatisch anonymisiert ansehen; nur den nötigen Ausschnitt nach eigener Prüfung teilen. Für einen Bericht sind keine vollständigen Dateien erforderlich. Lizenz: [MIT](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/LICENSE).

@@ -1,0 +1,40 @@
+# Adapted from pail23/stiebel_eltron_isg_component; see ../ISSUE_TEMPLATE_LICENSE.md.
+name: Verbesserung vorschlagen
+description: Eine zusätzliche Funktion oder einfachere Bedienung vorschlagen
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bitte zuerst die [bestehenden Issues](https://github.com/Optic00/ha-opti-akkusteuerung/issues) durchsuchen.
+        Beschreibe den Anwendungsfall ohne private Anlagen-, Personen- oder Standortdaten.
+        Herstellerunterlagen verlinken, keine nicht zur Veröffentlichung bestimmten Unterlagen hochladen.
+  - type: input
+    id: device
+    attributes:
+      label: Betroffene Anbindung oder Funktion
+      description: Zum Beispiel SMA, Huawei, Strategie oder Einrichtung. Bei Gerätewünschen Modell und vorhandene HA-Integration nennen, keine Seriennummer.
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Was möchtest du erreichen?
+      description: Welche konkrete Situation lässt sich bisher nicht oder nur umständlich lösen?
+    validations:
+      required: true
+  - type: dropdown
+    id: control_scope
+    attributes:
+      label: Art der Änderung
+      options:
+        - Werte lesen oder anzeigen
+        - Einstellungen oder Onboarding verbessern
+        - Strategie oder aktive Steuerung ändern
+        - Noch unklar
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Vorschlag und Alternativen
+      description: Bei aktiver Steuerung auch gewünschte Grenzen und Verhalten bei fehlenden Daten nennen. Öffentliche Schnittstellen- oder Herstellerdokumentation gern verlinken.

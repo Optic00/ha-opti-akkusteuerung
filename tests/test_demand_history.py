@@ -11,7 +11,9 @@ from custom_components.opti_akku.demand_history import (
     HistoricalPrior,
     build_rows,
     flag_for_hour,
+    numeric,
     read_recorder,
+    stamp,
 )
 from custom_components.opti_akku.demand import DemandForecast
 from tests.test_demand import fixture, update, NOW, state
@@ -52,6 +54,18 @@ def test_unknown_initial_flag_and_unavailable_transition():
     assert flag_for_hour([(NOW, "off")], NOW) == "off"
 
 
+def test_history_parsers_reject_boolean_non_numeric_and_naive_time():
+    assert numeric(True) is None
+    assert numeric(object()) is None
+    with pytest.raises(ValueError, match="Timezone required"):
+        stamp("2026-09-14T06:00:00")
+
+
+def test_flag_after_hour_does_not_change_known_hour_state():
+    changes = [(NOW - timedelta(minutes=1), "on"), (NOW + timedelta(hours=1), "off")]
+    assert flag_for_hour(changes, NOW) == "on"
+
+
 def test_missing_invalid_statistics_not_zero_or_filled():
     values = [None, float("nan"), -1, 0, 500]
     rows = build_rows(
@@ -75,6 +89,66 @@ def test_duplicate_hour_rejected():
     row = {"start": NOW.timestamp(), "mean": 500}
     with pytest.raises(ValueError):
         build_rows({"house": [row, row]}, {}, NOW, NOW + timedelta(days=1))
+
+
+def test_misaligned_statistics_are_ignored_and_history_window_is_bounded():
+    assert (
+        build_rows(
+            {"house": [{"start": (NOW + timedelta(minutes=30)).timestamp(), "mean": 500}]},
+            {},
+            NOW,
+            NOW + timedelta(hours=1),
+        )
+        == {}
+    )
+    start = NOW - timedelta(hours=1011)
+    rows = [
+        {"start": (start + timedelta(hours=index)).timestamp(), "mean": 500}
+        for index in range(1011)
+    ]
+    with pytest.raises(ValueError, match="History window exceeded"):
+        build_rows({"house": rows}, {}, start, NOW)
+
+
+@pytest.mark.parametrize(
+    "saved",
+    [
+        None,
+        {"version": 1, "rows": [], "binding": "source"},
+        {
+            "version": 1,
+            "rows": {(NOW + timedelta(minutes=1)).isoformat(): {"house_w": 500}},
+            "binding": "source",
+        },
+        {
+            "version": 1,
+            "rows": {NOW.isoformat(): {"house_w": True}},
+            "binding": "source",
+        },
+        {
+            "version": 1,
+            "rows": {
+                NOW.isoformat(): {"house_w": 500, "outdoor_temperature": 121}
+            },
+            "binding": "source",
+        },
+        {
+            "version": 1,
+            "rows": {NOW.isoformat(): {"house_w": 500, "summer_mode": "maybe"}},
+            "binding": "source",
+        },
+        {
+            "version": 1,
+            "rows": {NOW.isoformat(): {"house_w": 500}},
+            "binding": None,
+        },
+    ],
+)
+def test_restore_rejects_untrusted_history(saved):
+    prior = HistoricalPrior()
+    prior.restore(saved)
+    assert prior.rows == {}
+    assert prior.binding is None
 
 
 def test_no_future_training_or_online_overlap():

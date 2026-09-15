@@ -74,6 +74,7 @@ def test_restore_rejects_corrupt_session_before_it_can_resume(tmp_path):
         ("deadline", (NOW + timedelta(hours=23)).isoformat()),
         ("samples", True),
         ("max_gap_seconds", float("nan")),
+        ("max_gap_seconds", 10**400),
         ("last_sample", "not-a-time"),
         ("last_sample", (NOW - timedelta(seconds=1)).isoformat()),
         ("settings", []),

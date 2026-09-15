@@ -83,8 +83,8 @@ class ShadowRecorder:
             if (
                 isinstance(max_gap, bool)
                 or not isinstance(max_gap, int | float)
-                or not isfinite(max_gap)
                 or not 0 <= max_gap <= 86400
+                or not isfinite(max_gap)
             ):
                 raise ValueError("Invalid gap")
             last_sample = state.get("last_sample")

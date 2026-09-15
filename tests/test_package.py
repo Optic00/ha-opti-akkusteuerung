@@ -44,13 +44,18 @@ def test_hacs_metadata_and_version():
 
 
 def test_release_version_order():
-    from awesomeversion import AwesomeVersion
+    from awesomeversion import AwesomeVersion, AwesomeVersionStrategy
     from packaging.version import Version
 
     versions = ["0.5.2b6", "2026.9-beta1", "2026.9-beta2", "2026.9.0", "2026.9.1"]
     for before, after in zip(versions, versions[1:]):
         assert AwesomeVersion(before) < AwesomeVersion(after)
         assert Version(before) < Version(after)
+    assert AwesomeVersion("2026.9-beta1").strategy in {
+        AwesomeVersionStrategy.CALVER, AwesomeVersionStrategy.SEMVER,
+        AwesomeVersionStrategy.SIMPLEVER, AwesomeVersionStrategy.BUILDVER,
+        AwesomeVersionStrategy.PEP440,
+    }
     assert AwesomeVersion("2026.9-beta1").beta
 
 

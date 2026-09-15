@@ -28,7 +28,7 @@
   "custom_components/opti_akku/reporting.py": {"max_missing": 6, "min_percent": 96.82},
   "custom_components/opti_akku/select.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/sensor.py": {"max_missing": 3, "min_percent": 97.90},
-  "custom_components/opti_akku/shadow.py": {"max_missing": 9, "min_percent": 90.90},
+  "custom_components/opti_akku/shadow.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/sma.py": {"max_missing": 10, "min_percent": 96.36},
   "custom_components/opti_akku/sources.py": {"max_missing": 5, "min_percent": 97.47},
   "custom_components/opti_akku/switch.py": {"max_missing": 1, "min_percent": 97.95},

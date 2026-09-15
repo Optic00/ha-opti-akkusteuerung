@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from functools import lru_cache
 import hashlib
 import json
+from math import isfinite
 import os
 from pathlib import Path
 import re
@@ -15,6 +16,8 @@ from uuid import uuid4
 MEASUREMENTS = ("soc", "battery_temp", "battery_power_w", "house_consumption_w",
                 "pv_generation_w", "pv_power_w", "grid_import_w", "grid_export_w",
                 "charge_power_w", "target_soc", "price_current_ct_kwh")
+COUNTERS = ("samples", "online_samples", "source_error_samples", "comparisons",
+            "mismatches", "reference_missing", "gaps", "settings_changes")
 
 
 @lru_cache(maxsize=1)
@@ -47,12 +50,52 @@ class ShadowRecorder:
         if not state or state.get("status") == "idle":
             return
         try:
+            if state.get("status") not in ("running", "stopped", "completed"):
+                raise ValueError("Invalid status")
             if not re.fullmatch(r"[0-9a-f]{32}", state["session_id"]):
                 raise ValueError("Invalid session")
             start = datetime.fromisoformat(state["started_at"])
             end = datetime.fromisoformat(state["deadline"])
-            if start.tzinfo is None or end - start != timedelta(hours=24):
+            if (
+                start.utcoffset() is None
+                or end.utcoffset() is None
+                or end - start != timedelta(hours=24)
+            ):
                 raise ValueError("Invalid deadline")
+            if any(
+                isinstance(state.get(name), bool)
+                or not isinstance(state.get(name), int)
+                or state[name] < 0
+                for name in COUNTERS
+            ):
+                raise ValueError("Invalid counters")
+            samples = state["samples"]
+            if (
+                state["online_samples"] > samples
+                or state["source_error_samples"] > samples
+                or state["comparisons"] + state["reference_missing"] != samples
+                or state["mismatches"] > state["comparisons"]
+                or state["settings_changes"] > samples
+                or state["gaps"] > samples + 1
+            ):
+                raise ValueError("Inconsistent counters")
+            max_gap = state.get("max_gap_seconds")
+            if (
+                isinstance(max_gap, bool)
+                or not isinstance(max_gap, int | float)
+                or not isfinite(max_gap)
+                or not 0 <= max_gap <= 86400
+            ):
+                raise ValueError("Invalid gap")
+            last_sample = state.get("last_sample")
+            if last_sample is not None:
+                last = datetime.fromisoformat(last_sample)
+                if last.utcoffset() is None or not start <= last <= end:
+                    raise ValueError("Invalid last sample")
+            if not isinstance(state.get("settings"), dict) or not isinstance(
+                state.get("reference_entity"), str
+            ):
+                raise ValueError("Invalid recording configuration")
             self.state = deepcopy(state)
         except (KeyError, TypeError, ValueError):
             self.state = {"status": "error", "error": "invalid_saved_session"}

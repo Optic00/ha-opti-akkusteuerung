@@ -35,6 +35,7 @@ def test_shadow_duration_restore_gap_and_no_auto_rearm(tmp_path):
     path = tmp_path / f"{first['session_id']}.jsonl"
     rows = [json.loads(line) for line in path.read_text().splitlines()]
     assert [row["type"] for row in rows] == ["start", "sample", "sample", "end"]
+    assert all(row.get("read_only") is True for row in rows if row["type"] == "sample")
     assert path.stat().st_mode & 0o777 == 0o600
     second = restored.start(NOW + timedelta(days=2), {}, "", "0.1.0")
     assert second["session_id"] != first["session_id"]
@@ -58,6 +59,56 @@ def test_missing_journal_does_not_silently_restart(tmp_path):
     with pytest.raises(OSError):
         recorder.record(NOW, DATA, {}, None, MODES)
     assert recorder.snapshot()["samples"] == 0
+
+
+def test_restore_rejects_corrupt_session_before_it_can_resume(tmp_path):
+    recorder = ShadowRecorder(tmp_path)
+    started = recorder.start(NOW, {}, "input_select.reference", "0.1.0")
+    idle = ShadowRecorder(tmp_path)
+    idle.restore({})
+    assert idle.snapshot() == {"status": "idle"}
+    invalid = []
+    for key, value in (
+        ("status", "unknown"),
+        ("session_id", "../outside"),
+        ("deadline", (NOW + timedelta(hours=23)).isoformat()),
+        ("samples", True),
+        ("max_gap_seconds", float("nan")),
+        ("last_sample", "not-a-time"),
+        ("last_sample", (NOW - timedelta(seconds=1)).isoformat()),
+        ("settings", []),
+        ("reference_entity", None),
+    ):
+        state = dict(started)
+        state[key] = value
+        invalid.append(state)
+    inconsistent = dict(started)
+    inconsistent["comparisons"] = 1
+    invalid.append(inconsistent)
+
+    invalid.append(None)
+    for saved in invalid:
+        restored = ShadowRecorder(tmp_path)
+        restored.restore(saved)
+        error = restored.snapshot()
+        assert error == {"status": "error", "error": "invalid_saved_session"}
+        assert restored.record(NOW, DATA, {}, "Akku Pause", MODES) == error
+
+    journal = tmp_path / f"{started['session_id']}.jsonl"
+    assert [json.loads(line)["type"] for line in journal.read_text().splitlines()] == ["start"]
+
+
+def test_failed_start_restores_previous_state(tmp_path, monkeypatch):
+    recorder = ShadowRecorder(tmp_path)
+    previous = recorder.snapshot()
+
+    def fail(*args, **kwargs):
+        raise OSError("disk error")
+
+    monkeypatch.setattr(recorder, "_append", fail)
+    with pytest.raises(OSError, match="disk error"):
+        recorder.start(NOW, {}, "", "0.1.0")
+    assert recorder.snapshot() == previous
 
 
 def test_stop_preserves_journal_and_allows_fresh_session(tmp_path):

@@ -1,6 +1,6 @@
 [project]
 name = "ha-opti-akku-hacs"
-version = "0.5.2b6"
+version = "2026.9-beta1"
 requires-python = ">=3.14.2"
 
 [tool.pytest.ini_options]

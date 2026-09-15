@@ -267,16 +267,13 @@ strategy:
           option: Akku Netzladen
         target:
           entity_id: input_select.akkusteuerung_modus
-    - alias: 'Modus ''nur Entladen'' (Ladedeckel): SoC >= maxsoc, kein Balancing/Peak faellig'
+    - alias: 'Modus ''nur Entladen'' (Ladedeckel): SoC >= maxsoc, kein Balancing faellig'
       conditions:
       - alias: EV-Sperre inaktiv (Schnellladung sperrt Entladung)
         condition: template
         value_template: |-
           {{ not (is_state('input_boolean.opti_ev_akku_pause', 'on')
                   and is_state('binary_sensor.opti_ev_schnellladung', 'on')) }}
-      - condition: state
-        entity_id: binary_sensor.opti_peak_reserve_aktiv
-        state: 'off'
       - condition: template
         value_template: |-
           {% set maximum = states('input_number.maxsoc')|float(95) %} {% set band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')

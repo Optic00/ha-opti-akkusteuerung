@@ -19,6 +19,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from custom_components.opti_akku.ev_preparation import apply_preparation
+
 _SPEC = importlib.util.spec_from_file_location(
     "opti_parity_engine", Path(__file__).parents[1] / "custom_components/opti_akku/engine.py"
 )
@@ -176,9 +178,12 @@ BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'Mi
    'binary_sensor.opti_ueberschuss_ac_aktiv': 'on'},
   'Akku Dynamisch',
   'AC Ueberschuss'),
+ # With a valid Max-SoC, the ladedeckel now intentionally owns this boundary.
+ # An unavailable limit isolates the historical full-battery fallback itself.
  (16,
   'akku_voll',
   {'sensor.opti_soc': '100',
+   'input_number.maxsoc': 'unavailable',
    'binary_sensor.opti_peak_reserve_aktiv': 'on',
    '_attrs': {'sensor.opti_peak_reserve_soc': {'reserve_ve_soc': 30.0,
                                                'min_preis_vor_peak_ct': 50.0,
@@ -318,7 +323,6 @@ def test_unavailable_forecast_gate_never_enables_price_reserve_branch(decision_e
 
 
 def test_missing_price_default_never_becomes_ev_preparation(decision_engine):
-    from custom_components.opti_akku.ev_preparation import apply_preparation
     states = {**BASE, "sensor.opti_price_level": "unavailable", "input_boolean.akku_opti_automatik": "on"}
     result = decision_engine.evaluate(states, {}, NOW)
     assert result.mode == "Akku Dynamisch"

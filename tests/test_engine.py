@@ -62,6 +62,28 @@ def solar_attrs(now=NOW):
     }}
 
 
+def peak_maxsoc_inputs(soc, **overrides):
+    states = measurements(**{
+        SOC: soc,
+        CAPACITY: 1,
+        MODE: "Akku nur Laden",
+        "input_number.maxsoc": 95,
+        "sensor.opti_house_consumption_w": 5000,
+        "sensor.opti_forecast_today_kwh": 0,
+        "sensor.opti_forecast_tomorrow_kwh": 0,
+        "sensor.opti_forecast_remaining_today_kwh": 0,
+        "sensor.opti_price_current_ct_kwh": 10,
+        "sun.sun": "below_horizon",
+        **overrides,
+    })
+    attributes = solar_attrs()
+    attributes["sensor.opti_price_series"] = {
+        "today": [10] * 18 + [50] * 6,
+        "tomorrow": [10] * 24,
+    }
+    return states, attributes
+
+
 def evaluate(engine=None, states=None, attributes=None, now=NOW):
     return (engine or StrategyEngine()).evaluate(
         measurements() if states is None else states,
@@ -404,6 +426,79 @@ def test_peak_reserve_pipeline_accepts_supported_price_grids(length):
     assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "on"
     assert float(result.states["sensor.opti_peak_reserve_soc"]) > 10
     assert result.mode == "Akku Netzladen"
+
+
+@pytest.mark.parametrize(
+    ("soc", "expected_mode", "reason_prefix"),
+    [
+        (94.9, "Akku nur Laden", "Peak-Leiter L4"),
+        (95, "Akku nur Entladen", "Ladedeckel"),
+        (96, "Akku nur Entladen", "Ladedeckel"),
+        (98, "Akku nur Entladen", "Ladedeckel"),
+    ],
+)
+def test_maxsoc_precedes_peak_reserve_holding(soc, expected_mode, reason_prefix):
+    states, attributes = peak_maxsoc_inputs(soc)
+    result = evaluate(states=states, attributes=attributes)
+
+    assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "on"
+    assert float(result.states["sensor.opti_peak_reserve_soc"]) == 95
+    assert result.mode == expected_mode
+    assert result.reason.startswith(reason_prefix)
+    assert result.states["sensor.opti_strategie_vorschau"] == result.mode
+    assert result.attributes["sensor.opti_strategie_vorschau"]["grund"] == result.reason
+    assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+
+
+def test_maxsoc_peak_latch_survives_restore_and_releases_below_band():
+    engine = StrategyEngine()
+    for minute, (soc, expected_deckel, expected_mode) in enumerate([
+        (95, "on", "Akku nur Entladen"),
+        (94, "on", "Akku nur Entladen"),
+    ]):
+        states, attributes = peak_maxsoc_inputs(soc)
+        result = evaluate(engine, states, attributes, NOW + dt.timedelta(minutes=minute))
+        assert result.states[DECKEL] == expected_deckel
+        assert result.mode == expected_mode
+
+    restored = StrategyEngine()
+    restored.restore(json.loads(json.dumps(engine.snapshot(), allow_nan=False)))
+    for minute, (soc, expected_deckel, expected_mode) in enumerate([
+        (92, "on", "Akku nur Entladen"),
+        (91.9, "off", "Akku Netzladen"),
+    ], start=2):
+        states, attributes = peak_maxsoc_inputs(soc)
+        result = evaluate(restored, states, attributes, NOW + dt.timedelta(minutes=minute))
+        assert result.states[DECKEL] == expected_deckel
+        assert result.mode == expected_mode
+
+
+@pytest.mark.parametrize(
+    ("states_override", "expected_watchdog", "expected_mode"),
+    [
+        ({"sun.sun": "above_horizon"}, "pv", "Akku nur Laden"),
+        ({"input_boolean.opti_balancing_netzladen": "on", "sensor.opti_price_current_ct_kwh": -1}, "netz", "Akku Netzladen"),
+    ],
+)
+@pytest.mark.parametrize("soc", [95, 99, 100])
+def test_balancing_still_precedes_maxsoc_at_upper_soc_boundary(
+    soc, states_override, expected_watchdog, expected_mode
+):
+    states, attributes = peak_maxsoc_inputs(
+        soc,
+        **{
+            DAYS: 7,
+            "input_number.opti_balancing_intervall_tage": 7,
+            **states_override,
+        },
+    )
+    result = evaluate(states=states, attributes=attributes)
+
+    if soc < 100:
+        assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "on"
+    assert result.states["sensor.opti_balancing_watchdog"] == expected_watchdog
+    assert result.mode == expected_mode
+    assert result.reason.startswith("Balancing-Watchdog")
 
 
 def test_malformed_price_grid_disables_peak_reserve():

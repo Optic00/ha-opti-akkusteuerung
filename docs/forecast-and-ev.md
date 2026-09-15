@@ -106,8 +106,8 @@ die unabhängige Gesamtbilanz kann weiter ausgewertet werden.
 
 Für 48 Stunden bleiben Fünf-Minuten-Aggregate mit ausgewiesener Vergleichsabdeckung
 lokal erhalten. Übergänge und grobe 15-Minuten-Stichproben enthalten Werte sowie
-last_reported/last_updated/last_changed der ausgewählten Quellen. Maximal256
-Schnappschüsse werden gespeichert. Lücken über90Sekunden werden nicht überbrückt.
+last_reported/last_updated/last_changed der ausgewählten Quellen. Maximal 256
+Schnappschüsse werden gespeichert. Lücken über 90 Sekunden werden nicht überbrückt.
 Die Details werden nicht bei jedem Aktualisierungszyklus erneut in den Recorder
 geschrieben. Nach Neustart wird der aktuelle 60-Minuten-Vergleich neu aufgebaut.
 HA-Meldezeitstempel sind kein Beweis einer neuen physikalischen Messung; ein Template

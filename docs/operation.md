@@ -24,7 +24,7 @@ Für einen Vergleich neben einer bestehenden Steuerung:
    Optional deren Modus-Entität als Vergleichsquelle auswählen. Die
    **Akku Opti-Automatik** der Shadow-Instanz einschalten, damit sie echte
    Entscheidungen berechnet. Dies erteilt im Shadow-Modus keine Schreibrechte.
-3. Auf der Geräteseite **24-Stunden-Shadow-Aufzeichnung starten** drücken.
+3. Auf der Geräteseite **24-Stunden-Test starten** drücken.
 4. **Shadow-Aufzeichnung** zeigt Status, Start, feste Deadline, Stichproben,
    Quellenfehler, Abweichungen, Einstellungsänderungen und Beobachtungslücken.
 
@@ -32,7 +32,8 @@ Die Aufzeichnung schreibt höchstens alle 15 Sekunden eine Stichprobe in
 `<config>/opti_akku_shadow/<Sitzungs-ID>.jsonl`. Diese privaten Betriebsdaten
 gehören nicht ins Repository und liegen nicht unter `www`. Jede neue Sitzung
 bekommt eine eigene Datei; erneutes Drücken während einer laufenden Sitzung
-verlängert sie nicht. Ein HA-Neustart erhält die ursprüngliche Deadline.
+verlängert sie nicht. Ein HA-Neustart erhält die ursprüngliche Deadline. Mit **Shadow-Test beenden**
+lässt sich die Aufzeichnung vorzeitig beenden; der Eintrag bleibt lesend.
 
 Die Journaldateien werden nicht automatisch gelöscht und können in HA-Backups
 enthalten sein. Nach Auswertung nicht mehr benötigte Sitzungen gezielt im
@@ -47,8 +48,9 @@ Schreibregister und ersetzt keinen späteren begleiteten Schreibtest.
 
 ### Schreibender Betrieb
 
-Die Geräteseite enthält die Strategieparameter als Zahlen und Schalter. Die
-Vorgaben sind konservativ. Automatisches Netzladen und Balancing über das Netz sind bei neuen Einträgen
+Die Strategieparameter werden über **Konfigurieren** gepflegt. Die zugehörigen
+Zahl- und Konfigurationsschalter-Entitäten sind bei neuen Einträgen standardmäßig
+deaktiviert und können bei Bedarf aktiviert werden. Die Vorgaben sind konservativ. Automatisches Netzladen und Balancing über das Netz sind bei neuen Einträgen
 ausgeschaltet. **Reserveplanung mit Netzladen erlauben** aktiviert auch
 preisabhängiges Vorladen und Laden bei negativen Preisen; es ist keine reine
 Haltefunktion. Gespeicherte und ausdrücklich importierte Werte bleiben erhalten.
@@ -63,7 +65,8 @@ Die eigentliche Steuerung hat drei getrennte Ebenen:
 
 Die Bestätigung während der Einrichtung aktiviert keine Schreibzugriffe. Bei
 einem neuen Setup ist die Schreibfreigabe aus. Eine gespeicherte Freigabe wird
-nur wiederhergestellt, solange die Single-Writer-Bestätigung weiter gesetzt ist.
+nur bei aktivierter Strategie, unveränderter Gerätebindung und gültigen gespeicherten
+Einstellungen wiederhergestellt, solange die Single-Writer-Bestätigung weiter gesetzt ist.
 
 Bei aktivierter Strategie stehen für SMA über **Betriebsart** `Strategie`
 und neun manuelle Modi zur Auswahl. Ohne Strategie ersetzt **Beobachtung** (Select-Rohwert `observation`) den
@@ -80,6 +83,8 @@ Strategiemodus; Dynamisch und berechnetes Netzladen entfallen:
 - Akku 0.2C Laden
 
 Ein erzwungener manueller Modus wird nach einem Neustart nicht fortgesetzt.
+Ohne aktivierte Strategie wird auch die Schreibfreigabe nicht wiederhergestellt.
+Zuerst wieder einen manuellen Modus wählen, dann die Schreibfreigabe setzen.
 Vor jeder Steuerungsbewertung müssen die Profilprüfung und aktuelle Messungen erfolgreich
 sein. Ohne lesbare Seriennummer bleibt die Schreibfreigabe gesperrt.
 Sicherheitsgrenzen für SoC, Messwerte und Quellen gelten auch im

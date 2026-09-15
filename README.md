@@ -4,13 +4,13 @@
 
 Opti Akku verbindet lokale Akkusteuerung mit einer optionalen Strategie für PV-Überschuss, Strompreise und Verbrauchsreserve. Die Einrichtung erfolgt über einen geführten Assistenten. Zusätzliche YAML-Automationen oder manuell angelegte Helfer sind für die Integration nicht erforderlich.
 
-**Öffentliche Beta 0.5.2b6.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md) umstellen.
+**Beta-Kandidat 0.5.2b6, noch ohne Release.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md) umstellen.
 
 > **Aktive Akkusteuerung:** Freigegebene Schreibzugriffe verändern das Lade- und Entladeverhalten. Falsche Einstellungen oder Fehler können zusätzliche Kosten und unerwünschten Betrieb verursachen. Herstellervorgaben beachten und andere schreibende Steuerungen vor der Freigabe deaktivieren. Neue Einträge starten ohne Schreibfreigabe; Shadow-Einträge bleiben dauerhaft lesend.
 
 ## Voraussetzungen und Geräte
 
-- Home Assistant ab **2026.9.1**, Python ab 3.14.2, HACS für die komfortable Installation.
+- Home Assistant ab **2026.9.1**, HACS für die komfortable Installation.
 - **SMA Sunny Tripower Smart Energy** STP5.0/6.0/8.0/10.0-3SE-40 mit aktiviertem Modbus TCP. Die Einrichtung prüft Geräteprofil und Identität lesend. Der bisherige praktische Pilotumfang ersetzt keine Abnahme jeder Modell-/Firmwarekombination.
 - **Huawei Solar ist experimentell:** nutzt eine bereits eingerichtete Huawei-Solar-Integration und deren Entitäten/Dienste. Sie wird nicht ersetzt. Voraussetzungen und Grenzen: [Huawei](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/HUAWEI_CONTROL.md).
 - Stromtarif, PV-Prognose, Wärmepumpe und Fahrzeug sind optionale externe Quellen. Anbieter müssen bereits in HA eingerichtet sein.
@@ -18,7 +18,7 @@ Opti Akku verbindet lokale Akkusteuerung mit einer optionalen Strategie für PV-
 ## Installation mit HACS
 
 1. In HACS unter **Benutzerdefinierte Repositories** `https://github.com/Optic00/ha-opti-akkusteuerung` als Typ **Integration** hinzufügen.
-2. **Opti Akku** herunterladen. Für Vorabversionen die Beta-Auswahl aktivieren und eine passende Beta wählen. Solange nur Betas existieren, ist auch der angebotene Hauptzweig Entwicklungsstand und keine stabile Freigabe.
+2. **Opti Akku** herunterladen. Solange kein Vorabrelease veröffentlicht ist, bietet HACS nur den Hauptzweig an. Dieser ist Entwicklungsstand und keine stabile Freigabe. Sobald ein Vorabrelease existiert, die Beta-Auswahl aktivieren und die gewünschte Beta wählen.
 3. Home Assistant neu starten.
 4. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen → Opti Akku** den Assistenten starten. Für den ersten Vergleich Shadow eingeschaltet lassen.
 

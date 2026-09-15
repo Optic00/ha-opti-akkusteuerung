@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Welcome: connect your inverter",
-        "description": "For SMA STP SE. Enter the inverter or Modbus proxy address. Connection checks only read. Shadow is selected for safe first use and cannot later become a writing controller.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.",
+        "description": "Choose your battery connection: SMA STP SE or an existing Huawei Solar integration. Configure the connection and operating mode in the following steps.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.",
         "data": {
           "backend": "Battery backend",
           "host": "Host",

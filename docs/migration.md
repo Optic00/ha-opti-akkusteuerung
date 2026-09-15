@@ -6,7 +6,7 @@ Der letzte YAML-Stand einschließlich PR #78 liegt auf `legacy-yaml`; der feste 
 
 1. Vollständiges HA-Backup und bisherige YAML-Konfiguration sichern. Alle schreibenden Automationen, Adapter, Wächter und deren Aktivierungszustände erfassen.
 2. Opti Akku installieren und im Assistenten **Bisherige Opti-Automation übernehmen** wählen. Der Import erzeugt einen dauerhaft lesenden Shadow-Eintrag. Die Vorschau übernimmt nur bestätigte gültige Helferwerte; Hauptfreigabe, Schreibrechte, Betriebszustände und Lernhistorie werden nicht kopiert.
-3. Zuordnungen und Anlagenumfang prüfen. Externe Quellen müssen auch ohne alte Packages verfügbar sein. Die Migrationshilfe löst Template-Ketten nicht bis zum ursprünglichen Anbieter auf.
+3. Zuordnungen und Anlagenumfang prüfen. Externe Quellen müssen auch ohne alte Packages verfügbar sein. Die Migrationshilfe löst Template-Ketten nicht bis zum ursprünglichen Anbieter auf. Auch alte YAML-Modbus-Hubs und andere Abfragen desselben Wechselrichters erfassen. Benötigte Messquellen im Shadow-Test erhalten; vor dem Aufräumen ihre Verbraucher prüfen. Eine zusätzliche Verbindung nicht ungeprüft als konfliktfrei voraussetzen; Verbindungsfehler und die gleichzeitige Abfrage im Shadow-Test beobachten.
 4. Strategie-Berechnung im Shadow aktivieren, eine 24-Stunden-Aufzeichnung starten und Datenlücken sowie Entscheidungen prüfen. Der Test belegt keine physische Schreibwirkung.
 5. Für aktiven Betrieb einen ausdrücklich schreibfähigen Eintrag mit geprüften Einstellungen vorbereiten. Die im Shadow geprüften Werte müssen
    ausdrücklich in den neuen Eintrag übertragen werden: insbesondere Anlagenmodus,

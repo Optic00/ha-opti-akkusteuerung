@@ -111,6 +111,9 @@ class SmaDevice:
 
     supported_modes = MODES
     supports_control_release = False
+    command_execution_basis = "modbus_write_sequence"
+    setpoint_readback_capability = "not_supported"
+    setpoint_readback_limitation = "bms_and_setpoints_not_read_back"
 
     def __init__(
         self,

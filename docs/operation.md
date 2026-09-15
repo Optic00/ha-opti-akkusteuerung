@@ -106,6 +106,22 @@ beim Neuladen erhalten. Nicht konfigurierte EV-Ladepunkte beteiligen sich
 nicht an der Entladesperre; fehlende Daten eines konfigurierten Ladepunkts
 halten eine bereits aktive Sperre weiterhin fest.
 
+Der Diagnosesensor **Befehlsnachweis** trennt drei Aussagen, die nicht
+gleichgesetzt werden dürfen:
+
+- **Adapterausführung abgeschlossen** bedeutet bei SMA nur, dass die
+  Modbus-Schreibsequenz ohne gemeldeten Fehler beendet wurde. Die verwendeten
+  BMS- und Sollwertregister werden nicht zurückgelesen.
+- Bei Huawei werden verfügbare Steuerentitäten und der Forced-Status geprüft.
+  Diese Rücklesung bleibt partiell, weil die TOU-Tabelle nicht unabhängig
+  zurückgelesen werden kann.
+- **Physische Wirkung** bleibt unbestätigt. Eine gemessene Akkuleistung oder
+  das Ausbleiben einer Sperrverletzung beweist keine exakte Sollwertübernahme.
+
+Der ältere Sensor **Befehlsbestätigung** bleibt aus Kompatibilitätsgründen
+erhalten. Sein Zustand **Kein offener Befehl** sagt nur, dass aktuell keine
+Transaktion aussteht.
+
 Beim Ausschalten versucht die Integration, den Wechselrichter in Pause zu
 setzen. Das ist ein Best-Effort-Vorgang. Hardware-, Netzwerk- oder
 Protokollfehler können den Stopp verhindern. Auch eine bestätigte Pause ist

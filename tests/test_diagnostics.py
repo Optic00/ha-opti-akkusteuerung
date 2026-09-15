@@ -47,6 +47,17 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
             "connection_status": {"status": "ready", "write_ready": True},
             "command_result_this_update": "not_attempted",
             "command_confirmation": "idle_or_confirmed",
+            "command_evidence": {
+                "status": "completed",
+                "execution_basis": "modbus_write_sequence",
+                "setpoint_readback": "not_supported",
+                "setpoint_readback_limitation": "bms_and_setpoints_not_read_back",
+                "physical_effect": "not_verified",
+                "block_observation": "not_assessed",
+                "safe_phase_completed": False,
+                "observed_battery_power_w": -1234,
+                "execution_completed_at": "2026-09-15T20:00:00+00:00",
+            },
             "control_release": "not_supported",
             "identity": {
                 "model": "STP10.0-3SE-40",
@@ -104,6 +115,16 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
         "source_observation": "warming_up",
     }
     assert result["shadow"] == {"status": "recording", "blocked_write_attempts": 2}
+    assert result["connection"]["command_evidence"] == {
+        "status": "completed",
+        "execution_basis": "modbus_write_sequence",
+        "setpoint_readback": "not_supported",
+        "setpoint_readback_limitation": "bms_and_setpoints_not_read_back",
+        "physical_effect": "not_verified",
+        "block_observation": "not_assessed",
+        "safe_phase_completed": False,
+    }
+    assert "observed_battery_power_w" not in result["connection"]["command_evidence"]
     exported = json.dumps(result, allow_nan=False)
     for secret in (
         "192.0.2.44",
@@ -130,6 +151,7 @@ async def test_diagnostics_handles_first_refresh_without_data(hass):
         "status": None,
         "command_result": None,
         "command_confirmation": None,
+        "command_evidence": {},
         "pause_pending": False,
         "control_release": None,
     }

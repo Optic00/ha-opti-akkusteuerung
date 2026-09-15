@@ -15,6 +15,8 @@ def sample(**changes):
     data = {'online': True, 'source_errors': {}, 'strategy_enabled': True,
             'write_enabled': True, 'mode': 'Akku nur Laden', 'reason': 'Peak-Leiter L4 (halten)',
             'command_confirmation': 'idle_or_confirmed',
+            'command_evidence': {'status': 'completed', 'execution_basis': 'modbus_write_sequence',
+                                 'setpoint_readback': 'not_supported', 'physical_effect': 'not_verified'},
             'states': {'sensor.opti_peak_reserve_soc': '45', 'sensor.opti_soc': '50',
                        'sensor.opti_battery_power_w': 0, 'sensor.opti_house_consumption_w': 1000,
                        'sensor.opti_price_level': 'NORMAL', 'binary_sensor.opti_peak_reserve_aktiv': 'on'},
@@ -45,6 +47,7 @@ def test_plan_describes_request_not_hardware(changes, shadow, status):
     assert result['status'] == status
     assert result['assumed_load_w'] == 800
     assert 'reserve_held' not in result
+    assert result['command_evidence']['physical_effect'] == 'not_verified'
     if status == 'no_valid_plan':
         assert result['planned_reserve_soc'] is None
     else:

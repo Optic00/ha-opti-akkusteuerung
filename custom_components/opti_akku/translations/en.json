@@ -684,6 +684,28 @@
           "waiting_ready": "Waiting for inverter readiness"
         }
       },
+      "command_evidence": {
+        "name": "Command evidence",
+        "state": {
+          "observation": "Observation only",
+          "not_attempted": "No command attempted",
+          "waiting_ready": "Waiting for inverter readiness",
+          "pending": "Command still in progress",
+          "completed": "Adapter execution completed",
+          "failed": "Adapter execution failed",
+          "superseded": "Command superseded"
+        },
+        "state_attributes": {
+          "execution_basis": {"name": "Execution basis", "state": {"modbus_write_sequence": "Modbus write sequence", "ha_service_and_entity_checks": "Home Assistant service and entity checks", "unknown": "Unknown"}},
+          "setpoint_readback": {"name": "Setpoint readback", "state": {"not_supported": "Not supported", "not_assessed": "Not assessed", "partial": "Partial", "pending": "Pending"}},
+          "setpoint_readback_limitation": {"name": "Readback limitation", "state": {"bms_and_setpoints_not_read_back": "BMS and setpoint registers are not read back", "tou_schedule_not_independently_read_back": "TOU schedule is not independently read back", "unspecified": "Unspecified"}},
+          "physical_effect": {"name": "Physical effect", "state": {"not_verified": "Not verified"}},
+          "block_observation": {"name": "Direction-block observation", "state": {"not_assessed": "Not assessed", "violation_observed": "Violation observed"}},
+          "observed_battery_power_w": {"name": "Observed battery power (W)"},
+          "execution_completed_at": {"name": "Last adapter execution completed"},
+          "safe_phase_completed": {"name": "Conservative phase completed"}
+        }
+      },
       "pause_pending": {
         "name": "Outstanding Huawei pause",
         "state": {
@@ -748,8 +770,11 @@
           "command_confirmation": {
             "name": "Command status"
           },
+          "execution_completed_at": {
+            "name": "Last adapter execution completed"
+          },
           "last_confirmed_command_at": {
-            "name": "Last confirmed command"
+            "name": "Last completed command (legacy field)"
           },
           "hold_threshold_soc": {
             "name": "Current hold threshold (%)"

@@ -37,6 +37,9 @@ class HuaweiDevice:
     PHASED = True
     supported_modes: tuple[str, ...] = ()
     supports_control_release = False
+    command_execution_basis = "ha_service_and_entity_checks"
+    setpoint_readback_capability = "partial"
+    setpoint_readback_limitation = "tou_schedule_not_independently_read_back"
 
     def __init__(
         self,

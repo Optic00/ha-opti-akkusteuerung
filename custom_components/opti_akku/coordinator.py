@@ -21,6 +21,7 @@ from homeassistant.helpers import sun
 from homeassistant.util import dt as dt_util
 
 from .alerts import HealthAlerts
+from .command_evidence import build_command_evidence
 from .device import PendingCommandError, DeviceAdapter, StaleCommandError
 from .engine import Evaluation
 from .const import DOMAIN, MODES, RECONCILE_SECONDS, SOURCE_DEFINITIONS, UPDATE_SECONDS
@@ -671,11 +672,21 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "binary_sensor.opti_block_violation": {"name": "Sperrverletzung", "device_class": "problem"},
             "binary_sensor.opti_write_stalled": {"name": "Schreibstillstand", "device_class": "problem"},
         })
+        command_evidence = build_command_evidence(
+            self.device,
+            command_result=command_result,
+            write_enabled=self.write_enabled,
+            shadow=self.shadow_mode,
+            write_ready=connection["write_ready"],
+            persistent_violation=persistent_violation,
+            battery_power_w=battery,
+        )
         data = {"states": result.states, "attributes": result.attributes, "metadata": metadata,
                 "mode": mode, "reason": reason, "engine_requested_mode": result.mode,
                 "command_result_this_update": command_result, "write_enabled": self.write_enabled and not self.shadow_mode,
                 "pause_pending": self._pause_pending and not self.write_enabled,
                 "command_confirmation": "waiting_ready" if self.write_enabled and not connection["write_ready"] else "pending" if self._command_pending else "idle_or_confirmed",
+                "command_evidence": command_evidence,
                 "control_release": ("not_confirmed" if getattr(self.device, "supports_control_release", False) is True else "not_supported"),
                 "connection_status": connection,
                 "online": self._online, "last_write": getattr(self.device, "last_write", None),

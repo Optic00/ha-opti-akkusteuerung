@@ -54,6 +54,26 @@ def _device_summary(identity: Any) -> dict[str, Any]:
     return {key: identity[key] for key in allowed if isinstance(identity.get(key), str | int | float | bool)}
 
 
+def _command_evidence_summary(value: Any) -> dict[str, Any]:
+    """Keep evidence semantics while excluding measurements and timestamps."""
+    if not isinstance(value, Mapping):
+        return {}
+    allowed = (
+        "block_observation",
+        "execution_basis",
+        "physical_effect",
+        "safe_phase_completed",
+        "setpoint_readback",
+        "setpoint_readback_limitation",
+        "status",
+    )
+    return {
+        key: value[key]
+        for key in allowed
+        if isinstance(value.get(key), str | bool)
+    }
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
@@ -81,6 +101,7 @@ async def async_get_config_entry_diagnostics(
             "status": _status(data.get("connection_status")),
             "command_result": data.get("command_result_this_update"),
             "command_confirmation": data.get("command_confirmation"),
+            "command_evidence": _command_evidence_summary(data.get("command_evidence")),
             "pause_pending": bool(data.get("pause_pending", False)),
             "control_release": data.get("control_release"),
         },

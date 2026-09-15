@@ -684,6 +684,28 @@
           "waiting_ready": "Wartet auf Betriebsbereitschaft"
         }
       },
+      "command_evidence": {
+        "name": "Befehlsnachweis",
+        "state": {
+          "observation": "Nur Beobachtung",
+          "not_attempted": "Kein Befehl versucht",
+          "waiting_ready": "Wartet auf Betriebsbereitschaft",
+          "pending": "Befehl noch in Bearbeitung",
+          "completed": "Adapterausführung abgeschlossen",
+          "failed": "Adapterausführung fehlgeschlagen",
+          "superseded": "Befehl durch neueren Stand ersetzt"
+        },
+        "state_attributes": {
+          "execution_basis": {"name": "Ausführungsgrundlage", "state": {"modbus_write_sequence": "Modbus-Schreibsequenz", "ha_service_and_entity_checks": "Home-Assistant-Dienste und Entitätsprüfung", "unknown": "Unbekannt"}},
+          "setpoint_readback": {"name": "Sollwert-Rücklesung", "state": {"not_supported": "Nicht unterstützt", "not_assessed": "Nicht geprüft", "partial": "Partiell", "pending": "Ausstehend"}},
+          "setpoint_readback_limitation": {"name": "Grenze der Rücklesung", "state": {"bms_and_setpoints_not_read_back": "BMS- und Sollwertregister werden nicht zurückgelesen", "tou_schedule_not_independently_read_back": "TOU-Zeitplan wird nicht unabhängig zurückgelesen", "unspecified": "Nicht angegeben"}},
+          "physical_effect": {"name": "Physische Wirkung", "state": {"not_verified": "Nicht nachgewiesen"}},
+          "block_observation": {"name": "Beobachtung der Richtungssperre", "state": {"not_assessed": "Nicht geprüft", "violation_observed": "Verletzung beobachtet"}},
+          "observed_battery_power_w": {"name": "Beobachtete Akkuleistung (W)"},
+          "execution_completed_at": {"name": "Letzte abgeschlossene Adapterausführung"},
+          "safe_phase_completed": {"name": "Konservative Phase abgeschlossen"}
+        }
+      },
       "pause_pending": {
         "name": "Ausstehende Huawei-Pause",
         "state": {
@@ -748,8 +770,11 @@
           "command_confirmation": {
             "name": "Befehlsstatus"
           },
+          "execution_completed_at": {
+            "name": "Letzte abgeschlossene Adapterausführung"
+          },
           "last_confirmed_command_at": {
-            "name": "Letzter bestätigter Befehl"
+            "name": "Letzter abgeschlossener Befehl (Legacy-Feld)"
           },
           "hold_threshold_soc": {
             "name": "Aktuelle Haltereserve (%)"

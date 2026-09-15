@@ -753,3 +753,128 @@ def test_new_integration_defaults_do_not_opt_into_automatic_grid_charging(price)
     assert evaluate(states=states, attributes=attrs).mode != "Akku Netzladen"
     states["input_boolean.opti_prognose_netzladen"] = True
     assert evaluate(states=states, attributes=attrs).mode == "Akku Netzladen"
+
+
+def test_invalid_bundled_resource_shape_is_rejected_before_use():
+    with pytest.raises(ValueError, match="Unsupported strategy resource version"):
+        StrategyEngine({"schema_version": 2})
+
+    duplicate = {
+        "schema_version": 1,
+        "template_blocks": [
+            {
+                "sensor": [
+                    {"unique_id": "duplicate", "state": "1"},
+                    {"unique_id": "duplicate", "state": "2"},
+                ]
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="Duplicate internal entity"):
+        StrategyEngine(duplicate)
+
+
+def test_restore_ignores_invalid_sample_collections():
+    engine = StrategyEngine()
+    engine.restore(
+        {
+            "version": 1,
+            "helpers": {},
+            "states": {},
+            "attributes": {},
+            "samples": {"not-a-list": "bad", "mixed": [[1, 2], ["bad", 3], [4]]},
+        }
+    )
+
+    assert "not-a-list" not in engine.snapshot()["samples"]
+    assert engine.snapshot()["samples"]["mixed"] == [[1.0, 2.0]]
+
+
+def test_explicit_winter_permission_overrides_derived_template():
+    states = measurements(**{"binary_sensor.opti_winter_charging_allowed": "on"})
+
+    result = evaluate(states=states)
+
+    assert result.states["binary_sensor.opti_winter_charging_allowed"] == "on"
+
+
+def test_failed_strategy_gate_and_action_both_pause_with_diagnostics():
+    gated = load_resources()
+    gated["strategy"]["conditions"] = ["{{ false }}"]
+    result = evaluate(StrategyEngine(gated))
+    assert result.mode == "Akku Pause"
+    assert result.reason == "Strategie-Eingangsbedingungen nicht erfüllt"
+
+    broken = load_resources()
+    broken["strategy"]["actions"] = [
+        {
+            "action": "unsupported.service",
+            "target": {"entity_id": MODE},
+        }
+    ]
+    result = evaluate(StrategyEngine(broken))
+    assert result.mode == "Akku Pause"
+    assert result.reason == "Fehler bei der Strategieauswertung"
+    assert result.attributes["sensor.opti_engine_diagnostics"]["template_errors"] == {
+        "strategy": "ValueError"
+    }
+
+
+def test_template_runtime_helpers_fail_closed_on_malformed_resources():
+    engine = StrategyEngine()
+    engine._now = NOW
+    engine._states = {
+        "sensor.value": "unavailable",
+        "input_number.threshold": "unavailable",
+        "sun.sun": "below_horizon",
+    }
+
+    with pytest.raises(ValueError, match="Non-numeric"):
+        _ENGINE_MODULE._float(None)
+    assert _ENGINE_MODULE._truth("yes") is True
+    assert engine._as_datetime(NOW) == NOW
+    assert engine._as_datetime("2026-01-15T12:00:00").tzinfo == TZ
+    assert engine._as_timestamp("invalid", 7) == 7
+    assert engine._duration("01:02:03") == 3723
+    assert engine._render(["plain", "{{ 1 + 1 }}"]) == ["plain", 2]
+    assert engine._all_conditions("{{ true }}") is True
+    assert engine._condition("{{ true }}") is True
+    assert (
+        engine._condition(
+            {"condition": "numeric_state", "entity_id": "sensor.value", "above": 0}
+        )
+        is False
+    )
+    engine._states["sensor.value"] = "5"
+    assert (
+        engine._condition(
+            {
+                "condition": "numeric_state",
+                "entity_id": "sensor.value",
+                "above": "input_number.threshold",
+            }
+        )
+        is False
+    )
+    with pytest.raises(ValueError, match="sun condition"):
+        engine._condition({"condition": "sun", "after": "sunset"})
+    with pytest.raises(ValueError, match="Unsupported bundled condition"):
+        engine._condition({"condition": "device"})
+
+    engine._actions(
+        [
+            {"condition": "template", "value_template": "{{ false }}"},
+            {"action": "unsupported.service"},
+        ]
+    )
+    with pytest.raises(ValueError, match="Unsupported bundled action"):
+        engine._actions([{}])
+    with pytest.raises(ValueError, match="non-helper"):
+        engine._actions(
+            [
+                {
+                    "action": "input_boolean.turn_on",
+                    "target": {"entity_id": "input_boolean.not_bundled"},
+                }
+            ]
+        )

@@ -21,7 +21,7 @@
   "custom_components/opti_akku/load_profile.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/migration.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/number.py": {"max_missing": 1, "min_percent": 96.66},
-  "custom_components/opti_akku/observation.py": {"max_missing": 8, "min_percent": 93.44},
+  "custom_components/opti_akku/observation.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/peak_load.py": {"max_missing": 3, "min_percent": 95.83},
   "custom_components/opti_akku/plant.py": {"max_missing": 14, "min_percent": 93.57},
   "custom_components/opti_akku/recovery.py": {"max_missing": 0, "min_percent": 100.0},

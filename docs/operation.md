@@ -102,4 +102,3 @@ keine nachgewiesene dauerhafte Sperre. Ob und wann der Wechselrichter nach einem
 Timeout oder HA-Ausfall seine Eigenregelung übernimmt, wurde nicht unabhängig
 nachgewiesen. Der Diagnosesensor **Rückgabe an Gerätesteuerung** zeigt diese
 fehlende Fähigkeit ausdrücklich als **Nicht unterstützt** an.
-

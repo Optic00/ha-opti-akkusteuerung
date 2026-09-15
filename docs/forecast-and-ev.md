@@ -151,7 +151,7 @@ Lernhistorie. Ein Abschalten der Profiloption stellt die feste Lastannahme wiede
 Die Entladesperre beginnt bei der Reserve, nicht schon drei Prozentpunkte darüber.
 Nach dem Halten wird erst oberhalb von Reserve plus zwei Prozentpunkten freigegeben.
 Während der jeweils vorgesehenen teuren Stunden wird reservierte Energie weiterhin
-freigegeben. 
+freigegeben.
 
 ### PV-Vorbereitung fürs Auto (0.5.2b4)
 
@@ -191,4 +191,3 @@ Der Diagnosesensor zeigt Vorbereitung, Ladebedarf, Datenlücken und Vorrangregel
 Im Shadowmode ist dies nur eine berechnete Entscheidung. Keine zusätzliche
 Wärmepumpen-, Fahrzeug- oder Wallboxsteuerung, keine Rückkehrprognose und kein
 Versprechen, dass die verbleibende PV den Fahrzeugbedarf vollständig deckt.
-

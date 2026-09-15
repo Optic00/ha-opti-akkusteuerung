@@ -36,4 +36,3 @@ Bei Gerätewechsel wird die Bestätigung für die alleinige Steuerung zurückges
 Der Referenz-Ladepreis neuer Einträge startet wie die ursprüngliche Strategie mit
 `-1 EUR/kWh` (noch keine Referenz), statt wie bisher mit `0`; gespeicherte Werte
 werden nicht geändert.
-

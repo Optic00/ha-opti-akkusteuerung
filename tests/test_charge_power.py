@@ -237,3 +237,36 @@ def test_temp_cutoff_mutant_laedt_bei_50():
     mutant = _mutant_cfg("temp >= 50", "temp >= 999")
     assert float(_state(FakeHass(states=st), real)) == 0.0
     assert float(_state(FakeHass(states=st), mutant)) == 1000.0
+
+
+def test_manuelle_grenze_ersetzt_prognose_aber_nicht_schutz():
+    for temp, soc, expected in [(25, 50, 4000), (25, 96, 4000), (45, 50, 2000),
+                                 (0, 50, 1000), (50, 50, 0),
+                                 (-5, 50, 0), (25, 97, 500)]:
+        states = _states(str(soc), str(temp), score="5", max_helper="4000")
+        states["input_boolean.opti_manuelle_ladegrenze"] = "on"
+        assert float(_state(FakeHass(states=states))) == expected
+
+
+def test_manuelle_grenze_balancing_und_hardwaredeckel():
+    states = _states("50", "25", score="5", max_helper="20000")
+    states["input_boolean.opti_manuelle_ladegrenze"] = "on"
+    assert float(_state(FakeHass(states=states))) == 10000
+    for soc, expected in [(93, 500), (96, 200), (97, 200)]:
+        states["sensor.opti_soc"] = str(soc)
+        states["sensor.opti_balancing_watchdog"] = "pv"
+        hass = FakeHass(states=states)
+        hass.attrs_map["sensor.opti_strategie_vorschau"] = {"grund": "Balancing-Watchdog PV"}
+        assert float(_state(hass)) == expected
+
+
+def test_automatik_aus_aendert_ladegrenze_nicht_implizit():
+    states = _states("50", "25", score="5", max_helper="4000")
+    states["input_boolean.akku_opti_automatik"] = "off"
+    assert float(_state(FakeHass(states=states))) == 2000
+
+
+def test_manuelle_negative_grenze_sperrt_laden():
+    states = _states("50", "25", score="5", max_helper="-100")
+    states["input_boolean.opti_manuelle_ladegrenze"] = "on"
+    assert float(_state(FakeHass(states=states))) == 0

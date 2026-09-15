@@ -1022,3 +1022,42 @@ async def test_ev_write_guard_ignores_only_irrelevant_soc_changes(coordinator, h
     await coordinator._async_update_data()
     coordinator.device.async_apply.side_effect = None
     assert checked == [expected]
+
+
+async def test_observation_selector_uses_valid_translation_key_without_changing_engine_mode(coordinator, entry):
+    from custom_components.opti_akku.select import OptiAkkuModeSelect
+
+    entry.runtime_data = coordinator
+    coordinator.strategy_enabled = False
+    entity = OptiAkkuModeSelect(entry)
+    assert entity.current_option == "observation"
+    assert entity.options[0] == "observation"
+    await entity.async_select_option("observation")
+    assert coordinator.manual_mode is None
+    assert coordinator.write_enabled is False
+    assert entity.current_option == "observation"
+
+
+async def test_duplicate_endpoint_is_permanent_setup_error_not_automatic_retry(hass, entry):
+    from custom_components.opti_akku import async_setup_entry
+    from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+
+    hass.data["opti_akku_writers"] = {("127.0.0.1", 15020, 3): "existing-controller"}
+    with pytest.raises(ConfigEntryError) as error:
+        await async_setup_entry(hass, entry)
+    assert not isinstance(error.value, ConfigEntryNotReady)
+    assert hass.data["opti_akku_writers"][("127.0.0.1", 15020, 3)] == "existing-controller"
+
+
+async def test_explicit_existing_grid_charging_preference_is_preserved(hass, entry):
+    from homeassistant.helpers.storage import Store
+
+    await Store(hass, 1, f"opti_akku.{entry.entry_id}", private=True).async_save({
+        "settings": {"input_boolean.opti_prognose_netzladen": True}
+    })
+    coordinator = OptiCoordinator(hass, entry, device(), StrategyEngine())
+    await coordinator.async_restore()
+    try:
+        assert coordinator.settings["input_boolean.opti_prognose_netzladen"] is True
+    finally:
+        await coordinator.async_stop()

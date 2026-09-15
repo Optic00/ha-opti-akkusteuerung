@@ -204,3 +204,11 @@ def test_command_signals_keep_soc_ticks_but_invalidate_boundaries_and_stale_data
     assert command_signals(holiday, s, NOW)[2] is None
     s["input_boolean.holiday"] = state("on")
     assert command_signals(holiday, s, NOW)[2] is True
+
+
+@pytest.mark.parametrize("decision_id", ["negative_price", "peak_precharge"])
+def test_vehicle_charging_retains_explicit_price_charging_priority(decision_id):
+    e = evaluation("Akku Netzladen", "Explicit price priority", decision_id)
+    result, report = apply_preparation(e, {"charging_guard": True})
+    assert result is e
+    assert report["controls_battery"] is False

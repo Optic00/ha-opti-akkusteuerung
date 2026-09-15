@@ -636,3 +636,22 @@ def test_load_source_change_discards_only_house_history():
     result = evaluate(engine=engine, states=measurements(**{"sensor.opti_house_consumption_w": 3000}), now=NOW+dt.timedelta(minutes=1))
     assert float(result.states["sensor.opti_house_consumption_60min_w"]) == 3000
     assert len(engine.snapshot()["samples"]["sensor.house_battery_load_30_mins"]) == 2
+
+
+@pytest.mark.parametrize("price", [-5, 10])
+def test_new_integration_defaults_do_not_opt_into_automatic_grid_charging(price):
+    from custom_components.opti_akku.definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
+
+    DEFINITIONS = {**NUMBER_DEFINITIONS, **SWITCH_DEFINITIONS}
+
+    states = measurements(**{
+        "sun.sun": "below_horizon", "sensor.opti_forecast_today_kwh": 0,
+        "sensor.opti_forecast_tomorrow_kwh": 0,
+        "sensor.opti_forecast_remaining_today_kwh": 0,
+        "sensor.opti_price_current_ct_kwh": price,
+    })
+    states.update({key: definition["default"] for key, definition in DEFINITIONS.items()})
+    states["input_boolean.akku_opti_automatik"] = "on"
+    attrs = solar_attrs()
+    attrs["sensor.opti_price_series"] = {"today": [10] * 18 + [50] * 6, "tomorrow": [10] * 24}
+    assert evaluate(states=states, attributes=attrs).mode != "Akku Netzladen"

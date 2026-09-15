@@ -34,6 +34,10 @@ gehören nicht ins Repository und liegen nicht unter `www`. Jede neue Sitzung
 bekommt eine eigene Datei; erneutes Drücken während einer laufenden Sitzung
 verlängert sie nicht. Ein HA-Neustart erhält die ursprüngliche Deadline.
 
+Die Journaldateien werden nicht automatisch gelöscht und können in HA-Backups
+enthalten sein. Nach Auswertung nicht mehr benötigte Sitzungen gezielt im
+privaten Verzeichnis entfernen; niemals eine laufende Aufzeichnung löschen.
+
 Nach 24 Stunden endet nur die Aufzeichnung. Die Integration bleibt strikt
 lesend. `completed` bedeutet Fristende, nicht lückenlose Datenabdeckung.
 Abweichende Modi sind zunächst Vergleichsbefunde: Die neue Instanz muss
@@ -44,8 +48,10 @@ Schreibregister und ersetzt keinen späteren begleiteten Schreibtest.
 ### Schreibender Betrieb
 
 Die Geräteseite enthält die Strategieparameter als Zahlen und Schalter. Die
-Vorgaben sind konservativ. Netzladen und Balancing über das Netz sind zunächst
-ausgeschaltet.
+Vorgaben sind konservativ. Automatisches Netzladen und Balancing über das Netz sind bei neuen Einträgen
+ausgeschaltet. **Reserveplanung mit Netzladen erlauben** aktiviert auch
+preisabhängiges Vorladen und Laden bei negativen Preisen; es ist keine reine
+Haltefunktion. Gespeicherte und ausdrücklich importierte Werte bleiben erhalten.
 
 Die eigentliche Steuerung hat drei getrennte Ebenen:
 

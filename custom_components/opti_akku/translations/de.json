@@ -106,7 +106,7 @@
           "forecast_remaining": "PV-Prognose verbleibend heute",
           "opti_forecast_optimismus": "Prognose-Optimismus",
           "opti_peak_verbrauch_kw": "Erwarteter Hausverbrauch",
-          "opti_prognose_netzladen": "Reserve bei schlechter Prognose"
+          "opti_prognose_netzladen": "Reserveplanung mit Netzladen erlauben"
         }
       },
       "ev": {
@@ -373,7 +373,7 @@
           "forecast_remaining": "PV-Prognose verbleibend heute",
           "opti_forecast_optimismus": "Prognose-Optimismus",
           "opti_peak_verbrauch_kw": "Erwarteter Hausverbrauch",
-          "opti_prognose_netzladen": "Reserve bei schlechter Prognose"
+          "opti_prognose_netzladen": "Reserveplanung mit Netzladen erlauben"
         }
       },
       "ev": {
@@ -568,7 +568,7 @@
         "name": "Netzladen im Winter erlauben"
       },
       "opti_prognose_netzladen": {
-        "name": "Reserve bei schlechter Prognose"
+        "name": "Reserveplanung mit Netzladen erlauben"
       },
       "opti_pv_ueberschuss_ladung": {
         "name": "PV-Überschussladen erlauben"
@@ -584,7 +584,7 @@
       "operating_mode": {
         "name": "Betriebsart",
         "state": {
-          "Beobachtung": "Beobachtung"
+          "observation": "Beobachtung"
         }
       }
     },

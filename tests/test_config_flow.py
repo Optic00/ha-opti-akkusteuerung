@@ -972,3 +972,19 @@ async def test_huawei_shadow_temperature_can_be_added_without_restarting_wizard(
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"]["huawei_sources"]["battery_temp"] == SOURCES["battery_temp"]
     assert result["options"]["strategy_enabled"] is True
+
+
+async def test_unchanged_sma_connection_preserves_single_writer_confirmation(hass):
+    data = {**CONNECTION, "backend": "sma_modbus", "serial_number": PROBE["serial_number"]}
+    entry = MockConfigEntry(domain=DOMAIN, unique_id="sma_stp_se:1234567890", data=data,
+        options={"single_writer_confirmed": True, "single_inverter": True, "sources": {}})
+    entry.add_to_hass(hass)
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "connection"})
+        result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+        result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options["single_writer_confirmed"] is True
+    assert entry.data == data

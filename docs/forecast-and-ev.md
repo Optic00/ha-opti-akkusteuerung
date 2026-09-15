@@ -179,8 +179,10 @@ Mindestladeleistung wird dabei null, die Ladeobergrenze höchstens der ermittelt
 Überschuss. Sie senkt ein ohnehin höheres normales Ladeziel nicht ab.
 
 Bei aktivem oder unbekanntem Fahrzeug-Ladesignal pausieren normale Hausakkuladung
-und automatische Entladung, auch nachts. Vorrangige Schutz-/Balancingladungen
-bleiben möglich. Die bestehende Wallboxregelung bleibt zuständig für das Auto.
+und automatische Entladung, auch nachts. Höher priorisierte Schutz-, Balancing-, Reserve- und Preisladungen
+bleiben möglich, insbesondere Vorladen vor einem Preispeak oder bei negativen
+Preisen. Hausakku und Fahrzeug können dann gleichzeitig aus dem Netz laden;
+die EV-Funktion ist keine globale Netzbezugs- oder Anschlussleistungsbegrenzung. Die bestehende Wallboxregelung bleibt zuständig für das Auto.
 Mit aktivierter Funktion wird im Automatikbetrieb keine Mindestentladeleistung
 erzwungen. Nach Ende der Vorbereitung deckt der Hausakku wieder normalen
 Hausverbrauch, statt gezielt ins Netz entladen zu werden. Manuelle Betriebsarten

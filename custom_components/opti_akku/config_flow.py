@@ -1000,7 +1000,7 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
             return await self.async_step_huawei_connection(user_input)
         errors = {}
         if user_input is not None:
-            connection = {CONF_HOST: user_input[CONF_HOST].strip(), CONF_PORT: user_input[CONF_PORT],
+            connection = {"backend": BACKEND_SMA, CONF_HOST: user_input[CONF_HOST].strip(), CONF_PORT: user_input[CONF_PORT],
                           CONF_UNIT_ID: user_input[CONF_UNIT_ID], CONF_PROFILE: user_input.get(CONF_PROFILE, PROFILE_SMA_STP_SE),
                           "shadow_mode": self._entry.data.get("shadow_mode", False)}
             try:

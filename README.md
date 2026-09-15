@@ -1,10 +1,10 @@
-<img src="custom_components/opti_akku/brand/icon.png" alt="Opti Akku" width="128">
+<img src="https://raw.githubusercontent.com/Optic00/ha-opti-akkusteuerung/main/custom_components/opti_akku/brand/icon.png" alt="Opti Akku" width="128">
 
 # Opti Akku für Home Assistant
 
 Opti Akku verbindet lokale Akkusteuerung mit einer optionalen Strategie für PV-Überschuss, Strompreise und Verbrauchsreserve. Die Einrichtung erfolgt über einen geführten Assistenten. Zusätzliche YAML-Automationen oder manuell angelegte Helfer sind für die Integration nicht erforderlich.
 
-**Öffentliche Beta 0.5.2b6.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](docs/migration.md) umstellen.
+**Öffentliche Beta 0.5.2b6.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md) umstellen.
 
 > **Aktive Akkusteuerung:** Freigegebene Schreibzugriffe verändern das Lade- und Entladeverhalten. Falsche Einstellungen oder Fehler können zusätzliche Kosten und unerwünschten Betrieb verursachen. Herstellervorgaben beachten und andere schreibende Steuerungen vor der Freigabe deaktivieren. Neue Einträge starten ohne Schreibfreigabe; Shadow-Einträge bleiben dauerhaft lesend.
 
@@ -12,7 +12,7 @@ Opti Akku verbindet lokale Akkusteuerung mit einer optionalen Strategie für PV-
 
 - Home Assistant ab **2026.9.1**, Python ab 3.14.2, HACS für die komfortable Installation.
 - **SMA Sunny Tripower Smart Energy** STP5.0/6.0/8.0/10.0-3SE-40 mit aktiviertem Modbus TCP. Die Einrichtung prüft Geräteprofil und Identität lesend. Der bisherige praktische Pilotumfang ersetzt keine Abnahme jeder Modell-/Firmwarekombination.
-- **Huawei Solar ist experimentell:** nutzt eine bereits eingerichtete Huawei-Solar-Integration und deren Entitäten/Dienste. Sie wird nicht ersetzt. Voraussetzungen und Grenzen: [Huawei](HUAWEI_CONTROL.md).
+- **Huawei Solar ist experimentell:** nutzt eine bereits eingerichtete Huawei-Solar-Integration und deren Entitäten/Dienste. Sie wird nicht ersetzt. Voraussetzungen und Grenzen: [Huawei](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/HUAWEI_CONTROL.md).
 - Stromtarif, PV-Prognose, Wärmepumpe und Fahrzeug sind optionale externe Quellen. Anbieter müssen bereits in HA eingerichtet sein.
 
 ## Installation mit HACS
@@ -22,7 +22,7 @@ Opti Akku verbindet lokale Akkusteuerung mit einer optionalen Strategie für PV-
 3. Home Assistant neu starten.
 4. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen → Opti Akku** den Assistenten starten. Für den ersten Vergleich Shadow eingeschaltet lassen.
 
-Dies ist ein benutzerdefiniertes HACS-Repository, keine behauptete Aufnahme in die HACS-Standardliste. Wurde das Repository unter einer anderen Kategorie hinzugefügt, in HACS entfernen und als Integration neu hinzufügen. Eine bereits manuell installierte Opti-Akku-Integration nicht löschen oder neu anlegen: [Übernahme durch HACS](docs/migration.md#manuell-installierte-integration).
+Dies ist ein benutzerdefiniertes HACS-Repository, keine behauptete Aufnahme in die HACS-Standardliste. Wurde das Repository unter einer anderen Kategorie hinzugefügt, in HACS entfernen und als Integration neu hinzufügen. Eine bereits manuell installierte Opti-Akku-Integration nicht löschen oder neu anlegen: [Übernahme durch HACS](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md#manuell-installierte-integration).
 
 ## Funktionen
 
@@ -31,19 +31,19 @@ Dies ist ein benutzerdefiniertes HACS-Repository, keine behauptete Aufnahme in d
 - Native Tibber-Preise über die vorhandene HA-Integration oder zugeordnete Preisentitäten.
 - Optionales Stundenverbrauchsprofil mit Recorder-Import und gesonderter Aktivierung für die Peak-Reserve.
 - Optionale EV-Entladesperre und frühere PV-Ladung des Hausakkus bei Fahrzeug-Ladebedarf.
-- Geführtes Einstellungsmenü, Diagnosen und lesende 24-Stunden-Shadow-Aufzeichnung.
+- Geführtes Einstellungsmenü, Diagnoseentitäten und lesende 24-Stunden-Shadow-Aufzeichnung.
 
 BYD-Zellüberwachung, KI-Tagesreport und eine eigene Wallbox-/Wärmepumpensteuerung gehören nicht dazu. Eine vollständige zukünftige Heizlast- oder Fahrzeug-Rückkehrprognose wird nicht versprochen. Huawei-Hardwarepilot und vollständige EV-/Nacht-/Preispeak-Abnahme des öffentlichen Kandidaten stehen vor einer stabilen Freigabe noch aus.
 
 ## Dokumentation
 
-- [Einrichtung und Einstellungen](docs/configuration.md)
-- [Betrieb, Shadow und Schreibschutz](docs/operation.md)
-- [Migration und Rückweg](docs/migration.md)
-- [Strompreise](PRICE_SOURCES.md), [Anlagenbilanz](PLANT_MODEL.md), [Huawei](HUAWEI_CONTROL.md)
-- [Bedarfsprofil, Peak-Reserve und EV-Vorbereitung](docs/forecast-and-ev.md)
-- [Entwicklung und Prüfung](docs/development.md)
+- [Einrichtung und Einstellungen](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/configuration.md)
+- [Betrieb, Shadow und Schreibschutz](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/operation.md)
+- [Migration und Rückweg](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md)
+- [Strompreise](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/PRICE_SOURCES.md), [Anlagenbilanz](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/PLANT_MODEL.md), [Huawei](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/HUAWEI_CONTROL.md)
+- [Bedarfsprofil, Peak-Reserve und EV-Vorbereitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/forecast-and-ev.md)
+- [Entwicklung und Prüfung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/development.md)
 
 Die Strategiequellen liegen unter `strategy/`; das daraus erzeugte JSON wird mit der Integration ausgeliefert. Herkunft und Anpassungen sind dort dokumentiert. Gerätetreiber und Strategie bleiben intern getrennt, damit später andere Adapter oder eine eigenständige Strategie angebunden werden können.
 
-Fehler bitte mit Version, Gerät/Firmware, erwartetem Verhalten und bereinigten Diagnoseauszügen als [Issue](https://github.com/Optic00/ha-opti-akkusteuerung/issues) melden. Keine Zugangsdaten, vollständigen HA-Konfigurationen oder privaten Messhistorien öffentlich anhängen. Lizenz: [MIT](LICENSE).
+Fehler bitte mit Version, Gerät/Firmware, erwartetem Verhalten und bereinigten Werten der Diagnoseentitäten als [Issue](https://github.com/Optic00/ha-opti-akkusteuerung/issues) melden. Keine Zugangsdaten, vollständigen HA-Konfigurationen oder privaten Messhistorien öffentlich anhängen. Lizenz: [MIT](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/LICENSE).

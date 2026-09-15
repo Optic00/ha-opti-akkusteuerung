@@ -3,7 +3,7 @@
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, HomeAssistantError
+from homeassistant.exceptions import ConfigEntryError, HomeAssistantError
 from homeassistant.components.modbus import async_get_unit
 from modbus_connection import ModbusTcpParams
 
@@ -38,7 +38,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     owners = hass.data.setdefault(f"{DOMAIN}_writers", {})
     shadow = entry.data.get("shadow_mode", backend == "huawei_solar") is True
     if not shadow and endpoint in owners and owners[endpoint] != entry.entry_id:
-        raise ConfigEntryNotReady("This inverter already has an Opti Akku controller")
+        raise ConfigEntryError("This inverter already has an Opti Akku controller")
     if not shadow:
         owners[endpoint] = entry.entry_id
     @callback

@@ -106,7 +106,7 @@
           "forecast_remaining": "Remaining PV forecast today",
           "opti_forecast_optimismus": "Forecast optimism",
           "opti_peak_verbrauch_kw": "Expected home consumption",
-          "opti_prognose_netzladen": "Reserve for poor forecast"
+          "opti_prognose_netzladen": "Allow reserve planning with grid charging"
         }
       },
       "ev": {
@@ -373,7 +373,7 @@
           "forecast_remaining": "Remaining PV forecast today",
           "opti_forecast_optimismus": "Forecast optimism",
           "opti_peak_verbrauch_kw": "Expected home consumption",
-          "opti_prognose_netzladen": "Reserve for poor forecast"
+          "opti_prognose_netzladen": "Allow reserve planning with grid charging"
         }
       },
       "ev": {
@@ -568,7 +568,7 @@
         "name": "Allow winter grid charging"
       },
       "opti_prognose_netzladen": {
-        "name": "Reserve for poor forecast"
+        "name": "Allow reserve planning with grid charging"
       },
       "opti_pv_ueberschuss_ladung": {
         "name": "Allow PV surplus charging"
@@ -584,7 +584,7 @@
       "operating_mode": {
         "name": "Operating mode",
         "state": {
-          "Beobachtung": "Observation"
+          "observation": "Observation"
         }
       }
     },

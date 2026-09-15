@@ -8,6 +8,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from .entity import OptiAkkuEntity
 
 STRATEGY = "Strategie"
+OBSERVATION = "observation"
 
 
 async def async_setup_entry(
@@ -25,7 +26,7 @@ class OptiAkkuModeSelect(OptiAkkuEntity, SelectEntity):
 
     @property
     def options(self) -> list[str]:
-        return [STRATEGY if self.coordinator.strategy_enabled else "Beobachtung", *self.coordinator.supported_modes]
+        return [STRATEGY if self.coordinator.strategy_enabled else OBSERVATION, *self.coordinator.supported_modes]
 
     @property
     def available(self) -> bool:
@@ -33,7 +34,7 @@ class OptiAkkuModeSelect(OptiAkkuEntity, SelectEntity):
 
     @property
     def current_option(self) -> str:
-        return self.coordinator.manual_mode or (STRATEGY if self.coordinator.strategy_enabled else "Beobachtung")
+        return self.coordinator.manual_mode or (STRATEGY if self.coordinator.strategy_enabled else OBSERVATION)
 
     async def async_select_option(self, option: str) -> None:
-        await self.coordinator.async_set_mode(option)
+        await self.coordinator.async_set_mode("Beobachtung" if option == OBSERVATION else option)

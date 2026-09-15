@@ -113,3 +113,13 @@ keine nachgewiesene dauerhafte Sperre. Ob und wann der Wechselrichter nach einem
 Timeout oder HA-Ausfall seine Eigenregelung übernimmt, wurde nicht unabhängig
 nachgewiesen. Der Diagnosesensor **Rückgabe an Gerätesteuerung** zeigt diese
 fehlende Fähigkeit ausdrücklich als **Nicht unterstützt** an.
+
+## Diagnose herunterladen
+
+Unter **Einstellungen -> Geräte & Dienste -> Opti Akku -> Drei-Punkte-Menü ->
+Diagnose herunterladen** stellt Home Assistant eine kompakte Support-Datei
+bereit. Sie enthält Betriebsart, Verbindungs- und Funktionsstatus sowie
+zusammengefasste Fehlercodes. Hostnamen, IP-Adressen, Seriennummern, Entity-IDs,
+Fahrzeugdaten, Messwerte und Historien werden nicht exportiert. Prüfe die Datei
+trotzdem vor einer Veröffentlichung und teile sie bevorzugt über die
+Issue-Vorlage statt als vollständige Home-Assistant-Konfiguration.

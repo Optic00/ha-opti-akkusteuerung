@@ -95,6 +95,30 @@ def test_bad_snapshot_does_not_break_observer():
             "pending": {
                 "start": NOW.isoformat(),
                 "end": (NOW + timedelta(hours=1)).isoformat(),
+                "last": NOW.isoformat(),
+                "predicted_kwh": 10**400,
+                "actual_kwh": 0.2,
+                "covered_seconds": 1800,
+                "missing_seconds": 0,
+            },
+        },
+        {
+            "version": 1,
+            "pending": {
+                "start": 1,
+                "end": (NOW + timedelta(hours=1)).isoformat(),
+                "last": NOW.isoformat(),
+                "predicted_kwh": 0.5,
+                "actual_kwh": 0.2,
+                "covered_seconds": 1800,
+                "missing_seconds": 0,
+            },
+        },
+        {
+            "version": 1,
+            "pending": {
+                "start": NOW.isoformat(),
+                "end": (NOW + timedelta(hours=1)).isoformat(),
                 "last": (NOW - timedelta(minutes=1)).isoformat(),
                 "predicted_kwh": 0.5,
                 "actual_kwh": 0.2,
@@ -126,6 +150,18 @@ def test_bad_snapshot_does_not_break_observer():
                 "missing_seconds": 0,
             },
         },
+        {
+            "version": 1,
+            "pending": {
+                "start": NOW.isoformat(),
+                "end": (NOW + timedelta(hours=1)).isoformat(),
+                "last": NOW.isoformat(),
+                "predicted_kwh": True,
+                "actual_kwh": 0.2,
+                "covered_seconds": 1800,
+                "missing_seconds": 0,
+            },
+        },
     ],
 )
 def test_restore_rejects_untrusted_or_implausible_pending_trials(saved):
@@ -138,3 +174,22 @@ def test_no_pv_or_disabled_does_not_create_trial():
     tracker = DemandAccuracy()
     out = tracker.observe(NOW, 600, {"status": "no_pv_timing"})
     assert out["pending"] is None
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"pv_cover_from": "not-a-date"},
+        {"pv_cover_from": (NOW + timedelta(hours=1)).replace(tzinfo=None).isoformat()},
+        {"expected_load_kwh": float("nan")},
+        {"expected_load_kwh": True},
+        {"expected_load_kwh": 1200.1},
+        {"expected_load_kwh": 10**400},
+    ],
+)
+def test_invalid_prediction_does_not_start_accuracy_trial(changes):
+    tracker = DemandAccuracy()
+
+    out = tracker.observe(NOW, 600, {**plan(), **changes})
+
+    assert out == {"pending": None, "completed": []}

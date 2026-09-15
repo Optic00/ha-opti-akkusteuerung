@@ -38,8 +38,9 @@ Nach dem Merge wird ein annotierter Tag auf den geprüften Commit gepusht. Der
 Release-Workflow prüft den Versionsvertrag, baut das ZIP zweimal mit identischen
 Bytes und erzeugt einen **Release-Entwurf samt ZIP**. Betas erhalten das Prerelease-Kennzeichen.
 Erst nach erfolgreichem Workflow und Prüfung der Release-Notizen wird der Entwurf
-veröffentlicht. Ein erneuter Lauf ersetzt kein bestehendes Release; ein gescheiterter
-Lauf muss vor einem erneuten Versuch geprüft werden.
+veröffentlicht. Ein erneuter Lauf ersetzt kein bestehendes Release. Nach Prüfung eines gescheiterten
+Laufs kann **Prepare release → Run workflow** auf `main` denselben bestehenden
+annotierten Tag erneut vorbereiten; der Tag wird dabei nicht verändert.
 
 HACS lädt weiterhin den Komponentenordner aus dem gewählten Tag. Das zusätzliche
 ZIP ist für manuelle Installation; `zip_release` bleibt deshalb aus.

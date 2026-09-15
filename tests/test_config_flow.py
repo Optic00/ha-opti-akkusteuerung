@@ -1084,3 +1084,445 @@ async def test_runtime_limit_change_during_options_flow_is_not_overwritten(hass)
     assert result["step_id"] == "finish"
     assert result["errors"] == {"base": "invalid_limits"}
     assert dict(entry.options) == options
+
+
+async def test_sma_without_serial_uses_stable_connection_identity(hass):
+    probe = {key: value for key, value in PROBE.items() if key != "serial_number"}
+    with patch(
+        "custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=probe)
+    ), patch("custom_components.opti_akku.async_setup_entry", AsyncMock(return_value=True)):
+        result = await finish_wizard(
+            hass,
+            await begin(hass),
+            {"sources": {"single_inverter": True, "plant_meter_confirmed": True}},
+        )
+    assert result["result"].unique_id == "192.0.2.10:502:3"
+
+
+async def test_missing_huawei_device_stays_on_connection_step(hass):
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"backend": "huawei_solar"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"huawei_device_id": "missing-device"}
+    )
+    assert result["step_id"] == "huawei_device"
+    assert result["errors"] == {"base": "huawei_device_unavailable"}
+
+
+async def test_saved_tibber_provider_hides_manual_price_sources(hass):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={
+            "sources": {},
+            "single_inverter": True,
+            "price_provider": "tibber",
+            "price_max_age": 7200,
+        },
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "tariff"}
+    )
+    assert not {
+        "price_current",
+        "price_series",
+        "price_unit",
+    } & {marker.schema for marker in result["data_schema"].schema}
+    hass.config_entries.options.async_abort(result["flow_id"])
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "advanced"}
+    )
+    assert form_values(result)["price_max_age"] == 7200
+
+
+async def test_related_source_sets_and_limits_report_section_errors(hass):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={"sources": {}, "single_inverter": True},
+    )
+    entry.add_to_hass(hass)
+    hass.states.async_set("sensor.price", "0.2", {"unit_of_measurement": "EUR/kWh"})
+    hass.states.async_set("sensor.forecast", "10", {"unit_of_measurement": "kWh"})
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "tariff"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {"price_current": "sensor.price"})
+    )
+    assert result["errors"]["base"] == "price_pair_required"
+    hass.config_entries.options.async_abort(result["flow_id"])
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "forecast"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {"forecast_today": "sensor.forecast"})
+    )
+    assert result["errors"]["base"] == "forecast_set_required"
+    hass.config_entries.options.async_abort(result["flow_id"])
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "battery"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {"minsoc": 96, "maxsoc": 95})
+    )
+    assert result["errors"]["base"] == "invalid_limits"
+
+
+@pytest.mark.parametrize(
+    ("value", "unit", "error"),
+    [("unknown", "W", "invalid_value"), (-1, "W", "negative_value"), (1, "A", "unsupported_unit")],
+)
+async def test_ev_power_source_reports_precise_validation_error(hass, value, unit, error):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={"sources": {}, "single_inverter": True},
+    )
+    entry.add_to_hass(hass)
+    hass.states.async_set("sensor.ev_power", value, {"unit_of_measurement": unit})
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "features"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "ev"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {"ev1_power": "sensor.ev_power"})
+    )
+    assert result["errors"]["ev1_power"] == error
+
+
+async def test_failed_and_duplicate_sma_reconnect_preserve_entry(hass):
+    data = {**CONNECTION, "backend": "sma_modbus", "serial_number": PROBE["serial_number"]}
+    options = {"single_writer_confirmed": True, "single_inverter": True, "sources": {}}
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="sma_stp_se:1234567890",
+        data=data,
+        options=options,
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "connection"}
+    )
+    with patch(
+        "custom_components.opti_akku.config_flow._probe", AsyncMock(side_effect=OSError)
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], form_values(result)
+        )
+    assert result["errors"] == {"base": "cannot_connect"}
+    assert dict(entry.data) == data and dict(entry.options) == options
+    hass.config_entries.options.async_abort(result["flow_id"])
+
+    MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="sma_stp_se:other-device",
+        data={**CONNECTION, "host": "other"},
+    ).add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "connection"}
+    )
+    with patch(
+        "custom_components.opti_akku.config_flow._probe",
+        AsyncMock(return_value={**PROBE, "serial_number": "other-device"}),
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], form_values(result, {"host": "other"})
+        )
+    assert result["errors"] == {"base": "already_configured"}
+    assert dict(entry.data) == data and dict(entry.options) == options
+
+
+@pytest.mark.parametrize("failure", ["fetch", "binding"])
+async def test_final_save_rechecks_tibber_account_binding(hass, failure):
+    from custom_components.opti_akku.tibber_prices import TibberPriceError
+
+    options = {
+        "sources": {},
+        "single_inverter": True,
+        "price_provider": "tibber",
+        "tibber_home": "Home",
+        "tibber_entry_id": "account",
+        "tibber_eur_confirmed": True,
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, options=options)
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "finish"}
+    )
+    fetch = (
+        AsyncMock(side_effect=TibberPriceError("tibber_fetch_failed"))
+        if failure == "fetch"
+        else AsyncMock(return_value={"Home": SimpleNamespace(entry_id="replacement")})
+    )
+    with patch("custom_components.opti_akku.tibber_prices.async_fetch_prices", fetch):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], form_values(result)
+        )
+    assert result["errors"] == {"base": "sources_changed"}
+    assert dict(entry.options) == options
+
+
+async def test_unavailable_notification_target_is_visible_but_cannot_be_saved(hass):
+    options = {
+        "sources": {},
+        "single_inverter": True,
+        "notification_service": "notify.removed_phone",
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, options=options)
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "notifications"}
+    )
+    assert form_values(result)["notification_service"] == "notify.removed_phone"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result)
+    )
+    assert result["errors"] == {"base": "notification_service_unavailable"}
+    assert dict(entry.options) == options
+
+
+async def test_observation_rejects_duplicate_and_missing_sources(hass):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={"sources": {}, "single_inverter": True},
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "observation"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        form_values(result, {"watch_sources": ["sensor.same", "sensor.same"]}),
+    )
+    assert result["errors"] == {"base": "observation_sources"}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {"watch_sources": ["sensor.missing"]})
+    )
+    assert result["errors"] == {"base": "observation_sources"}
+
+
+@pytest.mark.parametrize(
+    ("kind", "error"),
+    [
+        ("missing", "missing_or_stale"),
+        ("unit", "ev_soc_unit"),
+        ("self", "self_reference"),
+    ],
+)
+async def test_ev_preparation_source_errors_are_field_specific(hass, kind, error):
+    from homeassistant.helpers import entity_registry as er
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={"sources": {}, "single_inverter": True},
+    )
+    entry.add_to_hass(hass)
+    entity_id = "sensor.vehicle"
+    if kind == "unit":
+        hass.states.async_set(entity_id, 20, {"unit_of_measurement": "kWh"})
+    elif kind == "self":
+        entity = er.async_get(hass).async_get_or_create("sensor", DOMAIN, "vehicle")
+        entity_id = entity.entity_id
+        hass.states.async_set(entity_id, 20, {"unit_of_measurement": "%"})
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "ev_preparation"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        form_values(
+            result,
+            {
+                "enabled": True,
+                "vehicle_soc": entity_id,
+                "charging": "binary_sensor.missing",
+            },
+        ),
+    )
+    assert result["errors"]["vehicle_soc"] == error
+
+
+async def test_source_sections_reject_self_reference_and_overlapping_plant_roles(hass):
+    from homeassistant.helpers import entity_registry as er
+
+    own = er.async_get(hass).async_get_or_create("sensor", DOMAIN, "own-source")
+    hass.states.async_set(own.entity_id, 500, {"unit_of_measurement": "W"})
+    hass.states.async_set("sensor.shared", 500, {"unit_of_measurement": "W"})
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={"sources": {}, "single_inverter": True},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "sources"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        form_values(
+            result,
+            {
+                "plant_mode": "balance",
+                "plant_meter_confirmed": True,
+                "additional_ac_sources": ["sensor.shared"],
+                "excluded_load_sources": ["sensor.shared"],
+            },
+        ),
+    )
+    assert result["errors"]["base"] == "plant_duplicate_source"
+    hass.config_entries.options.async_abort(result["flow_id"])
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "forecast"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        form_values(
+            result,
+            {
+                "forecast_today": own.entity_id,
+                "forecast_tomorrow": own.entity_id,
+                "forecast_remaining": own.entity_id,
+            },
+        ),
+    )
+    assert result["errors"]["forecast_today"] == "self_reference"
+
+
+async def test_ev_pause_setting_requires_a_complete_charger_pair(hass):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={"sources": {}, "single_inverter": True},
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "features"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "ev"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {"opti_ev_akku_pause": True})
+    )
+    assert result["errors"] == {"base": "ev_pair_required"}
+
+
+async def test_huawei_maxsoc_must_fit_configured_cutoff_control(hass):
+    data = {
+        "backend": "huawei_solar",
+        "huawei_entry_id": "provider",
+        "huawei_device_id": "device",
+        "huawei_sources": {},
+        "huawei_controls": {"cutoff_soc": "number.cutoff"},
+        "grid_positive": "export",
+        "profile": "huawei_solar",
+        "shadow_mode": False,
+    }
+    hass.states.async_set("number.cutoff", 50, {"min": 20, "max": 80})
+    entry = MockConfigEntry(
+        domain=DOMAIN, data=data, options={"sources": {}, "single_inverter": False}
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "battery"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {"maxsoc": 90})
+    )
+    assert result["errors"] == {"maxsoc": "huawei_cutoff_soc_unsupported"}
+
+
+@pytest.mark.parametrize("self_reference", [False, True])
+async def test_demand_heat_source_cannot_be_house_total_or_opti_entity(
+    hass, self_reference
+):
+    from homeassistant.helpers import entity_registry as er
+
+    if self_reference:
+        heat = er.async_get(hass).async_get_or_create("sensor", DOMAIN, "heat")
+        heat_entity = heat.entity_id
+        house = "sensor.house"
+    else:
+        heat_entity = house = "sensor.house"
+    hass.states.async_set(heat_entity, 500, {"unit_of_measurement": "W"})
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={
+            "sources": {"house_consumption": house},
+            "single_inverter": False,
+        },
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "demand"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {"enabled": True, "heat_power": heat_entity})
+    )
+    assert result["errors"]["heat_power"] == (
+        "self_reference" if self_reference else "demand_heat_meter"
+    )
+
+
+async def test_guided_features_can_open_ev_and_options_can_open_balancing(hass):
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
+        result = await begin(hass)
+        for expected in ("sources", "battery", "tariff", "forecast"):
+            assert result["step_id"] == expected
+            values = form_values(result)
+            if expected == "sources":
+                values.update(single_inverter=True, plant_meter_confirmed=True)
+            result = await hass.config_entries.flow.async_configure(result["flow_id"], values)
+        assert result["step_id"] == "features"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"configure_ev": True, "configure_balancing": False}
+        )
+    assert result["step_id"] == "ev"
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={"sources": {}, "single_inverter": True},
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "features"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "balancing"}
+    )
+    assert result["step_id"] == "balancing"

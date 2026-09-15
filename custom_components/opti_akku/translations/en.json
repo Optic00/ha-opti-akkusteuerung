@@ -1,0 +1,991 @@
+{
+  "title": "Opti Akku",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Welcome: connect your inverter",
+        "description": "For SMA STP SE. Enter the inverter or Modbus proxy address. Connection checks only read. Shadow is selected for safe first use and cannot later become a writing controller.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.",
+        "data": {
+          "backend": "Battery backend",
+          "host": "Host",
+          "port": "Port",
+          "unit_id": "Unit ID",
+          "profile": "Device profile",
+          "shadow_mode": "Read-only shadow mode (cannot be disabled later)",
+          "migrate_legacy": "Import legacy Opti automation (always shadow)"
+        }
+      },
+      "sma_connection": {
+        "title": "Connect SMA inverter",
+        "description": "The connection check reads only.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "unit_id": "Unit ID",
+          "profile": "Device profile",
+          "shadow_mode": "Read-only shadow mode",
+          "migrate_legacy": "Import legacy Opti automation (always shadow)"
+        }
+      },
+      "huawei_device": {
+        "title": "Select Huawei Solar device",
+        "description": "Select the battery inverter of a loaded Huawei Solar entry. Shadow stays permanently read-only. For future control choose a standard entry; its write access also starts disabled.",
+        "data": {
+          "huawei_device_id": "Huawei inverter device",
+          "shadow_mode": "Shadow mode (permanently read-only)"
+        }
+      },
+      "huawei_sources": {
+        "title": "Map Huawei Solar measurements",
+        "description": "Map fresh Huawei measurements to the battery inverter. Capacity may be Wh or kWh; select the grid-power sign explicitly. Configure additional generators under plant and sources.",
+        "data": {
+          "soc": "Battery state of charge",
+          "battery_capacity_kwh": "Battery capacity",
+          "battery_power_w": "Battery power",
+          "pv_power_w": "PV output power",
+          "grid_power_w": "Grid power",
+          "battery_temp": "Battery temperature (optional)",
+          "pv_generation_w": "PV input power (optional)",
+          "grid_positive": "Positive grid power means"
+        }
+      },
+      "sources": {
+        "title": "System and measurements",
+        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode.",
+        "data": {
+          "house_consumption": "House consumption",
+          "pv_generation": "PV generation DC (display only, optional)",
+          "pv_power": "Hybrid AC output including battery (optional)",
+          "single_inverter": "Calculate house consumption from this single inverter",
+          "plant_mode": "House consumption calculation",
+          "additional_ac_sources": "Additional inverter AC output sensors",
+          "excluded_load_sources": "Loads excluded from the forecast",
+          "plant_meter_confirmed": "The grid meter covers all selected generators and loads",
+          "forecast_min_load_w": "Minimum forecast base load",
+          "strategy_enabled": "Enable automatic strategy",
+          "huawei_battery_temp": "Huawei battery temperature"
+        }
+      },
+      "battery": {
+        "title": "Battery and power limits",
+        "description": "Set charge-level limits and maximum charge/discharge power from your battery specifications or previous controller. These are strategy limits, not verified hardware protection. Capacity and temperature are read automatically.",
+        "data": {
+          "minsoc": "Minimum charge level",
+          "maxsoc": "Maximum charge level",
+          "akkusteuerung_max_ladestaerke": "Maximum charge power",
+          "akkusteuerung_max_entladestaerke": "Maximum discharge power",
+          "opti_pv_ueberschuss_ladung": "Allow PV surplus charging"
+        }
+      },
+      "tariff": {
+        "title": "Electricity tariff",
+        "description": "Tibber uses dated prices from your existing HA integration. Confirm your home and euro tariff in the next step. For other providers, select both price entities; today/tomorrow must contain complete intervals with start, end and timezone. For operation without price optimization, choose Entities and leave both price fields empty.",
+        "data": {
+          "price_current": "Current electricity price",
+          "price_series": "Price series today/tomorrow",
+          "price_unit": "Electricity price source unit",
+          "ladepreis": "Reference charging price",
+          "mindestpreisdifferenz_lade_entladepreis": "Minimum discharge margin",
+          "opti_einspeiseverguetung_ct": "Feed-in tariff",
+          "opti_netzlade_spread_ct": "Grid charging price spread",
+          "opti_peak_min_aufschlag_ct": "Minimum peak premium",
+          "opti_halte_spread_ct": "Holding price spread",
+          "hausakku_aus_netz_laden": "Allow winter grid charging",
+          "price_provider": "Price source"
+        },
+        "data_description": {
+          "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades."
+        }
+      },
+      "forecast": {
+        "title": "PV forecast",
+        "description": "Select all three forecast sensors in kWh or Wh. Solcast and Forecast.Solar need compatible source sensors; provider sign-in is not configured here. Leave all three empty to skip forecasts; predictive reserve planning is then limited. Optimism blends available conservative and normal estimates.",
+        "data": {
+          "forecast_today": "PV forecast today",
+          "forecast_tomorrow": "PV forecast tomorrow",
+          "forecast_remaining": "Remaining PV forecast today",
+          "opti_forecast_optimismus": "Forecast optimism",
+          "opti_peak_verbrauch_kw": "Expected home consumption",
+          "opti_prognose_netzladen": "Reserve for poor forecast"
+        }
+      },
+      "ev": {
+        "title": "EV charging: evcc connection (optional)",
+        "description": "For evcc loadpoints. Select both mode and charging status. While charging in now or minpv mode, home battery discharge can be blocked; battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
+        "data": {
+          "ev1_mode": "EV 1 mode",
+          "ev1_charging": "EV 1 charging",
+          "ev1_power": "EV 1 charging power",
+          "ev2_mode": "EV 2 mode",
+          "ev2_charging": "EV 2 charging",
+          "ev2_power": "EV 2 charging power",
+          "opti_ev_akku_pause": "Block discharge during car charging"
+        }
+      },
+      "balancing": {
+        "title": "Balancing (optional)",
+        "description": "Optional. Interval 0 disables all balancing planning. When planning is enabled, cell spread may trigger additional demand. Grid charging needs separate permission. New entries do not import counters from previous automations; existing integration counters are preserved. The cell-spread source is optional and can be removed.",
+        "data": {
+          "cell_spread": "Resting BYD cell spread",
+          "opti_balancing_intervall_tage": "Balancing interval in days",
+          "opti_balancing_karenz_tage": "Balancing grace period",
+          "opti_balancing_max_ct": "Balancing price ceiling",
+          "opti_balancing_done_soc": "Balancing target charge level",
+          "opti_balancing_spreizungs_schwelle": "Cell spread for balancing",
+          "opti_balancing_bedarf_cooldown_tage": "Demand balancing cooldown",
+          "opti_balancing_netzladen": "Allow grid charging for balancing"
+        }
+      },
+      "finish": {
+        "title": "Review and save",
+        "description": "Connection: {connection}\nMode: {mode}\nCharge level: {limits}\nSelected sources: {sources}\nPrice: {price}\nPV forecast: {forecast}\n\n“—” means not configured. Calculate strategy alone does not enable writes. Shadow stays read-only permanently; the existing controller may keep running. A new standard entry requires a separate write-enable switch. Start the 24-hour test afterwards using the device button. Save applies this draft; cancel discards it.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.",
+        "data": {
+          "shadow_reference_mode": "Existing mode entity for comparison (optional)",
+          "single_writer_confirmed": "Other inverter controls are disabled",
+          "akku_opti_automatik": "Calculate strategy"
+        }
+      },
+      "advanced": {
+        "title": "Advanced settings",
+        "description": "Fine tuning; defaults are suitable for getting started. Source ages are checked in seconds. Short limits may treat unchanged sources as missing. Apply changes using Review and save.",
+        "data": {
+          "akkusteuerung_ladestaerke_soll": "Manual charge power",
+          "akkusteuerung_min_ladestaerke": "Minimum charge power",
+          "akkusteuerung_entladestaerke_soll": "Manual discharge power",
+          "akkusteuerung_min_entladestaerke": "Minimum discharge power",
+          "akkusteuerung_wr_ac_ueberschuss_grenze": "AC surplus threshold",
+          "akkusteuerung_wr_70proz_ueberschuss_grenze": "70% PV threshold",
+          "akkusteuerung_ueberschuss_veto_grenze": "Export: enable above",
+          "akkusteuerung_ueberschuss_veto_aus_grenze": "Export: disable below",
+          "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Scarcity multiplier",
+          "source_max_age": "Maximum source age (seconds)",
+          "forecast_max_age": "Maximum forecast age (seconds)",
+          "price_max_age": "Maximum electricity price age (seconds)"
+        }
+      },
+      "features": {
+        "title": "Optional features",
+        "description": "Select only the features you need. Without selection, EV discharge blocking and balancing planning stay off. Configure them later under Configure → Optional features.",
+        "data": {
+          "configure_ev": "Configure EV charging",
+          "configure_balancing": "Configure balancing"
+        }
+      },
+      "migration_review": {
+        "title": "Review migration",
+        "description": "Read-only snapshot: {captured_at}\n\n{report}\n\nSkipped: [missing] absent/not selected, [invalid] invalid state or range, [unit] different unit, [pair] incomplete or conflicting limits. Defaults remain visible in the following wizard.\n\nConfirmation accepts this exact snapshot, not later helper changes. Adjusting mappings captures a new snapshot. Master enable, EV lock, write permissions, manual modes, counters and history are not imported. Balancing may therefore differ from the old controller. The new entry stays read-only; the old controller is unchanged. Review sources next; replace legacy mapping sensors before removing their packages.",
+        "data": {
+          "accept": "Accept displayed valid values into the draft",
+          "adjust_mapping": "Map renamed helpers / change selection"
+        }
+      },
+      "migration_mapping": {
+        "title": "Map legacy helpers",
+        "description": "Empty fields are not imported. Submit captures a new snapshot for review. Units are not converted.",
+        "data": {
+          "akkusteuerung_ladestaerke_soll": "input_number.akkusteuerung_ladestaerke_soll",
+          "akkusteuerung_min_ladestaerke": "input_number.akkusteuerung_min_ladestaerke",
+          "akkusteuerung_max_ladestaerke": "input_number.akkusteuerung_max_ladestaerke",
+          "akkusteuerung_entladestaerke_soll": "input_number.akkusteuerung_entladestaerke_soll",
+          "akkusteuerung_min_entladestaerke": "input_number.akkusteuerung_min_entladestaerke",
+          "akkusteuerung_max_entladestaerke": "input_number.akkusteuerung_max_entladestaerke",
+          "akkusteuerung_wr_ac_ueberschuss_grenze": "input_number.akkusteuerung_wr_ac_ueberschuss_grenze",
+          "akkusteuerung_wr_70proz_ueberschuss_grenze": "input_number.akkusteuerung_wr_70proz_ueberschuss_grenze",
+          "akkusteuerung_ueberschuss_veto_grenze": "input_number.akkusteuerung_ueberschuss_veto_grenze",
+          "akkusteuerung_ueberschuss_veto_aus_grenze": "input_number.akkusteuerung_ueberschuss_veto_aus_grenze",
+          "akkusteuerung_ueberschuss_veto_knappheit_faktor": "input_number.akkusteuerung_ueberschuss_veto_knappheit_faktor",
+          "minsoc": "input_number.minsoc",
+          "maxsoc": "input_number.maxsoc",
+          "ladepreis": "input_number.ladepreis",
+          "mindestpreisdifferenz_lade_entladepreis": "input_number.mindestpreisdifferenz_lade_entladepreis",
+          "opti_peak_verbrauch_kw": "input_number.opti_peak_verbrauch_kw",
+          "opti_einspeiseverguetung_ct": "input_number.opti_einspeiseverguetung_ct",
+          "opti_netzlade_spread_ct": "input_number.opti_netzlade_spread_ct",
+          "opti_peak_min_aufschlag_ct": "input_number.opti_peak_min_aufschlag_ct",
+          "opti_forecast_optimismus": "input_number.opti_forecast_optimismus",
+          "opti_halte_spread_ct": "input_number.opti_halte_spread_ct",
+          "opti_balancing_intervall_tage": "input_number.opti_balancing_intervall_tage",
+          "opti_balancing_karenz_tage": "input_number.opti_balancing_karenz_tage",
+          "opti_balancing_max_ct": "input_number.opti_balancing_max_ct",
+          "opti_balancing_done_soc": "input_number.opti_balancing_done_soc",
+          "opti_balancing_spreizungs_schwelle": "input_number.opti_balancing_spreizungs_schwelle",
+          "opti_balancing_bedarf_cooldown_tage": "input_number.opti_balancing_bedarf_cooldown_tage",
+          "hausakku_aus_netz_laden": "input_boolean.hausakku_aus_netz_laden",
+          "opti_prognose_netzladen": "input_boolean.opti_prognose_netzladen",
+          "opti_pv_ueberschuss_ladung": "input_boolean.opti_pv_ueberschuss_ladung",
+          "opti_balancing_netzladen": "input_boolean.opti_balancing_netzladen"
+        }
+      },
+      "tibber": {
+        "title": "Connect Tibber",
+        "description": "Uses your existing Tibber login in Home Assistant, without another token or helper. Currently supports exactly one Tibber account with one home. Current price and planning use the same dated series. The HA action does not report a currency: explicitly confirm that your Tibber tariff is billed in EUR/kWh. Cancel this step for other currencies.",
+        "data": {
+          "tibber_home": "Tibber home",
+          "tibber_eur_confirmed": "My Tibber tariff uses EUR/kWh"
+        }
+      },
+      "notifications": {
+        "title": "Notifications",
+        "description": "Problems always appear as Home Assistant notifications. Optionally select an existing push service. Use the device-page test button to check delivery. The integration cannot alert while HA itself is down.",
+        "data": {
+          "notification_service": "Additional push service"
+        }
+      },
+      "huawei_controls": {
+        "title": "Map Huawei controls",
+        "description": "Map existing Huawei Solar controls for the battery inverter. Mode, excess PV and forced status must belong to the same Batteries device. Missing controls may require enabling parameter configuration in Huawei Solar.\n\nThe extra AC-generator option depends on your plant and defaults off.\n\nWarning: writes actively control your battery. Schedules and power limits can persist through HA failure. Disabling attempts a pause; it does not restore the previous configuration automatically. Disable other controllers and verify a recovery path before activation. Write access starts disabled. An unconfirmed pause is saved and retried on reconnection only with the same device binding and single-writer confirmation.",
+        "data": {
+          "mode": "Battery operating mode",
+          "excess_pv": "Excess PV use",
+          "grid_charge": "Charge from grid",
+          "charge_limit": "Maximum charge power",
+          "discharge_limit": "Maximum discharge power",
+          "grid_limit": "Maximum grid charge power",
+          "cutoff_soc": "Grid charge cutoff SoC",
+          "forced_status": "Forced charge/discharge status",
+          "huawei_grid_surplus": "Allow grid charging in self-consumption for additional AC generators"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the inverter.",
+      "unsupported_device": "The device is not a supported SMA STP SE.",
+      "house_required": "Select house consumption or confirm suitable single-inverter calculation.",
+      "missing_or_stale": "Source is missing, unavailable or stale.",
+      "invalid_value": "Source must provide a valid number.",
+      "unsupported_unit": "Source unit is unsupported.",
+      "negative_value": "Source must not be negative.",
+      "invalid_price_series": "Price series needs complete hourly or quarter-hour values.",
+      "self_reference": "Do not use Opti Akku entities as their own input sources.",
+      "price_pair_required": "Select both current price and series or leave both empty.",
+      "forecast_set_required": "Select all three forecasts or leave all empty.",
+      "ev_pair_required": "Select mode and charging status for each configured charger.",
+      "invalid_limits": "Check values: minimum limits must not exceed maximum limits.",
+      "price_unit_mismatch": "Selected price unit does not match the source sensor unit.",
+      "already_configured": "This inverter is already configured.",
+      "configuration_changed": "Configuration changed while this dialog was open. Close it and start again.",
+      "migration_confirmation_required": "Confirm the import or adjust mappings.",
+      "tibber_unavailable": "Tibber could not provide an unambiguous dated price series. Check the Tibber integration. One account with one home is supported; then retry.",
+      "tibber_home_changed": "The selected Tibber home is no longer available. Check the selection.",
+      "tibber_eur_required": "Explicitly confirm EUR/kWh. Other currencies are not supported.",
+      "tibber_price_age": "For Tibber, the maximum price age in Advanced settings must be at least 60 seconds.",
+      "notification_service_unavailable": "Notification service unavailable",
+      "plant_confirmation_required": "Confirm the shared meter boundary.",
+      "plant_duplicate_source": "A source is selected more than once or in conflicting roles.",
+      "plant_sources_invalid": "Check plant sources: meter boundary, duplicate selections and calculation mode must agree.",
+      "huawei_device_unavailable": "The Huawei device must belong to exactly one loaded Huawei Solar entry.",
+      "huawei_required_data": "Required Huawei measurements are missing, stale, invalid or use unsupported units.",
+      "sources_changed": "One or more selected sources changed or became unavailable. Review the affected source sections before saving.",
+      "stop_writes_before_strategy_change": "Turn off write permission before enabling or disabling the strategy.",
+      "huawei_write_access_missing": "Required Huawei controls/actions are missing, unavailable or do not belong to the selected battery inverter.",
+      "huawei_cutoff_soc_unsupported": "Maximum charge level is outside the Huawei grid-charge cutoff range (typically 20–100%).",
+      "huawei_temperature_required": "A valid Huawei battery temperature is missing. Select it under System and measurements or Connection. Read-only telemetry is available in shadow mode with strategy disabled.",
+      "huawei_house_source_required": "Huawei requires an existing house consumption sensor. The SMA single-inverter balance is not available here."
+    },
+    "abort": {
+      "already_configured": "This Modbus connection is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Opti Akku",
+        "description": "Edit a section, then open Review and save. Changes remain a draft until saved.",
+        "menu_options": {
+          "connection": "Connection",
+          "sources": "System and measurements",
+          "battery": "Battery and power limits",
+          "tariff": "Electricity tariff",
+          "forecast": "PV forecast",
+          "finish": "Review and save",
+          "advanced": "Advanced settings",
+          "features": "Optional features",
+          "notifications": "Notifications",
+          "demand": "Demand profile and peak reserve",
+          "observation": "Compare sources and balance",
+          "ev_preparation": "PV preparation for the car"
+        }
+      },
+      "connection": {
+        "title": "Connection",
+        "description": "The new connection is checked read-only. Changes clear the previous writer confirmation. Shadow mode cannot be changed. Apply using Review and save.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "unit_id": "Unit ID",
+          "profile": "Device profile"
+        }
+      },
+      "sources": {
+        "title": "System and measurements",
+        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode.",
+        "data": {
+          "house_consumption": "House consumption",
+          "pv_generation": "PV generation DC (display only, optional)",
+          "pv_power": "Hybrid AC output including battery (optional)",
+          "single_inverter": "Calculate house consumption from this single inverter",
+          "plant_mode": "House consumption calculation",
+          "additional_ac_sources": "Additional inverter AC output sensors",
+          "excluded_load_sources": "Loads excluded from the forecast",
+          "plant_meter_confirmed": "The grid meter covers all selected generators and loads",
+          "forecast_min_load_w": "Minimum forecast base load",
+          "strategy_enabled": "Enable automatic strategy",
+          "huawei_battery_temp": "Huawei battery temperature"
+        }
+      },
+      "battery": {
+        "title": "Battery and power limits",
+        "description": "Set charge-level limits and maximum charge/discharge power from your battery specifications or previous controller. These are strategy limits, not verified hardware protection. Capacity and temperature are read automatically.",
+        "data": {
+          "minsoc": "Minimum charge level",
+          "maxsoc": "Maximum charge level",
+          "akkusteuerung_max_ladestaerke": "Maximum charge power",
+          "akkusteuerung_max_entladestaerke": "Maximum discharge power",
+          "opti_pv_ueberschuss_ladung": "Allow PV surplus charging"
+        }
+      },
+      "tariff": {
+        "title": "Electricity tariff",
+        "description": "Tibber uses dated prices from your existing HA integration. Confirm your home and euro tariff in the next step. For other providers, select both price entities; today/tomorrow must contain complete intervals with start, end and timezone. For operation without price optimization, choose Entities and leave both price fields empty.",
+        "data": {
+          "price_current": "Current electricity price",
+          "price_series": "Price series today/tomorrow",
+          "price_unit": "Electricity price source unit",
+          "ladepreis": "Reference charging price",
+          "mindestpreisdifferenz_lade_entladepreis": "Minimum discharge margin",
+          "opti_einspeiseverguetung_ct": "Feed-in tariff",
+          "opti_netzlade_spread_ct": "Grid charging price spread",
+          "opti_peak_min_aufschlag_ct": "Minimum peak premium",
+          "opti_halte_spread_ct": "Holding price spread",
+          "hausakku_aus_netz_laden": "Allow winter grid charging",
+          "price_provider": "Price source"
+        },
+        "data_description": {
+          "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades."
+        }
+      },
+      "forecast": {
+        "title": "PV forecast",
+        "description": "Select all three forecast sensors in kWh or Wh. Solcast and Forecast.Solar need compatible source sensors; provider sign-in is not configured here. Leave all three empty to skip forecasts; predictive reserve planning is then limited. Optimism blends available conservative and normal estimates.",
+        "data": {
+          "forecast_today": "PV forecast today",
+          "forecast_tomorrow": "PV forecast tomorrow",
+          "forecast_remaining": "Remaining PV forecast today",
+          "opti_forecast_optimismus": "Forecast optimism",
+          "opti_peak_verbrauch_kw": "Expected home consumption",
+          "opti_prognose_netzladen": "Reserve for poor forecast"
+        }
+      },
+      "ev": {
+        "title": "EV charging: evcc connection (optional)",
+        "description": "For evcc loadpoints. Select both mode and charging status. While charging in now or minpv mode, home battery discharge can be blocked; battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
+        "data": {
+          "ev1_mode": "EV 1 mode",
+          "ev1_charging": "EV 1 charging",
+          "ev1_power": "EV 1 charging power",
+          "ev2_mode": "EV 2 mode",
+          "ev2_charging": "EV 2 charging",
+          "ev2_power": "EV 2 charging power",
+          "opti_ev_akku_pause": "Block discharge during car charging"
+        }
+      },
+      "balancing": {
+        "title": "Balancing (optional)",
+        "description": "Optional. Interval 0 disables all balancing planning. When planning is enabled, cell spread may trigger additional demand. Grid charging needs separate permission. New entries do not import counters from previous automations; existing integration counters are preserved. The cell-spread source is optional and can be removed.",
+        "data": {
+          "cell_spread": "Resting BYD cell spread",
+          "opti_balancing_intervall_tage": "Balancing interval in days",
+          "opti_balancing_karenz_tage": "Balancing grace period",
+          "opti_balancing_max_ct": "Balancing price ceiling",
+          "opti_balancing_done_soc": "Balancing target charge level",
+          "opti_balancing_spreizungs_schwelle": "Cell spread for balancing",
+          "opti_balancing_bedarf_cooldown_tage": "Demand balancing cooldown",
+          "opti_balancing_netzladen": "Allow grid charging for balancing"
+        }
+      },
+      "finish": {
+        "title": "Review and save",
+        "description": "Connection: {connection}\nMode: {mode}\nCharge level: {limits}\nSelected sources: {sources}\nPrice: {price}\nPV forecast: {forecast}\n\n“—” means not configured. Calculate strategy alone does not enable writes. Shadow stays read-only permanently; the existing controller may keep running. A new standard entry requires a separate write-enable switch. Start the 24-hour test afterwards using the device button. Save applies this draft; cancel discards it.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.",
+        "data": {
+          "shadow_reference_mode": "Existing mode entity for comparison (optional)",
+          "single_writer_confirmed": "Other inverter controls are disabled",
+          "akku_opti_automatik": "Calculate strategy"
+        }
+      },
+      "advanced": {
+        "title": "Advanced settings",
+        "description": "Fine tuning; defaults are suitable for getting started. Source ages are checked in seconds. Short limits may treat unchanged sources as missing. Apply changes using Review and save.",
+        "data": {
+          "akkusteuerung_ladestaerke_soll": "Manual charge power",
+          "akkusteuerung_min_ladestaerke": "Minimum charge power",
+          "akkusteuerung_entladestaerke_soll": "Manual discharge power",
+          "akkusteuerung_min_entladestaerke": "Minimum discharge power",
+          "akkusteuerung_wr_ac_ueberschuss_grenze": "AC surplus threshold",
+          "akkusteuerung_wr_70proz_ueberschuss_grenze": "70% PV threshold",
+          "akkusteuerung_ueberschuss_veto_grenze": "Export: enable above",
+          "akkusteuerung_ueberschuss_veto_aus_grenze": "Export: disable below",
+          "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Scarcity multiplier",
+          "source_max_age": "Maximum source age (seconds)",
+          "forecast_max_age": "Maximum forecast age (seconds)",
+          "price_max_age": "Maximum electricity price age (seconds)"
+        }
+      },
+      "features": {
+        "title": "Optional features",
+        "description": "Configure only the optional features you need. Changes take effect only after Review and save.",
+        "menu_options": {
+          "ev": "EV charging / evcc",
+          "balancing": "Balancing",
+          "init": "Back to overview"
+        }
+      },
+      "tibber": {
+        "title": "Connect Tibber",
+        "description": "Uses your existing Tibber login in Home Assistant, without another token or helper. Currently supports exactly one Tibber account with one home. Current price and planning use the same dated series. The HA action does not report a currency: explicitly confirm that your Tibber tariff is billed in EUR/kWh. Cancel this step for other currencies.",
+        "data": {
+          "tibber_home": "Tibber home",
+          "tibber_eur_confirmed": "My Tibber tariff uses EUR/kWh"
+        }
+      },
+      "notifications": {
+        "title": "Notifications",
+        "description": "Problems always appear as Home Assistant notifications. Optionally select an existing push service. Use the device-page test button to check delivery. The integration cannot alert while HA itself is down.",
+        "data": {
+          "notification_service": "Additional push service"
+        }
+      },
+      "huawei_controls": {
+        "title": "Map Huawei controls",
+        "description": "Map existing Huawei Solar controls for the battery inverter. Mode, excess PV and forced status must belong to the same Batteries device. Missing controls may require enabling parameter configuration in Huawei Solar.\n\nThe extra AC-generator option depends on your plant and defaults off.\n\nWarning: writes actively control your battery. Schedules and power limits can persist through HA failure. Disabling attempts a pause; it does not restore the previous configuration automatically. Disable other controllers and verify a recovery path before activation. Write access starts disabled. An unconfirmed pause is saved and retried on reconnection only with the same device binding and single-writer confirmation.",
+        "data": {
+          "mode": "Battery operating mode",
+          "excess_pv": "Excess PV use",
+          "grid_charge": "Charge from grid",
+          "charge_limit": "Maximum charge power",
+          "discharge_limit": "Maximum discharge power",
+          "grid_limit": "Maximum grid charge power",
+          "cutoff_soc": "Grid charge cutoff SoC",
+          "forced_status": "Forced charge/discharge status",
+          "huawei_grid_surplus": "Allow grid charging in self-consumption for additional AC generators"
+        }
+      },
+      "demand": {
+        "title": "Demand profile and peak reserve",
+        "description": "The night/PV forecast remains observational. Optionally use comparable historical or learned hourly loads for the active peak reserve, with a 20% forecast margin and configured fallback load. This changes battery control. Heating and hot water are included in the household profile; future cycles are not scheduled. Unknown heat context or detected unquantified hot-water demand retains the fallback. Separate heat-meter mode is not yet supported for the active peak profile.",
+        "data": {
+          "enabled": "Learn demand profile and observe forecast",
+          "heat_power": "Heat pump total electrical power, included in house consumption",
+          "summer_mode": "Summer mode (on = summer, off = winter)",
+          "heating_active": "Heating currently active",
+          "dhw_active": "Hot water preparation currently active",
+          "dhw_due": "Hot water expected before PV (optional demand signal)",
+          "water_temperature": "Hot water actual temperature",
+          "water_target": "Hot water target temperature",
+          "pv_today": "Solcast today with detailedForecast/P10",
+          "pv_tomorrow": "Solcast tomorrow with detailedForecast/P10",
+          "dhw_cycle_kwh": "Measured electrical energy per hot water cycle (0 = unknown)",
+          "outdoor_temperature": "Outdoor temperature (similar days)",
+          "context_water_temperature": "Actual hot water temperature (context and demand check)",
+          "context_water_target": "Target hot water temperature (context and demand check)",
+          "history_house": "Historical house consumption (same measurement scope)",
+          "temperature_matching": "Prefer similar outdoor temperatures (experimental)",
+          "use_for_peak_reserve": "Use hourly profile for active peak reserve"
+        }
+      },
+      "observation": {
+        "title": "Observe measurement sources",
+        "description": "Read-only: active house source stays unchanged. Match the grid connection, additional inverters and excluded loads. HA report timestamps are not proof of a new device measurement. Compare our time-weighted 60-minute value with legacy smoothing; interpolation can differ.",
+        "data": {
+          "enabled": "Enable observation",
+          "meter_confirmed": "Grid meter covers whole plant",
+          "legacy_floor_w": "Legacy mean lower bound",
+          "instant_house": "Unsmoothed house load excluding selected loads",
+          "watch_sources": "Additional sources for timestamp evidence",
+          "additional_ac_sources": "Additional inverter AC power",
+          "excluded_load_sources": "Excluded loads (e.g. EV charger)",
+          "gross_house": "Whole-house consumption before excluded loads (instantaneous)"
+        }
+      },
+      "ev_preparation": {
+        "title": "PV preparation for the car",
+        "description": "Prepare the home battery using PV surplus when vehicle SOC is low, including while away. No additional grid charging. While the car charges, ordinary home charging/discharging pauses; priority protection charging is retained. Vehicle SOC expires after 24h; unknown charging state blocks preparation. Automatic strategy only; no arrival prediction. While automatic car preparation is enabled, minimum discharge power is always set to 0 W, even without current charging demand. This prevents forced export; normal battery supply to the house remains possible.",
+        "data": {
+          "enabled": "Enable",
+          "vehicle_soc": "Vehicle SOC",
+          "charging": "Car charging (on = charging)",
+          "away": "Extended absence (optional)",
+          "vehicle_threshold": "Vehicle SOC demand threshold",
+          "house_target": "Home preparation target"
+        }
+      }
+    },
+    "error": {
+      "already_configured": "This inverter is already configured.",
+      "cannot_connect": "Could not connect to the inverter.",
+      "unsupported_device": "The device is not a supported SMA STP SE.",
+      "house_required": "Select house consumption or confirm suitable single-inverter calculation.",
+      "missing_or_stale": "Source is missing, unavailable or stale.",
+      "invalid_value": "Source must provide a valid number.",
+      "unsupported_unit": "Source unit is unsupported.",
+      "negative_value": "Source must not be negative.",
+      "invalid_price_series": "Price series needs complete hourly or quarter-hour values.",
+      "self_reference": "Do not use Opti Akku entities as their own input sources.",
+      "price_pair_required": "Select both current price and series or leave both empty.",
+      "forecast_set_required": "Select all three forecasts or leave all empty.",
+      "ev_pair_required": "Select mode and charging status for each configured charger.",
+      "invalid_limits": "Check values: minimum limits must not exceed maximum limits.",
+      "price_unit_mismatch": "Selected price unit does not match the source sensor unit.",
+      "configuration_changed": "Configuration changed while this dialog was open. Close it and start again.",
+      "tibber_unavailable": "Tibber could not provide an unambiguous dated price series. Check the Tibber integration. One account with one home is supported; then retry.",
+      "tibber_home_changed": "The selected Tibber home is no longer available. Check the selection.",
+      "tibber_eur_required": "Explicitly confirm EUR/kWh. Other currencies are not supported.",
+      "tibber_price_age": "For Tibber, the maximum price age in Advanced settings must be at least 60 seconds.",
+      "notification_service_unavailable": "Notification service unavailable",
+      "plant_confirmation_required": "Confirm the shared meter boundary.",
+      "plant_duplicate_source": "A source is selected more than once or in conflicting roles.",
+      "plant_sources_invalid": "Check plant sources: meter boundary, duplicate selections and calculation mode must agree.",
+      "sources_changed": "One or more selected sources changed or became unavailable. Review the affected source sections before saving.",
+      "stop_writes_before_strategy_change": "Turn off write permission before enabling or disabling the strategy.",
+      "huawei_write_access_missing": "Required Huawei controls/actions are missing, unavailable or do not belong to the selected battery inverter.",
+      "huawei_cutoff_soc_unsupported": "Maximum charge level is outside the Huawei grid-charge cutoff range (typically 20–100%).",
+      "demand_water_pair": "Select actual and target water temperature together.",
+      "demand_heat_meter": "Select a separate heat pump electrical meter.",
+      "observation_sources": "Select existing unique sensors; max 8 per list and 16 total.",
+      "ev_soc_unit": "Vehicle SOC must use percent (%).",
+      "huawei_temperature_required": "A valid Huawei battery temperature is missing. Select it under System and measurements or Connection. Read-only telemetry is available in shadow mode with strategy disabled.",
+      "huawei_house_source_required": "Huawei requires an existing house consumption sensor. The SMA single-inverter balance is not available here."
+    }
+  },
+  "entity": {
+    "switch": {
+      "write_enabled": {
+        "name": "Enable writes"
+      },
+      "akku_opti_automatik": {
+        "name": "Calculate strategy"
+      },
+      "hausakku_aus_netz_laden": {
+        "name": "Allow winter grid charging"
+      },
+      "opti_prognose_netzladen": {
+        "name": "Reserve for poor forecast"
+      },
+      "opti_pv_ueberschuss_ladung": {
+        "name": "Allow PV surplus charging"
+      },
+      "opti_ev_akku_pause": {
+        "name": "Block discharge during car charging"
+      },
+      "opti_balancing_netzladen": {
+        "name": "Allow grid charging for balancing"
+      }
+    },
+    "select": {
+      "operating_mode": {
+        "name": "Operating mode",
+        "state": {
+          "Beobachtung": "Observation"
+        }
+      }
+    },
+    "binary_sensor": {
+      "connection": {
+        "name": "Connection"
+      }
+    },
+    "sensor": {
+      "mode": {
+        "name": "Active mode"
+      },
+      "reason": {
+        "name": "Decision reason"
+      },
+      "last_write": {
+        "name": "Last write"
+      },
+      "last_error": {
+        "name": "Last error"
+      },
+      "source_errors": {
+        "name": "Source errors"
+      },
+      "shadow_status": {
+        "name": "Shadow observation"
+      },
+      "value_soc": {
+        "name": "Charge level"
+      },
+      "value_battery_temp": {
+        "name": "Battery temperature"
+      },
+      "value_battery_capacity_kwh": {
+        "name": "Battery capacity"
+      },
+      "value_battery_power_w": {
+        "name": "Battery power"
+      },
+      "value_pv_power_w": {
+        "name": "Inverter power"
+      },
+      "value_pv_generation_w": {
+        "name": "PV generation"
+      },
+      "value_grid_import_w": {
+        "name": "Grid import"
+      },
+      "value_grid_export_w": {
+        "name": "Grid export"
+      },
+      "value_house_consumption_w": {
+        "name": "Home consumption"
+      },
+      "value_target_soc": {
+        "name": "Target charge level"
+      },
+      "value_charge_power_w": {
+        "name": "Planned charge power"
+      },
+      "value_price_current_ct_kwh": {
+        "name": "Electricity price"
+      },
+      "price_provider_error": {
+        "name": "Price fetch error"
+      },
+      "price_last_success": {
+        "name": "Last successful price fetch"
+      },
+      "notification_error": {
+        "name": "Notification error"
+      },
+      "load_profile": {
+        "name": "Load profile",
+        "state": {
+          "legacy": "Legacy calculation",
+          "warming_up": "Warming up",
+          "ready": "Ready",
+          "missing": "Current measurements missing"
+        }
+      },
+      "control_release": {
+        "name": "Return to device control",
+        "state": {
+          "not_supported": "Not supported",
+          "not_confirmed": "Not confirmed"
+        }
+      },
+      "device_errors": {
+        "name": "Device source errors"
+      },
+      "command_confirmation": {
+        "name": "Command confirmation",
+        "state": {
+          "pending": "Readback or adjustment pending",
+          "idle_or_confirmed": "No pending command",
+          "waiting_ready": "Waiting for inverter readiness"
+        }
+      },
+      "pause_pending": {
+        "name": "Outstanding Huawei pause",
+        "state": {
+          "pending": "Pause unconfirmed",
+          "clear": "No outstanding pause"
+        }
+      },
+      "reserve_plan": {
+        "name": "Reserve plan",
+        "state": {
+          "planned": "Peak reserve planned",
+          "disabled": "Strategy disabled",
+          "observation": "Reserve plan without control",
+          "manual": "Manual control active",
+          "no_peak": "No active peak reserve",
+          "unconfirmed": "Control command unconfirmed",
+          "hold_requested": "Reserve hold requested",
+          "discharge_requested": "Reserve discharge requested",
+          "charge_requested": "Peak precharging requested",
+          "no_valid_plan": "No valid reserve plan"
+        },
+        "state_attributes": {
+          "planned_reserve_soc": {
+            "name": "Planned total reserve (%)"
+          },
+          "priority_reserve_soc": {
+            "name": "Highest-price reserve (%)"
+          },
+          "horizon_end": {
+            "name": "Planning horizon end"
+          },
+          "assumed_load_w": {
+            "name": "Assumed house load (W)"
+          },
+          "assumed_discharge_efficiency": {
+            "name": "Assumed discharge efficiency"
+          },
+          "required_battery_kwh": {
+            "name": "Required battery energy (kWh)"
+          },
+          "current_soc": {
+            "name": "Current state of charge (%)"
+          },
+          "expensive_hours": {
+            "name": "Expensive hours"
+          },
+          "very_expensive_hours": {
+            "name": "Very expensive hours"
+          },
+          "decision_reason": {
+            "name": "Decision reason"
+          },
+          "battery_power_w": {
+            "name": "Measured battery power (W; negative = discharge)"
+          },
+          "day_target_soc": {
+            "name": "Daytime target (%)"
+          },
+          "requested_mode": {
+            "name": "Requested mode"
+          },
+          "command_confirmation": {
+            "name": "Command status"
+          },
+          "last_confirmed_command_at": {
+            "name": "Last confirmed command"
+          },
+          "hold_threshold_soc": {
+            "name": "Current hold threshold (%)"
+          }
+        }
+      },
+      "operating_report": {
+        "name": "Operating report",
+        "state": {
+          "collecting": "Collecting observations",
+          "data_missing": "Measurement data missing",
+          "error": "Report unavailable"
+        },
+        "state_attributes": {
+          "started_at": {
+            "name": "Report started"
+          },
+          "last_observation": {
+            "name": "Last observation"
+          },
+          "totals": {
+            "name": "Total observations"
+          },
+          "last_peak": {
+            "name": "Last observed expensive period"
+          },
+          "current_peak": {
+            "name": "Current expensive period"
+          },
+          "incidents": {
+            "name": "Last 20 incidents"
+          },
+          "coverage_percent": {
+            "name": "Measurement coverage (%)"
+          },
+          "observed_mean_load_w": {
+            "name": "Observed mean house load (W)"
+          },
+          "write_failures": {
+            "name": "Failed write attempts"
+          },
+          "disconnects": {
+            "name": "Connection failures"
+          },
+          "source_error_episodes": {
+            "name": "Source error episodes"
+          },
+          "sampling_gaps": {
+            "name": "Sampling gaps"
+          },
+          "restarts": {
+            "name": "Report restorations"
+          },
+          "last_control": {
+            "name": "Latest control decision"
+          }
+        }
+      },
+      "price_status": {
+        "name": "Price data",
+        "state": {
+          "loading": "Loading price data",
+          "ready": "Price data available",
+          "error": "Price data unavailable",
+          "not_used": "Price strategy disabled"
+        }
+      },
+      "demand_forecast": {
+        "name": "Demand forecast (observation)",
+        "state": {
+          "disabled": "Disabled",
+          "learning": "Learning load profile",
+          "ready": "Comparison available",
+          "data_missing": "Missing data",
+          "no_pv_timing": "PV coverage unknown",
+          "error": "Calculation error"
+        }
+      },
+      "source_observation": {
+        "name": "Source comparison",
+        "state": {
+          "disabled": "Disabled",
+          "ready": "Comparison ready",
+          "warming_up": "Building mean",
+          "data_missing": "Missing measurements",
+          "error": "Observation error"
+        }
+      },
+      "connection_status": {
+        "name": "Inverter readiness",
+        "state": {
+          "offline": "Offline",
+          "recovering": "Checking recovery",
+          "not_ready": "Not ready",
+          "ready": "Ready"
+        }
+      },
+      "ev_preparation": {
+        "name": "PV preparation for the car",
+        "state": {
+          "disabled": "disabled",
+          "car_charging": "car charging",
+          "data_missing": "data missing",
+          "away": "away",
+          "target_reached": "target reached",
+          "no_demand": "no demand",
+          "waiting_surplus": "waiting surplus",
+          "ready": "ready",
+          "preparing": "preparing",
+          "higher_priority": "higher priority"
+        }
+      }
+    },
+    "button": {
+      "shadow_start": {
+        "name": "Start 24-hour test"
+      },
+      "shadow_stop": {
+        "name": "Stop shadow test"
+      },
+      "notification_test": {
+        "name": "Test notification"
+      },
+      "demand_history_import": {
+        "name": "Demand forecast: import history"
+      }
+    },
+    "number": {
+      "akkusteuerung_ladestaerke_soll": {
+        "name": "Manual charge power"
+      },
+      "akkusteuerung_min_ladestaerke": {
+        "name": "Minimum charge power"
+      },
+      "akkusteuerung_max_ladestaerke": {
+        "name": "Maximum charge power"
+      },
+      "akkusteuerung_entladestaerke_soll": {
+        "name": "Manual discharge power"
+      },
+      "akkusteuerung_min_entladestaerke": {
+        "name": "Minimum discharge power"
+      },
+      "akkusteuerung_max_entladestaerke": {
+        "name": "Maximum discharge power"
+      },
+      "akkusteuerung_wr_ac_ueberschuss_grenze": {
+        "name": "AC surplus threshold"
+      },
+      "akkusteuerung_wr_70proz_ueberschuss_grenze": {
+        "name": "70% PV threshold"
+      },
+      "akkusteuerung_ueberschuss_veto_grenze": {
+        "name": "Export: enable above"
+      },
+      "akkusteuerung_ueberschuss_veto_aus_grenze": {
+        "name": "Export: disable below"
+      },
+      "akkusteuerung_ueberschuss_veto_knappheit_faktor": {
+        "name": "Scarcity multiplier"
+      },
+      "minsoc": {
+        "name": "Minimum charge level"
+      },
+      "maxsoc": {
+        "name": "Maximum charge level"
+      },
+      "ladepreis": {
+        "name": "Reference charging price"
+      },
+      "mindestpreisdifferenz_lade_entladepreis": {
+        "name": "Minimum discharge margin"
+      },
+      "opti_peak_verbrauch_kw": {
+        "name": "Expected home consumption"
+      },
+      "opti_einspeiseverguetung_ct": {
+        "name": "Feed-in tariff"
+      },
+      "opti_netzlade_spread_ct": {
+        "name": "Grid charging price spread"
+      },
+      "opti_peak_min_aufschlag_ct": {
+        "name": "Minimum peak premium"
+      },
+      "opti_forecast_optimismus": {
+        "name": "Forecast optimism"
+      },
+      "opti_halte_spread_ct": {
+        "name": "Holding price spread"
+      },
+      "opti_balancing_intervall_tage": {
+        "name": "Balancing interval in days"
+      },
+      "opti_balancing_karenz_tage": {
+        "name": "Balancing grace period"
+      },
+      "opti_balancing_max_ct": {
+        "name": "Balancing price ceiling"
+      },
+      "opti_balancing_done_soc": {
+        "name": "Balancing target charge level"
+      },
+      "opti_balancing_spreizungs_schwelle": {
+        "name": "Cell spread for balancing"
+      },
+      "opti_balancing_bedarf_cooldown_tage": {
+        "name": "Demand balancing cooldown"
+      }
+    }
+  },
+  "selector": {
+    "backend": {
+      "options": {
+        "sma_modbus": "SMA Modbus",
+        "huawei_solar": "Huawei Solar (LUNA2000, experimental)"
+      }
+    },
+    "grid_positive": {
+      "options": {
+        "export": "Export",
+        "import": "Import"
+      }
+    },
+    "price_provider": {
+      "options": {
+        "entities": "Price entities",
+        "tibber": "Tibber (existing HA integration)"
+      }
+    },
+    "plant_mode": {
+      "options": {
+        "legacy": "Existing calculation (migration)",
+        "balance": "Plant balance from AC outputs and grid meter",
+        "external": "Unsmoothed house consumption from an existing sensor"
+      }
+    }
+  }
+}

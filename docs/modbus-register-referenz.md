@@ -1,9 +1,3 @@
-# Modbus Register Referenz – SMA STP SE Hybrid
+# Dokumentation umgezogen
 
-Diese Referenz wurde in das Adapter-Repo verschoben, damit sie an einer Stelle
-gepflegt wird und nicht zwischen beiden Repos auseinanderdriftet.
-
-**Kanonische Version im Adapter-Repo:**
-→ **[ha-modbus-akku-adapter/docs/modbus-register-referenz.md](https://github.com/Optic00/ha-modbus-akku-adapter/blob/main/docs/modbus-register-referenz.md)**
-
-> ⚠️ Inoffizielle Community-Sammlung, keine Gewähr, Nutzung auf eigene Gefahr.
+Die aktuelle HACS-Integration ist in der [README](../README.md) beschrieben. Die bisherige YAML-Dokumentation bleibt im [Legacy-Archiv](https://github.com/Optic00/ha-opti-akkusteuerung/blob/legacy-yaml-2026-09-15/docs/modbus-register-referenz.md).

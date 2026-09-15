@@ -1,61 +1,42 @@
-name: Tests
+name: Integration checks
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'codex/**']
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: tests-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  pytest:
-    name: pytest (Python ${{ matrix.python-version }})
+  tests:
+    name: Integration tests (HA 2026.9.1)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
-
+    timeout-minutes: 15
     steps:
-      # fetch-depth: 0 ist Pflicht - der Privacy-Scan in
-      # tests/test_opti_mapping.py prueft die Commit-Historie auf echte
-      # WR-Seriennummern und bricht bei flachem Checkout bewusst ab.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.14'
           cache: pip
-          cache-dependency-path: requirements-dev.txt
-
-      - name: Abhaengigkeiten installieren
-        run: python -m pip install -r requirements-dev.txt
-
-      - name: Testsuite
-        run: python -m pytest -q
-
-  native-ha:
-    name: Native HA 2026.9.1
+      - run: pip install -r requirements-test.txt
+      - run: ruff check custom_components tests tools
+      - run: python tools/build_strategy_resources.py --check
+      - run: pytest --timeout=60
+      - run: python tools/build_package.py
+  hassfest:
+    name: Hassfest
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: home-assistant/actions/hassfest@58bff37c8947f690ace498be413a9b78d6f30f93
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa
         with:
-          python-version: "3.14"
-          cache: pip
-          cache-dependency-path: requirements-dev.txt
-      - name: Abhaengigkeiten installieren
-        run: python -m pip install -r requirements-dev.txt homeassistant==2026.9.1
-      - name: Schemas, Ladedeckel und Neustart
-        run: python tools/validate_ha.py
-      - name: Nacht-Score, Hysterese und Mitternacht
-        run: python tools/validate_night_ha.py
+          category: integration

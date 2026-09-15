@@ -1,0 +1,9 @@
+homeassistant==2026.9.1
+pytest-homeassistant-custom-component==0.13.364
+pytest-asyncio==1.4.0
+modbus-connection[tmodbus]==4.10.0
+tmodbus==0.6.2
+PyYAML==6.0.3
+ruff==0.16.7
+# HA Modbus imports its legacy client during collection, before dependency setup.
+pymodbus==3.13.1

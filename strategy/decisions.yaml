@@ -1,0 +1,768 @@
+strategy:
+  id: opti_canonical_strategie
+  alias: Akku Opti Strategie
+  description: 'Strategie auf dem Canonical-opti_*-Layer (Paket 3). Waehlt den Akkumodus; der nachgelagerte
+    Cleanup pflegt nur Booster und Ladepreis. Prognosebasierte SOC-Ladeblöcke (Score+Preis), PV-/AC-Überschussblöcke,
+    MinSOC-Schutz und Cleanup. Quellen/Gates getauscht; aufgeschobene und arbitrage-basierte Zweige entfernt.
+    id/Alias sind der Live-Realität angeglichen (2026-07-01): id war zuvor eine HA-generierte Zahl ohne
+    Bedeutung, Alias hieß zuvor "Akku Lade- Entladesteuerung Opti 2.0" bzw. live "Akku Opti Canonical
+    (opti_*-Layer)".'
+  mode: single
+  triggers:
+  - trigger: homeassistant
+    event: start
+    id: HA-Start
+  - trigger: state
+    entity_id:
+    - sensor.opti_price_level
+    id: Preisniveau geändert
+  - trigger: state
+    entity_id:
+    - input_boolean.akku_opti_automatik
+    to: 'on'
+    id: Akku Opti-Automatik AN/AUS
+  - trigger: state
+    entity_id:
+    - input_select.akkusteuerung_modus
+    id: Modus extern geändert
+  - trigger: state
+    entity_id:
+    - binary_sensor.opti_ladedeckel_aktiv
+    id: Ladedeckel geändert
+  - trigger: state
+    entity_id:
+    - sensor.opti_soc
+    id: SoC Änderung
+  - trigger: state
+    entity_id:
+    - sensor.opti_battery_capacity_kwh
+    id: Batteriekapazität geändert
+  - trigger: numeric_state
+    entity_id:
+    - sensor.opti_mindestentladepreis_ct_kwh
+    below: sensor.opti_price_current_ct_kwh
+    id: Entladeschwelle
+  - trigger: state
+    entity_id:
+    - binary_sensor.opti_ueberschuss_ac_aktiv
+    to:
+    - 'on'
+    - 'off'
+    id: AC-Überschuss geändert
+  - trigger: state
+    entity_id:
+    - binary_sensor.opti_ueberschuss_70_aktiv
+    to:
+    - 'on'
+    - 'off'
+    id: PV-70%-Überschuss geändert
+  - trigger: state
+    entity_id:
+    - binary_sensor.opti_ueberschuss_veto_aktiv
+    to:
+    - 'on'
+    - 'off'
+    id: Überschuss-Veto geändert
+  - trigger: state
+    entity_id:
+    - sensor.opti_forecast_score
+    - sensor.opti_forecast_score_tomorrow
+    id: Prognose-Score geändert
+  - trigger: state
+    entity_id:
+    - sensor.opti_charge_power_w
+    id: Dynamische Ladestärke geändert
+  - trigger: state
+    entity_id:
+    - sensor.opti_target_soc
+    id: Target SoC geändert
+  - trigger: numeric_state
+    entity_id:
+    - sensor.opti_soc
+    above: 99
+    id: Akku ist voll
+  - trigger: state
+    entity_id:
+    - input_number.minsoc
+    id: MinSOC geändert
+  - trigger: state
+    entity_id:
+    - input_number.maxsoc
+    id: MaxSOC geändert
+  - trigger: state
+    entity_id:
+    - input_boolean.opti_prognose_netzladen
+    id: Prognose-Netzladen-Toggle geändert
+  - trigger: state
+    entity_id:
+    - input_boolean.opti_pv_ueberschuss_ladung
+    id: PV-Überschuss-Toggle geändert
+  - trigger: state
+    entity_id:
+    - binary_sensor.opti_winter_charging_allowed
+    id: Winterladefreigabe geändert
+  - trigger: state
+    entity_id:
+    - sensor.opti_price_current_ct_kwh
+    id: Preis geändert
+  - trigger: state
+    entity_id:
+    - sensor.opti_peak_reserve_soc
+    - binary_sensor.opti_peak_reserve_aktiv
+    id: Peak-Reserve geändert
+  - trigger: state
+    entity_id:
+    - sensor.opti_balancing_watchdog
+    id: Balancing-Watchdog geändert
+  - trigger: state
+    entity_id:
+    - binary_sensor.opti_ev_schnellladung
+    to:
+    - 'on'
+    - 'off'
+    id: EV-Schnellladung geändert
+  - trigger: state
+    entity_id:
+    - input_boolean.opti_ev_akku_pause
+    id: EV-Sperre-Toggle geändert
+  conditions:
+  - condition: state
+    entity_id: input_boolean.akku_opti_automatik
+    state: 'on'
+  - condition: numeric_state
+    entity_id: sensor.opti_soc
+    above: -0.1
+    below: 100.1
+  - condition: numeric_state
+    entity_id: sensor.opti_battery_capacity_kwh
+    above: 0
+  actions:
+  - alias: Zwischen Speicherszenarien wählen
+    choose:
+    - alias: 'Modus ''nur Laden'' (Entladesperre): MinSOC-Schutz, SOC unter MinSOC (tag+nacht)'
+      conditions:
+      - condition: numeric_state
+        entity_id: sensor.opti_soc
+        below: input_number.minsoc
+      sequence:
+      - action: input_select.select_option
+        decision_id: minimum_soc
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''Netzladen'': Preis unter Einspeiseverguetung, Prognose schlecht (tag+nacht)'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_prognose_netzladen
+        state: 'on'
+      - condition: template
+        value_template: |-
+          {% set stopband = 0 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 3 %} {{ has_value('sensor.opti_price_current_ct_kwh')
+             and has_value('sensor.opti_forecast_score')
+             and has_value('sensor.opti_soc')
+             and (states('sensor.opti_forecast_score') | float) < 3
+             and (states('sensor.opti_soc') | float) < (states('input_number.maxsoc') | float(95) - stopband)
+             and (states('sensor.opti_price_current_ct_kwh') | float) < (states('input_number.opti_einspeiseverguetung_ct') | float(0)) }}
+      - alias: 'Ladefenster: kein guenstigeres Fenster vor der naechsten Spitze'
+        condition: template
+        value_template: '{% set cur = states(''sensor.opti_price_current_ct_kwh'') | float(0) %} {% set
+          minv = state_attr(''sensor.opti_peak_reserve_soc'', ''min_preis_vor_peak_ct'') %} {{ minv is
+          none or cur <= (minv | float(cur)) + 0.5 }}'
+      sequence:
+      - action: input_select.select_option
+        decision_id: negative_price
+        data:
+          option: Akku Netzladen
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''Netzladen'' (Peak-Vorladen): Spread zur kommenden Spitze gross genug (tag+nacht)'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_prognose_netzladen
+        state: 'on'
+      - condition: state
+        entity_id: binary_sensor.opti_peak_reserve_aktiv
+        state: 'on'
+      - condition: template
+        value_template: |-
+          {% set cur = states('sensor.opti_price_current_ct_kwh') | float(none) %} {% set soc = states('sensor.opti_soc') | float(none) %} {% set ges = states('sensor.opti_peak_reserve_soc') | float(none) %} {% set avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_avg_ct') | float(none) %} {% set spread_min = states('input_number.opti_netzlade_spread_ct') | float(10) %} {% set minv = state_attr('sensor.opti_peak_reserve_soc', 'min_preis_vor_peak_ct') %} {% set stopband = 0 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 3 %} {{ cur is not none and soc is not none and ges is not none and avg is not none
+             and soc < ges - stopband
+             and (avg - cur) >= spread_min
+             and (minv is none or cur <= (minv | float(cur)) + 0.5) }}
+      sequence:
+      - action: input_select.select_option
+        decision_id: peak_precharge
+        data:
+          option: Akku Netzladen
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Peak-Leiter L1 ''nur Entladen'': Preisspitze VERY_EXPENSIVE'
+      conditions:
+      - condition: state
+        entity_id: binary_sensor.opti_peak_reserve_aktiv
+        state: 'on'
+      - condition: template
+        value_template: '{{ has_value(''sensor.opti_soc'') }}'
+      - condition: state
+        entity_id: sensor.opti_price_level
+        state: VERY_EXPENSIVE
+      - alias: EV-Sperre inaktiv (Schnellladung sperrt Entladung)
+        condition: template
+        value_template: |-
+          {{ not (is_state('input_boolean.opti_ev_akku_pause', 'on')
+                  and is_state('binary_sensor.opti_ev_schnellladung', 'on')) }}
+      sequence:
+      - action: input_select.select_option
+        decision_id: peak_l1
+        data:
+          option: Akku nur Entladen
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Peak-Leiter L2 ''nur Entladen'': EXPENSIVE, SoC ueber VE-Reserve'
+      conditions:
+      - condition: state
+        entity_id: binary_sensor.opti_peak_reserve_aktiv
+        state: 'on'
+      - condition: state
+        entity_id: sensor.opti_price_level
+        state: EXPENSIVE
+      - condition: template
+        value_template: '{% set soc = states(''sensor.opti_soc'') | float(none) %} {% set ve = state_attr(''sensor.opti_peak_reserve_soc'',
+          ''reserve_ve_soc'') | float(none) %} {% set band = 2 if is_state(''input_select.akkusteuerung_modus'',
+          ''Akku nur Laden'') else 0 %} {{ soc is not none and ve is not none and soc > ve + band }}'
+      - alias: EV-Sperre inaktiv (Schnellladung sperrt Entladung)
+        condition: template
+        value_template: |-
+          {{ not (is_state('input_boolean.opti_ev_akku_pause', 'on')
+                  and is_state('binary_sensor.opti_ev_schnellladung', 'on')) }}
+      sequence:
+      - action: input_select.select_option
+        decision_id: peak_l2
+        data:
+          option: Akku nur Entladen
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''nur Laden'' (Balancing-Watchdog): tagsueber PV-Vollladung fuers BMS-Balancing'
+      conditions:
+      - condition: state
+        entity_id: sensor.opti_balancing_watchdog
+        state: pv
+      sequence:
+      - action: input_select.select_option
+        decision_id: balancing_pv
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''Netzladen'' (Balancing-Watchdog): guenstiges/gratis Netzladen fuers BMS-Balancing'
+      conditions:
+      - condition: state
+        entity_id: sensor.opti_balancing_watchdog
+        state: netz
+      sequence:
+      - action: input_select.select_option
+        decision_id: balancing_grid
+        data:
+          option: Akku Netzladen
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''nur Entladen'' (Ladedeckel): SoC >= maxsoc, kein Balancing/Peak faellig'
+      conditions:
+      - alias: EV-Sperre inaktiv (Schnellladung sperrt Entladung)
+        condition: template
+        value_template: |-
+          {{ not (is_state('input_boolean.opti_ev_akku_pause', 'on')
+                  and is_state('binary_sensor.opti_ev_schnellladung', 'on')) }}
+      - condition: state
+        entity_id: binary_sensor.opti_peak_reserve_aktiv
+        state: 'off'
+      - condition: template
+        value_template: |-
+          {% set maximum = states('input_number.maxsoc')|float(95) %} {% set band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
+              and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maximum else 0 %}
+          {{ has_value('sensor.opti_soc')
+             and is_number(states('input_number.maxsoc'))
+             and (states('sensor.opti_soc') | float) >= maximum - band }}
+      sequence:
+      - action: input_select.select_option
+        decision_id: maximum_soc
+        data:
+          option: Akku nur Entladen
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''nur Laden'' (Reserve halten): Prognose heute+morgen schlecht, SOC unter 20% (tag+nacht)'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_prognose_netzladen
+        state: 'on'
+      - condition: state
+        entity_id: binary_sensor.opti_winter_charging_allowed
+        state: 'on'
+      - condition: template
+        value_template: |-
+          {{ has_value('sensor.opti_forecast_score')
+             and has_value('sensor.opti_forecast_score_tomorrow') }}
+      - condition: numeric_state
+        entity_id: sensor.opti_soc
+        below: 20
+      - condition: numeric_state
+        entity_id: sensor.opti_forecast_score
+        below: 3
+      - condition: numeric_state
+        entity_id: sensor.opti_forecast_score_tomorrow
+        below: 3
+      - alias: Aktuelles Preisniveau VERY_CHEAP bis EXPENSIVE
+        condition: or
+        conditions:
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: VERY_CHEAP
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: CHEAP
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: NORMAL
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: EXPENSIVE
+      sequence:
+      - action: input_select.select_option
+        decision_id: reserve_low
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''nur Laden'' (Reserve halten): Prognose heute+morgen schlecht, SOC unter 75%, Preis
+        bis NORMAL (tag+nacht)'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_prognose_netzladen
+        state: 'on'
+      - condition: template
+        value_template: |-
+          {{ has_value('sensor.opti_forecast_score')
+             and has_value('sensor.opti_forecast_score_tomorrow') }}
+      - condition: numeric_state
+        entity_id: sensor.opti_soc
+        below: 75
+      - condition: numeric_state
+        entity_id: sensor.opti_forecast_score
+        below: 3
+      - condition: numeric_state
+        entity_id: sensor.opti_forecast_score_tomorrow
+        below: 3
+      - alias: Aktuelles Preisniveau VERY_CHEAP bis NORMAL
+        condition: or
+        conditions:
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: VERY_CHEAP
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: CHEAP
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: NORMAL
+      sequence:
+      - action: input_select.select_option
+        decision_id: reserve_forecast
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''nur Laden'' (Reserve halten): Prognose schlecht, Wintermodus, SOC unter 80% (tag+nacht)'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_prognose_netzladen
+        state: 'on'
+      - condition: state
+        entity_id: binary_sensor.opti_winter_charging_allowed
+        state: 'on'
+      - condition: template
+        value_template: |-
+          {{ has_value('sensor.opti_forecast_score')
+             and has_value('sensor.opti_forecast_score_tomorrow') }}
+      - condition: numeric_state
+        entity_id: sensor.opti_soc
+        below: 80
+      - condition: numeric_state
+        entity_id: sensor.opti_forecast_score
+        below: 3
+      - condition: numeric_state
+        entity_id: sensor.opti_forecast_score_tomorrow
+        below: 3
+      - alias: Aktuelles Preisniveau VERY_CHEAP bis EXPENSIVE
+        condition: or
+        conditions:
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: VERY_CHEAP
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: CHEAP
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: NORMAL
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: EXPENSIVE
+      sequence:
+      - action: input_select.select_option
+        decision_id: reserve_winter
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''nur Laden'' (Reserve halten): heute schlecht, SOC unter 15% (tag+nacht)'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_prognose_netzladen
+        state: 'on'
+      - condition: template
+        value_template: '{{ has_value(''sensor.opti_forecast_score'') }}'
+      - condition: numeric_state
+        entity_id: sensor.opti_soc
+        below: 15
+      - condition: numeric_state
+        entity_id: sensor.opti_forecast_score
+        below: 3
+      - alias: Aktuelles Preisniveau VERY_CHEAP bis EXPENSIVE
+        condition: or
+        conditions:
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: VERY_CHEAP
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: CHEAP
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: NORMAL
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: EXPENSIVE
+      sequence:
+      - action: input_select.select_option
+        decision_id: reserve_today_low
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''nur Laden'' (Reserve halten): heute schlecht, SOC unter 45%, Strom sehr günstig
+        (tag+nacht)'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_prognose_netzladen
+        state: 'on'
+      - condition: template
+        value_template: '{{ has_value(''sensor.opti_forecast_score'') }}'
+      - condition: numeric_state
+        entity_id: sensor.opti_soc
+        below: 45
+      - condition: numeric_state
+        entity_id: sensor.opti_forecast_score
+        below: 3
+      - alias: Aktuelles Preisniveau VERY_CHEAP oder CHEAP
+        condition: or
+        conditions:
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: VERY_CHEAP
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: CHEAP
+      sequence:
+      - action: input_select.select_option
+        decision_id: reserve_cheap
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''nur Laden'' (EV-Sperre): evcc-Schnellladung aktiv, Entladung gesperrt'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_ev_akku_pause
+        state: 'on'
+      - condition: state
+        entity_id: binary_sensor.opti_ev_schnellladung
+        state: 'on'
+      sequence:
+      - action: input_select.select_option
+        decision_id: ev_lock
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''Dynamisch'': 70% PV-Überschuss in den Akku (nur tagsüber)'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_pv_ueberschuss_ladung
+        state: 'on'
+      - condition: sun
+        after: sunrise
+        before: sunset
+      - condition: state
+        entity_id: binary_sensor.opti_ueberschuss_70_aktiv
+        state: 'on'
+      - condition: numeric_state
+        entity_id: sensor.opti_soc
+        below: 100
+      sequence:
+      - action: input_select.select_option
+        decision_id: surplus_70
+        data:
+          option: Akku Dynamisch
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''Dynamisch'': AC-PV-Überschuss in den Akku (nur tagsüber)'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_pv_ueberschuss_ladung
+        state: 'on'
+      - condition: sun
+        after: sunrise
+        before: sunset
+      - condition: state
+        entity_id: binary_sensor.opti_ueberschuss_ac_aktiv
+        state: 'on'
+      - condition: numeric_state
+        entity_id: sensor.opti_soc
+        below: 100
+      sequence:
+      - action: input_select.select_option
+        decision_id: surplus_ac
+        data:
+          option: Akku Dynamisch
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''Dynamisch'': Akku voll (SOC über 99%)'
+      conditions:
+      - condition: template
+        value_template: |-
+          {{ has_value('sensor.opti_soc')
+             and has_value('sensor.opti_battery_capacity_kwh') }}
+      - condition: numeric_state
+        entity_id: sensor.opti_soc
+        above: 99
+      sequence:
+      - action: input_select.select_option
+        decision_id: battery_full
+        data:
+          option: Akku Dynamisch
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Peak-Leiter L3 ''nur Laden'' (halten): EXPENSIVE, Reserve fuer VERY_EXPENSIVE'
+      conditions:
+      - condition: state
+        entity_id: binary_sensor.opti_peak_reserve_aktiv
+        state: 'on'
+      - condition: state
+        entity_id: sensor.opti_price_level
+        state: EXPENSIVE
+      - condition: template
+        value_template: '{% set soc = states(''sensor.opti_soc'') | float(none) %} {% set ve = state_attr(''sensor.opti_peak_reserve_soc'',
+          ''reserve_ve_soc'') | float(none) %} {% set band = 2 if is_state(''input_select.akkusteuerung_modus'',
+          ''Akku nur Laden'') else 0 %} {{ soc is not none and ve is not none and soc <= ve + band }}'
+      - condition: template
+        value_template: '{% set ve_avg = state_attr(''sensor.opti_peak_reserve_soc'', ''peak_preis_ve_avg_ct'')
+          | float(none) %} {% set cur = states(''sensor.opti_price_current_ct_kwh'') | float(none) %}
+          {% set halte_spread = states(''input_number.opti_halte_spread_ct'') | float(3) %} {{ ve_avg
+          is not none and cur is not none and (ve_avg - cur) >= halte_spread }}'
+      sequence:
+      - action: input_select.select_option
+        decision_id: peak_l3
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Peak-Leiter L4 ''nur Laden'' (halten): Preis normal/billig, Reserve fuer Peaks'
+      conditions:
+      - condition: state
+        entity_id: binary_sensor.opti_peak_reserve_aktiv
+        state: 'on'
+      - alias: Preisniveau NORMAL oder billiger
+        condition: or
+        conditions:
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: VERY_CHEAP
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: CHEAP
+        - condition: state
+          entity_id: sensor.opti_price_level
+          state: NORMAL
+      - condition: template
+        value_template: '{% set soc = states(''sensor.opti_soc'') | float(none) %} {% set ges = states(''sensor.opti_peak_reserve_soc'')
+          | float(none) %} {% set band = 2 if is_state(''input_select.akkusteuerung_modus'', ''Akku nur
+          Laden'') else 0 %} {{ soc is not none and ges is not none and soc <= ges + band }}'
+      sequence:
+      - action: input_select.select_option
+        decision_id: peak_l4
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''Dynamisch'': echter Netz-Ueberschuss sticht Ziel-SoC-Deckel'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_pv_ueberschuss_ladung
+        state: 'on'
+      - condition: sun
+        after: sunrise
+        before: sunset
+      - condition: state
+        entity_id: binary_sensor.opti_ueberschuss_veto_aktiv
+        state: 'on'
+      - condition: template
+        value_template: |-
+          {{ has_value('sensor.opti_soc')
+             and has_value('input_number.maxsoc')
+             and (states('sensor.opti_soc') | float) < (states('input_number.maxsoc') | float(95)) }}
+      sequence:
+      - action: input_select.select_option
+        decision_id: surplus_veto
+        data:
+          option: Akku Dynamisch
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''Dynamisch'': SOC zwischen MinSoC und Ziel-SoC (nur tagsüber)'
+      conditions:
+      - condition: template
+        value_template: |-
+          {{ has_value('sensor.opti_soc')
+             and has_value('sensor.opti_battery_capacity_kwh')
+             and has_value('sensor.opti_target_soc')
+             and (states('sensor.opti_soc') | float) > (states('input_number.minsoc') | float(10))
+             and (states('sensor.opti_soc') | float) < (states('sensor.opti_target_soc') | float - 3) }}
+      - condition: sun
+        after: sunrise
+        before: sunset
+      sequence:
+      - action: input_select.select_option
+        decision_id: below_target
+        data:
+          option: Akku Dynamisch
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''nur Entladen'': SOC über Ziel-SoC'
+      conditions:
+      - condition: template
+        value_template: |-
+          {% set off = 0 if is_state('input_select.akkusteuerung_modus', 'Akku nur Entladen') else 3 %} {{ has_value('sensor.opti_soc')
+             and has_value('sensor.opti_battery_capacity_kwh')
+             and has_value('sensor.opti_target_soc')
+             and (states('sensor.opti_soc') | float) > (states('sensor.opti_target_soc') | float + off) }}
+      sequence:
+      - action: input_select.select_option
+        decision_id: above_target
+        data:
+          option: Akku nur Entladen
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    default:
+    - choose:
+      - conditions:
+        - condition: template
+          value_template: |-
+            {{ has_value('sensor.opti_soc')
+               and has_value('sensor.opti_battery_capacity_kwh') }}
+        sequence:
+        - action: input_select.select_option
+          decision_id: default
+          data:
+            option: Akku Dynamisch
+          target:
+            entity_id: input_select.akkusteuerung_modus
+  - alias: 'Netzladen: Booster deaktivieren wenn Akku voll'
+    choose:
+    - conditions:
+      - condition: numeric_state
+        entity_id: sensor.opti_soc
+        above: 99
+      - condition: state
+        entity_id: input_boolean.hausakku_aus_netz_laden
+        state: 'on'
+      sequence:
+      - action: input_boolean.turn_off
+        data: {}
+        target:
+          entity_id: input_boolean.hausakku_aus_netz_laden
+      - action: input_number.set_value
+        alias: Ladepreis Helfer nach aktuellem Strompreis (EUR/kWh)
+        data:
+          value: '{{ states(''sensor.opti_price_current_ct_kwh'') | float(0) / 100 }}'
+        target:
+          entity_id: input_number.ladepreis
+fail_safe:
+  id: opti_canonical_strategie_fail_safe
+  alias: Akku Opti Strategie Fail-safe
+  description: Setzt den Akku bei deaktivierter Opti-Automatik oder ungueltigen Core-Daten sicher auf
+    Pause. Beim HA-Start sofort, im laufenden Betrieb nach zehn Sekunden stabil unplausibler Kerndaten.
+    Nach einem Automation-Reload werden bereits ungueltige Kerndaten ebenfalls sofort geprueft. Die Hauptstrategie
+    uebernimmt nach Daten-Recovery durch ihre SoC-/Kapazitaets-Trigger wieder.
+  mode: restart
+  triggers:
+  - trigger: state
+    entity_id: input_boolean.akku_opti_automatik
+    to: 'off'
+    id: master_aus
+  - trigger: template
+    value_template: |-
+      {% set soc = states('sensor.opti_soc') | float(none) %} {% set kapazitaet =
+         states('sensor.opti_battery_capacity_kwh') | float(none) %}
+      {{ soc is none or soc <= -0.1 or soc >= 100.1
+         or kapazitaet is none or kapazitaet <= 0 }}
+    for: 00:00:10
+    id: core_ungueltig
+  - trigger: homeassistant
+    event: start
+    id: ha_start
+  - trigger: event
+    event_type: automation_reloaded
+    id: automationen_neu_geladen
+  actions:
+  - alias: Unsicheren Zustand auf Akku Pause abbilden
+    choose:
+    - conditions:
+      - condition: trigger
+        id: master_aus
+      sequence:
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.akkusteuerung_modus
+        data:
+          option: Akku Pause
+    - conditions:
+      - condition: trigger
+        id: core_ungueltig
+      sequence:
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.akkusteuerung_modus
+        data:
+          option: Akku Pause
+    - conditions:
+      - condition: trigger
+        id:
+        - ha_start
+        - automationen_neu_geladen
+      - condition: or
+        conditions:
+        - condition: state
+          entity_id: input_boolean.akku_opti_automatik
+          state: 'off'
+        - condition: template
+          value_template: |-
+            {% set soc = states('sensor.opti_soc') | float(none) %} {% set kapazitaet =
+               states('sensor.opti_battery_capacity_kwh') | float(none) %}
+            {{ soc is none or soc <= -0.1 or soc >= 100.1
+               or kapazitaet is none or kapazitaet <= 0 }}
+      sequence:
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.akkusteuerung_modus
+        data:
+          option: Akku Pause

@@ -8,7 +8,7 @@
   "custom_components/opti_akku/const.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/coordinator.py": {"max_missing": 43, "min_percent": 94.26},
   "custom_components/opti_akku/definitions.py": {"max_missing": 0, "min_percent": 100.0},
-  "custom_components/opti_akku/demand.py": {"max_missing": 24, "min_percent": 91.63},
+  "custom_components/opti_akku/demand.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/demand_accuracy.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/demand_history.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/device.py": {"max_missing": 0, "min_percent": 100.0},

@@ -116,6 +116,147 @@ def make_controller(hass, *, grid_surplus=False):
     return controller, calls, handler
 
 
+@pytest.mark.parametrize(
+    "problem",
+    [
+        "inverter_model",
+        "missing_binding",
+        "battery_model",
+        "mixed_batteries",
+        "unit",
+        "range",
+        "nonzero_floor",
+        "mode_options",
+        "excess_options",
+        "grid_state",
+    ],
+)
+def test_validate_rejects_unsafe_actuator_contracts(hass, problem):
+    c, _, _ = make_controller(hass)
+    registry = er.async_get(hass)
+    devices = dr.async_get(hass)
+
+    if problem == "inverter_model":
+        devices.async_update_device(c.device.device_id, model="Unsupported")
+    elif problem == "missing_binding":
+        registry.async_remove(CONTROLS["mode"])
+    elif problem == "battery_model":
+        devices.async_update_device(registry.async_get(CONTROLS["mode"]).device_id, model="Other")
+    elif problem == "mixed_batteries":
+        other = devices.async_get_or_create(
+            config_entry_id=c.device.entry_id,
+            identifiers={("huawei_solar", "INV123/other-storage")},
+            via_device_id=c.device.device_id,
+            model="Batteries",
+        )
+        registry.async_update_entity(CONTROLS["grid_charge"], device_id=other.id)
+    else:
+        role = {
+            "unit": "charge_limit",
+            "range": "charge_limit",
+            "nonzero_floor": "charge_limit",
+            "mode_options": "mode",
+            "excess_options": "excess_pv",
+            "grid_state": "grid_charge",
+        }[problem]
+        entity_id = CONTROLS[role]
+        state = hass.states.get(entity_id)
+        attributes = dict(state.attributes)
+        if problem == "unit":
+            attributes["unit_of_measurement"] = "kW"
+        elif problem == "range":
+            attributes.update(min=6000, max=5000)
+        elif problem == "nonzero_floor":
+            attributes["min"] = 1
+        elif problem == "mode_options":
+            attributes["options"] = [MSC]
+        elif problem == "excess_options":
+            attributes["options"] = ["charge"]
+        hass.states.async_set(
+            entity_id,
+            "invalid" if problem == "grid_state" else state.state,
+            attributes,
+        )
+
+    with pytest.raises(HuaweiControlError):
+        c.validate()
+
+
+@pytest.mark.parametrize("value", ["not-a-number", object()])
+def test_number_parser_rejects_non_numeric_values(hass, value):
+    c, _, _ = make_controller(hass)
+    with pytest.raises(HuaweiControlError, match="Non-numeric"):
+        c._number(value)
+
+
+async def test_direct_set_uses_each_bound_entity_domain(hass):
+    c, calls, _ = make_controller(hass)
+    await c._set("charge_limit", 1000, lambda: True)
+    await c._set("mode", TOU, lambda: True)
+    await c._set("grid_charge", "on", lambda: True)
+    assert [(domain, service) for domain, service, _ in calls] == [
+        ("number", "set_value"),
+        ("select", "select_option"),
+        ("switch", "turn_on"),
+    ]
+
+
+async def test_invalid_step_and_mode_fail_before_service_calls(hass):
+    c, calls, _ = make_controller(hass)
+    state = hass.states.get(CONTROLS["charge_limit"])
+    hass.states.async_set(
+        CONTROLS["charge_limit"], state.state, {**state.attributes, "step": 0}
+    )
+    with pytest.raises(HuaweiControlError, match="step"):
+        c._target("charge_limit", 1000)
+    with pytest.raises(HuaweiControlError, match="Unsupported Huawei mode"):
+        c._targets("unsupported", PARAMS)
+    assert calls == []
+
+
+async def test_force_command_exhaustion_is_explicit(hass):
+    c, _, _ = make_controller(hass)
+
+    async def ignored(_call):
+        return None
+
+    hass.services.async_register("huawei_solar", "stop_forcible_charge", ignored)
+    with pytest.raises(HuaweiControlError, match="not freshly confirmed"):
+        await c._force("stop_forcible_charge", {}, "running", lambda: True)
+
+
+async def test_pause_collects_force_failure_after_zero_restrictions(hass):
+    c, _, _ = make_controller(hass)
+
+    async def ignored(_call):
+        return None
+
+    hass.services.async_register("huawei_solar", "stop_forcible_charge", ignored)
+    hass.services.async_register("homeassistant", "update_entity", ignored)
+    with pytest.raises(HuaweiControlError, match="not fully confirmed"):
+        await c._pause(lambda: True)
+    assert float(hass.states.get(CONTROLS["charge_limit"]).state) == 0
+    assert float(hass.states.get(CONTROLS["discharge_limit"]).state) == 0
+
+
+async def test_recent_failed_cleanup_stays_failed_without_new_calls(hass):
+    c, calls, _ = make_controller(hass)
+    c._cleanup_at = 100
+    c._cleanup_ok = False
+    with patch("custom_components.opti_akku.huawei_control.time.monotonic", return_value=101):
+        assert await c._cleanup() is False
+    assert calls == []
+
+
+def test_steady_mode_tightens_existing_limits_before_other_steps(hass):
+    c, _, _ = make_controller(hass)
+    c.last_mode = AUTO
+    targets = c._targets(AUTO, PARAMS)
+    targets["charge_limit"] = 1000
+    plan = c._plan(AUTO, targets)
+    assert plan[0] == ("charge_limit", 1000)
+
+
 @pytest.mark.parametrize("mode", MODES)
 async def test_all_modes_confirm_targets(hass, mode):
     c, calls, _ = make_controller(hass)

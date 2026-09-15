@@ -9,8 +9,10 @@ python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements-test.txt
 ruff check custom_components tests tools
+mypy
 python tools/build_strategy_resources.py --check
-pytest --timeout=60
+pytest --timeout=60 --cov=custom_components/opti_akku --cov-report=term-missing --cov-report=json:coverage.json
+python tools/check_coverage.py coverage.json .github/coverage-baseline.json
 python tools/build_package.py
 ```
 
@@ -18,7 +20,18 @@ Die Suite prüft unter anderem HA-Lifecycle, Konfigurationsdialoge, Migration, n
 
 Änderungen an `strategy/*.yaml` mit `python tools/build_strategy_resources.py` bauen und das JSON mit committen. Der historische Importer ist kein regulärer Buildschritt. HACS lädt das Repository-Verzeichnis; das manuelle ZIP enthält den Pfad `custom_components/opti_akku/` und ist kein aktiviertes `zip_release`-Asset.
 
-Die CI prüft zusätzlich hassfest und die HACS-Anforderungen. Vor folgenreichen Änderungen gilt die [Review-Regel](../REVIEW_POLICY.md). Version in Manifest, Projektmetadaten und Release-Tag synchron halten. Vorabversionen bleiben ausdrücklich Beta; ein grüner Testlauf ist kein Hardware- oder Langzeitnachweis.
+Die CI verhindert zusätzlich Rückschritte bei der Abdeckung einzelner Module.
+Neue Module müssen mindestens 95 Prozent erreichen. Die Typprüfung startet bewusst
+mit dem Gerätevertrag und dem Befehlsnachweis; weitere Module werden erst nach ihrer
+Bereinigung in die verbindliche Liste aufgenommen. Ruff prüft neben Syntax und
+undefinierten Namen auch häufige Python-Fehler über die Bugbear-Regeln.
+
+Hassfest und die HACS-Anforderungen laufen ebenfalls in der CI. Vor folgenreichen
+Änderungen gilt die [Review-Regel](../REVIEW_POLICY.md). Version in Manifest,
+Projektmetadaten und Release-Tag synchron halten. Vorabversionen bleiben ausdrücklich
+Beta; ein grüner Testlauf ist kein Hardware- oder Langzeitnachweis. Der aktuelle
+Stable-Fortschritt wird in [Roadmap #85](https://github.com/Optic00/ha-opti-akkusteuerung/issues/85)
+geführt.
 
 ## Versionen und Releases
 

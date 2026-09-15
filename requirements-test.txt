@@ -2,6 +2,7 @@ homeassistant==2026.9.1
 pytest-homeassistant-custom-component==0.13.364
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
+mypy==1.18.2
 modbus-connection[tmodbus]==4.10.0
 tmodbus==0.6.2
 PyYAML==6.0.3

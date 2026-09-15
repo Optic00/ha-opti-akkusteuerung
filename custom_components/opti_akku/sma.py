@@ -339,7 +339,7 @@ class SmaDevice:
         # A incomplete/late set is not a successful refresh. The caller cleans up.
         async with asyncio.timeout(BMS_TRANSACTION_SECONDS):
             registers = (
-                *zip((40793, 40795, 40797, 40799), windows),
+                *zip((40793, 40795, 40797, 40799), windows, strict=True),
                 (40801, 0),
                 (opmod_address, opmod),
             )

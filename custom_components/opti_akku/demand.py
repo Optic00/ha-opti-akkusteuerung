@@ -97,7 +97,10 @@ def pv_intervals(states, sources, now):
         except KeyError, ValueError, TypeError, AttributeError:
             return []
     ordered = sorted(rows.items())
-    if any(b[0] - a[0] < timedelta(minutes=30) for a, b in zip(ordered, ordered[1:])):
+    if any(
+        b[0] - a[0] < timedelta(minutes=30)
+        for a, b in zip(ordered, ordered[1:], strict=False)
+    ):
         return []
     return ordered
 

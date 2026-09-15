@@ -66,7 +66,7 @@ einem neuen Setup ist die Schreibfreigabe aus. Eine gespeicherte Freigabe wird
 nur wiederhergestellt, solange die Single-Writer-Bestätigung weiter gesetzt ist.
 
 Bei aktivierter Strategie stehen für SMA über **Betriebsart** `Strategie`
-und neun manuelle Modi zur Auswahl. Ohne Strategie ersetzt `Beobachtung` den
+und neun manuelle Modi zur Auswahl. Ohne Strategie ersetzt **Beobachtung** (Select-Rohwert `observation`) den
 Strategiemodus; Dynamisch und berechnetes Netzladen entfallen:
 
 - Akku Automatisch

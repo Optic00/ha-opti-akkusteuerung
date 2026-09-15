@@ -43,3 +43,9 @@ Beim ersten HACS-Release existiert noch keine ältere HACS-Version als Rückfall
 ## Separater YAML-Adapter
 
 Die Hinweise im separaten `ha-modbus-akku-adapter`-Repository beziehen sich auf die YAML-Generation. Dessen Schreiber nicht parallel zu Opti Akku betreiben; die dort erwähnten `packages/sma_helpers.yaml` liegen jetzt im Legacy-Archiv. Das Adapter-Repository wird durch diesen Umstieg nicht automatisch geändert.
+
+## Änderungen für vorhandene b5-Installationen
+
+Der übersetzbare Rohwert des Betriebsart-Selects für reine Beobachtung heißt jetzt `observation` statt `Beobachtung`; die deutsche Anzeige bleibt **Beobachtung**. Eigene Automationen, die diesen Select-Zustand direkt vergleichen oder setzen, entsprechend anpassen. Die Entitäts-ID bleibt erhalten.
+
+Sehr alte SMA-Einträge ohne gespeicherten Backend-Schlüssel verlieren beim erneuten Speichern der Verbindung ihre Single-Writer-Bestätigung. Nach Prüfung derselben Geräteidentität bewusst neu bestätigen; die Integration erteilt keine automatische neue Freigabe.

@@ -1,3 +1,5 @@
+> **Legacy-Archiv der YAML-Automation.** Dieser Branch bewahrt den bisherigen Stand einschließlich PR #78. Die HACS-Nachfolge entsteht auf [main](https://github.com/Optic00/ha-opti-akkusteuerung). Bestehende YAML-Installationen bleiben auf `legacy-yaml`; ein Wechsel erfordert eine kontrollierte Migration. Bekannte offene Fehler sind damit nicht automatisch behoben.
+
 # ha-opti-akkusteuerung
 
 [![Tests](https://github.com/Optic00/ha-opti-akkusteuerung/actions/workflows/tests.yml/badge.svg)](https://github.com/Optic00/ha-opti-akkusteuerung/actions/workflows/tests.yml)

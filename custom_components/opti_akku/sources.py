@@ -219,33 +219,53 @@ def build_inputs(
         if error:
             errors.update(price_current=error, price_series=error)
 
-    # EV state is derived from the actual charging flag AND evcc mode. No
-    # implicit provider lookup. Unconfigured loadpoints do not participate in
-    # the latch; configured but missing/stale inputs must still hold its lock.
+    # EV state is derived from the actual charging flag AND evcc mode. Smart
+    # Cost additionally marks grid charging in pv mode when explicitly mapped.
+    # Unconfigured loadpoints do not participate in the latch; configured but
+    # missing/stale inputs must still hold its lock.
     for index in (1, 2):
         mode = ha_states.get(sources.get(f"ev{index}_mode", ""))
         charging = ha_states.get(sources.get(f"ev{index}_charging", ""))
+        smart_cost_key = f"ev{index}_smart_cost"
+        smart_cost_configured = bool(sources.get(smart_cost_key))
+        smart_cost = ha_states.get(sources.get(smart_cost_key, ""))
         power = ha_states.get(sources.get(f"ev{index}_power", ""))
         key = f"binary_sensor.opti_ev_lp{index}_schnell"
-        if not any(sources.get(f"ev{index}_{field}") for field in ("mode", "charging", "power")):
+        if not any(sources.get(f"ev{index}_{field}")
+                   for field in ("mode", "charging", "smart_cost", "power")):
             states[key] = "off"
             attributes[key] = {"valide": True, "konfiguriert": False}
             continue
-        valid = (mode is not None and charging is not None
-                 and mode.state in ("off", "now", "minpv", "pv")
-                 and charging.state in ("on", "off")
-                 and _fresh(mode, now, options.get("source_max_age", 900))
-                 and _fresh(charging, now, options.get("source_max_age", 900)))
-        states[key] = ("on" if charging.state == "on" and mode.state in ("now", "minpv") else "off") if valid else "unavailable"
-        if not valid:
+        max_age = options.get("source_max_age", 900)
+        base_valid = (mode is not None and charging is not None
+                      and mode.state in ("off", "now", "minpv", "pv")
+                      and charging.state in ("on", "off")
+                      and _fresh(mode, now, max_age)
+                      and _fresh(charging, now, max_age))
+        smart_cost_valid = (smart_cost is not None
+                            and smart_cost.state in ("on", "off")
+                            and _fresh(smart_cost, now, max_age))
+        if not base_valid:
+            states[key] = "unavailable"
             for field in (f"ev{index}_mode", f"ev{index}_charging"):
                 if sources.get(field):
                     errors[field] = "missing_or_stale"
+        elif charging.state == "on" and mode.state in ("now", "minpv"):
+            states[key] = "on"
+        elif (charging.state == "on" and mode.state == "pv"
+              and smart_cost_configured and not smart_cost_valid):
+            states[key] = "unavailable"
+            errors[smart_cost_key] = "missing_or_stale"
+        else:
+            states[key] = ("on" if charging.state == "on" and mode.state == "pv"
+                           and smart_cost_configured and smart_cost.state == "on" else "off")
         watts = finite(power.state) if power is not None else None
         if watts is not None and power.attributes.get("unit_of_measurement") == "kW":
             watts *= 1000
-        attributes[key] = {"valide": valid, "modus": mode.state if mode else None,
+        attributes[key] = {"valide": states[key] != "unavailable",
+                           "modus": mode.state if mode else None,
                            "charging": charging.state if charging else None,
+                           "smart_cost_active": smart_cost.state if smart_cost else None,
                            "leistung_kw": watts / 1000 if watts is not None else None}
     if options.get("plant_mode", "legacy") != "legacy":
         plant = evaluate_plant(measurements, options, ha_states, now)

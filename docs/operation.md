@@ -22,7 +22,7 @@ Für einen Vergleich neben einer bestehenden Steuerung:
    Steuerung bleibt aktiv, die Single-Writer-Bestätigung bleibt aus.
 2. Quellen und Strategieparameter passend zur bestehenden Steuerung einstellen.
    Optional deren Modus-Entität als Vergleichsquelle auswählen. Die
-   **Akku Opti-Automatik** der Shadow-Instanz einschalten, damit sie echte
+   Den Schalter **Strategie berechnen** der Shadow-Instanz einschalten, damit sie echte
    Entscheidungen berechnet. Dies erteilt im Shadow-Modus keine Schreibrechte.
 3. Auf der Geräteseite **24-Stunden-Test starten** drücken.
 4. **Shadow-Aufzeichnung** zeigt Status, Start, feste Deadline, Stichproben,
@@ -57,7 +57,7 @@ Haltefunktion. Gespeicherte und ausdrücklich importierte Werte bleiben erhalten
 
 Die eigentliche Steuerung hat drei getrennte Ebenen:
 
-1. Der Schalter **Akku Opti-Automatik** ist die Hauptfreigabe für die Steuerung,
+1. Der Schalter **Strategie berechnen** ist die Hauptfreigabe für die Steuerung,
    einschließlich der manuellen Modi. Ist er aus, gilt immer Pause.
 2. In den Integrationsoptionen muss bestätigt werden, dass keine zweite
    Steuerung parallel auf den Wechselrichter schreibt.
@@ -140,6 +140,41 @@ gleichgesetzt werden dürfen:
 Der ältere Sensor **Befehlsbestätigung** bleibt aus Kompatibilitätsgründen
 erhalten. Sein Zustand **Kein offener Befehl** sagt nur, dass aktuell keine
 Transaktion aussteht.
+
+### SMA-Befehle prüfen
+
+Die drei Nachweisstufen werden getrennt bewertet:
+
+| Stufe | Belastbare Aussage | Derzeitiger SMA-Stand |
+|---|---|---|
+| Transport | Die vollständige Modbus-Schreibfolge endete ohne gemeldeten Fehler. | Als **Adapterausführung abgeschlossen** sichtbar. |
+| Sollwertübernahme | Der Wechselrichter meldet den tatsächlich übernommenen Modus und Sollwert aus einer unabhängigen Quelle. | Nicht unterstützt. Die verwendete Registerfamilie wird nicht zurückgelesen. |
+| Physische Wirkung | Eine frische Gerätemessung zeigt die erwartete Lade- oder Entladerichtung beziehungsweise den Stillstand. | Nur als Beobachtung prüfbar; kein Nachweis des exakten Sollwerts. |
+
+Ein begleiteter Hardwaretest soll deshalb Modell, Firmware, Ausgangs-SoC,
+Modus, angeforderten Wert, Befehlsnachweis und die Akkuleistung aus einem
+späteren erfolgreichen Geräteabruf gemeinsam festhalten. Der im
+Befehlsnachweis enthaltene Leistungswert wurde vor dem Schreiben gelesen und
+eignet sich dafür nicht. Zuerst **Akku Pause**, danach **Akku schnell Laden**
+und **Akku schnell Entladen** mit kleinen Sollwerten in sicherem Abstand zu
+Min- und Max-SoC prüfen. Bei **Akku Pause** soll die Akkuleistung nahe 0 W
+liegen; Laden und Entladen sollen jeweils die passende Richtung zeigen. Die
+Schalter **Strategie berechnen** und **Schreibzugriffe freigeben** sowie die
+Single-Writer-Bestätigung in den Optionen müssen aktiv sein. Für einen
+unbegrenzten Schnellladetest muss die Batterietemperatur mindestens 5 und
+weniger als 45 °C betragen. Andere schreibende Steuerungen müssen aus sein und
+ein lokaler Rückweg muss bereitstehen. Eine passende Leistungsrichtung belegt
+nur die Wirkung dieses Versuchs;
+BMS-Begrenzungen, Rampen, PV-Leistung und Hauslast können die Höhe verändern.
+
+Die automatisierten Ausfalltests decken veraltete Daten vor und während einer
+Schreibfolge, Abbruch und Zeitüberschreitung, fehlgeschlagene Bereinigung,
+mehrfache Abbruchsignale, konkurrierende Befehle, Neuladen der Integration und
+die Sperre nach einer Wiederverbindung bis zur erneuten Gerätebereitschaft ab.
+Sie belegen das Verhalten des Adapters, nicht das Verhalten jeder
+Wechselrichter-Firmware. Ein realer Kommunikationsabbruch während eines
+Schreibvorgangs und die spätere Rückkehr zur Eigenregelung bleiben deshalb
+getrennte Hardware-Abnahmen.
 
 Beim Ausschalten versucht die Integration, den Wechselrichter in Pause zu
 setzen. Das ist ein Best-Effort-Vorgang. Hardware-, Netzwerk- oder

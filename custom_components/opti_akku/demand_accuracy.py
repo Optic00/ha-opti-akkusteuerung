@@ -29,11 +29,10 @@ class CompletedTrial(PendingTrial):
 
 
 class AccuracySnapshot(TypedDict):
-    """Persisted accuracy state; completed history is not restored after restart."""
+    """Persisted in-progress accuracy state."""
 
     version: int
     pending: PendingTrial | None
-    completed: list[CompletedTrial]
 
 
 class AccuracyResult(TypedDict):
@@ -53,7 +52,6 @@ class DemandAccuracy:
         snapshot: AccuracySnapshot = {
             "version": 1,
             "pending": self.pending,
-            "completed": self.completed,
         }
         return deepcopy(snapshot)
 

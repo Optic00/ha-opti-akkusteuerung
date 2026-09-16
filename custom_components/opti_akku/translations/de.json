@@ -774,7 +774,7 @@
             "name": "Letzte abgeschlossene Adapterausführung"
           },
           "last_confirmed_command_at": {
-            "name": "Letzter abgeschlossener Befehl (Legacy-Feld)"
+            "name": "Nicht belegt (Legacy-Feld)"
           },
           "hold_threshold_soc": {
             "name": "Aktuelle Haltereserve (%)"

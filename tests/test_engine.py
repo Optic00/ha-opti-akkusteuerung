@@ -432,9 +432,9 @@ def test_peak_reserve_pipeline_accepts_supported_price_grids(length):
     ("soc", "expected_mode", "reason_prefix"),
     [
         (94.9, "Akku nur Laden", "Peak-Leiter L4"),
-        (95, "Akku nur Entladen", "Ladedeckel"),
-        (96, "Akku nur Entladen", "Ladedeckel"),
-        (98, "Akku nur Entladen", "Ladedeckel"),
+        (95, "Akku Pause", "Ladedeckel"),
+        (96, "Akku Pause", "Ladedeckel"),
+        (98, "Akku Pause", "Ladedeckel"),
     ],
 )
 def test_maxsoc_precedes_peak_reserve_holding(soc, expected_mode, reason_prefix):
@@ -453,8 +453,8 @@ def test_maxsoc_precedes_peak_reserve_holding(soc, expected_mode, reason_prefix)
 def test_maxsoc_peak_latch_survives_restore_and_releases_below_band():
     engine = StrategyEngine()
     for minute, (soc, expected_deckel, expected_mode) in enumerate([
-        (95, "on", "Akku nur Entladen"),
-        (94, "on", "Akku nur Entladen"),
+        (95, "on", "Akku Pause"),
+        (94, "on", "Akku Pause"),
     ]):
         states, attributes = peak_maxsoc_inputs(soc)
         result = evaluate(engine, states, attributes, NOW + dt.timedelta(minutes=minute))
@@ -464,13 +464,33 @@ def test_maxsoc_peak_latch_survives_restore_and_releases_below_band():
     restored = StrategyEngine()
     restored.restore(json.loads(json.dumps(engine.snapshot(), allow_nan=False)))
     for minute, (soc, expected_deckel, expected_mode) in enumerate([
-        (92, "on", "Akku nur Entladen"),
+        (92, "on", "Akku Pause"),
         (91.9, "off", "Akku Netzladen"),
     ], start=2):
         states, attributes = peak_maxsoc_inputs(soc)
         result = evaluate(restored, states, attributes, NOW + dt.timedelta(minutes=minute))
         assert result.states[DECKEL] == expected_deckel
         assert result.mode == expected_mode
+
+
+def test_maxsoc_with_ev_discharge_block_uses_pause():
+    states, attributes = peak_maxsoc_inputs(
+        95,
+        **{
+            "input_boolean.opti_ev_akku_pause": "on",
+            "binary_sensor.opti_ev_schnellladung": "on",
+        },
+    )
+    attributes["sensor.opti_price_series"] = {
+        "today": [10] * 24,
+        "tomorrow": [10] * 24,
+    }
+    result = evaluate(states=states, attributes=attributes)
+
+    assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "off"
+    assert result.mode == "Akku Pause"
+    assert result.reason == "Ladedeckel (maxsoc erreicht; EV-Entladesperre)"
+    assert result.states["sensor.opti_strategie_vorschau"] == result.mode
 
 
 @pytest.mark.parametrize(

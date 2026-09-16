@@ -52,6 +52,13 @@ def test_restart_preserves_trial_but_cuts_offline_energy():
     assert out["pending"]["missing_seconds"] == 60
 
 
+def test_snapshot_only_persists_state_that_restore_uses():
+    tracker = DemandAccuracy()
+    tracker.observe(NOW, 600, plan())
+
+    assert set(tracker.snapshot()) == {"version", "pending"}
+
+
 def test_unknown_latest_sample_prevents_energy_in_next_interval():
     tracker = DemandAccuracy()
     tracker.observe(NOW, None, plan())

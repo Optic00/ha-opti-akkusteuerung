@@ -78,16 +78,30 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Return support data without hosts, serials, entity IDs or history."""
-    coordinator = entry.runtime_data
-    data = coordinator.data if isinstance(coordinator.data, Mapping) else {}
     options = entry.options if isinstance(entry.options, Mapping) else {}
+    coordinator = getattr(entry, "runtime_data", None)
+    data = (
+        getattr(coordinator, "data", None)
+        if isinstance(getattr(coordinator, "data", None), Mapping)
+        else {}
+    )
+    shadow_mode = bool(
+        getattr(
+            coordinator,
+            "shadow_mode",
+            entry.data.get("shadow_mode", entry.data.get("backend") == "huawei_solar"),
+        )
+    )
+    strategy_enabled = bool(
+        getattr(coordinator, "strategy_enabled", options.get("strategy_enabled", True))
+    )
     sources = options.get("sources", {})
 
     return {
         "configuration": {
             "backend": entry.data.get("backend", "sma"),
-            "shadow_mode": bool(coordinator.shadow_mode),
-            "strategy_enabled": bool(coordinator.strategy_enabled),
+            "shadow_mode": shadow_mode,
+            "strategy_enabled": strategy_enabled,
             "write_enabled": bool(data.get("write_enabled", False)),
             "plant_mode": options.get("plant_mode", "legacy"),
             "price_provider": options.get("price_provider", "entities"),
@@ -125,11 +139,11 @@ async def async_get_config_entry_diagnostics(
             )
         },
         "shadow": {
-            "status": data.get("shadow_status") if coordinator.shadow_mode else "not_active",
+            "status": data.get("shadow_status") if shadow_mode else "not_active",
             "blocked_write_attempts": data.get("shadow_summary", {}).get(
                 "blocked_write_attempts", 0
             )
-            if coordinator.shadow_mode and isinstance(data.get("shadow_summary"), Mapping)
+            if shadow_mode and isinstance(data.get("shadow_summary"), Mapping)
             else 0,
         },
     }

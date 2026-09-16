@@ -11,13 +11,20 @@ from typing import Any
 NEW_MODULE_MIN_PERCENT = 95.0
 
 
-def check(report: dict[str, Any], baseline: dict[str, Any]) -> list[str]:
+def check(
+    report: dict[str, Any],
+    baseline: dict[str, Any],
+    production_paths: set[str] | None = None,
+) -> list[str]:
     """Return deterministic coverage-policy violations."""
     files = report.get("files")
     if not isinstance(files, dict):
         return ["Coverage report has no files mapping"]
 
     failures = []
+    if production_paths is not None:
+        for path in sorted(production_paths - set(files)):
+            failures.append(f"Current module missing from report: {path}")
     for path in sorted(set(baseline) - set(files)):
         failures.append(f"Baseline module missing from report: {path}")
     for path, details in sorted(files.items()):
@@ -59,7 +66,14 @@ def main() -> int:
     args = parser.parse_args()
     report = json.loads(args.report.read_text())
     baseline = json.loads(args.baseline.read_text())
-    failures = check(report, baseline)
+    root = Path(__file__).resolve().parents[1]
+    component = root / "custom_components" / "opti_akku"
+    production_paths = {
+        path.relative_to(root).as_posix()
+        for path in component.rglob("*.py")
+        if "__pycache__" not in path.parts
+    }
+    failures = check(report, baseline, production_paths)
     if failures:
         print("\n".join(failures))
         return 1

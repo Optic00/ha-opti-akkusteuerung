@@ -267,13 +267,8 @@ strategy:
           option: Akku Netzladen
         target:
           entity_id: input_select.akkusteuerung_modus
-    - alias: 'Modus ''nur Entladen'' (Ladedeckel): SoC >= maxsoc, kein Balancing faellig'
+    - alias: 'Ladedeckel: oberhalb maxsoc Laden sperren, bei Reserve oder EV zusaetzlich Entladen sperren'
       conditions:
-      - alias: EV-Sperre inaktiv (Schnellladung sperrt Entladung)
-        condition: template
-        value_template: |-
-          {{ not (is_state('input_boolean.opti_ev_akku_pause', 'on')
-                  and is_state('binary_sensor.opti_ev_schnellladung', 'on')) }}
       - condition: template
         value_template: |-
           {% set maximum = states('input_number.maxsoc')|float(95) %} {% set band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
@@ -285,7 +280,12 @@ strategy:
       - action: input_select.select_option
         decision_id: maximum_soc
         data:
-          option: Akku nur Entladen
+          option: |-
+            {% set ev = is_state('input_boolean.opti_ev_akku_pause', 'on')
+                        and is_state('binary_sensor.opti_ev_schnellladung', 'on') %}
+            {{ 'Akku Pause'
+               if is_state('binary_sensor.opti_peak_reserve_aktiv', 'on') or ev
+               else 'Akku nur Entladen' }}
         target:
           entity_id: input_select.akkusteuerung_modus
     - alias: 'Modus ''nur Laden'' (Reserve halten): Prognose heute+morgen schlecht, SOC unter 20% (tag+nacht)'

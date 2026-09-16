@@ -157,3 +157,16 @@ async def test_diagnostics_handles_first_refresh_without_data(hass):
     }
     assert result["health"]["source_errors"] == {"count": 0, "roles": [], "codes": {}}
     assert result["shadow"] == {"status": "not_active", "blocked_write_attempts": 0}
+
+
+async def test_diagnostics_handles_failed_setup_without_runtime_data(hass):
+    entry = config_entry(hass)
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert result["configuration"]["shadow_mode"] is False
+    assert result["configuration"]["strategy_enabled"] is True
+    assert result["connection"]["online"] is False
+    assert result["connection"]["command_evidence"] == {}
+    assert result["health"]["source_errors"] == {"count": 0, "roles": [], "codes": {}}
+    assert result["shadow"] == {"status": "not_active", "blocked_write_attempts": 0}

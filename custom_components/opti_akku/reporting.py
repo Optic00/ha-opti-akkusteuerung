@@ -81,7 +81,9 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> 
         "command_confirmation": data.get("command_confirmation"),
         "command_evidence": deepcopy(data.get("command_evidence", {})),
         "execution_completed_at": data["last_write"].isoformat() if isinstance(data.get("last_write"), datetime) else data.get("last_write"),
-        "last_confirmed_command_at": data["last_write"].isoformat() if isinstance(data.get("last_write"), datetime) else data.get("last_write"),
+        # Retained for dashboard compatibility. No independent setpoint or
+        # physical-effect confirmation exists for the legacy field.
+        "last_confirmed_command_at": None,
         "battery_power_w": number(states.get("sensor.opti_battery_power_w")),
     }
 

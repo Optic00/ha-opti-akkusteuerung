@@ -193,7 +193,8 @@ def test_peak_survives_source_error_and_disconnect():
     assert out['current_peak']['started_at'] == NOW.isoformat()
     assert out['current_peak']['missing_seconds'] == 90
     assert out['last_peak'] is None
-    assert out['current_peak']['plan_at_start']['last_confirmed_command_at'] == NOW.isoformat()
+    assert out['current_peak']['plan_at_start']['execution_completed_at'] == NOW.isoformat()
+    assert out['current_peak']['plan_at_start']['last_confirmed_command_at'] is None
     json.dumps(report.snapshot(), allow_nan=False)
     out = observe(report, 120, {**data, 'strategy_enabled': False})
     assert out['last_peak']['end_reason'] == 'strategy_disabled'

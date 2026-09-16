@@ -23,7 +23,9 @@ Die Suite prüft unter anderem HA-Lifecycle, Konfigurationsdialoge, Migration, n
 Die CI verhindert zusätzlich Rückschritte bei der Abdeckung einzelner Module.
 Neue Module müssen mindestens 95 Prozent erreichen. Die Typprüfung startet bewusst
 mit Gerätevertrag, Befehlsnachweis, Prognosegenauigkeit, Wiederanlauf-Gate,
-Lastprofil, Anlagenbilanz und nativen Tibber-Preisen; weitere Module werden erst nach ihrer Bereinigung in die
+Lastprofil, Anlagenbilanz und nativen Tibber-Preisen. Die strikten Regeln gelten
+nur für diese sieben direkt genannten Module; deren Importe werden dabei nicht
+transitiv typgeprüft. Weitere Module werden erst nach ihrer Bereinigung in die
 verbindliche Liste aufgenommen. Ruff prüft neben Syntax und
 undefinierten Namen auch häufige Python-Fehler über die Bugbear-Regeln.
 

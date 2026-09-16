@@ -42,6 +42,17 @@ def test_new_module_and_missing_baseline_module_fail_closed():
     ]
 
 
+def test_current_module_cannot_disappear_from_report_and_baseline_together():
+    current = {
+        "custom_components/opti_akku/existing.py",
+        "custom_components/opti_akku/hidden.py",
+    }
+    failures = check(report(), BASELINE, current)
+    assert failures == [
+        "Current module missing from report: custom_components/opti_akku/hidden.py",
+    ]
+
+
 def test_malformed_report_and_baseline_are_rejected():
     assert check({}, BASELINE) == ["Coverage report has no files mapping"]
     assert check(report(), {"custom_components/opti_akku/existing.py": {}}) == [

@@ -774,7 +774,7 @@
             "name": "Last adapter execution completed"
           },
           "last_confirmed_command_at": {
-            "name": "Last completed command (legacy field)"
+            "name": "Not populated (legacy field)"
           },
           "hold_threshold_soc": {
             "name": "Current hold threshold (%)"

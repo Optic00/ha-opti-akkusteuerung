@@ -106,6 +106,16 @@ beim Neuladen erhalten. Nicht konfigurierte EV-Ladepunkte beteiligen sich
 nicht an der Entladesperre; fehlende Daten eines konfigurierten Ladepunkts
 halten eine bereits aktive Sperre weiterhin fest.
 
+Der Ladedeckel sperrt ab `maxsoc` weiteres Laden und bleibt mit drei
+Prozentpunkten Hysterese aktiv. Ohne weitere Sperre bleibt Entladen erlaubt.
+Trifft der Ladedeckel auf einen Reserve-Haltefall oder die aktive
+EV-Schnelllade-Sperre, setzt die Strategie stattdessen Pause. So entlädt sie den
+Akku nicht selbst unter den Ladedeckel, um ihn anschließend wieder bis zur
+Reserve zu laden. Die geplante Entladung während eines teuren Peak-Fensters
+bleibt davon unberührt.
+Ein fälliger Balancing-Zyklus hat weiterhin Vorrang und darf den Akku gezielt
+bis 100 Prozent laden.
+
 Der Diagnosesensor **Befehlsnachweis** trennt drei Aussagen, die nicht
 gleichgesetzt werden dürfen:
 

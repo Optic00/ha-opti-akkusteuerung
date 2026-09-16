@@ -153,6 +153,41 @@ Nach dem Halten wird erst oberhalb von Reserve plus zwei Prozentpunkten freigege
 Während der jeweils vorgesehenen teuren Stunden wird reservierte Energie weiterhin
 freigegeben.
 
+### Passiver Profilvergleich für die PV-Strategie
+
+Im Shadowmode ergänzt der Bedarfsbericht einen strikt passiven Vergleich für den
+Resttag-Score, den Morgen- und Sonnentag-Score sowie den Ziel-SoC. Er ändert keine
+Strategie-Entität, keine Reserve, keinen Modus und keinen Schreibparameter. Der
+aktive Rechenweg bleibt unverändert; der Vergleich stellt dessen Ergebnis einem
+Kandidaten gegenüber, der den erwarteten Verbrauch stundenweise integriert.
+
+Vollständig gelernte Stunden und mindestens 20 Minuten aktuelle Profilabdeckung
+ergeben den Status `ready`. Historische Recorder-Werte, der konfigurierte
+Ersatzverbrauch oder eine noch aufwärmende aktuelle Abdeckung ergeben `learning`.
+Die profilbasierte Last bleibt dann sichtbar, Score und Zielkandidat jedoch nicht.
+Fehlende Pflichtdaten werden je Vergleich als `data_missing` ausgewiesen. Ein
+fehlender Solcast-Zeitverlauf (`no_pv_timing`) verhindert diesen Vergleich nicht,
+weil er nur die vorhandenen Tages- und Restprognosen benötigt. Ein fälliger, aber
+noch nicht zeitlich eingeplanter Warmwasserbedarf bleibt dabei als
+`dhw_timing_unknown` in der Lernphase sichtbar.
+
+Der Resttag reicht exakt bis zum heutigen Sonnenuntergang. Morgen und Sonnentag
+verwenden ganze lokale Kalendertage einschließlich 23- oder 25-stündiger
+Zeitumstellungstage. Eine kurzfristige Zusatzgrundlast klingt über höchstens vier
+Stunden linear ab. Separat gemessene, gerade aktive Heizung oder Warmwasser setzt
+höchstens in der ersten Stunde eine Untergrenze und wird nicht doppelt addiert.
+
+Der Ziel-SoC-Vergleich verwendet dieselben Stufengrenzen und dieselbe Hysterese wie
+die aktive Vorlage. Er beginnt bei der vor dem aktuellen Rechenschritt aktiven
+Stufe und zeigt daher einen einzelnen vergleichbaren Schritt, keine fortlaufende
+alternative Regelung. Sein Horizont reicht je nach Sonnenuntergang mindestens
+0,5 und höchstens 12 Stunden voraus. Fehlt der nächste Sonnenuntergang, bleibt der
+Vergleich `data_missing`; die aktive Vorlage verwendet in diesem Fall weiterhin
+ihren bisherigen Sechs-Stunden-Ersatz. Bei freigegebenem Netzladen gilt auch im
+Vergleich Max-SoC.
+Der Support-Export enthält hiervon nur Status und Grundcodes, keine Energiewerte,
+Zeitfenster, Profile oder Quellnamen.
+
 ### PV-Vorbereitung fürs Auto (0.5.2b4)
 
 Unter **Konfigurieren → PV-Vorbereitung fürs Auto** kann der Hausakku bei niedrigem

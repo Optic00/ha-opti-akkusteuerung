@@ -140,6 +140,36 @@ def test_maxsoc_and_disabled_manual_policy():
     assert apply_preparation(e, p)[0] == before
 
 
+def test_preparation_waits_when_pv_policy_does_not_allow_reserving_energy():
+    states, measurements = fixture()
+    result = step(EVPreparation(), states, measurements, can_prepare=False)
+    assert result["status"] == "waiting_surplus"
+    assert result["ready"] is False
+
+
+@pytest.mark.parametrize(
+    "cfg,maximum",
+    [
+        ({**CFG, "vehicle_threshold": 96}, 95),
+        ({**CFG, "house_target": 49}, 95),
+        (CFG, None),
+    ],
+)
+def test_invalid_preparation_limits_fail_closed(cfg, maximum):
+    states, measurements = fixture()
+    result = EVPreparation().update(cfg, states, NOW, measurements, maximum, True)
+    assert result["status"] == "data_missing"
+    assert result["ready"] is False
+
+
+def test_missing_house_measurement_never_authorizes_preparation():
+    states, measurements = fixture()
+    measurements.pop("sensor.opti_grid_import_w")
+    result = step(EVPreparation(), states, measurements)
+    assert result["status"] == "data_missing"
+    assert result["ready"] is False
+
+
 def test_signal_guard_detects_arrival_during_bus_wait_and_expiry():
     s, m = fixture()
     before = signals(CFG, s, NOW)

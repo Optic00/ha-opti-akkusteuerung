@@ -111,6 +111,9 @@ class SmaDevice:
 
     supported_modes = MODES
     supports_control_release = False
+    command_execution_basis = "modbus_write_sequence"
+    setpoint_readback_capability = "not_supported"
+    setpoint_readback_limitation = "bms_and_setpoints_not_read_back"
 
     def __init__(
         self,
@@ -336,7 +339,7 @@ class SmaDevice:
         # A incomplete/late set is not a successful refresh. The caller cleans up.
         async with asyncio.timeout(BMS_TRANSACTION_SECONDS):
             registers = (
-                *zip((40793, 40795, 40797, 40799), windows),
+                *zip((40793, 40795, 40797, 40799), windows, strict=True),
                 (40801, 0),
                 (opmod_address, opmod),
             )

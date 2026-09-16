@@ -15,7 +15,7 @@ from homeassistant.helpers.entity import EntityCategory
 from .entity import OptiAkkuEntity, coordinator_data, readable_name
 
 SENSOR_PREFIXES = ("sensor.", "counter.", "input_datetime.")
-DIAGNOSTICS = ("mode", "reason", "last_write", "last_error", "source_errors", "price_provider_error", "price_last_success", "notification_error", "load_profile", "control_release", "device_errors", "command_confirmation", "pause_pending", "reserve_plan", "operating_report", "price_status", "demand_forecast", "source_observation", "connection_status", "ev_preparation")
+DIAGNOSTICS = ("mode", "reason", "last_write", "last_error", "source_errors", "price_provider_error", "price_last_success", "notification_error", "load_profile", "control_release", "device_errors", "command_confirmation", "command_evidence", "pause_pending", "reserve_plan", "operating_report", "price_status", "demand_forecast", "source_observation", "connection_status", "ev_preparation")
 CORE_UNITS = {"soc": "%", "battery_temp": "°C", "battery_capacity_kwh": "kWh",
               "battery_power_w": "W", "pv_power_w": "W", "pv_generation_w": "W",
               "grid_import_w": "W", "grid_export_w": "W", "house_consumption_w": "W",
@@ -37,7 +37,7 @@ async def async_setup_entry(
             async_add_entities(OptiAkkuStateSensor(entry, key) for key in keys)
 
     add_new_entities()
-    async_add_entities((OptiAkkuReportSensor if key in ("reserve_plan", "operating_report", "demand_forecast", "source_observation", "connection_status", "ev_preparation") else OptiAkkuDiagnosticSensor)(entry, key) for key in DIAGNOSTICS)
+    async_add_entities((OptiAkkuReportSensor if key in ("command_evidence", "reserve_plan", "operating_report", "demand_forecast", "source_observation", "connection_status", "ev_preparation") else OptiAkkuDiagnosticSensor)(entry, key) for key in DIAGNOSTICS)
     if coordinator.shadow_mode:
         async_add_entities([OptiAkkuDiagnosticSensor(entry, "shadow_status")])
     entry.async_on_unload(coordinator.async_add_listener(add_new_entities))
@@ -129,6 +129,9 @@ class OptiAkkuDiagnosticSensor(OptiAkkuEntity, SensorEntity):
         if key == "command_confirmation":
             self._attr_device_class = SensorDeviceClass.ENUM
             self._attr_options = ["pending", "idle_or_confirmed", "waiting_ready"]
+        if key == "command_evidence":
+            self._attr_device_class = SensorDeviceClass.ENUM
+            self._attr_options = ["observation", "not_attempted", "waiting_ready", "pending", "completed", "failed", "superseded"]
         if key == "pause_pending":
             self._attr_device_class = SensorDeviceClass.ENUM
             self._attr_options = ["pending", "clear"]
@@ -144,7 +147,7 @@ class OptiAkkuDiagnosticSensor(OptiAkkuEntity, SensorEntity):
     @property
     def native_value(self) -> Any:
         value = coordinator_data(self).get(self._data_key)
-        if self._data_key in ("reserve_plan", "operating_report", "demand_forecast", "source_observation", "connection_status", "ev_preparation"):
+        if self._data_key in ("command_evidence", "reserve_plan", "operating_report", "demand_forecast", "source_observation", "connection_status", "ev_preparation"):
             return value.get("status") if isinstance(value, dict) else None
         if self._data_key == "pause_pending":
             return "pending" if value else "clear"
@@ -163,7 +166,7 @@ class OptiAkkuDiagnosticSensor(OptiAkkuEntity, SensorEntity):
         if self._data_key == "shadow_status":
             return coordinator_data(self).get("shadow_summary", {})
         value = coordinator_data(self).get(self._data_key)
-        if self._data_key in ("reserve_plan", "operating_report", "demand_forecast", "source_observation", "connection_status", "ev_preparation") and isinstance(value, dict):
+        if self._data_key in ("command_evidence", "reserve_plan", "operating_report", "demand_forecast", "source_observation", "connection_status", "ev_preparation") and isinstance(value, dict):
             return {key: item for key, item in value.items() if key != "status"}
         return {"details": value} if isinstance(value, (dict, list, tuple, set)) else None
 

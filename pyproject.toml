@@ -14,4 +14,18 @@ target-version = "py314"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "B"]
+
+[tool.mypy]
+files = [
+  "custom_components/opti_akku/command_evidence.py",
+  "custom_components/opti_akku/demand_accuracy.py",
+  "custom_components/opti_akku/device.py",
+  "custom_components/opti_akku/load_profile.py",
+  "custom_components/opti_akku/plant.py",
+  "custom_components/opti_akku/recovery.py",
+  "custom_components/opti_akku/tibber_prices.py",
+]
+strict = true
+follow_imports = "skip"
+ignore_missing_imports = true

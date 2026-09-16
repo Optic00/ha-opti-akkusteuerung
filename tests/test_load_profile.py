@@ -100,7 +100,9 @@ def test_floor_is_applied_after_mean_and_zero_remains_zero_without_floor():
     assert floored.forecast_w == 80
 
 
-@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), -1, "invalid", True])
+@pytest.mark.parametrize(
+    "bad_value", [float("nan"), float("inf"), -1, "invalid", True, object()]
+)
 def test_non_finite_observation_is_invalid(bad_value):
     profile = LoadProfile()
     result = observe(profile, 0, bad_value)
@@ -176,3 +178,69 @@ def test_restore_rejects_snapshot_over_sample_cap():
         ],
     }
     assert not profile.restore(snapshot, now=START + timedelta(seconds=5), fingerprint="plant-a")
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"window_seconds": 0},
+        {"max_gap_seconds": float("nan")},
+        {"window_seconds": 10, "max_gap_seconds": 5, "max_samples": 3},
+    ],
+)
+def test_invalid_profile_bounds_are_rejected(kwargs):
+    with pytest.raises(ValueError):
+        LoadProfile(**kwargs)
+
+
+def test_fingerprint_must_be_text_for_observe_and_restore():
+    profile = LoadProfile()
+    with pytest.raises(TypeError, match="fingerprint"):
+        profile.observe(100, START, None)
+    with pytest.raises(TypeError, match="fingerprint"):
+        profile.restore({}, now=START, fingerprint=None)
+
+
+@pytest.mark.parametrize(
+    "snapshot",
+    [
+        None,
+        {"version": 2, "fingerprint": "plant-a", "samples": []},
+        {"version": 1, "fingerprint": "plant-a", "samples": ["invalid"]},
+    ],
+)
+def test_restore_rejects_untrusted_snapshot_shapes(snapshot):
+    profile = LoadProfile()
+    assert not profile.restore(snapshot, now=START, fingerprint="plant-a")
+    assert profile.snapshot() == {"version": 1, "fingerprint": "plant-a", "samples": []}
+
+
+def test_sample_cap_compacts_redundant_points_without_changing_curve():
+    profile = LoadProfile(window_seconds=10, max_gap_seconds=5, max_samples=4)
+    for second in range(6):
+        result = profile.observe(500, START + timedelta(seconds=second), "plant-a")
+    assert len(profile.snapshot()["samples"]) == 4
+    assert result.raw_mean_w == 500
+    assert result.coverage_seconds == 5
+
+
+def test_same_timestamp_replaces_sample_instead_of_double_counting():
+    profile = LoadProfile(max_gap_seconds=60)
+    observe(profile, 0, 100)
+    observe(profile, 0, 500)
+    result = observe(profile, 30, 500)
+    assert len(profile.snapshot()["samples"]) == 2
+    assert result.raw_mean_w == 500
+    assert result.coverage_seconds == 30
+
+
+def test_window_trim_keeps_only_the_needed_predecessor():
+    profile = LoadProfile(window_seconds=60, max_gap_seconds=60)
+    observe(profile, 0, 100)
+    observe(profile, 30, 200)
+    result = observe(profile, 120, 300)
+    samples = profile.snapshot()["samples"]
+    assert len(samples) == 2
+    assert samples[0]["timestamp"] == (START + timedelta(seconds=30)).isoformat()
+    assert result.raw_mean_w == 200
+    assert result.coverage_seconds == 30

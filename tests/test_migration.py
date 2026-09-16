@@ -69,10 +69,12 @@ async def test_invalid_pair_never_partially_imported(hass, low, high, unit):
 async def test_boolean_and_allowlist(hass):
     seed(hass)
     hass.states.async_set("input_boolean.opti_prognose_netzladen", "unavailable")
-    values, report = snapshot(hass.states, {k: k for k in ["input_boolean.akku_opti_automatik", "input_boolean.opti_ev_akku_pause", "input_boolean.opti_prognose_netzladen"]})
-    assert not values
+    hass.states.async_set("input_boolean.opti_pv_ueberschuss_ladung", "off")
+    values, report = snapshot(hass.states, {k: k for k in ["input_boolean.akku_opti_automatik", "input_boolean.opti_ev_akku_pause", "input_boolean.opti_prognose_netzladen", "input_boolean.opti_pv_ueberschuss_ladung"]})
+    assert values == {"input_boolean.opti_pv_ueberschuss_ladung": False}
     assert "input_boolean.akku_opti_automatik" not in report
     assert report["input_boolean.opti_prognose_netzladen"]["status"] == "invalid"
+    assert report["input_boolean.opti_pv_ueberschuss_ladung"]["status"] == "accepted"
 
 
 async def test_renamed_helpers_resnapshot_and_cancel(hass):

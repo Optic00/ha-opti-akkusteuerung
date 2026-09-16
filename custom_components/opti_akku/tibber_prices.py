@@ -41,7 +41,9 @@ class TibberPriceSnapshot:
     intervals: tuple[PriceInterval, ...]
     entry_id: str
 
-    def normalized(self, now: datetime, max_age: float, home: str) -> tuple[float, dict, dict]:
+    def normalized(
+        self, now: datetime, max_age: float, home: str
+    ) -> tuple[float, dict[str, Any], dict[str, Any]]:
         """Select today's actual intervals, never relabel the day of a cached array."""
         if home != self.home:
             raise TibberPriceError("tibber_home_mismatch")
@@ -60,6 +62,8 @@ class TibberPriceSnapshot:
             tomorrow_prices = _price_slots(tomorrow_slots, 1, tomorrow) if tomorrow_slots else []
         except ValueError as err:
             raise TibberPriceError("invalid_price_series") from err
+        # A validated complete local day contains ``now``. Keep the guard for
+        # future providers that may supply explicitly sparse intervals.
         current = next((i for i in self.intervals if i.start <= now < i.end), None)
         if current is None:
             raise TibberPriceError("missing_or_stale")

@@ -106,6 +106,32 @@ beim Neuladen erhalten. Nicht konfigurierte EV-Ladepunkte beteiligen sich
 nicht an der Entladesperre; fehlende Daten eines konfigurierten Ladepunkts
 halten eine bereits aktive Sperre weiterhin fest.
 
+Der Ladedeckel sperrt ab `maxsoc` weiteres Laden und bleibt mit drei
+Prozentpunkten Hysterese aktiv. Ohne weitere Sperre bleibt Entladen erlaubt.
+Trifft der Ladedeckel auf einen Reserve-Haltefall oder die aktive
+EV-Schnelllade-Sperre, setzt die Strategie stattdessen Pause. So entlädt sie den
+Akku nicht selbst unter den Ladedeckel, um ihn anschließend wieder bis zur
+Reserve zu laden. Die geplante Entladung während eines teuren Peak-Fensters
+bleibt davon unberührt.
+Ein fälliger Balancing-Zyklus hat weiterhin Vorrang und darf den Akku gezielt
+bis 100 Prozent laden.
+
+Der Diagnosesensor **Befehlsnachweis** trennt drei Aussagen, die nicht
+gleichgesetzt werden dürfen:
+
+- **Adapterausführung abgeschlossen** bedeutet bei SMA nur, dass die
+  Modbus-Schreibsequenz ohne gemeldeten Fehler beendet wurde. Die verwendeten
+  BMS- und Sollwertregister werden nicht zurückgelesen.
+- Bei Huawei werden verfügbare Steuerentitäten und der Forced-Status geprüft.
+  Diese Rücklesung bleibt partiell, weil die TOU-Tabelle nicht unabhängig
+  zurückgelesen werden kann.
+- **Physische Wirkung** bleibt unbestätigt. Eine gemessene Akkuleistung oder
+  das Ausbleiben einer Sperrverletzung beweist keine exakte Sollwertübernahme.
+
+Der ältere Sensor **Befehlsbestätigung** bleibt aus Kompatibilitätsgründen
+erhalten. Sein Zustand **Kein offener Befehl** sagt nur, dass aktuell keine
+Transaktion aussteht.
+
 Beim Ausschalten versucht die Integration, den Wechselrichter in Pause zu
 setzen. Das ist ein Best-Effort-Vorgang. Hardware-, Netzwerk- oder
 Protokollfehler können den Stopp verhindern. Auch eine bestätigte Pause ist
@@ -113,3 +139,13 @@ keine nachgewiesene dauerhafte Sperre. Ob und wann der Wechselrichter nach einem
 Timeout oder HA-Ausfall seine Eigenregelung übernimmt, wurde nicht unabhängig
 nachgewiesen. Der Diagnosesensor **Rückgabe an Gerätesteuerung** zeigt diese
 fehlende Fähigkeit ausdrücklich als **Nicht unterstützt** an.
+
+## Diagnose herunterladen
+
+Unter **Einstellungen -> Geräte & Dienste -> Opti Akku -> Drei-Punkte-Menü ->
+Diagnose herunterladen** stellt Home Assistant eine kompakte Support-Datei
+bereit. Sie enthält Betriebsart, Verbindungs- und Funktionsstatus sowie
+zusammengefasste Fehlercodes. Hostnamen, IP-Adressen, Seriennummern, Entity-IDs,
+Fahrzeugdaten, Messwerte und Historien werden nicht exportiert. Prüfe die Datei
+trotzdem vor einer Veröffentlichung und teile sie bevorzugt über die
+Issue-Vorlage statt als vollständige Home-Assistant-Konfiguration.

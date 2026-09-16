@@ -79,7 +79,11 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> 
         "current_soc": soc, "requested_mode": data.get("mode"),
         "decision_reason": data.get("reason"),
         "command_confirmation": data.get("command_confirmation"),
-        "last_confirmed_command_at": data["last_write"].isoformat() if isinstance(data.get("last_write"), datetime) else data.get("last_write"),
+        "command_evidence": deepcopy(data.get("command_evidence", {})),
+        "execution_completed_at": data["last_write"].isoformat() if isinstance(data.get("last_write"), datetime) else data.get("last_write"),
+        # Retained for dashboard compatibility. No independent setpoint or
+        # physical-effect confirmation exists for the legacy field.
+        "last_confirmed_command_at": None,
         "battery_power_w": number(states.get("sensor.opti_battery_power_w")),
     }
 
@@ -250,6 +254,7 @@ class OperatingReport:
             "requested_mode": data.get("engine_requested_mode"),
             "effective_mode": data.get("mode"),
             "command_result_this_update": data.get("command_result_this_update", "not_attempted"),
+            "command_evidence": deepcopy(data.get("command_evidence", {})),
             "write_enabled": data.get("write_enabled") is True,
             "reason": data.get("reason"),
         }

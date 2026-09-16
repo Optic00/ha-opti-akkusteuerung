@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-from custom_components.opti_akku.observation import SourceObservation
+from custom_components.opti_akku.observation import SourceObservation, finite
 from custom_components.opti_akku.recovery import RecoveryState
 
 NOW = datetime(2026, 9, 15, tzinfo=UTC)
@@ -217,3 +217,39 @@ def test_clock_rollback_resets_observation_coverage():
     result = observe(model, NOW + timedelta(seconds=10), m, s, o)
     assert result["gross_comparison_covered_seconds"] == 0
     assert not model.bins
+
+
+def test_restore_rejects_untrusted_observation_shapes_and_values():
+    valid_row = {
+        "seconds": 0,
+        "native_ws": 0,
+        "legacy_ws": 0,
+        "absolute_difference_ws": 0,
+    }
+    invalid = [
+        None,
+        {"version": 1, "binding": "test", "bins": [], "events": []},
+        {"version": 1, "binding": "test", "bins": {"bad": valid_row}, "events": []},
+        {
+            "version": 1,
+            "binding": "test",
+            "bins": {"0": {**valid_row, "seconds": -1}},
+            "events": [],
+        },
+        {"version": 1, "binding": None, "bins": {}, "events": []},
+        {"version": 1, "binding": object(), "bins": {}, "events": []},
+        {
+            "version": 1,
+            "binding": "test",
+            "bins": {},
+            "events": [{"at": "now", "padding": "x" * 2_000_000}],
+        },
+    ]
+    for saved in invalid:
+        model = SourceObservation()
+        model.restore(saved)
+        assert model.snapshot() == {"version": 1, "binding": None, "bins": {}, "events": []}
+
+
+def test_non_numeric_observation_value_is_missing():
+    assert finite(object()) is None

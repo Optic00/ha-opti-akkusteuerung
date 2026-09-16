@@ -97,7 +97,10 @@ def pv_intervals(states, sources, now):
         except KeyError, ValueError, TypeError, AttributeError:
             return []
     ordered = sorted(rows.items())
-    if any(b[0] - a[0] < timedelta(minutes=30) for a, b in zip(ordered, ordered[1:])):
+    if any(
+        b[0] - a[0] < timedelta(minutes=30)
+        for a, b in zip(ordered, ordered[1:], strict=False)
+    ):
         return []
     return ordered
 
@@ -271,8 +274,7 @@ class DemandForecast:
             for k in ("summer_mode", "heating_active", "dhw_active", "dhw_due")
         )
         context_valid = context_valid and not (heating is True and dhw is True)
-        valid = valid and context_valid
-        base = house - heat if valid else None
+        base = house - heat if valid and context_valid else None
         self._learn(now, base, heat, heat if dhw is True else 0.0, context, timezone)
         recent = self.recent.observe(base, now, fingerprint)
         out.update(
@@ -294,10 +296,7 @@ class DemandForecast:
         )
         if not valid:
             return {**out, "status": "data_missing", "detail": "house_or_heat_power"}
-        if any(
-            sources.get(k) and get(k, "flag") is None
-            for k in ("summer_mode", "heating_active", "dhw_active", "dhw_due")
-        ):
+        if not context_valid:
             return {**out, "status": "data_missing", "detail": "heat_context_unknown"}
         outdoor = get("outdoor_temperature", "temperature") if cfg.get("temperature_matching") is True else None
         expected_now = self._expected(now, context, timezone)

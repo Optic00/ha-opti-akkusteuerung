@@ -10,7 +10,9 @@ body:
         IP-Adressen, Hostnamen, Personen-, Standort- oder Fahrzeugdaten veröffentlichen.
         Keine vollständigen HA-Backups, Konfigurationen oder Shadow-Aufzeichnungen anhängen.
         Logs und Screenshots vor dem Teilen selbst prüfen; automatische Anonymisierung wird nicht zugesichert.
-        Ausgewählte Diagnosewerte oder ein kurzer bereinigter Fehlertext reichen für den Einstieg.
+        Bei der HACS-Integration hilft der geprüfte Diagnoseexport aus Home Assistant.
+        Er ist unter **Einstellungen → Geräte & Dienste → Opti Akku → Drei-Punkte-Menü → Diagnose herunterladen** verfügbar.
+        Wenn die Einrichtung vorher scheitert, genügt ein kurzer bereinigter Fehlertext.
         Schreibzugriffe nicht eigens zur Reproduktion eines Fehlers aktivieren.
   - type: checkboxes
     id: preparation
@@ -61,6 +63,7 @@ body:
         - Manuell installiert oder aktualisiert
         - Bestehende manuelle Integration durch HACS übernommen
         - Migration von YAML mit der Migrationshilfe
+        - Unveränderte Legacy-YAML aus dem Archiv
         - Anderer Weg oder unbekannt
     validations:
       required: true
@@ -93,6 +96,5 @@ body:
   - type: textarea
     id: evidence
     attributes:
-      label: Bereinigter Fehlertext oder ausgewählte Diagnosewerte (optional)
-      description: Nur zum Fehler passende Werte von Diagnoseentitäten oder kurze Logauszüge. Ausgewählte Werte der Diagnoseentitäten reichen aus; vollständige Aufzeichnungen sind nicht nötig. Auch Entity-IDs und Fehlermeldungen können private Angaben enthalten.
-      render: text
+      label: Geprüfter Diagnoseexport oder bereinigter Fehlertext (optional)
+      description: Bei einer eingerichteten HACS-Integration möglichst den Diagnoseexport aus Home Assistant als Datei anhängen und vor dem Hochladen selbst prüfen. Wenn kein Export verfügbar ist, nur zum Fehler passende Diagnosewerte oder kurze Logauszüge einfügen und den Grund kurz nennen. Vollständige Konfigurationen und Aufzeichnungen sind nicht nötig. Auch Entity-IDs und Fehlermeldungen können private Angaben enthalten.

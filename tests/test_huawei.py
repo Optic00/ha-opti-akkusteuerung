@@ -75,6 +75,44 @@ def make_backend(hass, *, entry=None, source_device="child", **kwargs):
     ), entry, inverter, child
 
 
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"entry_id": ""},
+        {"device_id": ""},
+        {"sources": []},
+        {"grid_positive": "sideways"},
+        {"source_max_age": True},
+        {"source_max_age": "invalid"},
+        {"source_max_age": float("inf")},
+        {"source_max_age": -1},
+        {"sources": {**SOURCES, "unknown": "sensor.unknown"}},
+        {"sources": {key: value for key, value in SOURCES.items() if key != "soc"}},
+        {"sources": {**SOURCES, "soc": ""}},
+        {"sources": {**SOURCES, "soc": SOURCES["battery_capacity_kwh"]}},
+        {"read_only": "yes"},
+        {"grid_charge_for_surplus": "yes"},
+        {"read_only": False},
+    ],
+)
+def test_constructor_rejects_unsafe_topologies_and_types(hass, override):
+    values = {
+        "entry_id": "entry",
+        "device_id": "device",
+        "sources": SOURCES,
+        **override,
+    }
+    with pytest.raises(HuaweiConfigurationError):
+        HuaweiDevice(hass, **values)
+
+
+def test_command_evidence_capabilities_are_explicit(hass):
+    backend, _, _, _ = make_backend(hass)
+    assert backend.command_execution_basis == "ha_service_and_entity_checks"
+    assert backend.setpoint_readback_capability == "partial"
+    assert backend.setpoint_readback_limitation == "tou_schedule_not_independently_read_back"
+
+
 async def test_probe_uses_device_registry_identity(hass):
     backend, _, _, _ = make_backend(hass)
     assert await backend.async_probe() == {
@@ -99,6 +137,17 @@ async def test_read_normalizes_units_and_signed_grid(hass):
     assert values["sensor.opti_grid_export_w"] == 500
     assert values["sensor.opti_inverter_status"] == "unavailable"
     assert not backend.last_read_errors
+
+
+async def test_value_boundaries_and_read_only_shutdown_are_fail_closed(hass):
+    backend, _, _, _ = make_backend(hass)
+    assert backend._finite(True) is None
+    assert backend._value("not_configured", dt_util.utcnow(), {"W": 1}) is None
+    hass.states.async_set(SOURCES["soc"], 101, {"unit_of_measurement": "%"})
+    values = await backend.async_read()
+    assert values["sensor.opti_soc"] is None
+    assert backend.last_read_errors["soc"] == "invalid_value"
+    await backend.async_shutdown_control()
 
 
 async def test_explicit_import_positive_grid_sign(hass):

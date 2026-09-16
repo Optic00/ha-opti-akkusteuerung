@@ -52,11 +52,25 @@ def test_restart_preserves_trial_but_cuts_offline_energy():
     assert out["pending"]["missing_seconds"] == 60
 
 
+def test_snapshot_only_persists_state_that_restore_uses():
+    tracker = DemandAccuracy()
+    tracker.observe(NOW, 600, plan())
+
+    assert set(tracker.snapshot()) == {"version", "pending"}
+
+
 def test_unknown_latest_sample_prevents_energy_in_next_interval():
     tracker = DemandAccuracy()
     tracker.observe(NOW, None, plan())
     out = tracker.observe(NOW + timedelta(minutes=1), 600, plan())
     assert out["pending"]["missing_seconds"] == 60
+
+
+def test_clock_rollback_discards_in_progress_trial():
+    tracker = DemandAccuracy()
+    tracker.observe(NOW, 600, plan())
+    out = tracker.observe(NOW - timedelta(minutes=1), 600, {"status": "data_missing"})
+    assert out == {"pending": None, "completed": []}
 
 
 def test_bad_snapshot_does_not_break_observer():
@@ -65,7 +79,124 @@ def test_bad_snapshot_does_not_break_observer():
     assert tracker.pending is None
 
 
+@pytest.mark.parametrize(
+    "saved",
+    [
+        None,
+        {"version": 2, "pending": {}},
+        {"version": 1, "pending": []},
+        {
+            "version": 1,
+            "pending": {
+                "start": "2026-09-14T06:00:00",
+                "end": "2026-09-14T07:00:00",
+                "last": "2026-09-14T06:30:00",
+                "predicted_kwh": 0.5,
+                "actual_kwh": 0.2,
+                "covered_seconds": 1800,
+                "missing_seconds": 0,
+            },
+        },
+        {
+            "version": 1,
+            "pending": {
+                "start": NOW.isoformat(),
+                "end": (NOW + timedelta(hours=1)).isoformat(),
+                "last": NOW.isoformat(),
+                "predicted_kwh": 10**400,
+                "actual_kwh": 0.2,
+                "covered_seconds": 1800,
+                "missing_seconds": 0,
+            },
+        },
+        {
+            "version": 1,
+            "pending": {
+                "start": 1,
+                "end": (NOW + timedelta(hours=1)).isoformat(),
+                "last": NOW.isoformat(),
+                "predicted_kwh": 0.5,
+                "actual_kwh": 0.2,
+                "covered_seconds": 1800,
+                "missing_seconds": 0,
+            },
+        },
+        {
+            "version": 1,
+            "pending": {
+                "start": NOW.isoformat(),
+                "end": (NOW + timedelta(hours=1)).isoformat(),
+                "last": (NOW - timedelta(minutes=1)).isoformat(),
+                "predicted_kwh": 0.5,
+                "actual_kwh": 0.2,
+                "covered_seconds": 1800,
+                "missing_seconds": 0,
+            },
+        },
+        {
+            "version": 1,
+            "pending": {
+                "start": NOW.isoformat(),
+                "end": (NOW + timedelta(hours=1)).isoformat(),
+                "last": NOW.isoformat(),
+                "predicted_kwh": float("nan"),
+                "actual_kwh": 0.2,
+                "covered_seconds": 1800,
+                "missing_seconds": 0,
+            },
+        },
+        {
+            "version": 1,
+            "pending": {
+                "start": NOW.isoformat(),
+                "end": (NOW + timedelta(hours=1)).isoformat(),
+                "last": NOW.isoformat(),
+                "predicted_kwh": 1200.1,
+                "actual_kwh": 0.2,
+                "covered_seconds": 1800,
+                "missing_seconds": 0,
+            },
+        },
+        {
+            "version": 1,
+            "pending": {
+                "start": NOW.isoformat(),
+                "end": (NOW + timedelta(hours=1)).isoformat(),
+                "last": NOW.isoformat(),
+                "predicted_kwh": True,
+                "actual_kwh": 0.2,
+                "covered_seconds": 1800,
+                "missing_seconds": 0,
+            },
+        },
+    ],
+)
+def test_restore_rejects_untrusted_or_implausible_pending_trials(saved):
+    tracker = DemandAccuracy()
+    tracker.restore(saved)
+    assert tracker.pending is None
+
+
 def test_no_pv_or_disabled_does_not_create_trial():
     tracker = DemandAccuracy()
     out = tracker.observe(NOW, 600, {"status": "no_pv_timing"})
     assert out["pending"] is None
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"pv_cover_from": "not-a-date"},
+        {"pv_cover_from": (NOW + timedelta(hours=1)).replace(tzinfo=None).isoformat()},
+        {"expected_load_kwh": float("nan")},
+        {"expected_load_kwh": True},
+        {"expected_load_kwh": 1200.1},
+        {"expected_load_kwh": 10**400},
+    ],
+)
+def test_invalid_prediction_does_not_start_accuracy_trial(changes):
+    tracker = DemandAccuracy()
+
+    out = tracker.observe(NOW, 600, {**plan(), **changes})
+
+    assert out == {"pending": None, "completed": []}

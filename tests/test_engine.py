@@ -62,6 +62,28 @@ def solar_attrs(now=NOW):
     }}
 
 
+def peak_maxsoc_inputs(soc, **overrides):
+    states = measurements(**{
+        SOC: soc,
+        CAPACITY: 1,
+        MODE: "Akku nur Laden",
+        "input_number.maxsoc": 95,
+        "sensor.opti_house_consumption_w": 5000,
+        "sensor.opti_forecast_today_kwh": 0,
+        "sensor.opti_forecast_tomorrow_kwh": 0,
+        "sensor.opti_forecast_remaining_today_kwh": 0,
+        "sensor.opti_price_current_ct_kwh": 10,
+        "sun.sun": "below_horizon",
+        **overrides,
+    })
+    attributes = solar_attrs()
+    attributes["sensor.opti_price_series"] = {
+        "today": [10] * 18 + [50] * 6,
+        "tomorrow": [10] * 24,
+    }
+    return states, attributes
+
+
 def evaluate(engine=None, states=None, attributes=None, now=NOW):
     return (engine or StrategyEngine()).evaluate(
         measurements() if states is None else states,
@@ -406,6 +428,99 @@ def test_peak_reserve_pipeline_accepts_supported_price_grids(length):
     assert result.mode == "Akku Netzladen"
 
 
+@pytest.mark.parametrize(
+    ("soc", "expected_mode", "reason_prefix"),
+    [
+        (94.9, "Akku nur Laden", "Peak-Leiter L4"),
+        (95, "Akku Pause", "Ladedeckel"),
+        (96, "Akku Pause", "Ladedeckel"),
+        (98, "Akku Pause", "Ladedeckel"),
+    ],
+)
+def test_maxsoc_precedes_peak_reserve_holding(soc, expected_mode, reason_prefix):
+    states, attributes = peak_maxsoc_inputs(soc)
+    result = evaluate(states=states, attributes=attributes)
+
+    assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "on"
+    assert float(result.states["sensor.opti_peak_reserve_soc"]) == 95
+    assert result.mode == expected_mode
+    assert result.reason.startswith(reason_prefix)
+    assert result.states["sensor.opti_strategie_vorschau"] == result.mode
+    assert result.attributes["sensor.opti_strategie_vorschau"]["grund"] == result.reason
+    assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+
+
+def test_maxsoc_peak_latch_survives_restore_and_releases_below_band():
+    engine = StrategyEngine()
+    for minute, (soc, expected_deckel, expected_mode) in enumerate([
+        (95, "on", "Akku Pause"),
+        (94, "on", "Akku Pause"),
+    ]):
+        states, attributes = peak_maxsoc_inputs(soc)
+        result = evaluate(engine, states, attributes, NOW + dt.timedelta(minutes=minute))
+        assert result.states[DECKEL] == expected_deckel
+        assert result.mode == expected_mode
+
+    restored = StrategyEngine()
+    restored.restore(json.loads(json.dumps(engine.snapshot(), allow_nan=False)))
+    for minute, (soc, expected_deckel, expected_mode) in enumerate([
+        (92, "on", "Akku Pause"),
+        (91.9, "off", "Akku Netzladen"),
+    ], start=2):
+        states, attributes = peak_maxsoc_inputs(soc)
+        result = evaluate(restored, states, attributes, NOW + dt.timedelta(minutes=minute))
+        assert result.states[DECKEL] == expected_deckel
+        assert result.mode == expected_mode
+
+
+def test_maxsoc_with_ev_discharge_block_uses_pause():
+    states, attributes = peak_maxsoc_inputs(
+        95,
+        **{
+            "input_boolean.opti_ev_akku_pause": "on",
+            "binary_sensor.opti_ev_schnellladung": "on",
+        },
+    )
+    attributes["sensor.opti_price_series"] = {
+        "today": [10] * 24,
+        "tomorrow": [10] * 24,
+    }
+    result = evaluate(states=states, attributes=attributes)
+
+    assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "off"
+    assert result.mode == "Akku Pause"
+    assert result.reason == "Ladedeckel (maxsoc erreicht; EV-Entladesperre)"
+    assert result.states["sensor.opti_strategie_vorschau"] == result.mode
+
+
+@pytest.mark.parametrize(
+    ("states_override", "expected_watchdog", "expected_mode"),
+    [
+        ({"sun.sun": "above_horizon"}, "pv", "Akku nur Laden"),
+        ({"input_boolean.opti_balancing_netzladen": "on", "sensor.opti_price_current_ct_kwh": -1}, "netz", "Akku Netzladen"),
+    ],
+)
+@pytest.mark.parametrize("soc", [95, 99, 100])
+def test_balancing_still_precedes_maxsoc_at_upper_soc_boundary(
+    soc, states_override, expected_watchdog, expected_mode
+):
+    states, attributes = peak_maxsoc_inputs(
+        soc,
+        **{
+            DAYS: 7,
+            "input_number.opti_balancing_intervall_tage": 7,
+            **states_override,
+        },
+    )
+    result = evaluate(states=states, attributes=attributes)
+
+    if soc < 100:
+        assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "on"
+    assert result.states["sensor.opti_balancing_watchdog"] == expected_watchdog
+    assert result.mode == expected_mode
+    assert result.reason.startswith("Balancing-Watchdog")
+
+
 def test_malformed_price_grid_disables_peak_reserve():
     attrs = solar_attrs()
     attrs["sensor.opti_price_series"] = {"today": [10, 20, 30, 40, 50], "tomorrow": []}
@@ -658,3 +773,128 @@ def test_new_integration_defaults_do_not_opt_into_automatic_grid_charging(price)
     assert evaluate(states=states, attributes=attrs).mode != "Akku Netzladen"
     states["input_boolean.opti_prognose_netzladen"] = True
     assert evaluate(states=states, attributes=attrs).mode == "Akku Netzladen"
+
+
+def test_invalid_bundled_resource_shape_is_rejected_before_use():
+    with pytest.raises(ValueError, match="Unsupported strategy resource version"):
+        StrategyEngine({"schema_version": 2})
+
+    duplicate = {
+        "schema_version": 1,
+        "template_blocks": [
+            {
+                "sensor": [
+                    {"unique_id": "duplicate", "state": "1"},
+                    {"unique_id": "duplicate", "state": "2"},
+                ]
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="Duplicate internal entity"):
+        StrategyEngine(duplicate)
+
+
+def test_restore_ignores_invalid_sample_collections():
+    engine = StrategyEngine()
+    engine.restore(
+        {
+            "version": 1,
+            "helpers": {},
+            "states": {},
+            "attributes": {},
+            "samples": {"not-a-list": "bad", "mixed": [[1, 2], ["bad", 3], [4]]},
+        }
+    )
+
+    assert "not-a-list" not in engine.snapshot()["samples"]
+    assert engine.snapshot()["samples"]["mixed"] == [[1.0, 2.0]]
+
+
+def test_explicit_winter_permission_overrides_derived_template():
+    states = measurements(**{"binary_sensor.opti_winter_charging_allowed": "on"})
+
+    result = evaluate(states=states)
+
+    assert result.states["binary_sensor.opti_winter_charging_allowed"] == "on"
+
+
+def test_failed_strategy_gate_and_action_both_pause_with_diagnostics():
+    gated = load_resources()
+    gated["strategy"]["conditions"] = ["{{ false }}"]
+    result = evaluate(StrategyEngine(gated))
+    assert result.mode == "Akku Pause"
+    assert result.reason == "Strategie-Eingangsbedingungen nicht erfüllt"
+
+    broken = load_resources()
+    broken["strategy"]["actions"] = [
+        {
+            "action": "unsupported.service",
+            "target": {"entity_id": MODE},
+        }
+    ]
+    result = evaluate(StrategyEngine(broken))
+    assert result.mode == "Akku Pause"
+    assert result.reason == "Fehler bei der Strategieauswertung"
+    assert result.attributes["sensor.opti_engine_diagnostics"]["template_errors"] == {
+        "strategy": "ValueError"
+    }
+
+
+def test_template_runtime_helpers_fail_closed_on_malformed_resources():
+    engine = StrategyEngine()
+    engine._now = NOW
+    engine._states = {
+        "sensor.value": "unavailable",
+        "input_number.threshold": "unavailable",
+        "sun.sun": "below_horizon",
+    }
+
+    with pytest.raises(ValueError, match="Non-numeric"):
+        _ENGINE_MODULE._float(None)
+    assert _ENGINE_MODULE._truth("yes") is True
+    assert engine._as_datetime(NOW) == NOW
+    assert engine._as_datetime("2026-01-15T12:00:00").tzinfo == TZ
+    assert engine._as_timestamp("invalid", 7) == 7
+    assert engine._duration("01:02:03") == 3723
+    assert engine._render(["plain", "{{ 1 + 1 }}"]) == ["plain", 2]
+    assert engine._all_conditions("{{ true }}") is True
+    assert engine._condition("{{ true }}") is True
+    assert (
+        engine._condition(
+            {"condition": "numeric_state", "entity_id": "sensor.value", "above": 0}
+        )
+        is False
+    )
+    engine._states["sensor.value"] = "5"
+    assert (
+        engine._condition(
+            {
+                "condition": "numeric_state",
+                "entity_id": "sensor.value",
+                "above": "input_number.threshold",
+            }
+        )
+        is False
+    )
+    with pytest.raises(ValueError, match="sun condition"):
+        engine._condition({"condition": "sun", "after": "sunset"})
+    with pytest.raises(ValueError, match="Unsupported bundled condition"):
+        engine._condition({"condition": "device"})
+
+    engine._actions(
+        [
+            {"condition": "template", "value_template": "{{ false }}"},
+            {"action": "unsupported.service"},
+        ]
+    )
+    with pytest.raises(ValueError, match="Unsupported bundled action"):
+        engine._actions([{}])
+    with pytest.raises(ValueError, match="non-helper"):
+        engine._actions(
+            [
+                {
+                    "action": "input_boolean.turn_on",
+                    "target": {"entity_id": "input_boolean.not_bundled"},
+                }
+            ]
+        )

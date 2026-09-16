@@ -205,6 +205,10 @@ class LoadProfile:
     def _finite_value(value: object) -> float | None:
         if value is None or isinstance(value, bool):
             return None
+        # Snapshots are JSON data; accepting arbitrary objects here would make
+        # restore behavior depend on their custom numeric conversion hooks.
+        if not isinstance(value, (int, float, str)):
+            return None
         try:
             number = float(value)
         except (TypeError, ValueError, OverflowError):

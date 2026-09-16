@@ -188,22 +188,6 @@ def _huawei_entities(hass: Any, device_id: str, entry_id: str, domain: str = "se
     )
 
 
-def _source_options(user_input: dict[str, Any], *, shadow_mode: bool = False) -> dict[str, Any]:
-    source_keys = (*SOURCE_DEFINITIONS, *EV_SOURCE_KEYS)
-    return {
-        "sources": {key: user_input[key] for key in source_keys if user_input.get(key)},
-        "price_unit": user_input["price_unit"],
-        "source_max_age": user_input["source_max_age"],
-        "forecast_max_age": user_input["forecast_max_age"],
-        "price_max_age": user_input["price_max_age"],
-        "single_inverter": user_input["single_inverter"],
-        "single_writer_confirmed": False if shadow_mode else user_input["single_writer_confirmed"],
-        "settings": {},
-        "shadow_reference_mode": user_input.get("shadow_reference_mode", ""),
-    }
-
-
-
 # The same sections power first-time setup and the editable options menu.
 SETTING_GROUPS = {
     "battery": ["minsoc", "maxsoc", "akkusteuerung_max_ladestaerke", "akkusteuerung_max_entladestaerke", "opti_pv_ueberschuss_ladung"],

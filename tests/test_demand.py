@@ -8,7 +8,13 @@ import json
 
 import pytest
 
-from custom_components.opti_akku.demand import DemandForecast
+from custom_components.opti_akku.demand import (
+    DemandForecast,
+    instant,
+    number,
+    pv_intervals,
+    source_value,
+)
 
 NOW = datetime(2026, 9, 14, 6, tzinfo=UTC)
 SETTINGS = {
@@ -69,6 +75,71 @@ def fixture(house=500, heat=0, pv_at=2):
 
 def update(model, data, options, states, now=NOW, tz=UTC):
     return model.update(now, data, SETTINGS, options, states, tz, "fixture")
+
+
+def test_source_values_reject_ambiguous_or_stale_inputs():
+    assert number(True) is None
+    assert instant(NOW.isoformat()) == NOW
+    with pytest.raises(ValueError, match="timezone"):
+        instant("2026-09-14T06:00:00")
+
+    malformed = state(500)
+    malformed.last_reported = object()
+    assert source_value({"sensor.load": malformed}, "sensor.load", NOW, kind="power") is None
+    assert (
+        source_value(
+            {"sensor.temp": state(20, "°C", NOW - timedelta(hours=7))},
+            "sensor.temp",
+            NOW,
+            kind="temperature",
+        )
+        is None
+    )
+    assert source_value({"sensor.load": state(1, "A")}, "sensor.load", NOW, kind="power") is None
+
+
+def test_pv_intervals_fail_closed_on_invalid_or_conflicting_forecasts():
+    invalid = state(1, "kWh", detailedForecast=[{"period_start": NOW}])
+    assert pv_intervals({"sensor.pv": invalid}, {"pv_today": "sensor.pv"}, NOW) == []
+
+    today = state(
+        1,
+        "kWh",
+        detailedForecast=[
+            {"period_start": NOW - timedelta(hours=1), "pv_estimate10": 1},
+            {"period_start": NOW, "pv_estimate10": 1},
+        ],
+    )
+    tomorrow = state(
+        1,
+        "kWh",
+        detailedForecast=[{"period_start": NOW, "pv_estimate10": 2}],
+    )
+    sources = {"pv_today": "sensor.today", "pv_tomorrow": "sensor.tomorrow"}
+    states = {"sensor.today": today, "sensor.tomorrow": tomorrow}
+    assert pv_intervals(states, sources, NOW) == []
+
+    today.attributes["detailedForecast"] = [
+        {"period_start": NOW, "pv_estimate10": 1},
+        {"period_start": NOW + timedelta(minutes=15), "pv_estimate10": 1},
+    ]
+    assert pv_intervals({"sensor.today": today}, {"pv_today": "sensor.today"}, NOW) == []
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [
+        {"2026-09-01|24|summer": [0, 0, 0, 3600]},
+        {"2026-09-01|1|summer": [0, 0, 3600]},
+        {"2026-09-01|1|summer": [0, 0, 0, 0]},
+        {"2026-09-01|1|summer": [50001 * 3600, 0, 0, 3600]},
+        {"not-a-date|1|summer": [0, 0, 0, 3600]},
+    ],
+)
+def test_restore_rejects_malformed_training_cells(cells):
+    model = DemandForecast()
+    model.restore({"version": 1, "fingerprint": "fixture", "cells": cells})
+    assert model.cells == {}
 
 
 def trained(base=500, learned_heat=0, **kwargs):
@@ -281,3 +352,48 @@ def test_cold_start_does_not_project_hot_water_for_entire_night():
     assert out["heat_load_kwh"] == 1
     assert out["forecast_slots"][0]["load_w"] == 1500
     assert out["forecast_slots"][2]["load_w"] == 800
+
+
+def test_missing_heat_context_has_precise_diagnostic_and_is_not_learned():
+    model, data, options, states, _ = trained()
+    states["binary_sensor.heating"] = state("unavailable", None)
+
+    out = update(model, data, options, states)
+
+    assert out["status"] == "data_missing"
+    assert out["detail"] == "heat_context_unknown"
+    assert model.previous[1] is None
+
+
+def test_integrated_heat_activity_never_becomes_extra_base_load():
+    model, data, options, states, _ = trained(house=900)
+    options["demand_forecast"]["sources"].pop("heat_power")
+    states["binary_sensor.heating"] = state("on", None)
+
+    out = update(model, data, options, states)
+
+    assert out["extra_base_load_w"] == 0
+
+
+def test_invalid_fallback_and_battery_limits_fail_closed():
+    model, data, options, states, _ = trained()
+    settings = {**SETTINGS, "input_number.opti_peak_verbrauch_kw": 0}
+    out = model.update(NOW, data, settings, options, states, UTC, "fixture")
+    assert out["status"] == "data_missing"
+    assert out["detail"] == "fallback_load"
+
+    data["states"]["sensor.opti_battery_capacity_kwh"] = 0
+    out = update(model, data, options, states)
+    assert out["status"] == "data_missing"
+    assert out["detail"] == "battery_limits"
+
+
+def test_changed_history_binding_discards_incompatible_prior():
+    model, data, options, states, _ = trained()
+    model.history.binding = "different installation"
+    model.history.rows = {NOW.isoformat(): {"house_w": 500}}
+
+    update(model, data, options, states)
+
+    assert model.history.binding is None
+    assert model.history.rows == {}

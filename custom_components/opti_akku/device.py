@@ -31,6 +31,9 @@ class DeviceAdapter(Protocol):
 
     supported_modes: tuple[str, ...]
     supports_control_release: bool
+    command_execution_basis: str
+    setpoint_readback_capability: str
+    setpoint_readback_limitation: str
     last_read_errors: dict[str, str]
 
     async def async_probe(self) -> dict[str, Any]:

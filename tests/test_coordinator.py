@@ -16,6 +16,9 @@ from custom_components.opti_akku.engine import StrategyEngine
 
 def device():
     obj = AsyncMock()
+    obj.command_execution_basis = "modbus_write_sequence"
+    obj.setpoint_readback_capability = "not_supported"
+    obj.setpoint_readback_limitation = "bms_and_setpoints_not_read_back"
     obj.async_probe.return_value = {"inverter_status": 235, "model": "STP10.0-3SE-40", "serial_number": "123456789"}
     obj.async_read.return_value = {
         "sensor.opti_soc": 60, "sensor.opti_battery_capacity_kwh": 12.8,
@@ -52,6 +55,8 @@ async def test_default_is_observation_only(coordinator):
     assert not data["write_enabled"]
     coordinator.device.async_apply.assert_not_awaited()
     assert data["states"]["sensor.opti_soc"] == "60"
+    assert data["command_evidence"]["status"] == "observation"
+    assert data["command_evidence"]["physical_effect"] == "not_verified"
 
 
 async def test_write_activation_and_master_off_pause(coordinator):
@@ -59,6 +64,8 @@ async def test_write_activation_and_master_off_pause(coordinator):
     data = await coordinator._async_update_data()
     assert data["mode"] == "Akku Pause"
     assert coordinator.device.async_apply.await_args.args[0] == "Akku Pause"
+    assert data["command_evidence"]["status"] == "completed"
+    assert data["command_evidence"]["setpoint_readback"] == "not_supported"
 
 
 async def test_source_failure_stops_manual_discharge(coordinator):
@@ -629,6 +636,28 @@ async def test_unproven_control_release_is_visible(coordinator, entry):
     assert sensor.native_value == "not_confirmed"
 
 
+async def test_command_evidence_sensor_is_additive_and_unrecorded(coordinator, entry):
+    from homeassistant.const import MATCH_ALL
+    from custom_components.opti_akku.sensor import (
+        OptiAkkuDiagnosticSensor,
+        OptiAkkuReportSensor,
+    )
+
+    coordinator.write_enabled = True
+    coordinator.async_set_updated_data(await coordinator._async_update_data())
+    entry.runtime_data = coordinator
+    evidence = OptiAkkuReportSensor(entry, "command_evidence")
+    confirmation = OptiAkkuDiagnosticSensor(entry, "command_confirmation")
+    last_write = OptiAkkuDiagnosticSensor(entry, "last_write")
+
+    assert evidence.unique_id == f"{entry.entry_id}_diagnostic_command_evidence"
+    assert evidence.native_value == "completed"
+    assert evidence.extra_state_attributes["setpoint_readback"] == "not_supported"
+    assert evidence._unrecorded_attributes == frozenset({MATCH_ALL})
+    assert confirmation.unique_id == f"{entry.entry_id}_diagnostic_command_confirmation"
+    assert last_write.unique_id == f"{entry.entry_id}_diagnostic_last_write"
+
+
 async def test_backward_clock_keeps_coordinator_safety_evaluation(coordinator, hass):
     hass.config_entries.async_update_entry(coordinator.entry, options={**coordinator.entry.options,
         "plant_mode": "balance", "plant_meter_confirmed": True, "forecast_min_load_w": 0})
@@ -651,11 +680,13 @@ async def test_pending_huawei_phase_does_not_refresh_confirmation_timestamp(coor
     coordinator.device.async_apply.side_effect = PendingCommandError("pending")
     result = await coordinator._async_update_data()
     assert result["command_confirmation"] == "pending"
+    assert result["command_evidence"]["status"] == "pending"
     assert coordinator._last_apply is None
     assert coordinator._last_signature is None
     coordinator.device.async_apply.side_effect = None
     result = await coordinator._async_update_data()
     assert result["command_confirmation"] == "idle_or_confirmed"
+    assert result["command_evidence"]["status"] == "completed"
     assert coordinator._last_apply is not None
 
 
@@ -762,6 +793,27 @@ async def test_operating_report_failure_is_isolated_from_control(coordinator):
     coordinator.device.async_apply.assert_awaited_once()
     assert data['operating_report']['status'] == 'error'
     assert data['command_result_this_update'] == 'confirmed'
+    assert data['command_evidence']['physical_effect'] == 'not_verified'
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [(RuntimeError("refused"), "failed"), (None, "superseded")],
+)
+async def test_new_failure_or_supersession_invalidates_current_command_evidence(
+    coordinator, error, expected
+):
+    from custom_components.opti_akku.device import StaleCommandError
+
+    coordinator.write_enabled = True
+    first = await coordinator._async_update_data()
+    assert first["command_evidence"]["status"] == "completed"
+    coordinator._last_apply = None
+    coordinator.device.async_apply.side_effect = error or StaleCommandError("changed")
+    result = await coordinator._async_update_data()
+    assert result["command_evidence"]["status"] == expected
+    assert result["command_evidence"]["setpoint_readback"] == "not_assessed"
+    assert result["command_evidence"]["physical_effect"] == "not_verified"
 
 
 async def test_report_exposes_failed_attempt_and_observation(coordinator):
@@ -1061,3 +1113,57 @@ async def test_explicit_existing_grid_charging_preference_is_preserved(hass, ent
         assert coordinator.settings["input_boolean.opti_prognose_netzladen"] is True
     finally:
         await coordinator.async_stop()
+
+
+async def test_switch_setting_requires_a_boolean(coordinator):
+    with pytest.raises(HomeAssistantError, match="Wahrheitswert"):
+        validate_setting(
+            "input_boolean.akku_opti_automatik",
+            "on",
+            coordinator.settings,
+        )
+
+
+async def test_restore_ignores_unknown_settings_and_resets_reversed_limits(coordinator):
+    await coordinator._store.async_save(
+        {
+            "settings": {
+                "input_number.unknown_future_setting": 42,
+                "input_number.minsoc": 90,
+                "input_number.maxsoc": 80,
+            }
+        }
+    )
+
+    await coordinator.async_restore()
+
+    assert "input_number.unknown_future_setting" not in coordinator.settings
+    assert coordinator.settings["input_number.minsoc"] == 10
+    assert coordinator.settings["input_number.maxsoc"] == 95
+    assert "minsoc" in coordinator._last_error
+    assert "maxsoc" in coordinator._last_error
+    assert coordinator.write_enabled is False
+
+
+async def test_device_without_serial_is_never_claimed_for_writes(coordinator, hass):
+    coordinator._claim_device({"model": "unknown"})
+
+    assert coordinator._serial_owner is None
+    assert "opti_akku_serial_owners" not in hass.data
+
+
+async def test_existing_home_assistant_sun_state_is_used_verbatim(coordinator, hass):
+    hass.states.async_set(
+        "sun.sun",
+        "above_horizon",
+        {"next_setting": "2026-09-15T18:00:00+02:00"},
+    )
+    states = {}
+    attributes = {}
+
+    coordinator._add_sun(states, attributes, dt_util.utcnow())
+
+    assert states["sun.sun"] == "above_horizon"
+    assert attributes["sun.sun"] == {
+        "next_setting": "2026-09-15T18:00:00+02:00"
+    }

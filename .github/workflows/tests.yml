@@ -22,8 +22,10 @@ jobs:
           cache: pip
       - run: pip install -r requirements-test.txt
       - run: ruff check custom_components tests tools
+      - run: mypy
       - run: python tools/build_strategy_resources.py --check
-      - run: pytest --timeout=60
+      - run: pytest --timeout=60 --cov=custom_components/opti_akku --cov-report=term-missing --cov-report=json:coverage.json
+      - run: python tools/check_coverage.py coverage.json .github/coverage-baseline.json
       - run: python tools/build_package.py
   hassfest:
     name: Hassfest

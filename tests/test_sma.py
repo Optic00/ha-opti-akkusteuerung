@@ -270,7 +270,7 @@ async def test_all_four_bms_modes(device, mode, windows, opmod, address):
     await adapter.async_apply(mode, PARAMETERS, lambda: True)
     assert raw_writes(unit) == [
         (40151, 803),
-        *zip((40793, 40795, 40797, 40799), windows),
+        *zip((40793, 40795, 40797, 40799), windows, strict=True),
         (40801, 0),
         (address, opmod),
     ]

@@ -22,7 +22,7 @@ Für einen Vergleich neben einer bestehenden Steuerung:
    Steuerung bleibt aktiv, die Single-Writer-Bestätigung bleibt aus.
 2. Quellen und Strategieparameter passend zur bestehenden Steuerung einstellen.
    Optional deren Modus-Entität als Vergleichsquelle auswählen. Die
-   **Strategie berechnen** der Shadow-Instanz einschalten, damit sie echte
+   Den Schalter **Strategie berechnen** der Shadow-Instanz einschalten, damit sie echte
    Entscheidungen berechnet. Dies erteilt im Shadow-Modus keine Schreibrechte.
 3. Auf der Geräteseite **24-Stunden-Test starten** drücken.
 4. **Shadow-Aufzeichnung** zeigt Status, Start, feste Deadline, Stichproben,

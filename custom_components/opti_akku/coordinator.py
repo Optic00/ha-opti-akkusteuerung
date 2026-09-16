@@ -719,11 +719,24 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data["demand_forecast"] = {"status": "error", "observation_only": True}
         if self.shadow_mode:
             try:
-                comparison = build_strategy_comparison(
-                    self._demand_forecast, now, data, self.settings, captured_options,
-                    self.hass.states, dt_util.DEFAULT_TIME_ZONE,
-                    self._load_source_fingerprint, previous_target_level,
+                demand_cfg = captured_options.get("demand_forecast", {})
+                demand_sources = (
+                    demand_cfg.get("sources", {}) if isinstance(demand_cfg, dict) else {}
                 )
+                comparison_states = {
+                    entity_id: self.hass.states.get(entity_id)
+                    for entity_id in demand_sources.values()
+                    if isinstance(entity_id, str)
+                }
+
+                def compare():
+                    return build_strategy_comparison(
+                        self._demand_forecast, now, data, self.settings, captured_options,
+                        comparison_states, dt_util.DEFAULT_TIME_ZONE,
+                        self._load_source_fingerprint, previous_target_level,
+                    )
+
+                comparison = await self.hass.async_add_executor_job(compare)
             except Exception as err:  # Comparison must remain isolated from control and reports.
                 _LOGGER.debug("Demand strategy comparison unavailable: %s", type(err).__name__)
                 comparison = {"status": "error", "observation_only": True}

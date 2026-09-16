@@ -860,6 +860,16 @@ async def test_shadow_profile_comparison_isolated_across_ready_error_and_disable
     coordinator.device.async_apply.assert_not_awaited()
 
 
+async def test_active_entry_does_not_build_profile_comparison(coordinator):
+    with patch(
+        "custom_components.opti_akku.coordinator.build_strategy_comparison"
+    ) as comparison_builder:
+        data = await coordinator._async_update_data()
+
+    comparison_builder.assert_not_called()
+    assert "strategy_comparison" not in data["demand_forecast"]
+
+
 async def test_real_shadow_comparison_stays_passive_across_two_updates(coordinator):
     coordinator.shadow_mode = True
     coordinator.hass.config_entries.async_update_entry(

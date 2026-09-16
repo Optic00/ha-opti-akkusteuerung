@@ -23,5 +23,8 @@ SOURCE_DEFINITIONS = {
     "price_series": ("sensor.opti_price_series", "Preisreihe (today/tomorrow)", "price"),
     "cell_spread": ("sensor.byd_zellspreizung_ruhe", "BYD-Zellspreizung in Ruhe (optional)", "voltage_spread"),
 }
-EV_SOURCE_KEYS = ("ev1_mode", "ev1_charging", "ev1_power", "ev2_mode", "ev2_charging", "ev2_power")
+EV_SOURCE_KEYS = (
+    "ev1_mode", "ev1_charging", "ev1_smart_cost", "ev1_power",
+    "ev2_mode", "ev2_charging", "ev2_smart_cost", "ev2_power",
+)
 DEFAULT_OPTIONS = {"sources": {}, "settings": {}, "price_unit": "EUR/kWh", "source_max_age": 900, "forecast_max_age": 21600, "price_max_age": 7200, "single_writer_confirmed": False, "single_inverter": False}

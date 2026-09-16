@@ -103,7 +103,9 @@ def _sources_schema(defaults: dict[str, Any], *, require_confirmation: bool, sha
     schema: dict[vol.Marker, Any] = {}
     for key in (*SOURCE_DEFINITIONS, *EV_SOURCE_KEYS):
         marker = vol.Optional(key, description={"suggested_value": sources[key]}) if key in sources else vol.Optional(key)
-        domains = ["select", "input_select"] if key.endswith("_mode") else ["binary_sensor"] if key.endswith("_charging") else ["sensor"]
+        domains = (["select", "input_select"] if key.endswith("_mode")
+                   else ["binary_sensor"] if key.endswith(("_charging", "_smart_cost"))
+                   else ["sensor"])
         schema[marker] = EntitySelector(EntitySelectorConfig(domain=domains))
     schema.update(
         {
@@ -370,7 +372,7 @@ class WizardSections:
                     elif source.attributes.get("unit_of_measurement") not in ("W", "kW"):
                         errors[key] = "unsupported_unit"
             for n in (1, 2):
-                fields = [f"ev{n}_{field}" for field in ("mode", "charging", "power")]
+                fields = [f"ev{n}_{field}" for field in ("mode", "charging", "smart_cost", "power")]
                 if any(sources.get(k) for k in fields) and not all(sources.get(k) for k in fields[:2]):
                     errors["base"] = "ev_pair_required"
             if settings["input_boolean.opti_ev_akku_pause"] and not any(sources.get(f"ev{n}_mode") and sources.get(f"ev{n}_charging") for n in (1, 2)):

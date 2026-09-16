@@ -153,6 +153,69 @@ async def test_price_unit_mismatch_and_incomplete_ev(hass):
     assert result["errors"]["base"] == "ev_pair_required"
 
 
+def test_smart_cost_uses_binary_sensor_selector():
+    from custom_components.opti_akku.config_flow import _sources_schema
+
+    schema = _sources_schema({"sources": {}}, require_confirmation=False)
+    validators = {marker.schema: validator for marker, validator in schema.schema.items()}
+    assert validators["ev1_smart_cost"].config["domain"] == ["binary_sensor"]
+    assert validators["ev2_smart_cost"].config["domain"] == ["binary_sensor"]
+
+
+@pytest.mark.parametrize("include_smart_cost", [False, True])
+async def test_ev_pair_accepts_optional_smart_cost(hass, include_smart_cost):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={"sources": {}, "single_inverter": True},
+    )
+    entry.add_to_hass(hass)
+    hass.states.async_set("select.ev_mode", "pv")
+    hass.states.async_set("binary_sensor.ev_charging", "on")
+    hass.states.async_set("binary_sensor.ev_smart_cost", "on")
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "features"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "ev"}
+    )
+    values = {
+        "ev1_mode": "select.ev_mode",
+        "ev1_charging": "binary_sensor.ev_charging",
+    }
+    if include_smart_cost:
+        values["ev1_smart_cost"] = "binary_sensor.ev_smart_cost"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, values)
+    )
+    assert result["type"] == FlowResultType.MENU
+    assert not result.get("errors")
+
+
+async def test_smart_cost_without_ev_pair_is_rejected(hass):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={"sources": {}, "single_inverter": True},
+    )
+    entry.add_to_hass(hass)
+    hass.states.async_set("binary_sensor.ev_smart_cost", "on")
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "features"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "ev"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {
+            "ev1_smart_cost": "binary_sensor.ev_smart_cost",
+        })
+    )
+    assert result["errors"]["base"] == "ev_pair_required"
+
+
 async def test_options_clear_source_and_cancel_preserves_entry(hass):
     entry = MockConfigEntry(domain=DOMAIN, data={**CONNECTION, "shadow_mode": True}, options={"sources": {"pv_power": "sensor.pv"}, "single_inverter": True, "settings": {"input_number.minsoc": 8}})
     entry.add_to_hass(hass)

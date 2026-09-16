@@ -111,13 +111,15 @@
       },
       "ev": {
         "title": "EV charging: evcc connection (optional)",
-        "description": "For evcc loadpoints. Select both mode and charging status. While charging in now or minpv mode, home battery discharge can be blocked; battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
+        "description": "For evcc loadpoints. Select both mode and charging status. Optionally select Smart Cost active. While charging in now or minpv mode, or in pv mode with Smart Cost active, home battery discharge can be blocked; normal pv charging does not block discharge. Battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
         "data": {
           "ev1_mode": "EV 1 mode",
           "ev1_charging": "EV 1 charging",
+          "ev1_smart_cost": "EV 1 Smart Cost active",
           "ev1_power": "EV 1 charging power",
           "ev2_mode": "EV 2 mode",
           "ev2_charging": "EV 2 charging",
+          "ev2_smart_cost": "EV 2 Smart Cost active",
           "ev2_power": "EV 2 charging power",
           "opti_ev_akku_pause": "Block discharge during car charging"
         }
@@ -378,13 +380,15 @@
       },
       "ev": {
         "title": "EV charging: evcc connection (optional)",
-        "description": "For evcc loadpoints. Select both mode and charging status. While charging in now or minpv mode, home battery discharge can be blocked; battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
+        "description": "For evcc loadpoints. Select both mode and charging status. Optionally select Smart Cost active. While charging in now or minpv mode, or in pv mode with Smart Cost active, home battery discharge can be blocked; normal pv charging does not block discharge. Battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
         "data": {
           "ev1_mode": "EV 1 mode",
           "ev1_charging": "EV 1 charging",
+          "ev1_smart_cost": "EV 1 Smart Cost active",
           "ev1_power": "EV 1 charging power",
           "ev2_mode": "EV 2 mode",
           "ev2_charging": "EV 2 charging",
+          "ev2_smart_cost": "EV 2 Smart Cost active",
           "ev2_power": "EV 2 charging power",
           "opti_ev_akku_pause": "Block discharge during car charging"
         }

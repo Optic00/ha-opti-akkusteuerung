@@ -1,7 +1,9 @@
 """HA lifecycle and coordinator safety with real strategy and a fake device."""
 
 import asyncio
-from datetime import timedelta
+from copy import deepcopy
+from datetime import UTC, datetime, timedelta
+import json
 import time
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -796,6 +798,129 @@ async def test_operating_report_failure_is_isolated_from_control(coordinator):
     assert data['command_evidence']['physical_effect'] == 'not_verified'
 
 
+async def test_shadow_profile_comparison_isolated_across_ready_error_and_disabled(coordinator):
+    coordinator.shadow_mode = True
+    coordinator.hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "demand_forecast": {"enabled": True, "use_for_peak_reserve": True},
+        },
+    )
+    coordinator.settings["input_number.opti_peak_verbrauch_kw"] = 0.8
+    demand_report = {
+        "status": "ready", "observation_only": True, "context": "summer",
+        "recent_coverage_seconds": 1800,
+    }
+    outcomes = [
+        {"status": "ready", "observation_only": True, "blocks": {}},
+        ValueError("comparison failed"),
+        {"status": "disabled", "observation_only": True, "blocks": {}},
+    ]
+    active = []
+    snapshots = []
+    fixed_now = dt_util.utcnow()
+    timezone = dt_util.DEFAULT_TIME_ZONE
+    coordinator._demand_forecast.fingerprint = json.dumps(
+        [coordinator._load_source_fingerprint, {}, str(timezone)], sort_keys=True
+    )
+    local = fixed_now.astimezone(timezone)
+    for days in range(1, 22):
+        day = (local - timedelta(days=days)).date()
+        for hour in range(24):
+            coordinator._demand_forecast.cells[
+                f"{day.isoformat()}|{hour}|unknown"
+            ] = [800 * 3600, 0, 0, 3600]
+    coordinator._engine_snapshot = {
+        **coordinator._engine_snapshot,
+        "attributes": {"sensor.opti_target_soc": {"level": 2}},
+    }
+    comparison_builder = Mock(side_effect=outcomes)
+    with (
+        patch.object(coordinator._demand_forecast, "update", return_value=demand_report),
+        patch("custom_components.opti_akku.coordinator.build_strategy_comparison",
+              comparison_builder),
+        patch("custom_components.opti_akku.coordinator.dt_util.utcnow", return_value=fixed_now),
+    ):
+        for expected in ("ready", "error", "disabled"):
+            data = await coordinator._async_update_data()
+            assert data["demand_forecast"]["status"] == "ready"
+            comparison = data["demand_forecast"]["strategy_comparison"]
+            assert comparison == {"status": expected, "observation_only": True, **(
+                {"blocks": {}} if expected != "error" else {})}
+            active.append({
+                key: deepcopy(data[key])
+                for key in ("states", "attributes", "mode", "reason", "source_errors")
+            })
+            snapshots.append(deepcopy(coordinator._engine_snapshot))
+    assert comparison_builder.call_args_list[0].args[-1] == 2
+    assert active[0] == active[1] == active[2]
+    assert active[0]["states"]["sensor.opti_peak_load_profile"] == "profile"
+    assert snapshots[0] == snapshots[1] == snapshots[2]
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+async def test_real_shadow_comparison_stays_passive_across_two_updates(coordinator):
+    coordinator.shadow_mode = True
+    coordinator.hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "demand_forecast": {"enabled": True, "use_for_peak_reserve": True},
+        },
+    )
+    fixed_now = datetime(2026, 9, 16, 10, tzinfo=UTC)
+    timezone = dt_util.DEFAULT_TIME_ZONE
+    local = fixed_now.astimezone(timezone)
+    coordinator._demand_forecast.fingerprint = json.dumps(
+        [coordinator._load_source_fingerprint, {}, str(timezone)], sort_keys=True
+    )
+    for days in range(1, 22):
+        day = (local - timedelta(days=days)).date()
+        for hour in range(24):
+            coordinator._demand_forecast.cells[
+                f"{day.isoformat()}|{hour}|unknown"
+            ] = [800 * 3600, 0, 0, 3600]
+    coordinator._demand_forecast.previous = (
+        fixed_now - timedelta(seconds=30), 800.0, 0.0, 0.0, "unknown"
+    )
+    coordinator._demand_forecast.recent.observe(
+        800, fixed_now - timedelta(seconds=30), coordinator._load_source_fingerprint
+    )
+    demand_report = {
+        "status": "ready", "observation_only": True, "context": "unknown",
+        "recent_coverage_seconds": 1800, "extra_base_load_w": 0,
+        "temperature_context": {}, "dhw_extra_kwh": 0,
+        "heating_active": False, "dhw_active": False,
+    }
+    model_snapshot = deepcopy(coordinator._demand_forecast.snapshot())
+    previous = deepcopy(coordinator._demand_forecast.previous)
+    recent = deepcopy(coordinator._demand_forecast.recent)
+    active = []
+    engine_snapshots = []
+    with (
+        patch.object(coordinator._demand_forecast, "update", return_value=demand_report),
+        patch("custom_components.opti_akku.coordinator.dt_util.utcnow", return_value=fixed_now),
+    ):
+        for _ in range(2):
+            data = await coordinator._async_update_data()
+            assert data["demand_forecast"]["strategy_comparison"]["observation_only"] is True
+            active.append({
+                key: deepcopy(data[key])
+                for key in ("states", "attributes", "mode", "reason", "source_errors")
+            })
+            engine_snapshots.append(deepcopy(coordinator._engine_snapshot))
+
+    assert active[0] == active[1]
+    assert active[0]["states"]["sensor.opti_peak_load_profile"] == "profile"
+    assert engine_snapshots[0] == engine_snapshots[1]
+    assert coordinator._demand_forecast.snapshot() == model_snapshot
+    assert coordinator._demand_forecast.previous == previous
+    assert coordinator._demand_forecast.recent._fingerprint == recent._fingerprint
+    assert coordinator._demand_forecast.recent._samples == recent._samples
+    coordinator.device.async_apply.assert_not_awaited()
+
+
 @pytest.mark.parametrize(
     ("error", "expected"),
     [(RuntimeError("refused"), "failed"), (None, "superseded")],
@@ -912,6 +1037,7 @@ async def test_demand_observation_cannot_change_actuator_command(coordinator, fa
     assert result['write_enabled'] is True
     assert coordinator.device.async_apply.await_args.args[:2] == baseline_call.args[:2]
     assert result['demand_forecast']['status'] == ('error' if failure else 'ready')
+    assert 'strategy_comparison' not in result['demand_forecast']
 
 
 async def test_history_import_is_observer_only_and_idempotent(coordinator, hass, entry):

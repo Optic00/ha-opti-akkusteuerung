@@ -30,6 +30,7 @@ from .sources import build_inputs, finite
 from .plant import plant_entity_ids, plant_semantic_fingerprint
 from .load_profile import LoadProfile
 from .demand import DemandForecast
+from .demand_comparison import build_strategy_comparison
 from .peak_load import peak_load_profile
 from .ev_preparation import EVPreparation, apply_preparation, command_signals
 from .observation import SourceObservation
@@ -545,6 +546,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.strategy_enabled and self.manual_mode is None and self._online
             and self.settings.get("input_boolean.akku_opti_automatik") is True,
             can_prepare=not source_errors and states.get("sun.sun") == "above_horizon")
+        previous_target_level = finite(
+            self._engine_snapshot.get("attributes", {})
+            .get("sensor.opti_target_soc", {})
+            .get("level")
+        )
         def evaluate():
             result = self.engine.evaluate(states, attributes, dt_util.as_local(now))
             return result, self.engine.snapshot()
@@ -711,6 +717,19 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:  # Observation must never alter control or its health alerts.
             _LOGGER.debug("Demand observation unavailable: %s", type(err).__name__)
             data["demand_forecast"] = {"status": "error", "observation_only": True}
+        if self.shadow_mode:
+            try:
+                comparison = build_strategy_comparison(
+                    self._demand_forecast, now, data, self.settings, captured_options,
+                    self.hass.states, dt_util.DEFAULT_TIME_ZONE,
+                    self._load_source_fingerprint, previous_target_level,
+                )
+            except Exception as err:  # Comparison must remain isolated from control and reports.
+                _LOGGER.debug("Demand strategy comparison unavailable: %s", type(err).__name__)
+                comparison = {"status": "error", "observation_only": True}
+            data["demand_forecast"] = {
+                **data["demand_forecast"], "strategy_comparison": comparison
+            }
         try:
             probe = getattr(self.device, "last_probe_registers", {})
             data["source_observation"] = self._source_observation.update(

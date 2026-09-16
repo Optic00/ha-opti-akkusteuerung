@@ -22,7 +22,7 @@ Für einen Vergleich neben einer bestehenden Steuerung:
    Steuerung bleibt aktiv, die Single-Writer-Bestätigung bleibt aus.
 2. Quellen und Strategieparameter passend zur bestehenden Steuerung einstellen.
    Optional deren Modus-Entität als Vergleichsquelle auswählen. Die
-   **Akku Opti-Automatik** der Shadow-Instanz einschalten, damit sie echte
+   **Strategie berechnen** der Shadow-Instanz einschalten, damit sie echte
    Entscheidungen berechnet. Dies erteilt im Shadow-Modus keine Schreibrechte.
 3. Auf der Geräteseite **24-Stunden-Test starten** drücken.
 4. **Shadow-Aufzeichnung** zeigt Status, Start, feste Deadline, Stichproben,
@@ -57,7 +57,7 @@ Haltefunktion. Gespeicherte und ausdrücklich importierte Werte bleiben erhalten
 
 Die eigentliche Steuerung hat drei getrennte Ebenen:
 
-1. Der Schalter **Akku Opti-Automatik** ist die Hauptfreigabe für die Steuerung,
+1. Der Schalter **Strategie berechnen** ist die Hauptfreigabe für die Steuerung,
    einschließlich der manuellen Modi. Ist er aus, gilt immer Pause.
 2. In den Integrationsoptionen muss bestätigt werden, dass keine zweite
    Steuerung parallel auf den Wechselrichter schreibt.
@@ -150,7 +150,7 @@ eignet sich dafür nicht. Zuerst **Akku Pause**, danach **Akku schnell Laden**
 und **Akku schnell Entladen** mit kleinen Sollwerten in sicherem Abstand zu
 Min- und Max-SoC prüfen. Bei **Akku Pause** soll die Akkuleistung nahe 0 W
 liegen; Laden und Entladen sollen jeweils die passende Richtung zeigen. Die
-Schalter **Akku Opti-Automatik** und **Schreibzugriffe freigeben** sowie die
+Schalter **Strategie berechnen** und **Schreibzugriffe freigeben** sowie die
 Single-Writer-Bestätigung in den Optionen müssen aktiv sein. Für einen
 unbegrenzten Schnellladetest muss die Batterietemperatur mindestens 5 und
 weniger als 45 °C betragen. Andere schreibende Steuerungen müssen aus sein und

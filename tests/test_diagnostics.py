@@ -75,7 +75,27 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
             "notification_error": "notify.mobile_app_private_phone",
             "reserve_plan": {"status": "planned", "required_soc": 47.2},
             "operating_report": {"status": "collecting", "totals": {"house": 99}},
-            "demand_forecast": {"status": "ready", "history": [1, 2, 3]},
+            "demand_forecast": {
+                "status": "ready",
+                "history": [1, 2, 3],
+                "strategy_comparison": {
+                    "status": "learning",
+                    "observation_only": True,
+                    "blocks": {
+                        "remaining_day": {
+                            "status": "learning",
+                            "reason": "historical_prior_used",
+                            "profile_energy_kwh": 12.345,
+                            "window_hours": 7,
+                            "profile_sources": {"private-source": {"kwh": 12.345}},
+                        },
+                        "tomorrow": {
+                            "status": "data_missing",
+                            "reason": "pv_forecast_missing",
+                        },
+                    },
+                },
+            },
             "ev_preparation": {"status": "away", "vehicle": "private-car"},
             "source_observation": {"status": "warming_up", "entities": [private_entity]},
             "shadow_status": "recording",
@@ -114,6 +134,20 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
         "reserve_plan": "planned",
         "source_observation": "warming_up",
     }
+    assert result["strategy_comparison"] == {
+        "observation_only": True,
+        "status": "learning",
+        "blocks": {
+            "remaining_day": {
+                "status": "learning", "reason": "historical_prior_used"
+            },
+            "tomorrow": {
+                "status": "data_missing", "reason": "pv_forecast_missing"
+            },
+        },
+    }
+    assert "kwh" not in json.dumps(result["strategy_comparison"]).lower()
+    assert "private-source" not in json.dumps(result["strategy_comparison"])
     assert result["shadow"] == {"status": "recording", "blocked_write_attempts": 2}
     assert result["connection"]["command_evidence"] == {
         "status": "completed",
@@ -157,6 +191,9 @@ async def test_diagnostics_handles_first_refresh_without_data(hass):
     }
     assert result["health"]["source_errors"] == {"count": 0, "roles": [], "codes": {}}
     assert result["shadow"] == {"status": "not_active", "blocked_write_attempts": 0}
+    assert result["strategy_comparison"] == {
+        "observation_only": True, "status": None, "blocks": {}
+    }
 
 
 async def test_diagnostics_handles_failed_setup_without_runtime_data(hass):

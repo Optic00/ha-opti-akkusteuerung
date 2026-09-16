@@ -74,6 +74,29 @@ def _command_evidence_summary(value: Any) -> dict[str, Any]:
     }
 
 
+def _strategy_comparison_summary(value: Any) -> dict[str, Any]:
+    """Expose only bounded comparison status and reason codes."""
+    if not isinstance(value, Mapping):
+        return {"observation_only": True, "status": None, "blocks": {}}
+    blocks = value.get("blocks")
+    summary = {}
+    if isinstance(blocks, Mapping):
+        for key in ("remaining_day", "tomorrow", "sunny_day", "target_soc"):
+            block = blocks.get(key)
+            if not isinstance(block, Mapping):
+                continue
+            summary[key] = {
+                name: block[name]
+                for name in ("status", "reason")
+                if isinstance(block.get(name), str)
+            }
+    return {
+        "observation_only": value.get("observation_only") is True,
+        "status": value.get("status") if isinstance(value.get("status"), str) else None,
+        "blocks": summary,
+    }
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
@@ -138,6 +161,11 @@ async def async_get_config_entry_diagnostics(
                 "source_observation",
             )
         },
+        "strategy_comparison": _strategy_comparison_summary(
+            data.get("demand_forecast", {}).get("strategy_comparison")
+            if isinstance(data.get("demand_forecast"), Mapping)
+            else None
+        ),
         "shadow": {
             "status": data.get("shadow_status") if shadow_mode else "not_active",
             "blocked_write_attempts": data.get("shadow_summary", {}).get(

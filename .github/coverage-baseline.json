@@ -1,6 +1,7 @@
 {
   "custom_components/opti_akku/__init__.py": {"max_missing": 2, "min_percent": 97.01},
   "custom_components/opti_akku/alerts.py": {"max_missing": 2, "min_percent": 98.50},
+  "custom_components/opti_akku/arbitrage.py": {"max_missing": 2, "min_percent": 95.23},
   "custom_components/opti_akku/binary_sensor.py": {"max_missing": 2, "min_percent": 95.91},
   "custom_components/opti_akku/button.py": {"max_missing": 1, "min_percent": 97.43},
   "custom_components/opti_akku/command_evidence.py": {"max_missing": 0, "min_percent": 100.0},
@@ -10,6 +11,7 @@
   "custom_components/opti_akku/definitions.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/demand.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/demand_accuracy.py": {"max_missing": 0, "min_percent": 100.0},
+  "custom_components/opti_akku/demand_comparison.py": {"max_missing": 9, "min_percent": 96.37},
   "custom_components/opti_akku/demand_history.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/device.py": {"max_missing": 0, "min_percent": 100.0},
   "custom_components/opti_akku/diagnostics.py": {"max_missing": 0, "min_percent": 100.0},

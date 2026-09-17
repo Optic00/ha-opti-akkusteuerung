@@ -38,7 +38,10 @@ def test_hacs_metadata_and_version():
     root = Path(__file__).resolve().parents[1]
     manifest = json.loads((root / "custom_components/opti_akku/manifest.json").read_text())
     hacs = json.loads((root / "hacs.json").read_text())
-    assert manifest["version"] == tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    version = manifest["version"]
+    assert version == tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    for documentation in ("README.md", "HUAWEI_CONTROL.md", "docs/development.md"):
+        assert version in (root / documentation).read_text()
     assert manifest["config_flow"] is True
     assert hacs["homeassistant"] == "2026.9.1"
 
@@ -52,6 +55,7 @@ def test_release_version_order():
         "2026.9-beta1",
         "2026.9-beta2",
         "2026.9-beta3",
+        "2026.9-beta4",
         "2026.9.0",
         "2026.9.1",
     ]

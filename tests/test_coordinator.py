@@ -1010,7 +1010,7 @@ async def test_shadow_profile_comparison_isolated_across_ready_error_and_disable
     coordinator.device.async_apply.assert_not_awaited()
 
 
-async def test_active_entry_does_not_build_profile_comparison(coordinator):
+async def test_active_profile_comparison_requires_enabled_demand(coordinator):
     with patch(
         "custom_components.opti_akku.coordinator.build_strategy_comparison"
     ) as comparison_builder:
@@ -1018,6 +1018,33 @@ async def test_active_entry_does_not_build_profile_comparison(coordinator):
 
     comparison_builder.assert_not_called()
     assert "strategy_comparison" not in data["demand_forecast"]
+
+    coordinator.hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "demand_forecast": {"enabled": True},
+        },
+    )
+    comparison_builder.reset_mock()
+    comparison_builder.return_value = {
+        "status": "ready",
+        "observation_only": True,
+        "blocks": {},
+    }
+    with patch(
+        "custom_components.opti_akku.coordinator.build_strategy_comparison",
+        comparison_builder,
+    ):
+        data = await coordinator._async_update_data()
+
+    comparison_builder.assert_called_once()
+    assert data["demand_forecast"]["strategy_comparison"] == {
+        "status": "ready",
+        "observation_only": True,
+        "blocks": {},
+    }
+    coordinator.device.async_apply.assert_not_awaited()
 
 
 async def test_real_shadow_comparison_stays_passive_across_two_updates(coordinator):
@@ -1180,6 +1207,13 @@ async def test_report_preserves_pending_phase_semantics(coordinator, confirmed):
 @pytest.mark.parametrize('failure', [False, True])
 async def test_demand_observation_cannot_change_actuator_command(coordinator, failure):
     """New comparison, including its failure, is downstream of the same write."""
+    coordinator.hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "demand_forecast": {"enabled": True},
+        },
+    )
     coordinator.settings['input_boolean.akku_opti_automatik'] = True
     coordinator.manual_mode = 'Akku schnell Entladen'
     coordinator.write_enabled = True
@@ -1188,16 +1222,24 @@ async def test_demand_observation_cannot_change_actuator_command(coordinator, fa
     coordinator.device.async_apply.reset_mock()
     coordinator._last_apply = None
     comparison = {'status': 'ready', 'suggested_reserve_soc': 5, 'observation_only': True}
-    with patch.object(coordinator._demand_forecast, 'update',
-                      side_effect=RuntimeError('synthetic') if failure else None,
-                      return_value=comparison):
+    profile_comparison = {
+        'status': 'ready', 'observation_only': True, 'blocks': {}
+    }
+    with (
+        patch.object(coordinator._demand_forecast, 'update',
+                     side_effect=RuntimeError('synthetic') if failure else None,
+                     return_value=comparison),
+        patch('custom_components.opti_akku.coordinator.build_strategy_comparison',
+              return_value=profile_comparison) as comparison_builder,
+    ):
         result = await coordinator._async_update_data()
     assert result['mode'] == baseline['mode'] == 'Akku schnell Entladen'
     assert result['source_errors'] == baseline['source_errors']
     assert result['write_enabled'] is True
     assert coordinator.device.async_apply.await_args.args[:2] == baseline_call.args[:2]
     assert result['demand_forecast']['status'] == ('error' if failure else 'ready')
-    assert 'strategy_comparison' not in result['demand_forecast']
+    assert result['demand_forecast']['strategy_comparison'] == profile_comparison
+    comparison_builder.assert_called_once()
 
 
 async def test_history_import_is_observer_only_and_idempotent(coordinator, hass, entry):

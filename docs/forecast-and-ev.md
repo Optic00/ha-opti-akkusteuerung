@@ -170,11 +170,13 @@ freigegeben.
 
 ### Passiver Profilvergleich für die PV-Strategie
 
-Im Shadowmode ergänzt der Bedarfsbericht einen strikt passiven Vergleich für den
-Resttag-Score, den Morgen- und Sonnentag-Score sowie den Ziel-SoC. Er ändert keine
-Strategie-Entität, keine Reserve, keinen Modus und keinen Schreibparameter. Der
-aktive Rechenweg bleibt unverändert; der Vergleich stellt dessen Ergebnis einem
-Kandidaten gegenüber, der den erwarteten Verbrauch stundenweise integriert.
+Bei eingeschaltetem Bedarfsprofil ergänzt der Bedarfsbericht einen strikt passiven
+Vergleich für den Resttag-Score, den Morgen- und Sonnentag-Score sowie den Ziel-SoC.
+Das gilt im Shadowmodus und parallel zu einer aktiven Steuerung. Der Vergleich
+ändert keine Strategie-Entität, keine Reserve, keinen Modus und keinen
+Schreibparameter. Der aktive Rechenweg bleibt unverändert; der Vergleich stellt
+dessen Ergebnis einem Kandidaten gegenüber, der den erwarteten Verbrauch
+stundenweise integriert.
 
 Vollständig gelernte Stunden und mindestens 20 Minuten aktuelle Profilabdeckung
 ergeben den Status `ready`. Historische Recorder-Werte, der konfigurierte

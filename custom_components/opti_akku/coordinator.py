@@ -751,9 +751,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:  # Observation must never alter control or its health alerts.
             _LOGGER.debug("Demand observation unavailable: %s", type(err).__name__)
             data["demand_forecast"] = {"status": "error", "observation_only": True}
-        if self.shadow_mode:
+        demand_cfg = captured_options.get("demand_forecast", {})
+        demand_comparison_enabled = (
+            isinstance(demand_cfg, dict) and demand_cfg.get("enabled") is True
+        )
+        if self.shadow_mode or demand_comparison_enabled:
             try:
-                demand_cfg = captured_options.get("demand_forecast", {})
                 demand_sources = (
                     demand_cfg.get("sources", {}) if isinstance(demand_cfg, dict) else {}
                 )

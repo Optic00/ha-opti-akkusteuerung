@@ -59,6 +59,29 @@ async def test_default_is_observation_only(coordinator):
     assert data["states"]["sensor.opti_soc"] == "60"
     assert data["command_evidence"]["status"] == "observation"
     assert data["command_evidence"]["physical_effect"] == "not_verified"
+    assert data["command_evidence"]["battery_power_observed_at"] is not None
+    assert data["command_evidence"]["observed_after_execution"] is None
+
+
+async def test_command_evidence_has_no_timestamp_without_fresh_power(coordinator):
+    coordinator.device.async_read.side_effect = RuntimeError("offline")
+    data = await coordinator._async_update_data()
+    assert data["command_evidence"]["observed_battery_power_w"] is None
+    assert data["command_evidence"]["battery_power_observed_at"] is None
+    assert data["command_evidence"]["observed_after_execution"] is None
+
+
+async def test_huawei_cached_entity_read_does_not_claim_measurement_time(
+    coordinator, entry, hass
+):
+    coordinator.device.last_read_errors = {}
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, "backend": "huawei_solar"}
+    )
+    data = await coordinator._async_update_data()
+    assert data["command_evidence"]["observed_battery_power_w"] == 0
+    assert data["command_evidence"]["battery_power_observed_at"] is None
+    assert data["command_evidence"]["observed_after_execution"] is None
 
 
 async def test_write_activation_and_master_off_pause(coordinator):
@@ -68,6 +91,36 @@ async def test_write_activation_and_master_off_pause(coordinator):
     assert coordinator.device.async_apply.await_args.args[0] == "Akku Pause"
     assert data["command_evidence"]["status"] == "completed"
     assert data["command_evidence"]["setpoint_readback"] == "not_supported"
+
+
+async def test_command_evidence_only_marks_next_read_after_execution(coordinator):
+    async def apply(*_args):
+        coordinator.device.last_write = dt_util.utcnow() - timedelta(minutes=1)
+
+    coordinator.write_enabled = True
+    coordinator.device.async_apply.side_effect = apply
+
+    first = await coordinator._async_update_data()
+    second = await coordinator._async_update_data()
+
+    assert first["command_evidence"]["observed_after_execution"] is False
+    assert second["command_evidence"]["observed_after_execution"] is True
+
+
+async def test_cleanup_write_is_after_same_update_observation(coordinator):
+    from custom_components.opti_akku.device import StaleCommandError
+
+    async def apply(*_args):
+        coordinator.device.last_write = dt_util.utcnow() - timedelta(minutes=1)
+        raise StaleCommandError("decision changed")
+
+    coordinator.write_enabled = True
+    coordinator.device.async_apply.side_effect = apply
+
+    result = await coordinator._async_update_data()
+
+    assert result["command_result_this_update"] == "superseded"
+    assert result["command_evidence"]["observed_after_execution"] is False
 
 
 async def test_source_failure_stops_manual_discharge(coordinator):

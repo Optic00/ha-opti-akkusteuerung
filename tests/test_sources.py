@@ -111,7 +111,7 @@ def test_ev_pv_without_smart_cost_keeps_existing_behavior():
     assert not errors
 
 
-@pytest.mark.parametrize("smart_cost", [None, state("unknown"), state("on", age=901)])
+@pytest.mark.parametrize("smart_cost", [None, state("unknown"), state("unavailable")])
 def test_ev_pv_with_invalid_smart_cost_is_unavailable(smart_cost):
     options = {"sources": {
         "ev1_mode": "select.ev", "ev1_charging": "binary_sensor.ev",
@@ -124,7 +124,43 @@ def test_ev_pv_with_invalid_smart_cost_is_unavailable(smart_cost):
     key = "binary_sensor.opti_ev_lp1_schnell"
     assert states[key] == "unavailable"
     assert attrs[key]["valide"] is False
-    assert errors["ev1_smart_cost"] == "missing_or_stale"
+    assert errors["ev1_smart_cost"] == "missing_or_unavailable"
+
+
+@pytest.mark.parametrize("index", [1, 2])
+def test_ev_state_like_sources_do_not_expire(index):
+    options = {"source_max_age": 60, "sources": {
+        f"ev{index}_mode": "select.ev", f"ev{index}_charging": "binary_sensor.ev",
+        f"ev{index}_smart_cost": "binary_sensor.smart_cost",
+    }}
+    external = {
+        "select.ev": state("pv", age=30 * 24 * 60 * 60),
+        "binary_sensor.ev": state("on", age=60 * 60),
+        "binary_sensor.smart_cost": state("on", age=7 * 24 * 60 * 60),
+    }
+    states, attrs, errors = build_inputs({}, options, external, NOW)
+    key = f"binary_sensor.opti_ev_lp{index}_schnell"
+    assert states[key] == "on"
+    assert attrs[key]["valide"] is True
+    assert not errors
+
+
+@pytest.mark.parametrize(
+    ("field", "bad"),
+    [("mode", "unknown"), ("mode", "unavailable"),
+     ("charging", "unknown"), ("charging", "unavailable")],
+)
+def test_ev_state_like_sources_reject_invalid_states(field, bad):
+    options = {"source_max_age": 60, "sources": {
+        "ev1_mode": "select.ev", "ev1_charging": "binary_sensor.ev",
+    }}
+    external = {"select.ev": state("pv"), "binary_sensor.ev": state("on")}
+    external["select.ev" if field == "mode" else "binary_sensor.ev"] = state(bad)
+    states, attrs, errors = build_inputs({}, options, external, NOW)
+    key = "binary_sensor.opti_ev_lp1_schnell"
+    assert states[key] == "unavailable"
+    assert attrs[key]["valide"] is False
+    assert errors[f"ev1_{field}"] == "missing_or_unavailable"
 
 
 def test_ev_now_lock_survives_missing_configured_smart_cost():
@@ -140,7 +176,7 @@ def test_ev_now_lock_survives_missing_configured_smart_cost():
     assert not errors
 
 
-@pytest.mark.parametrize("smart_cost", [state("on"), None, state("on", age=901)])
+@pytest.mark.parametrize("smart_cost", [state("on"), None])
 def test_ev_not_charging_never_starts_lock(smart_cost):
     options = {"sources": {
         "ev1_mode": "select.ev", "ev1_charging": "binary_sensor.ev",

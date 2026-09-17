@@ -47,8 +47,14 @@ def test_release_version_order():
     from awesomeversion import AwesomeVersion, AwesomeVersionStrategy
     from packaging.version import Version
 
-    versions = ["0.5.2b6", "2026.9-beta1", "2026.9-beta2", "2026.9-beta3",
-                "2026.9.0", "2026.9.1"]
+    versions = [
+        "0.5.2b6",
+        "2026.9-beta1",
+        "2026.9-beta2",
+        "2026.9-beta3",
+        "2026.9.0",
+        "2026.9.1",
+    ]
     for before, after in zip(versions, versions[1:], strict=False):
         assert AwesomeVersion(before) < AwesomeVersion(after)
         assert Version(before) < Version(after)

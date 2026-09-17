@@ -25,6 +25,11 @@ SOURCE_KEYS = (
     *CONTEXT_KEYS,
 )
 
+PV_COVER_FACTOR = 1.2
+PV_COVER_MIN_SECONDS = 3600
+PV_COVER_MIN_NET_KWH = 0.5
+REFILL_CHARGE_EFFICIENCY = 0.9
+
 
 def number(value):
     if isinstance(value, bool):
@@ -324,6 +329,13 @@ class DemandForecast:
         projected = []
         historical_slots = 0
         cover_totals = None
+        cover_net_kwh = 0.0
+        accepted_cover_net_kwh = 0.0
+        refill_surplus_kwh = 0.0
+        refill_balance_kwh = 0.0
+        bridge_totals = None
+        bridge_learned = None
+        bridge_historical_slots = None
         for start, pv_w in slots:
             end = start + timedelta(minutes=30)
             if start > cursor or end <= cursor or (end - now).total_seconds() > 24 * 3600:
@@ -376,24 +388,55 @@ class DemandForecast:
                     "load_provenance": provenance,
                 }
             )
-            if pv_w >= load * 1.2:
+            net_energy_kwh = (pv_w - load) * hours / 1000
+            net_surplus_kwh = max(0.0, net_energy_kwh)
+            if boundary is not None:
+                refill_balance_kwh = max(0.0, refill_balance_kwh + net_energy_kwh)
+                refill_surplus_kwh = max(refill_surplus_kwh, refill_balance_kwh)
+            elif pv_w >= load * PV_COVER_FACTOR:
                 if cover_since is None:
                     cover_since = cursor
                     cover_totals = before
-                if (end - cover_since).total_seconds() >= 3600:
+                    cover_net_kwh = 0.0
+                cover_net_kwh += net_surplus_kwh
+                if (
+                    (end - cover_since).total_seconds() >= PV_COVER_MIN_SECONDS
+                    and cover_net_kwh >= PV_COVER_MIN_NET_KWH
+                ):
                     boundary = cover_since
-                    load_kwh, heat_kwh, dhw_kwh, required = cover_totals
-                    break
-            else:
+                    bridge_totals = cover_totals
+                    bridge_learned = learned
+                    bridge_historical_slots = historical_slots
+                    accepted_cover_net_kwh = cover_net_kwh
+                    refill_balance_kwh = cover_net_kwh
+                    refill_surplus_kwh = cover_net_kwh
+            elif boundary is None:
                 cover_since = None
+                cover_totals = None
+                cover_net_kwh = 0.0
             cursor = end
+        if bridge_totals is not None:
+            load_kwh, heat_kwh, dhw_kwh, required = bridge_totals
+        bridge_profile_ready = learned if bridge_learned is None else bridge_learned
+        bridge_history_count = (
+            historical_slots
+            if bridge_historical_slots is None
+            else bridge_historical_slots
+        )
         out.update(
-            historical_forecast_slots=historical_slots,
-            profile_ready=learned,
+            historical_forecast_slots=bridge_history_count,
+            profile_ready=bridge_profile_ready,
+            refill_profile_ready=learned,
+            refill_historical_forecast_slots=historical_slots,
             forecast_slots=projected,
             expected_load_kwh=round(load_kwh, 3),
             heat_load_kwh=round(heat_kwh, 3),
             dhw_load_kwh=round(dhw_kwh, 3),
+            pv_cover_factor=PV_COVER_FACTOR,
+            pv_cover_min_minutes=PV_COVER_MIN_SECONDS // 60,
+            pv_cover_min_net_kwh=PV_COVER_MIN_NET_KWH,
+            refill_horizon_end=cursor.isoformat(),
+            refill_horizon_hours=round((cursor - now).total_seconds() / 3600, 2),
         )
         if boundary is None:
             return {**out, "status": "no_pv_timing", "detail": "no_contiguous_sustained_pv_cover"}
@@ -433,9 +476,17 @@ class DemandForecast:
             return {**out, "status": "data_missing", "detail": "battery_limits"}
         # Explicit conservative assumptions, not a guaranteed physical optimum.
         battery_need = (required * 1.2 + 0.2) / 0.9
+        refill_battery_kwh = refill_surplus_kwh * REFILL_CHARGE_EFFICIENCY
+        usable_capacity_kwh = capacity * (high - low) / 100
+        refill_target_kwh = min(battery_need, usable_capacity_kwh)
+        refill_storable_kwh = min(refill_battery_kwh, refill_target_kwh)
         uncapped = low + battery_need / capacity * 100
         out.update(
-            status="ready" if learned and recent.coverage_seconds >= 1200 else "learning",
+            status=(
+                "ready"
+                if bridge_profile_ready and recent.coverage_seconds >= 1200
+                else "learning"
+            ),
             pv_cover_from=boundary.isoformat(),
             expected_load_kwh=round(load_kwh + dhw_extra, 3),
             heat_load_kwh=round(heat_kwh + dhw_extra, 3),
@@ -447,8 +498,15 @@ class DemandForecast:
             safety_margin_kwh=0.2,
             discharge_efficiency=0.9,
             required_battery_kwh=round(battery_need, 3),
+            pv_cover_net_kwh=round(accepted_cover_net_kwh, 3),
+            refill_surplus_kwh=round(refill_surplus_kwh, 3),
+            refill_charge_efficiency=REFILL_CHARGE_EFFICIENCY,
+            refill_battery_kwh=round(refill_battery_kwh, 3),
+            refill_target_kwh=round(refill_target_kwh, 3),
+            refill_storable_kwh=round(refill_storable_kwh, 3),
+            refill_covered=refill_battery_kwh >= refill_target_kwh,
             suggested_reserve_soc=round(min(high, uncapped), 1),
-            capacity_shortfall_kwh=round(max(0.0, battery_need - capacity * (high - low) / 100), 3),
+            capacity_shortfall_kwh=round(max(0.0, battery_need - usable_capacity_kwh), 3),
             available_above_suggestion_kwh=round(
                 max(0.0, (soc - min(high, uncapped)) * capacity / 100), 3
             ),

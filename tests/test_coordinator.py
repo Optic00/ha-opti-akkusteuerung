@@ -465,6 +465,37 @@ async def test_notification_choice_does_not_reload_writer(hass, entry, coordinat
     coordinator.device.async_apply.assert_not_awaited()
 
 
+async def test_arbitrage_options_do_not_reload_or_pause_writer(
+    hass, entry, coordinator
+):
+    from custom_components.opti_akku import _async_options_updated
+
+    entry.runtime_data = coordinator
+    coordinator.write_enabled = True
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            **entry.options,
+            "arbitrage_estimate": {
+                "enabled": True,
+                "battery_price_eur": 5000,
+                "degradation_percent": 20,
+                "cycles": 5000,
+                "usable_capacity_kwh": 10,
+                "charge_efficiency_percent": 90,
+                "discharge_efficiency_percent": 90,
+                "margin_ct": 2,
+            },
+        },
+    )
+
+    with patch.object(hass.config_entries, "async_reload", AsyncMock()) as reload:
+        await _async_options_updated(hass, entry)
+
+    reload.assert_not_awaited()
+    coordinator.device.async_apply.assert_not_awaited()
+
+
 async def test_startup_does_not_claim_240_seconds_of_stall(coordinator):
     coordinator.write_enabled = True
     coordinator.device.async_read.side_effect = OSError("offline")
@@ -714,6 +745,69 @@ async def test_command_evidence_sensor_is_additive_and_unrecorded(coordinator, e
     assert evidence._unrecorded_attributes == frozenset({MATCH_ALL})
     assert confirmation.unique_id == f"{entry.entry_id}_diagnostic_command_confirmation"
     assert last_write.unique_id == f"{entry.entry_id}_diagnostic_last_write"
+
+
+async def test_arbitrage_sensor_is_display_only(coordinator, entry, hass):
+    from custom_components.opti_akku.sensor import OptiAkkuArbitrageSensor
+
+    hass.states.async_set(
+        "sensor.test_price", "0.10", {"unit_of_measurement": "EUR/kWh"}
+    )
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            **entry.options,
+            "price_unit": "EUR/kWh",
+            "sources": {
+                **entry.options.get("sources", {}),
+                "price_current": "sensor.test_price",
+            },
+        },
+    )
+    baseline = await coordinator._async_update_data()
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            **entry.options,
+            "arbitrage_estimate": {
+                "enabled": True,
+                "battery_price_eur": 5000,
+                "degradation_percent": 20,
+                "cycles": 5000,
+                "usable_capacity_kwh": 10,
+                "charge_efficiency_percent": 90,
+                "discharge_efficiency_percent": 90,
+                "margin_ct": 2,
+            },
+        },
+    )
+    data = await coordinator._async_update_data()
+    coordinator.async_set_updated_data(data)
+    entry.runtime_data = coordinator
+    sensor = OptiAkkuArbitrageSensor(entry, "arbitrage_estimate")
+
+    assert data["mode"] == baseline["mode"]
+    assert data["reason"] == baseline["reason"]
+    coordinator.device.async_apply.assert_not_awaited()
+    assert data["arbitrage_estimate"]["status"] == "ready"
+    assert sensor.native_value == pytest.approx(6.79, abs=0.001)
+    assert sensor.native_unit_of_measurement == "ct/kWh"
+    assert sensor.extra_state_attributes["informational_only"] is True
+    assert sensor.extra_state_attributes["controls_battery"] is False
+
+    hass.states.async_set(
+        "sensor.test_price", "unavailable", {"unit_of_measurement": "EUR/kWh"}
+    )
+    missing = await coordinator._async_update_data()
+    assert missing["arbitrage_estimate"]["status"] == "price_missing"
+
+    coordinator.strategy_enabled = False
+    disabled = await coordinator._async_update_data()
+    assert disabled["arbitrage_estimate"]["status"] == "strategy_disabled"
+
+    coordinator.async_set_updated_data({})
+    assert sensor.native_value is None
+    assert sensor.extra_state_attributes is None
 
 
 async def test_backward_clock_keeps_coordinator_safety_evaluation(coordinator, hass):

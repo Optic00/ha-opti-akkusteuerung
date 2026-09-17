@@ -305,6 +305,7 @@
           "features": "Optional features",
           "notifications": "Notifications",
           "demand": "Demand profile and peak reserve",
+          "arbitrage": "Battery arbitrage estimate",
           "observation": "Compare sources and balance",
           "ev_preparation": "PV preparation for the car"
         }
@@ -497,6 +498,20 @@
           "use_for_peak_reserve": "Use hourly profile for active peak reserve"
         }
       },
+      "arbitrage": {
+        "title": "Battery arbitrage estimate",
+        "description": "Optional display only. Enter your own battery cost, lifetime and efficiency assumptions. The result uses the current electricity price to show the minimum higher price and spread for one additional grid-arbitrage cycle. It does not change charging, discharging or existing strategy thresholds.",
+        "data": {
+          "enabled": "Calculate comparison",
+          "battery_price_eur": "Battery share of purchase price",
+          "degradation_percent": "Assumed battery value loss over the stated cycles",
+          "cycles": "Assumed full cycles",
+          "usable_capacity_kwh": "Usable battery capacity",
+          "charge_efficiency_percent": "Charge efficiency",
+          "discharge_efficiency_percent": "Discharge efficiency",
+          "margin_ct": "Additional margin per kWh battery energy"
+        }
+      },
       "observation": {
         "title": "Observe measurement sources",
         "description": "Read-only: active house source stays unchanged. Match the grid connection, additional inverters and excluded loads. HA report timestamps are not proof of a new device measurement. Compare our time-weighted 60-minute value with legacy smoothing; interpolation can differ.",
@@ -556,6 +571,7 @@
       "huawei_cutoff_soc_unsupported": "Maximum charge level is outside the Huawei grid-charge cutoff range (typically 20–100%).",
       "demand_water_pair": "Select actual and target water temperature together.",
       "demand_heat_meter": "Select a separate heat pump electrical meter.",
+      "arbitrage_value": "Enter a value within the stated range for every assumption.",
       "observation_sources": "Select existing unique sensors; max 8 per list and 16 total.",
       "ev_soc_unit": "Vehicle SOC must use percent (%).",
       "huawei_temperature_required": "A valid Huawei battery temperature is missing. Select it under System and measurements or Connection. Read-only telemetry is available in shadow mode with strategy disabled.",
@@ -859,6 +875,27 @@
           "data_missing": "Missing data",
           "no_pv_timing": "PV coverage unknown",
           "error": "Calculation error"
+        }
+      },
+      "arbitrage_estimate": {
+        "name": "Arbitrage minimum spread (observation)",
+        "state_attributes": {
+          "status": {"name": "Status"},
+          "minimum_high_price_ct_kwh": {"name": "Minimum higher price (ct/kWh)"},
+          "charge_price_ct_kwh": {"name": "Assumed charging price (ct/kWh)"},
+          "throughput_cost_ct_kwh": {"name": "Cost per kWh battery throughput"},
+          "cycle_cost_floor_ct_kwh": {"name": "Cycle cost and margin floor (ct/kWh)"},
+          "degradation_value_eur": {"name": "Assumed lifetime degradation value (EUR)"},
+          "battery_price_eur": {"name": "Battery price share (EUR)"},
+          "degradation_percent": {"name": "Assumed value loss (%)"},
+          "cycles": {"name": "Assumed cycles"},
+          "usable_capacity_kwh": {"name": "Usable capacity (kWh)"},
+          "charge_efficiency": {"name": "Charge efficiency"},
+          "discharge_efficiency": {"name": "Discharge efficiency"},
+          "margin_ct": {"name": "Additional margin (ct/kWh)"},
+          "formula": {"name": "Formula"},
+          "informational_only": {"name": "Informational only"},
+          "controls_battery": {"name": "Controls battery"}
         }
       },
       "source_observation": {

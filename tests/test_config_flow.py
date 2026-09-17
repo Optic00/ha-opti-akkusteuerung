@@ -876,6 +876,71 @@ async def test_demand_options_are_separate_and_default_off(hass):
     assert entry.options['sources'] == {}
 
 
+async def test_arbitrage_estimate_requires_explicit_assumptions_and_stays_optional(hass):
+    entry = MockConfigEntry(
+        domain="opti_akku",
+        title="Test",
+        data={"host": "127.0.0.1", "port": 502, "unit_id": 3},
+        options={"single_inverter": True, "sources": {}},
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert "arbitrage" in result["menu_options"]
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "arbitrage"}
+    )
+    enabled = next(k for k in result["data_schema"].schema if k.schema == "enabled")
+    assert enabled.default() is False
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"enabled": True}
+    )
+    assert set(result["errors"]) == {
+        "battery_price_eur",
+        "degradation_percent",
+        "cycles",
+        "usable_capacity_kwh",
+        "charge_efficiency_percent",
+        "discharge_efficiency_percent",
+        "margin_ct",
+    }
+    shown = result["data_schema"].schema
+    enabled = next(k for k in shown if k.schema == "enabled")
+    assert enabled.default() is True
+    configured = {
+        "enabled": True,
+        "battery_price_eur": 5000,
+        "degradation_percent": 20,
+        "cycles": 5000,
+        "usable_capacity_kwh": 10,
+        "charge_efficiency_percent": 90,
+        "discharge_efficiency_percent": 90,
+        "margin_ct": 2,
+    }
+    result = await hass.config_entries.options.async_configure(result["flow_id"], configured)
+    assert result["type"] == "menu"
+    assert "arbitrage_estimate" not in entry.options
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "finish"}
+    )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["type"] == "create_entry"
+    assert entry.options["arbitrage_estimate"] == configured
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "arbitrage"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"enabled": False}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "finish"}
+    )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["type"] == "create_entry"
+    assert "arbitrage_estimate" not in entry.options
+
+
 async def test_observation_options_never_replace_controller_sources(hass):
     entry = MockConfigEntry(
         domain="opti_akku",

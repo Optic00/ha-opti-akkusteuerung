@@ -661,6 +661,68 @@ class WizardSections:
             NumberSelectorConfig(min=0, max=30, step=0.1, unit_of_measurement="kWh", mode=NumberSelectorMode.BOX))
         return self.async_show_form(step_id="demand", data_schema=vol.Schema(schema), errors=errors)
 
+    async def async_step_arbitrage(self, user_input=None):
+        """Configure a display-only battery arbitrage estimate."""
+        from .arbitrage import FIELDS, invalid_arbitrage_fields
+
+        cfg = self._draft.get("arbitrage_estimate", {})
+        errors = {}
+        if user_input is not None:
+            if user_input.get("enabled") is not True:
+                self._draft.pop("arbitrage_estimate", None)
+                return await self.async_step_init()
+            candidate = {"enabled": True, **{key: user_input.get(key) for key in FIELDS}}
+            invalid = invalid_arbitrage_fields(candidate)
+            if invalid:
+                errors = {key: "arbitrage_value" for key in invalid}
+            else:
+                self._draft["arbitrage_estimate"] = candidate
+                return await self.async_step_init()
+
+        shown = user_input if user_input is not None and errors else cfg
+        schema = {
+            vol.Required("enabled", default=shown.get("enabled", False)): BooleanSelector()
+        }
+        selectors = {
+            "battery_price_eur": NumberSelectorConfig(
+                min=0, max=100_000, step=1, unit_of_measurement="EUR",
+                mode=NumberSelectorMode.BOX,
+            ),
+            "degradation_percent": NumberSelectorConfig(
+                min=0, max=100, step=0.1, unit_of_measurement="%",
+                mode=NumberSelectorMode.BOX,
+            ),
+            "cycles": NumberSelectorConfig(
+                min=1, max=100_000, step=1, mode=NumberSelectorMode.BOX,
+            ),
+            "usable_capacity_kwh": NumberSelectorConfig(
+                min=0.1, max=1_000, step=0.1, unit_of_measurement="kWh",
+                mode=NumberSelectorMode.BOX,
+            ),
+            "charge_efficiency_percent": NumberSelectorConfig(
+                min=1, max=100, step=0.1, unit_of_measurement="%",
+                mode=NumberSelectorMode.BOX,
+            ),
+            "discharge_efficiency_percent": NumberSelectorConfig(
+                min=1, max=100, step=0.1, unit_of_measurement="%",
+                mode=NumberSelectorMode.BOX,
+            ),
+            "margin_ct": NumberSelectorConfig(
+                min=0, max=100, step=0.1, unit_of_measurement="ct/kWh",
+                mode=NumberSelectorMode.BOX,
+            ),
+        }
+        for key in FIELDS:
+            marker = (
+                vol.Optional(key, description={"suggested_value": shown[key]})
+                if shown.get(key) is not None
+                else vol.Optional(key)
+            )
+            schema[marker] = NumberSelector(selectors[key])
+        return self.async_show_form(
+            step_id="arbitrage", data_schema=vol.Schema(schema), errors=errors
+        )
+
     async def async_step_sources(self, user_input=None):
         return await self._section("sources", user_input)
 
@@ -979,7 +1041,7 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
                 self._settings = {key: definition["default"] for key, definition in DEFINITIONS.items()}
                 self._settings.update({k: v for k, v in stored.get("settings", {}).items() if k in DEFINITIONS})
                 self._merge_pending_settings(stored.get("settings_revision"))
-        return self.async_show_menu(step_id="init", menu_options=["connection", "sources", "battery", "tariff", "forecast", "features", "notifications", "demand", "ev_preparation", "observation", "advanced", "finish"])
+        return self.async_show_menu(step_id="init", menu_options=["connection", "sources", "battery", "tariff", "forecast", "features", "notifications", "demand", "arbitrage", "ev_preparation", "observation", "advanced", "finish"])
 
     async def async_step_connection(self, user_input=None):
         if self._connection.get("backend") == BACKEND_HUAWEI:

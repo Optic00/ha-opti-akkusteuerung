@@ -15,7 +15,7 @@ from homeassistant.helpers.entity import EntityCategory
 from .entity import OptiAkkuEntity, coordinator_data, readable_name
 
 SENSOR_PREFIXES = ("sensor.", "counter.", "input_datetime.")
-DIAGNOSTICS = ("mode", "reason", "last_write", "last_error", "source_errors", "price_provider_error", "price_last_success", "notification_error", "load_profile", "control_release", "device_errors", "command_confirmation", "command_evidence", "pause_pending", "reserve_plan", "operating_report", "price_status", "demand_forecast", "source_observation", "connection_status", "ev_preparation")
+DIAGNOSTICS = ("mode", "reason", "last_write", "last_error", "source_errors", "price_provider_error", "price_last_success", "notification_error", "load_profile", "control_release", "device_errors", "command_confirmation", "command_evidence", "pause_pending", "reserve_plan", "operating_report", "price_status", "demand_forecast", "source_observation", "connection_status", "ev_preparation", "arbitrage_estimate")
 CORE_UNITS = {"soc": "%", "battery_temp": "°C", "battery_capacity_kwh": "kWh",
               "battery_power_w": "W", "pv_power_w": "W", "pv_generation_w": "W",
               "grid_import_w": "W", "grid_export_w": "W", "house_consumption_w": "W",
@@ -37,7 +37,14 @@ async def async_setup_entry(
             async_add_entities(OptiAkkuStateSensor(entry, key) for key in keys)
 
     add_new_entities()
-    async_add_entities((OptiAkkuReportSensor if key in ("command_evidence", "reserve_plan", "operating_report", "demand_forecast", "source_observation", "connection_status", "ev_preparation") else OptiAkkuDiagnosticSensor)(entry, key) for key in DIAGNOSTICS)
+    def diagnostic_entity(key: str) -> SensorEntity:
+        if key == "arbitrage_estimate":
+            return OptiAkkuArbitrageSensor(entry, key)
+        if key in ("command_evidence", "reserve_plan", "operating_report", "demand_forecast", "source_observation", "connection_status", "ev_preparation"):
+            return OptiAkkuReportSensor(entry, key)
+        return OptiAkkuDiagnosticSensor(entry, key)
+
+    async_add_entities(diagnostic_entity(key) for key in DIAGNOSTICS)
     if coordinator.shadow_mode:
         async_add_entities([OptiAkkuDiagnosticSensor(entry, "shadow_status")])
     entry.async_on_unload(coordinator.async_add_listener(add_new_entities))
@@ -175,3 +182,24 @@ class OptiAkkuReportSensor(OptiAkkuDiagnosticSensor):
     """Live report details are stored once in Store, not once per recorder tick."""
 
     _unrecorded_attributes = frozenset({MATCH_ALL})
+
+
+class OptiAkkuArbitrageSensor(OptiAkkuReportSensor):
+    """Price-dependent display value; never an input to the controller."""
+
+    _attr_native_unit_of_measurement = "ct/kWh"
+
+    @property
+    def native_value(self) -> float | None:
+        value = coordinator_data(self).get(self._data_key)
+        if not isinstance(value, dict):
+            return None
+        candidate = value.get("minimum_spread_ct_kwh")
+        return candidate if isinstance(candidate, int | float) and isfinite(candidate) else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        value = coordinator_data(self).get(self._data_key)
+        if not isinstance(value, dict):
+            return None
+        return {key: item for key, item in value.items() if key != "minimum_spread_ct_kwh"}

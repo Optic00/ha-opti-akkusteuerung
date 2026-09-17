@@ -7,7 +7,7 @@ from homeassistant.exceptions import ConfigEntryError, HomeAssistantError
 from homeassistant.components.modbus import async_get_unit
 from modbus_connection import ModbusTcpParams
 
-from .const import DOMAIN, PLATFORMS
+from .const import DOMAIN, NO_RELOAD_OPTION_KEYS, PLATFORMS
 from .coordinator import OptiCoordinator
 from .engine import StrategyEngine
 from .sma import SmaDevice
@@ -70,7 +70,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     coordinator = entry.runtime_data
-    sources = {k: v for k, v in entry.options.items() if k not in {"settings", "settings_revision", "notification_service"}}
+    sources = {
+        key: value
+        for key, value in entry.options.items()
+        if key not in NO_RELOAD_OPTION_KEYS
+    }
     if coordinator.connection_config == dict(entry.data) and coordinator.source_options == sources:
         revision = entry.options.get("settings_revision")
         if revision and revision != coordinator._settings_revision:

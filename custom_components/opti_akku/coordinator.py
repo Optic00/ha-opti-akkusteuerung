@@ -21,10 +21,18 @@ from homeassistant.helpers import sun
 from homeassistant.util import dt as dt_util
 
 from .alerts import HealthAlerts
+from .arbitrage import build_arbitrage_estimate
 from .command_evidence import build_command_evidence
 from .device import PendingCommandError, DeviceAdapter, StaleCommandError
 from .engine import Evaluation
-from .const import DOMAIN, MODES, RECONCILE_SECONDS, SOURCE_DEFINITIONS, UPDATE_SECONDS
+from .const import (
+    DOMAIN,
+    MODES,
+    NO_RELOAD_OPTION_KEYS,
+    RECONCILE_SECONDS,
+    SOURCE_DEFINITIONS,
+    UPDATE_SECONDS,
+)
 from .definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
 from .sources import build_inputs, finite
 from .plant import plant_entity_ids, plant_semantic_fingerprint
@@ -70,7 +78,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                          update_interval=timedelta(seconds=UPDATE_SECONDS))
         self.entry = entry
         self.connection_config = dict(entry.data)
-        self.source_options = {k: v for k, v in entry.options.items() if k not in {"settings", "settings_revision", "notification_service"}}
+        self.source_options = {
+            key: value
+            for key, value in entry.options.items()
+            if key not in NO_RELOAD_OPTION_KEYS
+        }
         self._writer_binding = [entry.data.get(k) for k in ("host", "port", "unit_id", "serial_number")]
         if entry.data.get("backend") == "huawei_solar":
             self._writer_binding += [entry.data.get(k) for k in (
@@ -719,6 +731,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "price_last_success": self._price_last_success,
                 "notification_error": self.alerts.delivery_error,
                 "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled}
+        data["arbitrage_estimate"] = build_arbitrage_estimate(
+            captured_options.get("arbitrage_estimate"),
+            finite(result.states.get("sensor.opti_price_current_ct_kwh")),
+            strategy_enabled=self.strategy_enabled,
+        )
         try:
             data["ev_preparation"] = {**ev_report, "controls_battery": bool(ev_report.get("controls_battery") and self.write_enabled and not self.shadow_mode and safety_reason is None), "observation_only": self.shadow_mode or not self.write_enabled}
             data["reserve_plan"] = reserve_plan(data, self.settings, now, shadow=self.shadow_mode)

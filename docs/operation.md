@@ -116,9 +116,9 @@ vorsorglich gesperrt.
 Die Modi `now` und `minpv` sperren bei aktivem Laden weiterhin unabhängig von
 der optionalen Smart-Cost-Quelle.
 Modus, Ladestatus und Smart Cost bleiben gültig, solange die Quellintegration
-keinen ungültigen Zustand meldet. Integrationen oder MQTT-Bridges müssen einen
-Verbindungsausfall daher über `unavailable`, ein Verfügbarkeitstopic oder
-`expire_after` an Home Assistant weitergeben.
+keinen ungültigen Zustand meldet. Deshalb muss die Integration oder MQTT-Bridge
+einen Verbindungsausfall an Home Assistant weitergeben: als `unavailable`, über
+ein Verfügbarkeitstopic oder mit `expire_after`.
 
 Der Ladedeckel sperrt ab `maxsoc` weiteres Laden und bleibt mit drei
 Prozentpunkten Hysterese aktiv. Ohne weitere Sperre bleibt Entladen erlaubt.

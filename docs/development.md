@@ -39,13 +39,13 @@ geführt.
 ## Versionen und Releases
 
 Versionen folgen dem Veröffentlichungsmonat: `2026.9-beta1`, `2026.9-beta2`,
-danach `2026.9.0` stabil und `2026.9.1` für eine Fehlerkorrektur. Die Jahres- und
+`2026.9-beta3`, danach `2026.9.0` stabil und `2026.9.1` für eine Fehlerkorrektur. Die Jahres- und
 Monatsangabe bezeichnet Opti Akku, nicht die erforderliche Home-Assistant-Version.
 Manifest, `pyproject.toml` und Release-Tag müssen exakt übereinstimmen. Vorhandene
 Releases werden nicht nachträglich ersetzt; Korrekturen erhalten eine neue Version.
 
 Vor der Veröffentlichung müssen die PR-Checks und das unabhängige Review
-abgeschlossen sein. `python tools/build_package.py --tag 2026.9-beta1` prüft den
+abgeschlossen sein. `python tools/build_package.py --tag 2026.9-beta3` prüft den
 Versionsvertrag und baut ein reproduzierbares ZIP ausschließlich aus eingecheckten
 Komponentendateien. Das ZIP wird für manuelle Installationen in das HA-Konfigurationsverzeichnis
 entpackt; es enthält bereits `custom_components/opti_akku/`.

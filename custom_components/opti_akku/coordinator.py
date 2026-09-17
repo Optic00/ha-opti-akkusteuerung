@@ -472,6 +472,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return self.data or {}
         revision = self._revision
         read_started = time.monotonic()
+        battery_power_observed_at = None
         read_errors = {}
         try:
             async with asyncio.timeout(25):
@@ -479,6 +480,16 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._claim_device(self._identity)
                 self._probed = True
                 self._measurements = await self.device.async_read()
+                # SMA values originate in this Modbus transaction. Huawei's
+                # adapter reads HA entity states whose device timestamp is not
+                # exposed here; using the coordinator read time would make a
+                # cached pre-command value look newer than the command.
+                if (
+                    self.entry.data.get("backend") != "huawei_solar"
+                    and finite(self._measurements.get("sensor.opti_battery_power_w"))
+                    is not None
+                ):
+                    battery_power_observed_at = dt_util.utcnow()
             read_errors = getattr(self.device, "last_read_errors", {})
             self._online = (finite(self._measurements.get("sensor.opti_inverter_status")) is not None
                             and not (isinstance(read_errors, dict) and "transport" in read_errors))
@@ -593,6 +604,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         persistent_violation = self._violation_since is not None and monotonic_now - self._violation_since >= 30
         command_result = "not_attempted"
         write_failed = False
+        last_write_before_command = getattr(self.device, "last_write", None)
         due = self._last_apply is None or monotonic_now - self._last_apply >= RECONCILE_SECONDS
         if (not self.shadow_mode and self.write_enabled and self._online and connection["write_ready"] and self._identity.get("serial_number") and not self._stopping
                 and mode in self.supported_modes
@@ -686,6 +698,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             write_ready=connection["write_ready"],
             persistent_violation=persistent_violation,
             battery_power_w=battery,
+            battery_power_observed_at=battery_power_observed_at,
+            execution_completed_this_update=(
+                command_result in {"confirmed", "safe_phase_confirmed"}
+                or getattr(self.device, "last_write", None) != last_write_before_command
+            ),
         )
         data = {"states": result.states, "attributes": result.attributes, "metadata": metadata,
                 "mode": mode, "reason": reason, "engine_requested_mode": result.mode,

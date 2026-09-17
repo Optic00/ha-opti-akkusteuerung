@@ -32,6 +32,8 @@ def build_command_evidence(
     write_ready: bool,
     persistent_violation: bool,
     battery_power_w: float | None,
+    battery_power_observed_at: datetime | None = None,
+    execution_completed_this_update: bool = False,
 ) -> dict[str, Any]:
     """Return independent execution, readback and physical-observation claims."""
     basis = _capability(device, "command_execution_basis", EXECUTION_BASES, "unknown")
@@ -59,6 +61,28 @@ def build_command_evidence(
 
     last_write = getattr(device, "last_write", None)
     completed_at = last_write.isoformat() if isinstance(last_write, datetime) else None
+    observed_at = (
+        battery_power_observed_at.isoformat()
+        if battery_power_w is not None
+        and isinstance(battery_power_observed_at, datetime)
+        else None
+    )
+    observed_after_execution = None
+    if (
+        battery_power_w is not None
+        and isinstance(last_write, datetime)
+        and isinstance(battery_power_observed_at, datetime)
+    ):
+        try:
+            observed_after_execution = (
+                False
+                if execution_completed_this_update
+                else battery_power_observed_at >= last_write
+            )
+        except TypeError:
+            # Naive and timezone-aware timestamps are deliberately not made
+            # comparable by guessing a timezone.
+            observed_after_execution = None
     return {
         "status": status,
         "execution_basis": basis,
@@ -69,6 +93,8 @@ def build_command_evidence(
             "violation_observed" if persistent_violation else "not_assessed"
         ),
         "observed_battery_power_w": battery_power_w,
+        "battery_power_observed_at": observed_at,
+        "observed_after_execution": observed_after_execution,
         "execution_completed_at": completed_at,
         "safe_phase_completed": command_result == "safe_phase_confirmed",
     }

@@ -9,6 +9,7 @@ from custom_components.opti_akku.command_evidence import build_command_evidence
 
 
 COMPLETED = datetime(2026, 9, 15, 20, 0, tzinfo=UTC)
+OBSERVED = datetime(2026, 9, 15, 20, 0, 5, tzinfo=UTC)
 
 
 def adapter(basis="modbus_write_sequence", readback="not_supported", limitation="none"):
@@ -28,6 +29,7 @@ def evidence(device=None, **overrides):
         "write_ready": True,
         "persistent_violation": False,
         "battery_power_w": 0.0,
+        "battery_power_observed_at": OBSERVED,
     }
     values.update(overrides)
     return build_command_evidence(device or adapter(), **values)
@@ -43,6 +45,8 @@ def test_sma_completion_is_not_setpoint_or_physical_confirmation():
         "physical_effect": "not_verified",
         "block_observation": "not_assessed",
         "observed_battery_power_w": 0.0,
+        "battery_power_observed_at": OBSERVED.isoformat(),
+        "observed_after_execution": True,
         "execution_completed_at": COMPLETED.isoformat(),
         "safe_phase_completed": False,
     }
@@ -94,3 +98,28 @@ def test_waiting_and_violation_are_independent_axes():
     assert result["status"] == "waiting_ready"
     assert result["block_observation"] == "violation_observed"
     assert result["physical_effect"] == "not_verified"
+
+
+def test_pre_command_measurement_is_not_presented_as_effect_evidence():
+    observed = datetime(2026, 9, 15, 19, 59, 59, tzinfo=UTC)
+    result = evidence(battery_power_observed_at=observed)
+    assert result["battery_power_observed_at"] == observed.isoformat()
+    assert result["observed_after_execution"] is False
+    assert result["physical_effect"] == "not_verified"
+
+
+def test_same_update_execution_order_wins_over_wall_clock_rollback():
+    result = evidence(execution_completed_this_update=True)
+    assert result["observed_after_execution"] is False
+
+
+def test_missing_or_incomparable_observation_time_stays_unknown():
+    assert evidence(battery_power_observed_at=None)["observed_after_execution"] is None
+    naive = datetime(2026, 9, 15, 20, 0, 5)
+    assert evidence(battery_power_observed_at=naive)["observed_after_execution"] is None
+
+
+def test_timestamp_is_suppressed_without_a_measurement():
+    result = evidence(battery_power_w=None)
+    assert result["battery_power_observed_at"] is None
+    assert result["observed_after_execution"] is None

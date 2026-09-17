@@ -154,7 +154,7 @@ Die drei Nachweisstufen werden getrennt bewertet:
 |---|---|---|
 | Transport | Die vollständige Modbus-Schreibfolge endete ohne gemeldeten Fehler. | Als **Adapterausführung abgeschlossen** sichtbar. |
 | Sollwertübernahme | Der Wechselrichter meldet den tatsächlich übernommenen Modus und Sollwert aus einer unabhängigen Quelle. | Nicht unterstützt. Die verwendete Registerfamilie wird nicht zurückgelesen. |
-| Physische Wirkung | Eine frische Gerätemessung zeigt die erwartete Lade- oder Entladerichtung beziehungsweise den Stillstand. | Nur als Beobachtung prüfbar; kein Nachweis des exakten Sollwerts. |
+| Physische Wirkung | Eine frische Gerätemessung zeigt die erwartete Lade- oder Entladerichtung beziehungsweise den Stillstand. | Nur als Beobachtung prüfbar; kein Nachweis des exakten Sollwerts. Bei SMA nennt der Befehlsnachweis den Abschlusszeitpunkt des frischen Modbus-Lesevorgangs und den Ausführungszeitpunkt getrennt. Bei Huawei bleibt der Messzeitpunkt leer, solange der Gerätezeitpunkt der zugrunde liegenden HA-Entität nicht sicher weitergegeben wird. |
 
 Ein begleiteter Hardwaretest soll deshalb Modell, Firmware, Ausgangs-SoC,
 Modus, angeforderten Wert, Befehlsnachweis und die Akkuleistung aus einem

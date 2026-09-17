@@ -708,6 +708,8 @@
           "physical_effect": {"name": "Physical effect", "state": {"not_verified": "Not verified"}},
           "block_observation": {"name": "Direction-block observation", "state": {"not_assessed": "Not assessed", "violation_observed": "Violation observed"}},
           "observed_battery_power_w": {"name": "Observed battery power (W)"},
+          "battery_power_observed_at": {"name": "Battery power observed at"},
+          "observed_after_execution": {"name": "Observation after adapter execution"},
           "execution_completed_at": {"name": "Last adapter execution completed"},
           "safe_phase_completed": {"name": "Conservative phase completed"}
         }

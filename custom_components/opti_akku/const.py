@@ -11,6 +11,9 @@ UPDATE_SECONDS = 15
 RECONCILE_SECONDS = 120
 CONF_SOURCES = "sources"
 CONF_SETTINGS = "settings"
+NO_RELOAD_OPTION_KEYS = frozenset(
+    {"settings", "settings_revision", "notification_service", "arbitrage_estimate"}
+)
 # key: (canonical virtual ID, German label, expected family)
 SOURCE_DEFINITIONS = {
     "house_consumption": ("sensor.opti_house_consumption_w", "Hausverbrauch", "power"),

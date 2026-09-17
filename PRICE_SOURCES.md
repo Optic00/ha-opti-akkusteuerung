@@ -72,3 +72,33 @@ Unmittelbar vor einem Schreibbefehl werden Preisalter und aktuelle Intervall-
 abdeckung nochmals geprüft. Ein zwischenzeitlicher Intervallwechsel verwirft
 stattdessen den veralteten Befehl. Ohne gültigen Tibber-Snapshot sind sowohl
 aktueller Preis als auch Planung ungültig.
+
+## Wirtschaftlichkeitsvergleich für Akku-Arbitrage
+
+Im Optionsmenü lässt sich eine rein informative Vergleichsrechnung aktivieren.
+Alle Annahmen müssen ausdrücklich eingetragen werden: Akkuanteil am Kaufpreis,
+angesetzter Wertverlust des Akkus über die angenommenen Zyklen, Zyklenzahl,
+nutzbare Kapazität, Lade- und
+Entladewirkungsgrad sowie eine zusätzliche Mindestmarge. Es gibt keine verdeckten
+Standardwerte. Der Wertverlust ist der Anteil des eingetragenen Akku-Kaufpreises,
+der über die angenommene Zyklenzahl als verbraucht angesetzt wird.
+
+Aus dem angesetzten Verschleißwert wird zuerst der Preis je kWh Akkudurchsatz
+berechnet. Ein zusätzlicher Lade- und Entladezyklus enthält diesen Durchsatz
+zweimal. Für den aktuellen Ladepreis zeigt der Sensor anschließend den mindestens
+nötigen höheren Preis und den daraus folgenden Preisabstand:
+
+```text
+p_hoch_min = (p_niedrig / eta_laden + 2 * c_durchsatz + marge) / eta_entladen
+```
+
+Die Marge ist dabei wie die Durchsatzkosten auf eine kWh Akkuenergie bezogen und
+steht deshalb innerhalb der Wirkungsgradkorrektur.
+
+Die Anzeige bepreist nur einen zusätzlichen Netz-Arbitragezyklus. Sie bewertet
+keine ohnehin stattfindende PV-Nutzung und behauptet keine genaue Akku-Lebensdauer.
+Sie ändert weder bestehende Mindestspreads noch Lade-, Entlade- oder
+Reserveentscheidungen. Eine spätere aktive Nutzung braucht zuerst reale Vergleiche
+mit Kosten, Wirkungsgraden und tatsächlich verschobener Energie.
+Bei vollständig deaktivierter Strategie lautet der Status `strategy_disabled`,
+weil Preisquellen in diesem Betriebszustand nicht eingelesen werden.

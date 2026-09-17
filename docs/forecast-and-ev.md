@@ -101,7 +101,7 @@ einen eigenen zeitgewichteten 60-Minuten-Mittelwert gegenüber dem Legacy-Mittel
 Eine im Legacy-System vorhandene Untergrenze ist explizit einstellbar. Unterschiedliche
 Interpolation und zeitversetzte Messungen können auch bei korrekter Bilanz Abweichungen
 verursachen. Fehlende oder veraltete zusätzliche Wechselrichter/Lastwerte werden nicht
-zu null umgedeutet. Ein veralteter Wallboxwert verhindert den bereinigten Vergleich;
+zu null umgedeutet. Ein veralteter Wallbox-Leistungswert verhindert den bereinigten Vergleich;
 die unabhängige Gesamtbilanz kann weiter ausgewertet werden.
 
 Für 48 Stunden bleiben Fünf-Minuten-Aggregate mit ausgewiesener Vergleichsabdeckung

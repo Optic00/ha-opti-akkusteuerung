@@ -221,9 +221,10 @@ def build_inputs(
 
     # EV state is derived from the actual charging flag AND evcc mode. Smart
     # Cost additionally marks grid charging in pv mode when explicitly mapped.
-    # These three inputs are persistent state or setting entities which integrations may
-    # only report when their value changes. Their age therefore says nothing
-    # about availability; unknown/unavailable values remain invalid.
+    # These three inputs are persistent state or setting entities which
+    # integrations may only report when their value changes. Their age
+    # therefore says nothing about availability; unknown/unavailable values
+    # remain invalid.
     # Unconfigured loadpoints do not participate in the latch; configured but
     # missing/invalid inputs must still hold its lock.
     for index in (1, 2):

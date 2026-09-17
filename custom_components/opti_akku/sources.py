@@ -221,8 +221,11 @@ def build_inputs(
 
     # EV state is derived from the actual charging flag AND evcc mode. Smart
     # Cost additionally marks grid charging in pv mode when explicitly mapped.
+    # These are persistent state or setting entities which integrations may
+    # only report when their value changes. Their age therefore says nothing
+    # about availability; unknown/unavailable values remain invalid.
     # Unconfigured loadpoints do not participate in the latch; configured but
-    # missing/stale inputs must still hold its lock.
+    # missing/invalid inputs must still hold its lock.
     for index in (1, 2):
         mode = ha_states.get(sources.get(f"ev{index}_mode", ""))
         charging = ha_states.get(sources.get(f"ev{index}_charging", ""))
@@ -236,15 +239,11 @@ def build_inputs(
             states[key] = "off"
             attributes[key] = {"valide": True, "konfiguriert": False}
             continue
-        max_age = options.get("source_max_age", 900)
         base_valid = (mode is not None and charging is not None
                       and mode.state in ("off", "now", "minpv", "pv")
-                      and charging.state in ("on", "off")
-                      and _fresh(mode, now, max_age)
-                      and _fresh(charging, now, max_age))
+                      and charging.state in ("on", "off"))
         smart_cost_valid = (smart_cost is not None
-                            and smart_cost.state in ("on", "off")
-                            and _fresh(smart_cost, now, max_age))
+                            and smart_cost.state in ("on", "off"))
         if not base_valid:
             states[key] = "unavailable"
             for field in (f"ev{index}_mode", f"ev{index}_charging"):

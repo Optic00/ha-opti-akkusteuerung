@@ -221,7 +221,7 @@ def build_inputs(
 
     # EV state is derived from the actual charging flag AND evcc mode. Smart
     # Cost additionally marks grid charging in pv mode when explicitly mapped.
-    # These are persistent state or setting entities which integrations may
+    # These three inputs are persistent state or setting entities which integrations may
     # only report when their value changes. Their age therefore says nothing
     # about availability; unknown/unavailable values remain invalid.
     # Unconfigured loadpoints do not participate in the latch; configured but
@@ -248,13 +248,13 @@ def build_inputs(
             states[key] = "unavailable"
             for field in (f"ev{index}_mode", f"ev{index}_charging"):
                 if sources.get(field):
-                    errors[field] = "missing_or_stale"
+                    errors[field] = "missing_or_unavailable"
         elif charging.state == "on" and mode.state in ("now", "minpv"):
             states[key] = "on"
         elif (charging.state == "on" and mode.state == "pv"
               and smart_cost_configured and not smart_cost_valid):
             states[key] = "unavailable"
-            errors[smart_cost_key] = "missing_or_stale"
+            errors[smart_cost_key] = "missing_or_unavailable"
         else:
             states[key] = ("on" if charging.state == "on" and mode.state == "pv"
                            and smart_cost_configured and smart_cost.state == "on" else "off")

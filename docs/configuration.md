@@ -26,6 +26,9 @@ abgelehnt. Preisoptimierung kann durch leere Preisfelder ausgelassen werden,
 Prognoseplanung durch drei leere Prognosefelder; die Zusammenfassung weist auf
 fehlende Quellen hin. Cloud-Anbieter müssen weiterhin vorher in HA eingerichtet
 sein. Vorschläge bereits vorhandener kanonischer Quellen sind bearbeitbar.
+Zustandsquellen von evcc für Modus, Ladestatus und Smart Cost werden auf gültige
+Zustände geprüft, aber nicht nach ihrem Alter verworfen, weil evcc unveränderte
+Werte nicht regelmäßig neu melden muss.
 
 **Upgrade:** Einstellungen werden erhalten. Ein einzelner ungültiger gespeicherter
 Wert setzt nur diesen Wert bzw. ein widersprüchliches Grenzpaar zurück und sperrt

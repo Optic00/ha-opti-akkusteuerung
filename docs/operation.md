@@ -108,12 +108,17 @@ halten eine bereits aktive Sperre weiterhin fest. Optional kann je Ladepunkt
 der evcc-Binärsensor `smart_cost_active` ausgewählt werden. Dann sperrt auch
 aktives Laden im Modus `pv` die Entladung, solange Smart Cost aktiv ist.
 Normales PV-Laden ohne aktives Smart Cost sperrt nicht. Fehlt der konfigurierte
-Smart-Cost-Wert während eines erkannten Ladevorgangs im Modus `pv` oder ist er
-veraltet, gilt der Ladepunkt als unverfügbar. Die Automatik hält dann eine
+Smart-Cost-Wert während eines erkannten Ladevorgangs im Modus `pv` oder meldet
+die Quellintegration ihn als unbekannt oder nicht verfügbar, gilt der Ladepunkt
+als unverfügbar. Die Automatik hält dann eine
 bereits aktive Sperre; in manueller Betriebsart wird die Entladung
 vorsorglich gesperrt.
 Die Modi `now` und `minpv` sperren bei aktivem Laden weiterhin unabhängig von
 der optionalen Smart-Cost-Quelle.
+Modus, Ladestatus und Smart Cost bleiben gültig, solange die Quellintegration
+keinen ungültigen Zustand meldet. Integrationen oder MQTT-Bridges müssen einen
+Verbindungsausfall daher über `unavailable`, ein Verfügbarkeitstopic oder
+`expire_after` an Home Assistant weitergeben.
 
 Der Ladedeckel sperrt ab `maxsoc` weiteres Laden und bleibt mit drei
 Prozentpunkten Hysterese aktiv. Ohne weitere Sperre bleibt Entladen erlaubt.

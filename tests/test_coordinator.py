@@ -336,23 +336,26 @@ async def test_normal_power_updates_do_not_starve_write_sequence(coordinator, ha
     coordinator._unsubscribe()  # HA entry callbacks can run after the explicit stop.
 
 
-async def test_ev_freshness_expires_without_new_state_event(coordinator, hass, entry):
+async def test_ev_state_age_does_not_invalidate_pending_command(coordinator, hass, entry):
     hass.config_entries.async_update_entry(entry, options={**entry.options, "source_max_age": 1,
         "sources": {"ev1_mode": "select.car", "ev1_charging": "binary_sensor.car"}})
     hass.states.async_set("select.car", "pv")
     hass.states.async_set("binary_sensor.car", "off")
     coordinator.write_enabled = True
+    completed = []
 
     async def apply(mode, params, current):
         assert current()
         later = dt_util.utcnow() + timedelta(seconds=2)
         with patch("custom_components.opti_akku.coordinator.dt_util.utcnow", return_value=later):
-            assert not current()
+            assert current()
+        completed.append(True)
 
     coordinator.device.async_apply.side_effect = apply
     await coordinator._async_update_data()
     coordinator.device.async_apply.side_effect = None
     coordinator.write_enabled = False
+    assert completed == [True]
 
 async def test_wizard_settings_seed_once_and_entity_changes_survive(coordinator, hass, entry):
     hass.config_entries.async_update_entry(entry, options={**entry.options,

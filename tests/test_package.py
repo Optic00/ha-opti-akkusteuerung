@@ -40,8 +40,9 @@ def test_hacs_metadata_and_version():
     hacs = json.loads((root / "hacs.json").read_text())
     version = manifest["version"]
     assert version == tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
-    for documentation in ("README.md", "HUAWEI_CONTROL.md", "docs/development.md"):
-        assert version in (root / documentation).read_text()
+    assert f"aktueller Stand `{version}`." in (root / "README.md").read_text()
+    assert f"Beta-Kandidat {version}." in (root / "HUAWEI_CONTROL.md").read_text()
+    assert f"`{version}`" in (root / "docs/development.md").read_text()
     assert manifest["config_flow"] is True
     assert hacs["homeassistant"] == "2026.9.1"
 

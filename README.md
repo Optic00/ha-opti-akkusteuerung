@@ -35,7 +35,7 @@ Dies ist ein benutzerdefiniertes HACS-Repository, keine behauptete Aufnahme in d
 - SMA-Telemetrie und Steuerung über die Modbus-Schnittstelle von HA; wahlweise Beobachtung, Strategie oder manuelle Betriebsarten.
 - Lade-/Entladegrenzen, Hysterese, Preisfenster, Reserveplanung und optionale Balancing-Planung.
 - Native Tibber-Preise über die vorhandene HA-Integration oder zugeordnete Preisentitäten.
-- Rein informativer Wirtschaftlichkeitsvergleich für Akku-Arbitrage mit ausdrücklich eingetragenen Kosten- und Effizienzannahmen.
+- Optionaler, rein informativer Wirtschaftlichkeitsvergleich für Akku-Arbitrage mit ausdrücklich eingetragenen Kosten- und Effizienzannahmen.
 - Optionales Stundenverbrauchsprofil mit Recorder-Import und gesonderter Aktivierung für die Peak-Reserve.
 - Optionale EV-Entladesperre und frühere PV-Ladung des Hausakkus bei Fahrzeug-Ladebedarf.
 - Geführtes Einstellungsmenü, Diagnoseentitäten und lesende 24-Stunden-Shadow-Aufzeichnung.

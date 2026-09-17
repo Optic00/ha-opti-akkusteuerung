@@ -35,11 +35,26 @@ allein noch kein Nachweis einer besseren Strategie.
 - Für eine zeitliche Reserve sind Solcast-Sensoren heute/morgen mit datiertem
   `detailedForecast` und `pv_estimate10` nötig. Tages-kWh allein reichen nicht.
   Verwendet wird P10 als konservatives Szenario; eine Garantie ist das nicht.
-  PV-Deckung gilt bei mindestens einer Stunde mit 120 % des erwarteten Verbrauchs.
+  PV-Deckung gilt erst bei mindestens einer zusammenhängenden Stunde mit 120 %
+  des erwarteten Verbrauchs und wenigstens 0,5 kWh Nettoüberschuss. Damit wird
+  ein rechnerisch passendes, aber energetisch bedeutungsloses Schwachlichtfenster
+  nicht als Wiederaufladebeginn gewertet.
 - Der Vorschlag deckt das größte kumulierte Energiedefizit bis dahin, mit
   20 % plus 0,2 kWh Puffer, 90 % Entladewirkungsgrad und eingestelltem Mindest-SoC.
   Eine über der nutzbaren Kapazität liegende Anforderung wird separat ausgewiesen.
+  Zusätzlich zeigt der Bericht den danach innerhalb des ab Berechnungszeitpunkt
+  maximal 24-stündigen Horizonts verfügbaren Nettoüberschuss, mit 90 %
+  Ladeeffizienz, und ob dieser den errechneten
+  Batteriebedarf innerhalb der nutzbaren Min-/Max-SoC-Spanne wieder auffüllen
+  könnte. Potenziell verfügbare und tatsächlich speicherbare Energie werden
+  getrennt gezeigt. Zwischenzeitliche Defizite werden vom aufgebauten Überschuss
+  abgezogen. Ende und Länge des tatsächlich abgedeckten Prognosehorizonts
+  bleiben sichtbar; ein negatives Ergebnis gilt nur für diesen Zeitraum. Diese
+  Angaben verändern den Reservevorschlag nicht.
   Es wird keine aktive Entladung und kein bewusstes Einspeisen aus dem Akku ausgelöst.
+
+Vor einer späteren Nutzung für aktive Reserveentscheidungen ist ein realer
+Vergleich über mehrere typische Wetter- und Verbrauchstage nötig.
 
 Die Lernhistorie liegt versioniert im privaten Integration-Store. Datenlücken und
 Neustarts werden nicht interpoliert; Quellenwechsel setzen nur diese Historie

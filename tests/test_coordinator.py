@@ -1044,11 +1044,14 @@ async def test_active_profile_comparison_requires_enabled_demand(coordinator):
         "observation_only": True,
         "blocks": {},
     }
-    coordinator.device.async_apply.assert_not_awaited()
 
 
-async def test_real_shadow_comparison_stays_passive_across_two_updates(coordinator):
-    coordinator.shadow_mode = True
+@pytest.mark.parametrize("shadow_mode", [False, True])
+async def test_real_profile_comparison_stays_passive_across_two_updates(
+    coordinator, shadow_mode
+):
+    coordinator.shadow_mode = shadow_mode
+    coordinator.write_enabled = not shadow_mode
     coordinator.hass.config_entries.async_update_entry(
         coordinator.entry,
         options={
@@ -1105,7 +1108,37 @@ async def test_real_shadow_comparison_stays_passive_across_two_updates(coordinat
     assert coordinator._demand_forecast.previous == previous
     assert coordinator._demand_forecast.recent._fingerprint == recent._fingerprint
     assert coordinator._demand_forecast.recent._samples == recent._samples
-    coordinator.device.async_apply.assert_not_awaited()
+    if shadow_mode:
+        coordinator.device.async_apply.assert_not_awaited()
+    else:
+        coordinator.device.async_apply.assert_awaited()
+
+
+async def test_active_profile_comparison_failure_isolated_from_write(coordinator):
+    coordinator.hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "demand_forecast": {"enabled": True},
+        },
+    )
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.manual_mode = "Akku schnell Entladen"
+    coordinator.write_enabled = True
+
+    with patch(
+        "custom_components.opti_akku.coordinator.build_strategy_comparison",
+        side_effect=ValueError("comparison failed"),
+    ):
+        result = await coordinator._async_update_data()
+
+    assert result["mode"] == "Akku schnell Entladen"
+    assert result["write_enabled"] is True
+    assert result["demand_forecast"]["strategy_comparison"] == {
+        "status": "error",
+        "observation_only": True,
+    }
+    assert coordinator.device.async_apply.await_args.args[0] == "Akku schnell Entladen"
 
 
 @pytest.mark.parametrize(

@@ -6,10 +6,12 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from custom_components.opti_akku.arbitrage import (
+    apply_discharge_hold,
     build_arbitrage_estimate,
     build_terminal_value_proxy,
     invalid_arbitrage_fields,
 )
+from custom_components.opti_akku.engine import Evaluation
 
 
 CONFIG = {
@@ -22,6 +24,45 @@ CONFIG = {
     "discharge_efficiency_percent": 90,
     "margin_ct": 2,
 }
+
+
+def evaluation(decision_id="peak_l2", mode="Akku nur Entladen", soc=50):
+    return Evaluation(
+        {
+            "sensor.opti_soc": soc,
+            "sensor.opti_battery_capacity_kwh": 10,
+            "input_number.minsoc": 10,
+            "input_number.maxsoc": 90,
+        },
+        {},
+        mode,
+        "existing decision",
+        {},
+        decision_id=decision_id,
+    )
+
+
+def hold_report(now, **overrides):
+    return {
+        "status": "ready",
+        "hold_enabled": True,
+        "terminal_value_status": "ready",
+        "terminal_value_issued_at": now.isoformat(),
+        "terminal_value_current_soc": 50,
+        "terminal_value_battery_capacity_kwh": 10,
+        "terminal_value_minimum_soc": 10,
+        "terminal_value_maximum_soc": 90,
+        "terminal_value_current_marginal_ct_kwh": 30,
+        "throughput_cost_ct_kwh": 1,
+        "battery_price_eur": 5000,
+        "degradation_percent": 20,
+        "cycles": 5000,
+        "usable_capacity_kwh": 10,
+        "charge_efficiency": 0.9,
+        "discharge_efficiency": 0.9,
+        "margin_ct": 2,
+        **overrides,
+    }
 
 
 def test_unconfigured_estimate_has_no_silent_assumptions():
@@ -73,6 +114,105 @@ def test_margin_is_battery_side_and_efficiencies_are_independent():
     assert result["cycle_cost_floor_ct_kwh"] == 5
     assert result["minimum_high_price_ct_kwh"] == pytest.approx(18.421, abs=0.001)
     assert result["minimum_spread_ct_kwh"] == pytest.approx(8.421, abs=0.001)
+
+
+def test_active_hold_uses_fresh_terminal_value_for_known_discharge_decision():
+    now = datetime(2026, 1, 15, tzinfo=ZoneInfo("UTC"))
+    result, report = apply_discharge_hold(
+        evaluation(), hold_report(now), {**CONFIG, "hold_enabled": True}, 10, now
+    )
+    assert result.mode == "Akku nur Laden"
+    assert result.decision_id == "arbitrage_hold"
+    assert "Restwert halten" in result.reason
+    assert report["hold_status"] == "holding"
+    assert report["hold_controls_battery"] is True
+    assert report["hold_current_net_ct_kwh"] == pytest.approx(8.889, abs=0.001)
+
+
+@pytest.mark.parametrize(
+    ("decision_id", "mode"),
+    [
+        ("minimum_soc", "Akku nur Laden"),
+        ("negative_price", "Akku Netzladen"),
+        ("unknown", "Akku nur Entladen"),
+    ],
+)
+def test_active_hold_never_overrides_protected_or_unknown_decisions(decision_id, mode):
+    now = datetime(2026, 1, 15, tzinfo=ZoneInfo("UTC"))
+    before = evaluation(decision_id, mode)
+    result, report = apply_discharge_hold(
+        before, hold_report(now), {**CONFIG, "hold_enabled": True}, 10, now
+    )
+    assert result is before
+    assert report["hold_status"] == "higher_priority"
+
+
+def test_active_hold_releases_when_current_value_covers_future_and_margin():
+    now = datetime(2026, 1, 15, tzinfo=ZoneInfo("UTC"))
+    before = evaluation()
+    result, report = apply_discharge_hold(
+        before, hold_report(now), {**CONFIG, "hold_enabled": True}, 40, now
+    )
+    assert result is before
+    assert report["hold_status"] == "release"
+
+
+def test_active_hold_has_half_cent_hysteresis_and_never_holds_at_zero_value():
+    now = datetime(2026, 1, 15, tzinfo=ZoneInfo("UTC"))
+    # Current net value is 8.889 ct/kWh. An advantage of 2.3 ct is below the
+    # 2.5 ct entry edge, but above the 1.5 ct release edge once already held.
+    marginal = 11.189
+    fresh = hold_report(now, terminal_value_current_marginal_ct_kwh=marginal)
+    assert apply_discharge_hold(
+        evaluation(), fresh, {**CONFIG, "hold_enabled": True}, 10, now
+    )[1]["hold_status"] == "release"
+    continuing = {**fresh, "hold_status": "holding"}
+    assert apply_discharge_hold(
+        evaluation(), continuing, {**CONFIG, "hold_enabled": True}, 10, now
+    )[1]["hold_status"] == "holding"
+    zero = hold_report(
+        now,
+        terminal_value_current_marginal_ct_kwh=0,
+        throughput_cost_ct_kwh=0,
+        margin_ct=0,
+    )
+    zero_config = {**CONFIG, "hold_enabled": True, "margin_ct": 0}
+    assert apply_discharge_hold(
+        evaluation(), zero, zero_config, 0, now
+    )[1]["hold_status"] == "release"
+
+
+@pytest.mark.parametrize(
+    ("report", "expected"),
+    [
+        (None, "waiting_for_fresh_report"),
+        ({"terminal_value_status": "learning"}, "waiting_for_fresh_report"),
+    ],
+)
+def test_active_hold_fails_closed_without_fresh_complete_report(report, expected):
+    now = datetime(2026, 1, 15, tzinfo=ZoneInfo("UTC"))
+    before = evaluation()
+    result, status = apply_discharge_hold(
+        before, report, {**CONFIG, "hold_enabled": True}, 10, now
+    )
+    assert result is before
+    assert status["hold_status"] == expected
+
+
+def test_active_hold_rejects_stale_soc_or_changed_assumptions():
+    now = datetime(2026, 1, 15, tzinfo=ZoneInfo("UTC"))
+    stale = hold_report(now - timedelta(seconds=91))
+    assert apply_discharge_hold(
+        evaluation(), stale, {**CONFIG, "hold_enabled": True}, 10, now
+    )[1]["hold_status"] == "waiting_for_fresh_report"
+    mismatch = hold_report(now, battery_price_eur=4000)
+    assert apply_discharge_hold(
+        evaluation(), mismatch, {**CONFIG, "hold_enabled": True}, 10, now
+    )[1]["hold_status"] == "waiting_for_matching_report"
+    soc_changed = hold_report(now, terminal_value_current_soc=45)
+    assert apply_discharge_hold(
+        evaluation(), soc_changed, {**CONFIG, "hold_enabled": True}, 10, now
+    )[1]["hold_status"] == "data_missing"
 
 
 def test_terminal_proxy_values_most_expensive_residual_load_first():

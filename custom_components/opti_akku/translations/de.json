@@ -500,9 +500,10 @@
       },
       "arbitrage": {
         "title": "Wirtschaftlichkeitsvergleich für Akku-Arbitrage",
-        "description": "Optionale Vergleichsanzeige. Trage deine Annahmen zu Akkukosten, Lebensdauer und Wirkungsgraden ein. Das Ergebnis zeigt anhand des aktuellen Strompreises den mindestens nötigen höheren Preis und Preisabstand für einen zusätzlichen Netz-Arbitragezyklus. Laden, Entladen und vorhandene Strategieschwellen bleiben unverändert.",
+        "description": "Trage deine Annahmen zu Akkukosten, Lebensdauer und Wirkungsgraden ein. Die Anzeige berechnet Preisabstand und Restwert. Der optionale Entladeschutz hält Energie nur bei vollständiger Bedarfs-, PV- und Preisprognose für eine nachweislich wertvollere spätere Restlast zurück. Er lädt nicht aus dem Netz und lässt Schutz-, Lade- und unbekannte Entscheidungen unverändert.",
         "data": {
           "enabled": "Vergleich berechnen",
+          "hold_enabled": "Restwert als automatischen Entladeschutz verwenden",
           "battery_price_eur": "Akkuanteil am Anschaffungspreis",
           "degradation_percent": "Angesetzter Wertverlust über die angenommenen Zyklen",
           "cycles": "Angenommene Vollzyklen",
@@ -528,14 +529,19 @@
       },
       "ev_preparation": {
         "title": "PV-Vorbereitung fürs Auto",
-        "description": "Bei niedrigem Fahrzeug-SoC vorhandenen PV-Überschuss im Hausakku vorziehen, auch unterwegs. Kein zusätzliches Netzladen. Auto lädt: normale Hausakkuladung und Entladung pausieren; vorrangige Schutzladungen bleiben bestehen. Fahrzeug-SoC verfällt nach 24 Stunden; unbekanntes Ladesignal sperrt die Vorbereitung. Nur Automatik. Anwesenheit und Rückkehrzeit sind nicht nötig. Bei aktivierter automatischer Auto-Vorbereitung wird die Mindest-Entladeleistung immer auf 0 W begrenzt, auch ohne aktuellen Ladebedarf. Das verhindert erzwungene Einspeisung; normaler Hausverbrauch aus dem Akku bleibt möglich.",
+        "description": "Bei niedrigem Fahrzeug-SoC vorhandenen PV-Überschuss im Hausakku vorziehen, auch unterwegs. Optional kann ein täglicher oder absoluter Abfahrtszeitpunkt mit Fahrzeugziel, nutzbarer Fahrzeugkapazität, Ladeleistung und Wirkungsgrad geplant werden. Bis zum Termin ersetzt das Fahrzeugziel die einfache Bedarfsschwelle. Angezeigt werden Energiebedarf, spätester Ladestart und Machbarkeit bei durchgehend verfügbarer Leistung; die Integration steuert keine Wallbox. Kein zusätzliches Netzladen. Auto lädt: normale Hausakkuladung und Entladung pausieren; vorrangige Schutzladungen bleiben bestehen. Fahrzeug-SoC verfällt nach 24 Stunden; unbekanntes Ladesignal sperrt die Vorbereitung. Bei aktivierter Vorbereitung wird die Mindest-Entladeleistung auf 0 W begrenzt.",
         "data": {
           "enabled": "Aktivieren",
           "vehicle_soc": "Fahrzeug-Ladezustand",
           "charging": "Auto lädt (an = lädt)",
           "away": "Längere Abwesenheit (optional)",
+          "departure": "Abfahrtszeitpunkt (optional)",
           "vehicle_threshold": "Ladebedarf unter Fahrzeug-SoC",
-          "house_target": "Hausakku vorbereiten bis"
+          "house_target": "Hausakku vorbereiten bis",
+          "vehicle_target_soc": "Fahrzeugziel zur Abfahrt",
+          "vehicle_capacity_kwh": "Nutzbare Fahrzeugkapazität",
+          "charge_power_kw": "Verfügbare Ladeleistung",
+          "vehicle_charge_efficiency_percent": "Ladewirkungsgrad bis zum Fahrzeugakku"
         }
       }
     },
@@ -572,8 +578,10 @@
       "demand_water_pair": "Ist- und Solltemperatur gemeinsam auswählen.",
       "demand_heat_meter": "Einen getrennten elektrischen Wärmepumpenzähler auswählen.",
       "arbitrage_value": "Für jede Annahme einen Wert im angegebenen Bereich eintragen.",
+      "arbitrage_hold_requires_demand": "Für den aktiven Restwertschutz zuerst die Bedarfsprognose aktivieren.",
       "observation_sources": "Vorhandene, eindeutige Sensoren wählen; maximal 8 je Liste und insgesamt 16.",
       "ev_soc_unit": "Fahrzeug-SoC muss Prozent (%) liefern.",
+      "ev_deadline_value": "Für die Abfahrtsplanung Kapazität und Ladeleistung angeben.",
       "huawei_temperature_required": "Eine gültige Huawei-Batterietemperatur fehlt. Wähle sie unter Anlagen und Messwerte oder Verbindung aus. Rein lesende Messwerte sind im Shadow-Modus ohne Strategie möglich.",
       "huawei_house_source_required": "Huawei benötigt einen vorhandenen Hausverbrauchssensor. Die SMA-Ein-Wechselrichter-Bilanz ist hier nicht verfügbar."
     }
@@ -878,7 +886,7 @@
         }
       },
       "arbitrage_estimate": {
-        "name": "Arbitrage-Mindestspread (Beobachtung)",
+        "name": "Arbitrage und Energierestwert",
         "state_attributes": {
           "status": {"name": "Status"},
           "minimum_high_price_ct_kwh": {"name": "Mindestens nötiger höherer Preis (ct/kWh)"},
@@ -910,8 +918,22 @@
           "terminal_value_current_ac_kwh": {"name": "Aktuell nutzbare AC-Energie (kWh)"},
           "terminal_value_current_battery_eur": {"name": "Wert der aktuell gespeicherten Energie (EUR)"},
           "terminal_value_current_marginal_ct_kwh": {"name": "Aktueller Grenzwert der Energie (ct/kWh)"},
+          "terminal_value_current_soc": {"name": "SoC der Restwertberechnung (%)"},
+          "terminal_value_battery_capacity_kwh": {"name": "Kapazität der Restwertberechnung (kWh)"},
+          "terminal_value_minimum_soc": {"name": "Min-SoC der Restwertberechnung (%)"},
+          "terminal_value_maximum_soc": {"name": "Max-SoC der Restwertberechnung (%)"},
+          "terminal_value_issued_at": {"name": "Zeitpunkt der Restwertberechnung"},
           "terminal_value_method": {"name": "Restwertmethode"},
           "terminal_value_controls_battery": {"name": "Restwert steuert den Akku"},
+          "hold_enabled": {"name": "Entladeschutz aktiviert"},
+          "hold_status": {"name": "Status des Entladeschutzes"},
+          "hold_current_net_ct_kwh": {"name": "Aktueller Energiewert nach Kosten (ct/kWh)"},
+          "hold_future_marginal_ct_kwh": {"name": "Späterer Grenzwert (ct/kWh)"},
+          "hold_advantage_ct_kwh": {"name": "Vorteil des Haltens (ct/kWh)"},
+          "hold_required_margin_ct_kwh": {"name": "Geforderte Marge (ct/kWh)"},
+          "hold_switch_threshold_ct_kwh": {"name": "Aktuelle Schaltschwelle (ct/kWh)"},
+          "hold_would_control_battery": {"name": "Würde den Akku steuern"},
+          "hold_controls_battery": {"name": "Entladeschutz steuert den Akku"},
           "informational_only": {"name": "Nur Information"},
           "controls_battery": {"name": "Steuert den Akku"}
         }

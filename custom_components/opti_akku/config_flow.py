@@ -591,13 +591,14 @@ class WizardSections:
         return self.async_show_form(step_id="observation",data_schema=vol.Schema(schema),errors=errors)
 
     async def async_step_ev_preparation(self, user_input=None):
+        from .ev_preparation import _deadline_instant
         from homeassistant.helpers import entity_registry as er
         cfg = self._draft.get("ev_preparation", {})
         errors = {}
         if user_input is not None:
-            for key in ("vehicle_soc", "charging", "away"):
+            for key in ("vehicle_soc", "charging", "away", "departure"):
                 entity_id = user_input.get(key)
-                if user_input.get("enabled") and key != "away" and not entity_id:
+                if user_input.get("enabled") and key in ("vehicle_soc", "charging") and not entity_id:
                     errors[key] = "missing_or_stale"
                 if entity_id:
                     entity = er.async_get(self.hass).async_get(entity_id)
@@ -608,15 +609,59 @@ class WizardSections:
                         errors[key] = "missing_or_stale"
                     elif key == "vehicle_soc" and state.attributes.get("unit_of_measurement") != "%":
                         errors[key] = "ev_soc_unit"
+                    elif key == "departure" and (
+                        state.attributes.get("has_time") is False
+                        or _deadline_instant(
+                            state.state,
+                            dt_util.utcnow(),
+                            dt_util.DEFAULT_TIME_ZONE,
+                        )[0]
+                        is None
+                    ):
+                        errors[key] = "ev_deadline_value"
+            if user_input.get("departure"):
+                for key in (
+                    "vehicle_capacity_kwh",
+                    "charge_power_kw",
+                    "vehicle_charge_efficiency_percent",
+                ):
+                    if user_input.get(key) is None:
+                        errors[key] = "ev_deadline_value"
             if not errors:
                 self._draft["ev_preparation"] = dict(user_input)
                 return await self.async_step_init()
         schema = {vol.Required("enabled", default=cfg.get("enabled", False)): BooleanSelector()}
-        for key in ("vehicle_soc", "charging", "away"):
+        for key in ("vehicle_soc", "charging", "away", "departure"):
             marker = vol.Optional(key, description={"suggested_value": cfg[key]}) if cfg.get(key) else vol.Optional(key)
-            schema[marker] = EntitySelector(EntitySelectorConfig(domain=["sensor"] if key == "vehicle_soc" else ["binary_sensor", "input_boolean"]))
+            domains = (
+                ["sensor"]
+                if key == "vehicle_soc"
+                else ["input_datetime", "sensor"]
+                if key == "departure"
+                else ["binary_sensor", "input_boolean"]
+            )
+            schema[marker] = EntitySelector(EntitySelectorConfig(domain=domains))
         for key, default, low, high in (("vehicle_threshold", 40, 0, 95), ("house_target", 80, 50, 95)):
             schema[vol.Required(key, default=cfg.get(key, default))] = NumberSelector(NumberSelectorConfig(min=low, max=high, step=1, unit_of_measurement="%", mode=NumberSelectorMode.BOX))
+        schema[vol.Required(
+            "vehicle_target_soc", default=cfg.get("vehicle_target_soc", 80)
+        )] = NumberSelector(NumberSelectorConfig(
+            min=1, max=100, step=1, unit_of_measurement="%", mode=NumberSelectorMode.BOX
+        ))
+        for key, unit, low, high in (
+            ("vehicle_capacity_kwh", "kWh", 1, 250),
+            ("charge_power_kw", "kW", 0.1, 50),
+            ("vehicle_charge_efficiency_percent", "%", 1, 100),
+        ):
+            marker = (
+                vol.Optional(key, description={"suggested_value": cfg[key]})
+                if cfg.get(key) is not None
+                else vol.Optional(key)
+            )
+            schema[marker] = NumberSelector(NumberSelectorConfig(
+                min=low, max=high, step=0.1, unit_of_measurement=unit,
+                mode=NumberSelectorMode.BOX,
+            ))
         return self.async_show_form(step_id="ev_preparation", data_schema=vol.Schema(schema), errors=errors)
 
     async def async_step_demand(self, user_input=None):
@@ -662,7 +707,7 @@ class WizardSections:
         return self.async_show_form(step_id="demand", data_schema=vol.Schema(schema), errors=errors)
 
     async def async_step_arbitrage(self, user_input=None):
-        """Configure a display-only battery arbitrage estimate."""
+        """Configure battery economics and the optional residual-value hold."""
         from .arbitrage import FIELDS, invalid_arbitrage_fields
 
         cfg = self._draft.get("arbitrage_estimate", {})
@@ -671,17 +716,28 @@ class WizardSections:
             if user_input.get("enabled") is not True:
                 self._draft.pop("arbitrage_estimate", None)
                 return await self.async_step_init()
-            candidate = {"enabled": True, **{key: user_input.get(key) for key in FIELDS}}
+            candidate = {
+                "enabled": True,
+                "hold_enabled": user_input.get("hold_enabled") is True,
+                **{key: user_input.get(key) for key in FIELDS},
+            }
+            if candidate["hold_enabled"] and self._draft.get(
+                "demand_forecast", {}
+            ).get("enabled") is not True:
+                errors["base"] = "arbitrage_hold_requires_demand"
             invalid = invalid_arbitrage_fields(candidate)
             if invalid:
-                errors = {key: "arbitrage_value" for key in invalid}
-            else:
+                errors.update({key: "arbitrage_value" for key in invalid})
+            if not errors:
                 self._draft["arbitrage_estimate"] = candidate
                 return await self.async_step_init()
 
         shown = user_input if user_input is not None and errors else cfg
         schema = {
-            vol.Required("enabled", default=shown.get("enabled", False)): BooleanSelector()
+            vol.Required("enabled", default=shown.get("enabled", False)): BooleanSelector(),
+            vol.Required(
+                "hold_enabled", default=shown.get("hold_enabled", False)
+            ): BooleanSelector(),
         }
         selectors = {
             "battery_price_eur": NumberSelectorConfig(

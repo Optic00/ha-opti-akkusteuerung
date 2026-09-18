@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, time, timedelta
 from math import isfinite
 from typing import Any
@@ -18,6 +19,11 @@ FIELDS = (
     "margin_ct",
 )
 
+HOLD_DECISIONS = frozenset({"above_target", "default", "peak_l1", "peak_l2"})
+DISCHARGING_MODES = frozenset(
+    {"Akku Automatisch", "Akku Dynamisch", "Akku nur Entladen", "Akku schnell Entladen"}
+)
+
 
 def _number(value: Any) -> float | None:
     if isinstance(value, bool):
@@ -27,6 +33,10 @@ def _number(value: Any) -> float | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return result if isfinite(result) else None
+
+
+def _same_number(left: float | None, right: float | None, tolerance: float) -> bool:
+    return left is not None and right is not None and abs(left - right) <= tolerance
 
 
 def _instant(value: Any) -> datetime | None:
@@ -223,7 +233,143 @@ def build_terminal_value_proxy(
         "terminal_value_current_marginal_ct_kwh": (
             round(current_marginal, 3) if current_marginal is not None else None
         ),
+        "terminal_value_current_soc": round(soc, 3) if soc is not None else None,
+        "terminal_value_battery_capacity_kwh": round(rated_capacity, 3),
+        "terminal_value_minimum_soc": round(low, 3),
+        "terminal_value_maximum_soc": round(high, 3),
+        "terminal_value_issued_at": issued.isoformat(),
     }
+
+
+def apply_discharge_hold(
+    result: Any,
+    report: Any,
+    config: Any,
+    current_price_ct_kwh: Any,
+    now: Any,
+) -> tuple[Any, dict[str, Any]]:
+    """Hold stored energy when its forecast residual value is materially higher.
+
+    The previous coordinator observation is intentionally used as an immutable
+    input. It must be fresh and match the current assumptions and battery SOC;
+    otherwise the existing strategy decision is retained.
+    """
+    out: dict[str, Any] = {
+        "hold_enabled": isinstance(config, Mapping)
+        and config.get("hold_enabled") is True,
+        "hold_status": "disabled",
+        "hold_controls_battery": False,
+    }
+    if not out["hold_enabled"]:
+        return result, out
+    if not isinstance(report, Mapping):
+        return result, {**out, "hold_status": "waiting_for_fresh_report"}
+    issued, observed_at = _instant(report.get("terminal_value_issued_at")), _instant(now)
+    if (
+        issued is None
+        or observed_at is None
+        or not 0 <= (observed_at - issued).total_seconds() <= 90
+        or report.get("status") != "ready"
+        or report.get("terminal_value_status") != "ready"
+        or report.get("hold_enabled") is not True
+    ):
+        return result, {**out, "hold_status": "waiting_for_fresh_report"}
+    if invalid_arbitrage_fields(config):
+        return result, {**out, "hold_status": "invalid_assumptions"}
+    expected = {
+        "battery_price_eur": "battery_price_eur",
+        "degradation_percent": "degradation_percent",
+        "cycles": "cycles",
+        "usable_capacity_kwh": "usable_capacity_kwh",
+        "charge_efficiency_percent": "charge_efficiency",
+        "discharge_efficiency_percent": "discharge_efficiency",
+        "margin_ct": "margin_ct",
+    }
+    for config_key, report_key in expected.items():
+        configured = _number(config.get(config_key))
+        reported = _number(report.get(report_key))
+        if config_key.endswith("_percent") and report_key.endswith("efficiency"):
+            configured = configured / 100 if configured is not None else None
+        if configured is None or reported is None or abs(configured - reported) > 1e-6:
+            return result, {**out, "hold_status": "waiting_for_matching_report"}
+    current_price = _number(current_price_ct_kwh)
+    marginal = _number(report.get("terminal_value_current_marginal_ct_kwh"))
+    throughput = _number(report.get("throughput_cost_ct_kwh"))
+    efficiency = _number(report.get("discharge_efficiency"))
+    reported_soc = _number(report.get("terminal_value_current_soc"))
+    current_soc = _number(getattr(result, "states", {}).get("sensor.opti_soc"))
+    current_capacity = _number(
+        getattr(result, "states", {}).get("sensor.opti_battery_capacity_kwh")
+    )
+    current_minimum = _number(
+        getattr(result, "states", {}).get("input_number.minsoc")
+    )
+    current_maximum = _number(
+        getattr(result, "states", {}).get("input_number.maxsoc")
+    )
+    report_capacity = _number(report.get("terminal_value_battery_capacity_kwh"))
+    report_minimum = _number(report.get("terminal_value_minimum_soc"))
+    report_maximum = _number(report.get("terminal_value_maximum_soc"))
+    margin = _number(config.get("margin_ct"))
+    if (
+        current_price is None
+        or marginal is None
+        or throughput is None
+        or efficiency is None
+        or efficiency <= 0
+        or reported_soc is None
+        or current_soc is None
+        or abs(reported_soc - current_soc) > 2
+        or not _same_number(current_capacity, report_capacity, 0.001)
+        or not _same_number(current_minimum, report_minimum, 0.001)
+        or not _same_number(current_maximum, report_maximum, 0.001)
+        or margin is None
+    ):
+        return result, {**out, "hold_status": "data_missing"}
+    current_net = max(0.0, current_price - throughput / efficiency)
+    advantage = marginal - current_net
+    previous_holding = report.get("hold_status") == "holding"
+    threshold = max(0.0, margin + (-0.5 if previous_holding else 0.5))
+    economical = marginal > 0 and advantage > threshold + 0.001
+    out.update(
+        hold_status="hold_candidate" if economical else "release",
+        hold_current_net_ct_kwh=round(current_net, 3),
+        hold_future_marginal_ct_kwh=round(marginal, 3),
+        hold_advantage_ct_kwh=round(advantage, 3),
+        hold_required_margin_ct_kwh=round(margin, 3),
+        hold_switch_threshold_ct_kwh=round(threshold, 3),
+    )
+    if (
+        not economical
+        or result.decision_id not in HOLD_DECISIONS
+        or result.mode not in DISCHARGING_MODES
+    ):
+        if economical:
+            out["hold_status"] = "higher_priority"
+        return result, out
+    mode = "Akku nur Laden"
+    reason = (
+        "Restwert halten "
+        f"({current_net:.1f} ct jetzt < {marginal:.1f} ct später, "
+        f"Marge {margin:.1f} ct)"
+    )
+    values = dict(result.states)
+    values["sensor.opti_strategie_vorschau"] = mode
+    attrs = {
+        **result.attributes,
+        "sensor.opti_strategie_vorschau": {
+            **result.attributes.get("sensor.opti_strategie_vorschau", {}),
+            "grund": reason,
+        },
+    }
+    return replace(
+        result,
+        mode=mode,
+        reason=reason,
+        states=values,
+        attributes=attrs,
+        decision_id="arbitrage_hold",
+    ), {**out, "hold_status": "holding", "hold_controls_battery": True}
 
 
 def invalid_arbitrage_fields(config: Any) -> set[str]:

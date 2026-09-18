@@ -222,9 +222,22 @@ nutzbaren Akkus innerhalb der eingestellten Min-/Max-SoC-Spanne. Historische
 Ersatzprofile, ein fehlender Wiederaufladebeginn oder ein unvollständiger
 Preishorizont bleiben als `learning` sichtbar. Die Rechnung extrapoliert keine
 fehlenden Preise, bewertet keine Einspeisung aus dem Akku und gibt noch keinen
-Soll-SoC vor. Sie verändert weder Halten, Laden, Entladen noch eine bestehende
-Preis- oder Reserveentscheidung. Erst ein getrennter, beobachteter Schritt kann
-prüfen, ob der jeweilige Grenzwert eine aktive Entscheidung verbessert.
+Soll-SoC vor. Standardmäßig verändert sie weder Halten, Laden, Entladen noch
+eine bestehende Preis- oder Reserveentscheidung.
+
+Optional kann **Restwert als automatischen Entladeschutz verwenden** aktiviert
+werden. Der Schutz benötigt zusätzlich eine aktivierte, vollständig gelernte
+Bedarfsprognose und steht zunächst nur für den SMA-Adapter zur Verfügung. Er
+greift ausschließlich bei bekannten automatischen Entladeentscheidungen. Ist
+die spätere Grenzenergie mindestens um die eingetragene Marge plus 0,5 ct/kWh
+wertvoller als die aktuell vermiedene Netzenergie nach Entladekosten,
+setzt er `Akku nur Laden`. Zum Lösen gilt eine um 1 ct/kWh versetzte Schwelle.
+Damit führen kleine Prognoseänderungen nicht alle 15 Sekunden zu einem
+Moduswechsel. Der Schutz übernimmt keine Mindestlade- oder Entladeleistung und
+startet kein Netzladen. Fehlende, ältere als 90 Sekunden oder nicht mehr zu SoC,
+Kapazität und Min-/Max-SoC passende Berechnungen lassen die bisherige
+Strategieentscheidung unverändert. Schutz- und Ladeentscheidungen sowie der
+Vorrang eines ladenden Autos bleiben übergeordnet.
 
 ### PV-Vorbereitung fürs Auto (0.5.2b4)
 
@@ -234,7 +247,20 @@ Einmalig Fahrzeug-SoC (%) und ein verlässliches Signal „Auto lädt“ auswäh
 Standardwerte: Ladebedarf unter 40 %, Hausakku vorbereiten bis 80 % (höchstens
 konfigurierter Max-SoC). Ein optionaler Schalter für längere Abwesenheit sperrt
 nur die Vorbereitung. Fahrzeuganwesenheit, Rückkehrzeiten und tägliche Freigaben
-sind nicht nötig.
+sind für die einfache Schwellenregel nicht nötig.
+
+Optional kann ein `input_datetime` oder Zeitstempel-Sensor für die Abfahrt
+gewählt werden. Zusammen mit Fahrzeugziel, nutzbarer Fahrzeugkapazität,
+verfügbarer AC-Ladeleistung und Ladewirkungsgrad zeigt der Bericht benötigte
+Akku- und AC-Energie, mittlere erforderliche Leistung, spätesten Ladestart und
+eine einfache Machbarkeit bei durchgehend verfügbarer Ladeleistung. Eine reine
+Uhrzeit gilt täglich; in einer nicht vorhandenen Sommerzeitstunde wird sie auf
+die nächste gültige Ortszeit verschoben, in der doppelten Stunde gilt das erste
+Vorkommen. Bis zum Ziel-SoC nutzt die PV-Vorbereitung das Abfahrtsziel statt der
+einfachen Bedarfsschwelle. Ein abgelaufener absoluter Zeitpunkt bleibt im
+Bericht sichtbar und fällt für die Vorbereitung auf die normale Schwelle zurück.
+Die Integration steuert damit weiterhin keine Wallbox und kann den Ziel-SoC zur
+Abfahrt nicht garantieren.
 
 Die zusätzliche PV-Ladung startet nach einer Minute mit mindestens 300 W
 Überschuss vor Hausakkuladung und bleibt ab 100 W aktiv. Laufende Hausakkuladung
@@ -264,5 +290,5 @@ für unterbrechungsfreie Prioritätswechsel zwischen zwei Geräteabfragen.
 
 Der Diagnosesensor zeigt Vorbereitung, Ladebedarf, Datenlücken und Vorrangregeln.
 Im Shadowmode ist dies nur eine berechnete Entscheidung. Keine zusätzliche
-Wärmepumpen-, Fahrzeug- oder Wallboxsteuerung, keine Rückkehrprognose und kein
-Versprechen, dass die verbleibende PV den Fahrzeugbedarf vollständig deckt.
+Wärmepumpen-, Fahrzeug- oder Wallboxsteuerung und kein Versprechen, dass die
+verbleibende PV den Fahrzeugbedarf vollständig deckt.

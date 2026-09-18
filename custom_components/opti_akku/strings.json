@@ -500,9 +500,10 @@
       },
       "arbitrage": {
         "title": "Battery arbitrage estimate",
-        "description": "Optional display only. Enter your own battery cost, lifetime and efficiency assumptions. The result uses the current electricity price to show the minimum higher price and spread for one additional grid-arbitrage cycle. It does not change charging, discharging or existing strategy thresholds.",
+        "description": "Enter your battery cost, lifetime and efficiency assumptions. The display calculates the price spread and residual energy value. The optional discharge hold retains energy only when complete demand, PV and price forecasts prove that later residual load is materially more valuable. It never starts grid charging and leaves protection, charging and unknown decisions unchanged.",
         "data": {
           "enabled": "Calculate comparison",
+          "hold_enabled": "Use residual value as an automatic discharge hold",
           "battery_price_eur": "Battery share of purchase price",
           "degradation_percent": "Assumed battery value loss over the stated cycles",
           "cycles": "Assumed full cycles",
@@ -528,14 +529,19 @@
       },
       "ev_preparation": {
         "title": "PV preparation for the car",
-        "description": "Prepare the home battery using PV surplus when vehicle SOC is low, including while away. No additional grid charging. While the car charges, ordinary home charging/discharging pauses; priority protection charging is retained. Vehicle SOC expires after 24h; unknown charging state blocks preparation. Automatic strategy only; no arrival prediction. While automatic car preparation is enabled, minimum discharge power is always set to 0 W, even without current charging demand. This prevents forced export; normal battery supply to the house remains possible.",
+        "description": "Prepare the home battery from PV surplus when vehicle SOC is low, including while away. An optional recurring or absolute departure time can add a vehicle target, usable capacity, available charge power and efficiency. Until that deadline, the vehicle target replaces the simple demand threshold. The report shows required energy, latest charge start and feasibility assuming continuous power; the integration does not control the charger. No additional grid charging. While the car charges, ordinary home charging/discharging pauses and priority protection charging remains. Vehicle SOC expires after 24h; an unknown charging state blocks preparation. Minimum discharge power is limited to 0 W while preparation is enabled.",
         "data": {
           "enabled": "Enable",
           "vehicle_soc": "Vehicle SOC",
           "charging": "Car charging (on = charging)",
           "away": "Extended absence (optional)",
+          "departure": "Departure time (optional)",
           "vehicle_threshold": "Vehicle SOC demand threshold",
-          "house_target": "Home preparation target"
+          "house_target": "Home preparation target",
+          "vehicle_target_soc": "Vehicle target at departure",
+          "vehicle_capacity_kwh": "Usable vehicle capacity",
+          "charge_power_kw": "Available charge power",
+          "vehicle_charge_efficiency_percent": "Charging efficiency to the vehicle battery"
         }
       }
     },
@@ -572,8 +578,10 @@
       "demand_water_pair": "Select actual and target water temperature together.",
       "demand_heat_meter": "Select a separate heat pump electrical meter.",
       "arbitrage_value": "Enter a value within the stated range for every assumption.",
+      "arbitrage_hold_requires_demand": "Enable demand forecasting before activating the residual-value hold.",
       "observation_sources": "Select existing unique sensors; max 8 per list and 16 total.",
       "ev_soc_unit": "Vehicle SOC must use percent (%).",
+      "ev_deadline_value": "Enter vehicle capacity and charge power for departure planning.",
       "huawei_temperature_required": "A valid Huawei battery temperature is missing. Select it under System and measurements or Connection. Read-only telemetry is available in shadow mode with strategy disabled.",
       "huawei_house_source_required": "Huawei requires an existing house consumption sensor. The SMA single-inverter balance is not available here."
     }
@@ -878,7 +886,7 @@
         }
       },
       "arbitrage_estimate": {
-        "name": "Arbitrage minimum spread (observation)",
+        "name": "Battery arbitrage and residual value",
         "state_attributes": {
           "status": {"name": "Status"},
           "minimum_high_price_ct_kwh": {"name": "Minimum higher price (ct/kWh)"},
@@ -910,8 +918,22 @@
           "terminal_value_current_ac_kwh": {"name": "Current usable AC energy (kWh)"},
           "terminal_value_current_battery_eur": {"name": "Value of current stored energy (EUR)"},
           "terminal_value_current_marginal_ct_kwh": {"name": "Current marginal energy value (ct/kWh)"},
+          "terminal_value_current_soc": {"name": "Residual-value SOC (%)"},
+          "terminal_value_battery_capacity_kwh": {"name": "Residual-value capacity (kWh)"},
+          "terminal_value_minimum_soc": {"name": "Residual-value minimum SOC (%)"},
+          "terminal_value_maximum_soc": {"name": "Residual-value maximum SOC (%)"},
+          "terminal_value_issued_at": {"name": "Residual-value calculation time"},
           "terminal_value_method": {"name": "Residual-value method"},
           "terminal_value_controls_battery": {"name": "Residual value controls battery"},
+          "hold_enabled": {"name": "Discharge hold enabled"},
+          "hold_status": {"name": "Discharge hold status"},
+          "hold_current_net_ct_kwh": {"name": "Current energy value after cost (ct/kWh)"},
+          "hold_future_marginal_ct_kwh": {"name": "Future marginal value (ct/kWh)"},
+          "hold_advantage_ct_kwh": {"name": "Holding advantage (ct/kWh)"},
+          "hold_required_margin_ct_kwh": {"name": "Required margin (ct/kWh)"},
+          "hold_switch_threshold_ct_kwh": {"name": "Current switching threshold (ct/kWh)"},
+          "hold_would_control_battery": {"name": "Would control battery"},
+          "hold_controls_battery": {"name": "Discharge hold controls battery"},
           "informational_only": {"name": "Informational only"},
           "controls_battery": {"name": "Controls battery"}
         }

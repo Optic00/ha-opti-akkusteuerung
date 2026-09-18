@@ -810,6 +810,65 @@ async def test_arbitrage_sensor_is_display_only(coordinator, entry, hass):
     assert sensor.extra_state_attributes is None
 
 
+async def test_arbitrage_receives_passive_terminal_value_context(
+    coordinator, entry, hass
+):
+    forecast_slots = [{
+        "start": "2026-09-18T08:00:00+00:00",
+        "end": "2026-09-18T08:30:00+00:00",
+        "load_w": 1000,
+        "pv_p10_w": 0,
+    }]
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            **entry.options,
+            "demand_forecast": {"enabled": True, "sources": {}},
+        },
+    )
+    with (
+        patch.object(
+            coordinator._demand_forecast,
+            "update",
+            return_value={
+                "status": "ready",
+                "forecast_slots": forecast_slots,
+                "pv_cover_from": "2026-09-18T08:30:00+00:00",
+                "profile_ready": True,
+            },
+        ),
+        patch(
+            "custom_components.opti_akku.coordinator.build_arbitrage_estimate",
+            return_value={"status": "not_configured", "controls_battery": False},
+        ) as build,
+    ):
+        data = await coordinator._async_update_data()
+
+    context = build.call_args.kwargs["terminal_context"]
+    assert context["forecast_slots"] == forecast_slots
+    assert context["profile_ready"] is True
+    assert context["battery_capacity_kwh"] == 12.8
+    assert context["current_soc"] == 60
+    assert data["arbitrage_estimate"]["controls_battery"] is False
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+async def test_arbitrage_observation_failure_cannot_fail_update(
+    coordinator, entry
+):
+    with patch(
+        "custom_components.opti_akku.coordinator.build_arbitrage_estimate",
+        side_effect=RuntimeError("display failed"),
+    ):
+        data = await coordinator._async_update_data()
+
+    assert data["arbitrage_estimate"] == {
+        "status": "error", "informational_only": True, "controls_battery": False
+    }
+    assert data["online"] is True
+    coordinator.device.async_apply.assert_not_awaited()
+
+
 async def test_backward_clock_keeps_coordinator_safety_evaluation(coordinator, hass):
     hass.config_entries.async_update_entry(coordinator.entry, options={**coordinator.entry.options,
         "plant_mode": "balance", "plant_meter_confirmed": True, "forecast_min_load_w": 0})

@@ -731,11 +731,6 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "price_last_success": self._price_last_success,
                 "notification_error": self.alerts.delivery_error,
                 "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled}
-        data["arbitrage_estimate"] = build_arbitrage_estimate(
-            captured_options.get("arbitrage_estimate"),
-            finite(result.states.get("sensor.opti_price_current_ct_kwh")),
-            strategy_enabled=self.strategy_enabled,
-        )
         try:
             data["ev_preparation"] = {**ev_report, "controls_battery": bool(ev_report.get("controls_battery") and self.write_enabled and not self.shadow_mode and safety_reason is None), "observation_only": self.shadow_mode or not self.write_enabled}
             data["reserve_plan"] = reserve_plan(data, self.settings, now, shadow=self.shadow_mode)
@@ -779,6 +774,35 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 comparison = {"status": "error", "observation_only": True}
             data["demand_forecast"] = {
                 **data["demand_forecast"], "strategy_comparison": comparison
+            }
+        try:
+            terminal_context = None
+            if demand_comparison_enabled:
+                demand_report = data.get("demand_forecast", {})
+                terminal_context = {
+                    "forecast_slots": demand_report.get("forecast_slots"),
+                    "price_series": result.attributes.get("sensor.opti_price_series"),
+                    "now": now,
+                    "timezone": dt_util.DEFAULT_TIME_ZONE,
+                    "refill_from": demand_report.get("pv_cover_from"),
+                    "battery_capacity_kwh": finite(
+                        result.states.get("sensor.opti_battery_capacity_kwh")
+                    ),
+                    "current_soc": finite(result.states.get("sensor.opti_soc")),
+                    "minimum_soc": finite(self.settings.get("input_number.minsoc")),
+                    "maximum_soc": finite(self.settings.get("input_number.maxsoc")),
+                    "profile_ready": demand_report.get("profile_ready") is True,
+                }
+            data["arbitrage_estimate"] = build_arbitrage_estimate(
+                captured_options.get("arbitrage_estimate"),
+                finite(result.states.get("sensor.opti_price_current_ct_kwh")),
+                strategy_enabled=self.strategy_enabled,
+                terminal_context=terminal_context,
+            )
+        except Exception as err:  # A display-only estimate must never interrupt control.
+            _LOGGER.debug("Arbitrage estimate unavailable: %s", type(err).__name__)
+            data["arbitrage_estimate"] = {
+                "status": "error", "informational_only": True, "controls_battery": False
             }
         try:
             probe = getattr(self.device, "last_probe_registers", {})

@@ -205,6 +205,27 @@ Vergleich Max-SoC.
 Der Support-Export enthält hiervon nur Status und Grundcodes, keine Energiewerte,
 Zeitfenster, Profile oder Quellnamen.
 
+### Passiver Energierestwert
+
+Wenn Bedarfsprofil und Arbitrage-Anzeige eingeschaltet sind, ergänzt die
+Arbitrage-Anzeige eine passive Restwertkurve für vorhandene Akkuenergie. Sie
+ordnet die prognostizierte, nicht durch PV gedeckte Hauslast bis zum nächsten
+belastbaren PV-Wiederaufladebeginn nach Strompreis:
+Die erste verfügbare Kilowattstunde ersetzt damit den teuersten erwarteten
+Netzbezug, weitere Energie schrittweise günstigere Restlast. Vom vermiedenen
+Netzpreis werden die eingetragenen Entlade-Durchsatzkosten und der
+Entladewirkungsgrad berücksichtigt.
+
+Angezeigt werden unter anderem Prognose- und Preisabdeckung, Restlast,
+Knickpunkt der Kurve sowie der rechnerische Wert des aktuellen und eines voll
+nutzbaren Akkus innerhalb der eingestellten Min-/Max-SoC-Spanne. Historische
+Ersatzprofile, ein fehlender Wiederaufladebeginn oder ein unvollständiger
+Preishorizont bleiben als `learning` sichtbar. Die Rechnung extrapoliert keine
+fehlenden Preise, bewertet keine Einspeisung aus dem Akku und gibt noch keinen
+Soll-SoC vor. Sie verändert weder Halten, Laden, Entladen noch eine bestehende
+Preis- oder Reserveentscheidung. Erst ein getrennter, beobachteter Schritt kann
+prüfen, ob der jeweilige Grenzwert eine aktive Entscheidung verbessert.
+
 ### PV-Vorbereitung fürs Auto (0.5.2b4)
 
 Unter **Konfigurieren → PV-Vorbereitung fürs Auto** kann der Hausakku bei niedrigem

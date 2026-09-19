@@ -25,6 +25,9 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> 
     attrs = data.get("attributes", {}).get("sensor.opti_peak_reserve_soc", {})
     total = number(states.get("sensor.opti_peak_reserve_soc"))
     priority = number(attrs.get("reserve_ve_soc"))
+    extreme = number(attrs.get("extreme_reserve_soc"))
+    reason = data.get("reason") or ""
+    extreme_hold = "Extrempreis-Reserve" in reason
     try:
         horizon = datetime.fromisoformat(attrs.get("horizont_ende", ""))
         valid_horizon = horizon.tzinfo is not None and horizon > now
@@ -47,14 +50,17 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> 
         status = "no_peak"
     elif data.get("command_confirmation") == "pending" or data.get("command_result_this_update") in ("failed", "superseded"):
         status = "unconfirmed"
-    elif "Peak-Leiter L3" in data.get("reason", "") or "Peak-Leiter L4" in data.get("reason", ""):
+    elif extreme_hold or "Peak-Leiter L3" in reason or "Peak-Leiter L4" in reason:
         status = "hold_requested"
-    elif "Peak-Leiter L1" in data.get("reason", "") or "Peak-Leiter L2" in data.get("reason", ""):
+    elif "Peak-Leiter L1" in reason or "Peak-Leiter L2" in reason:
         status = "discharge_requested"
-    elif "Peak-Vorladen" in data.get("reason", ""):
+    elif "Peak-Vorladen" in reason:
         status = "charge_requested"
     load = number(settings.get("input_number.opti_peak_verbrauch_kw"))
     soc = number(states.get("sensor.opti_soc"))
+    hold_floor = extreme if extreme_hold else priority if "Peak-Leiter L3" in reason else total
+    extreme_buffer_kwh = number(attrs.get("extreme_buffer_kwh"))
+    extreme_buffer_soc = number(attrs.get("extreme_buffer_soc"))
     return {
         "status": status,
         "planned_reserve_soc": total if valid else None,
@@ -63,8 +69,12 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> 
         "assumed_load_w": number(attrs.get("assumed_load_w")) if number(attrs.get("assumed_load_w")) is not None else load * 1000 if load is not None else None,
         "assumed_discharge_efficiency": 0.9,
         "required_battery_kwh": number(attrs.get("benoetigt_kwh")) if valid else None,
-        "extreme_buffer_kwh": number(attrs.get("extreme_buffer_kwh")) if valid else None,
-        "extreme_buffer_soc": number(attrs.get("extreme_buffer_soc")) if valid else None,
+        "extreme_buffer_kwh": round(extreme_buffer_kwh, 4)
+        if valid and extreme_buffer_kwh is not None else None,
+        "extreme_buffer_soc": round(extreme_buffer_soc, 2)
+        if valid and extreme_buffer_soc is not None else None,
+        "extreme_reserve_soc": round(extreme, 2)
+        if valid and extreme is not None else None,
         "expensive_hours": number(attrs.get("peak_stunden_exp")) if valid else None,
         "very_expensive_hours": number(attrs.get("peak_stunden_ve")) if valid else None,
         "day_target_soc": number(states.get("sensor.opti_target_soc")),
@@ -73,11 +83,12 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> 
         "profile_status": data.get("attributes", {}).get("sensor.opti_peak_load_profile", {}).get("status", "disabled"),
         "profile_fallback_reason": data.get("attributes", {}).get("sensor.opti_peak_load_profile", {}).get("reason"),
         "profile_margin_percent": 20 if (number(attrs.get("profile_hours")) or 0) > 0 else None,
-        "release_threshold_soc": ((priority if "Peak-Leiter L3" in data.get("reason", "") else total) + 2) if valid else None,
-        "hold_threshold_soc": (priority if "Peak-Leiter L3" in data.get("reason", "") else total)
-            if (valid and data.get("strategy_enabled") and data.get("write_enabled") and not shadow
+        "release_threshold_soc": hold_floor + 2
+        if valid and hold_floor is not None else None,
+        "hold_threshold_soc": hold_floor
+            if (valid and hold_floor is not None and data.get("strategy_enabled") and data.get("write_enabled") and not shadow
                 and not data.get("manual_mode") and states.get("binary_sensor.opti_peak_reserve_aktiv") == "on"
-                and any(tag in data.get("reason", "") for tag in ("Peak-Leiter L3", "Peak-Leiter L4"))) else None,
+                and (extreme_hold or any(tag in reason for tag in ("Peak-Leiter L3", "Peak-Leiter L4")))) else None,
         "current_soc": soc, "requested_mode": data.get("mode"),
         "decision_reason": data.get("reason"),
         "command_confirmation": data.get("command_confirmation"),

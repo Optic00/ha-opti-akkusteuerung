@@ -952,7 +952,7 @@ def test_extreme_reserve_full_pipeline_holds_before_peak_and_releases_during_it(
     assert before.states["sensor.opti_price_level"] == "VERY_EXPENSIVE"
     assert before.decision_id == "extreme_peak_hold"
     assert before.mode == "Akku nur Laden"
-    assert before.attributes["sensor.opti_peak_reserve_soc"]["extreme_buffer_kwh"] == 0.25
+    assert before.attributes["sensor.opti_peak_reserve_soc"]["extreme_buffer_kwh"] == pytest.approx(0.25)
 
     states["sensor.opti_price_current_ct_kwh"] = 100
     during = evaluate(engine, states, attrs, now + dt.timedelta(hours=1))
@@ -966,3 +966,33 @@ def test_extreme_reserve_full_pipeline_holds_before_peak_and_releases_during_it(
         assert result.states["sensor.opti_engine_diagnostics"] == "ok"
         assert result.mode == result.states["sensor.opti_strategie_vorschau"]
         assert result.mode != "Akku Netzladen"
+
+
+@pytest.mark.parametrize("price, grid_enabled, soc, charging", [
+    (60, True, 13, False),
+    (100, True, 13, True),
+    (100, False, 13, False),
+    (100, True, 15, False),
+])
+def test_extreme_buffer_can_extend_only_authorized_peak_precharge(price, grid_enabled, soc, charging):
+    now = NOW.replace(hour=17)
+    states = measurements(**{
+        SOC: soc,
+        "input_number.minsoc": 5,
+        "input_number.opti_peak_verbrauch_kw": 0.9,
+        "input_boolean.opti_prognose_netzladen": "on" if grid_enabled else "off",
+        "sensor.opti_price_current_ct_kwh": 10,
+        "sensor.opti_forecast_today_kwh": 0,
+        "sensor.opti_forecast_tomorrow_kwh": 0,
+        "sensor.opti_forecast_remaining_today_kwh": 0,
+        "sun.sun": "below_horizon",
+    })
+    attrs = solar_attrs(now)
+    prices = [10] * 24
+    prices[19] = price
+    attrs["sensor.opti_price_series"] = {"today": prices, "tomorrow": [10] * 24}
+    result = evaluate(states=states, attributes=attrs, now=now)
+    assert float(result.states["sensor.opti_peak_reserve_soc"]) == (15 if price == 60 else 17.5)
+    assert (result.decision_id == "peak_precharge") is charging
+    assert (result.mode == "Akku Netzladen") is charging
+    assert result.states["sensor.opti_engine_diagnostics"] == "ok"

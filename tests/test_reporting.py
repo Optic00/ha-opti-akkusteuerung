@@ -23,6 +23,7 @@ def sample(**changes):
             'attributes': {'sensor.opti_peak_reserve_soc': {'reserve_ve_soc': 30,
                 'horizont_ende': (NOW+timedelta(hours=12)).isoformat(), 'benoetigt_kwh': 5.12,
                 'extreme_buffer_kwh': 0.64, 'extreme_buffer_soc': 5,
+                'extreme_reserve_soc': 35,
                 'peak_stunden_exp': 2, 'peak_stunden_ve': 3.75}}}
     data.update(changes)
     return data
@@ -63,21 +64,64 @@ def test_extreme_buffer_is_diagnostic_only_for_a_valid_plan():
     result = reserve_plan(sample(), SETTINGS, NOW, shadow=False)
     assert result['extreme_buffer_kwh'] == pytest.approx(0.64)
     assert result['extreme_buffer_soc'] == 5
+    assert result['extreme_reserve_soc'] == 35
 
     invalid = reserve_plan(
         sample(source_errors={'price': 'stale'}), SETTINGS, NOW, shadow=False
     )
     assert invalid['extreme_buffer_kwh'] is None
     assert invalid['extreme_buffer_soc'] is None
+    assert invalid['extreme_reserve_soc'] is None
 
     malformed = sample()
     malformed['attributes']['sensor.opti_peak_reserve_soc'].update(
-        extreme_buffer_kwh='nan', extreme_buffer_soc='unavailable'
+        extreme_buffer_kwh='nan', extreme_buffer_soc='unavailable',
+        extreme_reserve_soc='unknown'
     )
     result = reserve_plan(malformed, SETTINGS, NOW, shadow=False)
     assert result['planned_reserve_soc'] == 45
     assert result['extreme_buffer_kwh'] is None
     assert result['extreme_buffer_soc'] is None
+    assert result['extreme_reserve_soc'] is None
+
+
+@pytest.mark.parametrize(
+    ('changes', 'shadow', 'status', 'hold_threshold'),
+    [
+        ({}, False, 'hold_requested', 55),
+        ({'command_confirmation': 'pending'}, False, 'unconfirmed', 55),
+        ({'strategy_enabled': False}, False, 'disabled', None),
+        ({'manual_mode': 'Akku Pause'}, False, 'manual', None),
+        ({'write_enabled': False}, False, 'observation', None),
+        ({}, True, 'observation', None),
+    ],
+)
+def test_extreme_hold_uses_its_own_floor_without_bypassing_status_priority(
+    changes, shadow, status, hold_threshold
+):
+    data = sample(
+        reason='Extrempreis-Reserve (Restbedarf fuer Spitzen ueber 60 ct/kWh)',
+        **changes,
+    )
+    data['states']['sensor.opti_peak_reserve_soc'] = '95'
+    data['attributes']['sensor.opti_peak_reserve_soc']['extreme_reserve_soc'] = 55
+    result = reserve_plan(data, SETTINGS, NOW, shadow=shadow)
+
+    assert result['status'] == status
+    assert result['release_threshold_soc'] == 57
+    assert result['hold_threshold_soc'] == hold_threshold
+
+
+def test_malformed_extreme_hold_floor_fails_closed():
+    data = sample(reason='Extrempreis-Reserve (Restbedarf fuer Spitzen ueber 60 ct/kWh)')
+    data['attributes']['sensor.opti_peak_reserve_soc']['extreme_reserve_soc'] = 'unknown'
+
+    result = reserve_plan(data, SETTINGS, NOW, shadow=False)
+
+    assert result['status'] == 'hold_requested'
+    assert result['extreme_reserve_soc'] is None
+    assert result['hold_threshold_soc'] is None
+    assert result['release_threshold_soc'] is None
 
 
 def test_energy_gaps_and_restart_do_not_invent_coverage():
@@ -231,3 +275,18 @@ def test_explained_efficiency_matches_shipped_strategy():
     block = next(block for block in resources['template_blocks'] if 'peak' in block.get('variables', {}))
     eta = float(re.search(r"set eta = ([0-9.]+)", block['variables']['peak']).group(1))
     assert reserve_plan(sample(), SETTINGS, NOW, shadow=False)['assumed_discharge_efficiency'] == eta
+
+
+def test_extreme_report_rounding_does_not_change_input_or_hold_threshold():
+    data = sample(reason='Extrempreis-Reserve (Restbedarf fuer Spitzen ueber 60 ct/kWh)')
+    attrs = data['attributes']['sensor.opti_peak_reserve_soc']
+    attrs.update(extreme_buffer_kwh=0.123456, extreme_buffer_soc=1.23456,
+                 extreme_reserve_soc=35.6789)
+    before = deepcopy(data)
+    report = reserve_plan(data, SETTINGS, NOW, shadow=False)
+    assert report['extreme_buffer_kwh'] == 0.1235
+    assert report['extreme_buffer_soc'] == 1.23
+    assert report['extreme_reserve_soc'] == 35.68
+    assert report['hold_threshold_soc'] == 35.6789
+    assert report['release_threshold_soc'] == pytest.approx(37.6789)
+    assert data == before

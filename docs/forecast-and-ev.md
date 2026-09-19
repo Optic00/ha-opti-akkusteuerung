@@ -167,7 +167,16 @@ Vorrang einer laufenden Autoladung bleiben erhalten.
 Der Extrempreispuffer ist eine Sicherheitsheuristik und kein statistisch
 kalibrierter Prognosefehler. Er ändert weder die aktive Scoreformel aus #88 noch
 erteilt er eine Netzladefreigabe oder verspricht ein Nachladen während der teuren
-Spitze.
+Spitze. Ist Prognose-Netzladen bereits freigegeben und das bestehende günstige
+Ladefenster geeignet, kann das Peak-Vorladen auch den Zusatzpuffer auffüllen.
+Dadurch sind bis zu zehn SoC-Punkte mehr Netzladung möglich; die bisherigen
+Preis-, Ladefenster- und Abschaltgrenzen gelten weiter.
+
+Bei selbst zugeordneten Preisentitäten müssen aktueller Preis und Preisreihe
+denselben Tarif und dasselbe aktuelle Zeitfenster abbilden. Ein Stundenmittel als
+aktueller Preis passt nicht zu einem abweichenden Viertelstundenpreis: Dann kann
+die Freigabe für die teure Phase zu spät erfolgen. Der direkte Tibber-Bezug liefert
+beide Werte aus derselben Preisreihe.
 
 Heizungs- und Warmwasserverbrauch ist im Hausprofil enthalten. Aktiver Heizbetrieb
 setzt für die aktuelle und folgende Stundenperiode mindestens den aktuellen

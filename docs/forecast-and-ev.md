@@ -239,7 +239,8 @@ Moduswechsel. Der Schutz übernimmt keine Mindestlade- oder Entladeleistung und
 startet kein Netzladen. Fehlende, ältere als 90 Sekunden oder nicht mehr zu SoC,
 Kapazität und Min-/Max-SoC passende Berechnungen lassen die bisherige
 Strategieentscheidung unverändert. Schutz- und Ladeentscheidungen sowie der
-Vorrang eines ladenden Autos bleiben übergeordnet.
+Vorrang eines ladenden Autos bleiben übergeordnet. Nach einer Sicherheitspause
+muss der Entladeschutz erneut die höhere Eintrittsschwelle erreichen.
 
 ### PV-Vorbereitung fürs Auto (0.5.2b4)
 

@@ -980,8 +980,9 @@ async def test_safety_pause_reports_priority_over_active_hold(coordinator, hass)
     )
     coordinator.settings["input_boolean.akku_opti_automatik"] = True
     coordinator.write_enabled = True
+    report = active_hold_report(dt_util.utcnow())
     coordinator.async_set_updated_data(
-        {"arbitrage_estimate": active_hold_report(dt_util.utcnow())}
+        {"arbitrage_estimate": report}
     )
     evaluation = active_hold_evaluation()
     evaluation.states["sensor.opti_battery_temp"] = 60
@@ -997,6 +998,29 @@ async def test_safety_pause_reports_priority_over_active_hold(coordinator, hass)
     assert data["arbitrage_estimate"]["controls_battery"] is False
     coordinator.device.async_apply.assert_awaited_once()
     assert coordinator.device.async_apply.await_args.args[0] == "Akku Pause"
+
+    coordinator.async_set_updated_data(
+        {
+            **data,
+            "arbitrage_estimate": {
+                **report,
+                "hold_status": data["arbitrage_estimate"]["hold_status"],
+            },
+        }
+    )
+    coordinator.device.async_apply.reset_mock()
+    with patch.object(
+        coordinator.engine,
+        "evaluate",
+        return_value=active_hold_evaluation(price=29),
+    ):
+        resumed = await coordinator._async_update_data()
+
+    assert resumed["mode"] == "Akku nur Entladen"
+    assert resumed["arbitrage_estimate"]["hold_status"] == "release"
+    assert resumed["arbitrage_estimate"]["hold_would_control_battery"] is False
+    coordinator.device.async_apply.assert_awaited_once()
+    assert coordinator.device.async_apply.await_args.args[0] == "Akku nur Entladen"
 
 
 async def test_active_hold_failure_retains_engine_decision(coordinator, hass):

@@ -227,9 +227,11 @@ eine bestehende Preis- oder Reserveentscheidung.
 
 Optional kann **Restwert als automatischen Entladeschutz verwenden** aktiviert
 werden. Der Schutz benötigt zusätzlich eine aktivierte, vollständig gelernte
-Bedarfsprognose und steht zunächst nur für den SMA-Adapter zur Verfügung. Er
-greift ausschließlich bei bekannten automatischen Entladeentscheidungen. Ist
-die spätere Grenzenergie mindestens um die eingetragene Marge plus 0,5 ct/kWh
+Bedarfsprognose und steht zunächst nur für den SMA-Adapter zur Verfügung. Nach
+einem Neustart müssen auch bei wiederhergestelltem Profil zunächst wieder
+mindestens 20 Minuten gültige Verbrauchsmesswerte vorliegen. Der Schutz greift
+ausschließlich bei bekannten automatischen Entladeentscheidungen. Ist die spätere
+Grenzenergie mindestens um die eingetragene Marge plus 0,5 ct/kWh
 wertvoller als die aktuell vermiedene Netzenergie nach Entladekosten,
 setzt er `Akku nur Laden`. Zum Lösen gilt eine um 1 ct/kWh versetzte Schwelle.
 Damit führen kleine Prognoseänderungen nicht alle 15 Sekunden zu einem
@@ -264,10 +266,11 @@ Abfahrt nicht garantieren.
 
 Die zusätzliche PV-Ladung startet nach einer Minute mit mindestens 300 W
 Überschuss vor Hausakkuladung und bleibt ab 100 W aktiv. Laufende Hausakkuladung
-zählt zum verfügbaren Überschuss, Akkuentladung wird abgezogen. Der Fahrzeugbedarf
-endet ab Schwelle plus fünf Prozentpunkten; nach erreichtem Hausziel startet die
-Vorbereitung erst zwei Prozentpunkte darunter erneut. Neustarts und Messlücken
-setzen die kurze Bestätigungszeit zurück. Der SoC benötigt ein HA-Reportingalter
+zählt zum verfügbaren Überschuss, Akkuentladung wird abgezogen. Bei der einfachen
+Schwellenregel endet der Fahrzeugbedarf ab Schwelle plus fünf Prozentpunkten;
+bei aktiver Abfahrtsplanung endet er am eingestellten Fahrzeugziel. Nach erreichtem
+Hausziel startet die Vorbereitung erst zwei Prozentpunkte darunter erneut.
+Neustarts und Messlücken setzen die kurze Bestätigungszeit zurück. Der SoC benötigt ein HA-Reportingalter
 von höchstens 24 Stunden; das ist kein Beweis eines neuen Fahrzeugabrufs, wenn
 dessen Integration zwischengespeicherte Werte wiederholt meldet.
 

@@ -895,6 +895,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             data["arbitrage_estimate"].update(arbitrage_hold)
             data["arbitrage_estimate"].update(
+                hold_status=(
+                    "higher_priority"
+                    if would_control and safety_reason is not None
+                    else arbitrage_hold.get("hold_status")
+                ),
                 hold_would_control_battery=would_control,
                 hold_controls_battery=bool(
                     would_control

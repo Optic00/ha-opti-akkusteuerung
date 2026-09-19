@@ -969,6 +969,36 @@ async def test_active_hold_never_inherits_force_charge_or_discharge_minima(
     assert params["min_discharge_w"] == 0
 
 
+async def test_safety_pause_reports_priority_over_active_hold(coordinator, hass):
+    hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "arbitrage_estimate": active_hold_options(),
+            "demand_forecast": {"enabled": True, "sources": {}},
+        },
+    )
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.write_enabled = True
+    coordinator.async_set_updated_data(
+        {"arbitrage_estimate": active_hold_report(dt_util.utcnow())}
+    )
+    evaluation = active_hold_evaluation()
+    evaluation.states["sensor.opti_battery_temp"] = 60
+
+    with patch.object(coordinator.engine, "evaluate", return_value=evaluation):
+        data = await coordinator._async_update_data()
+
+    assert data["decision_id"] == "arbitrage_hold"
+    assert data["mode"] == "Akku Pause"
+    assert data["arbitrage_estimate"]["hold_status"] == "higher_priority"
+    assert data["arbitrage_estimate"]["hold_would_control_battery"] is True
+    assert data["arbitrage_estimate"]["hold_controls_battery"] is False
+    assert data["arbitrage_estimate"]["controls_battery"] is False
+    coordinator.device.async_apply.assert_awaited_once()
+    assert coordinator.device.async_apply.await_args.args[0] == "Akku Pause"
+
+
 async def test_active_hold_failure_retains_engine_decision(coordinator, hass):
     hass.config_entries.async_update_entry(
         coordinator.entry,

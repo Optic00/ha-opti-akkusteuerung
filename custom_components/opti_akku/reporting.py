@@ -63,6 +63,8 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> 
         "assumed_load_w": number(attrs.get("assumed_load_w")) if number(attrs.get("assumed_load_w")) is not None else load * 1000 if load is not None else None,
         "assumed_discharge_efficiency": 0.9,
         "required_battery_kwh": number(attrs.get("benoetigt_kwh")) if valid else None,
+        "extreme_buffer_kwh": number(attrs.get("extreme_buffer_kwh")) if valid else None,
+        "extreme_buffer_soc": number(attrs.get("extreme_buffer_soc")) if valid else None,
         "expensive_hours": number(attrs.get("peak_stunden_exp")) if valid else None,
         "very_expensive_hours": number(attrs.get("peak_stunden_ve")) if valid else None,
         "day_target_soc": number(states.get("sensor.opti_target_soc")),

@@ -57,6 +57,8 @@ BASE = {'sensor.opti_soc': '40',
  'input_boolean.opti_ev_akku_pause': 'off',
  'binary_sensor.opti_ev_schnellladung': 'off'}
 
+ORIGINAL_DECISION_IDS = ["minimum_soc", "negative_price", "peak_precharge", "peak_l1", "peak_l2", "balancing_pv", "balancing_grid", "maximum_soc", "reserve_low", "reserve_forecast", "reserve_winter", "reserve_today_low", "reserve_cheap", "ev_lock", "surplus_70", "surplus_ac", "battery_full", "peak_l3", "peak_l4", "surplus_veto", "below_target", "above_target"]
+
 BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'MinSOC-Schutz'),
  (1,
   'negativpreis_netzladen',
@@ -271,8 +273,8 @@ def test_every_original_branch_executes_through_engine(
     states = {**BASE, **overrides, "input_boolean.akku_opti_automatik": "on"}
     result = decision_engine.evaluate(states, attrs, NOW)
     assert result.mode == expected_mode
-    expected_ids = ["minimum_soc", "negative_price", "peak_precharge", "peak_l1", "peak_l2", "balancing_pv", "balancing_grid", "maximum_soc", "reserve_low", "reserve_forecast", "reserve_winter", "reserve_today_low", "reserve_cheap", "ev_lock", "surplus_70", "surplus_ac", "battery_full", "peak_l3", "peak_l4", "surplus_veto", "below_target", "above_target"]
-    assert result.decision_id == ("default" if branch == "default" else expected_ids[branch])
+
+    assert result.decision_id == ("default" if branch == "default" else ORIGINAL_DECISION_IDS[branch])
     assert reason in result.reason
     assert result.states["sensor.opti_strategie_vorschau"] == expected_mode
     assert result.states["sensor.opti_engine_diagnostics"] == "ok"
@@ -280,8 +282,11 @@ def test_every_original_branch_executes_through_engine(
 
 def test_all_original_branches_have_explicit_golden_case():
     choose = load_resources()["strategy"]["actions"][0]["choose"]
-    assert len(choose) == len(BRANCHES) - 1
-    assert [case[0] for case in BRANCHES[:-1]] == list(range(len(choose)))
+    actual = [branch["sequence"][0]["decision_id"] for branch in choose]
+    assert actual.pop(17) == "extreme_peak_hold"
+    assert actual == ORIGINAL_DECISION_IDS
+    assert len(actual) == len(BRANCHES) - 1
+    assert [case[0] for case in BRANCHES[:-1]] == list(range(len(actual)))
 
 
 @pytest.mark.parametrize("previous", ["Akku Dynamisch", "Akku nur Entladen"])
@@ -328,3 +333,66 @@ def test_missing_price_default_never_becomes_ev_preparation(decision_engine):
     assert result.mode == "Akku Dynamisch"
     assert result.decision_id == "price_unavailable"
     assert apply_preparation(result, {"ready": True, "target_soc": 90})[0] is result
+
+
+@pytest.mark.parametrize("price_level", ["NORMAL", "EXPENSIVE", "VERY_EXPENSIVE"])
+def test_extreme_hold_blocks_relative_peak_discharge(decision_engine, price_level):
+    states = {**BASE, "input_boolean.akku_opti_automatik": "on",
+              "input_boolean.opti_prognose_netzladen": "off",
+              "binary_sensor.opti_peak_reserve_aktiv": "on",
+              "binary_sensor.opti_extreme_price_hold": "on",
+              "sensor.opti_peak_reserve_soc": "50",
+              "sensor.opti_price_level": price_level,
+              "sensor.opti_price_current_ct_kwh": "50"}
+    attrs = {"sensor.opti_peak_reserve_soc": {"reserve_ve_soc": 20}}
+    result = decision_engine.evaluate(states, attrs, NOW)
+    assert result.decision_id == "extreme_peak_hold"
+    assert result.mode == result.states["sensor.opti_strategie_vorschau"] == "Akku nur Laden"
+    assert "Extrempreis-Reserve" in result.reason
+    assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+    # Only the EV charging guard can replace this reserve, not EV preparation.
+    assert apply_preparation(result, {"ready": True, "target_soc": 90})[0] is result
+    guarded, _ = apply_preparation(result, {"charging_guard": True})
+    assert guarded.mode == "Akku Pause"
+    assert guarded.decision_id == "ev_priority"
+
+
+@pytest.mark.parametrize("changes, attrs, expected", [
+    ({"sensor.opti_soc": "10"}, {}, "minimum_soc"),
+    ({"sensor.opti_balancing_watchdog": "pv"}, {}, "balancing_pv"),
+    ({"sensor.opti_balancing_watchdog": "netz"}, {}, "balancing_grid"),
+    ({"sensor.opti_soc": "95"}, {}, "maximum_soc"),
+    ({"sensor.opti_soc": "93", "binary_sensor.opti_ladedeckel_aktiv": "on"},
+     {"binary_sensor.opti_ladedeckel_aktiv": {"maxsoc": 95}}, "maximum_soc"),
+    ({"input_boolean.opti_ev_akku_pause": "on", "binary_sensor.opti_ev_schnellladung": "on"}, {}, "ev_lock"),
+    ({"input_boolean.opti_prognose_netzladen": "on"},
+     {"sensor.opti_peak_reserve_soc": {"min_preis_vor_peak_ct": 50, "peak_preis_avg_ct": 100}}, "peak_precharge"),
+])
+def test_extreme_hold_preserves_existing_priority(decision_engine, changes, attrs, expected):
+    states = {**BASE, "input_boolean.akku_opti_automatik": "on",
+              "input_boolean.opti_prognose_netzladen": "off",
+              "binary_sensor.opti_peak_reserve_aktiv": "on",
+              "binary_sensor.opti_extreme_price_hold": "on",
+              "sensor.opti_peak_reserve_soc": "70",
+              "sensor.opti_price_current_ct_kwh": "50", **changes}
+    result = decision_engine.evaluate(states, attrs, NOW)
+    assert result.decision_id == expected
+    assert result.mode == result.states["sensor.opti_strategie_vorschau"]
+    if expected == "maximum_soc":
+        assert result.mode == "Akku Pause"
+    if expected == "peak_precharge":
+        assert result.mode == "Akku Netzladen"
+    assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+
+
+@pytest.mark.parametrize("hold, expected", [("on", "extreme_peak_hold"), ("off", "peak_l1")])
+def test_extreme_hold_release_restores_peak_use(decision_engine, hold, expected):
+    states = {**BASE, "input_boolean.akku_opti_automatik": "on",
+              "input_boolean.opti_prognose_netzladen": "off",
+              "binary_sensor.opti_peak_reserve_aktiv": "on",
+              "binary_sensor.opti_extreme_price_hold": hold,
+              "sensor.opti_peak_reserve_soc": "50",
+              "sensor.opti_price_level": "VERY_EXPENSIVE"}
+    result = decision_engine.evaluate(states, {}, NOW)
+    assert result.decision_id == expected
+    assert result.mode == result.states["sensor.opti_strategie_vorschau"]

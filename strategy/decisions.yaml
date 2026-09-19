@@ -201,6 +201,8 @@ strategy:
           entity_id: input_select.akkusteuerung_modus
     - alias: 'Peak-Leiter L1 ''nur Entladen'': Preisspitze VERY_EXPENSIVE'
       conditions:
+      - condition: template
+        value_template: "{{ not is_state('binary_sensor.opti_extreme_price_hold', 'on') }}"
       - condition: state
         entity_id: binary_sensor.opti_peak_reserve_aktiv
         state: 'on'
@@ -223,6 +225,8 @@ strategy:
           entity_id: input_select.akkusteuerung_modus
     - alias: 'Peak-Leiter L2 ''nur Entladen'': EXPENSIVE, SoC ueber VE-Reserve'
       conditions:
+      - condition: template
+        value_template: "{{ not is_state('binary_sensor.opti_extreme_price_hold', 'on') }}"
       - condition: state
         entity_id: binary_sensor.opti_peak_reserve_aktiv
         state: 'on'
@@ -550,6 +554,18 @@ strategy:
         decision_id: battery_full
         data:
           option: Akku Dynamisch
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: Extrempreis-Reserve vor der Preisspitze halten
+      conditions:
+      - condition: state
+        entity_id: binary_sensor.opti_extreme_price_hold
+        state: 'on'
+      sequence:
+      - action: input_select.select_option
+        decision_id: extreme_peak_hold
+        data:
+          option: Akku nur Laden
         target:
           entity_id: input_select.akkusteuerung_modus
     - alias: 'Peak-Leiter L3 ''nur Laden'' (halten): EXPENSIVE, Reserve fuer VERY_EXPENSIVE'

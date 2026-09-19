@@ -22,6 +22,7 @@ def sample(**changes):
                        'sensor.opti_price_level': 'NORMAL', 'binary_sensor.opti_peak_reserve_aktiv': 'on'},
             'attributes': {'sensor.opti_peak_reserve_soc': {'reserve_ve_soc': 30,
                 'horizont_ende': (NOW+timedelta(hours=12)).isoformat(), 'benoetigt_kwh': 5.12,
+                'extreme_buffer_kwh': 0.64, 'extreme_buffer_soc': 5,
                 'peak_stunden_exp': 2, 'peak_stunden_ve': 3.75}}}
     data.update(changes)
     return data
@@ -56,6 +57,27 @@ def test_plan_describes_request_not_hardware(changes, shadow, status):
 
 def test_expired_plan_cannot_look_current():
     assert reserve_plan(sample(), SETTINGS, NOW+timedelta(days=1), shadow=False)['status'] == 'no_valid_plan'
+
+
+def test_extreme_buffer_is_diagnostic_only_for_a_valid_plan():
+    result = reserve_plan(sample(), SETTINGS, NOW, shadow=False)
+    assert result['extreme_buffer_kwh'] == pytest.approx(0.64)
+    assert result['extreme_buffer_soc'] == 5
+
+    invalid = reserve_plan(
+        sample(source_errors={'price': 'stale'}), SETTINGS, NOW, shadow=False
+    )
+    assert invalid['extreme_buffer_kwh'] is None
+    assert invalid['extreme_buffer_soc'] is None
+
+    malformed = sample()
+    malformed['attributes']['sensor.opti_peak_reserve_soc'].update(
+        extreme_buffer_kwh='nan', extreme_buffer_soc='unavailable'
+    )
+    result = reserve_plan(malformed, SETTINGS, NOW, shadow=False)
+    assert result['planned_reserve_soc'] == 45
+    assert result['extreme_buffer_kwh'] is None
+    assert result['extreme_buffer_soc'] is None
 
 
 def test_energy_gaps_and_restart_do_not_invent_coverage():

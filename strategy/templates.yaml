@@ -593,10 +593,10 @@ template_blocks:
          dasselbe tun statt mit dem Default 95 weiterzurechnen. #}
       {% set hv_maxsoc = is_number(states('input_number.maxsoc')) %} {% set deckel_band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
             and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maxsoc else 0 %}
-      {% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %} {% if soc >= 0 and soc <= minsoc %}Akku nur Laden {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Akku Netzladen {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' and not ev %}Akku nur Entladen {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev %}Akku nur Entladen {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Akku nur Laden {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Akku Netzladen {%- elif hv_maxsoc and soc >= 0 and soc >= maxsoc - deckel_band %}{% if aktiv or ev %}Akku Pause{% else %}Akku nur Entladen{% endif %} {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}Akku nur Laden {# EV-Schnelllade-Sperre: nach den Lade-Zweigen, vor allen Zweigen,
+      {% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %} {% if soc >= 0 and soc <= minsoc %}Akku nur Laden {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Akku Netzladen {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' and not ev and not is_state('binary_sensor.opti_extreme_price_hold','on') %}Akku nur Entladen {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev and not is_state('binary_sensor.opti_extreme_price_hold','on') %}Akku nur Entladen {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Akku nur Laden {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Akku Netzladen {%- elif hv_maxsoc and soc >= 0 and soc >= maxsoc - deckel_band %}{% if aktiv or ev %}Akku Pause{% else %}Akku nur Entladen{% endif %} {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}Akku nur Laden {# EV-Schnelllade-Sperre: nach den Lade-Zweigen, vor allen Zweigen,
          die Dynamisch/Entladen liefern koennen (inkl. Akku voll). Sperr-
          Modus 'Akku nur Laden' = reine Entladesperre, PV-Laden bleibt. #}
-      {%- elif ev %}Akku nur Laden {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}Akku Dynamisch {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}Akku Dynamisch {%- elif soc > 99 %}Akku Dynamisch {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and soc <= ve_res + band and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Akku nur Laden {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Akku nur Laden {# Ueberschuss-Veto (2026-08-15/16): knapper Resttag und laufender
+      {%- elif ev %}Akku nur Laden {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}Akku Dynamisch {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}Akku Dynamisch {%- elif soc > 99 %}Akku Dynamisch {%- elif is_state('binary_sensor.opti_extreme_price_hold','on') %}Akku nur Laden {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and soc <= ve_res + band and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Akku nur Laden {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Akku nur Laden {# Ueberschuss-Veto (2026-08-15/16): knapper Resttag und laufender
          Netzexport stechen den Ziel-SoC-Deckel. Das Knappheits-Gate lebt
          im Binary Sensor. Position identisch zur Strategie - hinter L3/L4,
          vor den Ziel-SoC-Zweigen (Paritaet). #}
@@ -619,7 +619,7 @@ template_blocks:
            dasselbe tun statt mit dem Default 95 weiterzurechnen. #}
         {% set hv_maxsoc = is_number(states('input_number.maxsoc')) %} {% set deckel_band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
               and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maxsoc else 0 %}
-        {% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %} {% if soc >= 0 and soc <= minsoc %}MinSOC-Schutz (SoC<={{minsoc}}) {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct) {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%) {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' and not ev %}Peak-Leiter L1 (VE entladen) {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%) {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Balancing-Watchdog (PV-Vollladung) {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Balancing-Watchdog (Netz-Vollladung) {%- elif hv_maxsoc and soc >= 0 and soc >= maxsoc - deckel_band %}Ladedeckel (maxsoc erreicht{% if aktiv %}; Peak-Reserve halten{% elif ev %}; EV-Entladesperre{% endif %}) {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht) {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL) {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}SOC<15 Notfall {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}SOC<45 sehr guenstig {%- elif ev %}EV-Sperre (Schnellladung, Entladesperre) {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}70% Ueberschuss (tag, entprellt) {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}AC Ueberschuss (tag, entprellt) {%- elif soc > 99 %}Akku voll {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and soc <= ve_res + band and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%, Spread {{(ve_avg - cur)|round(1)}}ct) {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%) {%- elif ueb and day and veto and hv_maxsoc and soc >= 0 and soc < maxsoc %}Ueberschuss-Veto ({{ state_attr('binary_sensor.opti_ueberschuss_veto_aktiv','export_ohne_akku_w') }}W Export sticht Ziel-SoC {{target}}%) {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag) {%- elif soc > target + (0 if is_state('input_select.akkusteuerung_modus','Akku nur Entladen') else H) %}ueber Ziel-SoC {%- elif soc >= 0 and not has_value('sensor.opti_price_level')
+        {% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %} {% if soc >= 0 and soc <= minsoc %}MinSOC-Schutz (SoC<={{minsoc}}) {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct) {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%) {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' and not ev and not is_state('binary_sensor.opti_extreme_price_hold','on') %}Peak-Leiter L1 (VE entladen) {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev and not is_state('binary_sensor.opti_extreme_price_hold','on') %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%) {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Balancing-Watchdog (PV-Vollladung) {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Balancing-Watchdog (Netz-Vollladung) {%- elif hv_maxsoc and soc >= 0 and soc >= maxsoc - deckel_band %}Ladedeckel (maxsoc erreicht{% if aktiv %}; Peak-Reserve halten{% elif ev %}; EV-Entladesperre{% endif %}) {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht) {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL) {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}SOC<15 Notfall {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}SOC<45 sehr guenstig {%- elif ev %}EV-Sperre (Schnellladung, Entladesperre) {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}70% Ueberschuss (tag, entprellt) {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}AC Ueberschuss (tag, entprellt) {%- elif soc > 99 %}Akku voll {%- elif is_state('binary_sensor.opti_extreme_price_hold','on') %}Extrempreis-Reserve (Restbedarf fuer Spitzen ueber 60 ct/kWh) {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and soc <= ve_res + band and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%, Spread {{(ve_avg - cur)|round(1)}}ct) {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%) {%- elif ueb and day and veto and hv_maxsoc and soc >= 0 and soc < maxsoc %}Ueberschuss-Veto ({{ state_attr('binary_sensor.opti_ueberschuss_veto_aktiv','export_ohne_akku_w') }}W Export sticht Ziel-SoC {{target}}%) {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag) {%- elif soc > target + (0 if is_state('input_select.akkusteuerung_modus','Akku nur Entladen') else H) %}ueber Ziel-SoC {%- elif soc >= 0 and not has_value('sensor.opti_price_level')
            %}Preisniveau fehlt (Dynamisch)
         {%- elif soc >= 0 %}Default (Nacht/keine Aktion) {%- else %}opti_soc fehlt{% endif %}
       ist_modus: '{{ states(''input_select.akkusteuerung_modus'') }}'
@@ -726,7 +726,7 @@ template_blocks:
          koennen - deshalb Namespace-Summe statt Zaehler * Konstante. #}
       {% set load_hours = state_attr('sensor.opti_peak_load_profile', 'hours') %}
       {% set load_methods = state_attr('sensor.opti_peak_load_profile', 'methods') %}
-      {% set f = namespace(ve=0.0, exp=0.0, ve_energy=0.0, exp_energy=0.0, profile_hours=0.0, minpre=none, summe=0.0, anz=0, peak_gesehen=false, ve_summe=0.0, ve_anz=0) %} {% if n >= 4 %}
+      {% set f = namespace(ve=0.0, exp=0.0, ve_energy=0.0, exp_energy=0.0, extreme_energy=0.0, ve_extra=0.0, exp_extra=0.0, profile_hours=0.0, minpre=none, summe=0.0, anz=0, peak_gesehen=false, ve_summe=0.0, ve_anz=0) %} {% if n >= 4 %}
         {% for eintrag in ns.future %}
           {% set t = eintrag[0] %}
           {% set p = eintrag[1] %}
@@ -740,11 +740,19 @@ template_blocks:
             {% set gleich  = ns.prices | select('eq', p) | list | length %}
             {% set pct = (kleiner + 0.5 * gleich) / n %}
             {% set ist_peak_preis = fenster_min is none or p >= fenster_min + aufschlag %}
+            {# The extra buffer applies only to remaining extreme-price demand.
+               Keep the legacy base integration and learned load profile intact. #}
+            {% set remaining_h = [0, ([t + timedelta(hours=slot_h), horizont_ende] | min - [t, now()] | max).total_seconds() / 3600] | max %}
+            {% set factor = 0.25 * ([1, ([0, (p - 60) / 40] | max)] | min) if is_number(p) else 0 %}
+            {% set extra = slot_kw * remaining_h * factor %}
+            {% if pct >= 0.60 and ist_peak_preis and factor > 0 %}
+              {% set f.extreme_energy = f.extreme_energy + slot_kw * remaining_h %}
+            {% endif %}
             {% if pct >= 0.80 and ist_peak_preis %}
-              {% set f.ve = f.ve + slot_h %}{% set f.ve_energy = f.ve_energy + slot_kw * slot_h %}{% if 'profile' in load_method %}{% set f.profile_hours = f.profile_hours + slot_h %}{% endif %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
+              {% set f.ve_extra = f.ve_extra + extra %}{% set f.ve = f.ve + slot_h %}{% set f.ve_energy = f.ve_energy + slot_kw * slot_h %}{% if 'profile' in load_method %}{% set f.profile_hours = f.profile_hours + slot_h %}{% endif %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
               {% set f.ve_summe = f.ve_summe + p %}{% set f.ve_anz = f.ve_anz + 1 %}
             {% elif pct >= 0.60 and ist_peak_preis %}
-              {% set f.exp = f.exp + slot_h %}{% set f.exp_energy = f.exp_energy + slot_kw * slot_h %}{% if 'profile' in load_method %}{% set f.profile_hours = f.profile_hours + slot_h %}{% endif %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
+              {% set f.exp_extra = f.exp_extra + extra %}{% set f.exp = f.exp + slot_h %}{% set f.exp_energy = f.exp_energy + slot_kw * slot_h %}{% if 'profile' in load_method %}{% set f.profile_hours = f.profile_hours + slot_h %}{% endif %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
             {% elif not f.peak_gesehen %}
               {% set f.minpre = p if f.minpre is none else ([f.minpre, p] | min) %}
             {% endif %}
@@ -753,7 +761,15 @@ template_blocks:
       {% endif %} {# 4. Reserve in kWh und SoC (mit Entladeverlusten), Kappung bei maxsoc.
          Stundenlast je Slot aus Profil oder Ersatzwert; Energie bereits
          separat fuer VE und EXP integriert (siehe 3b). #}
-      {% set ve_kwh = f.ve_energy / eta %} {% set ges_kwh = (f.ve_energy + f.exp_energy) / eta %} {% if cap_kwh > 0 %}
+      {% set base_kwh = (f.ve_energy + f.exp_energy) / eta %}
+      {% set raw_extra = (f.ve_extra + f.exp_extra) / eta %}
+      {% set headroom = [0, (max_soc - min_soc) / 100 * cap_kwh - base_kwh] | max %}
+      {% set extra_kwh = [raw_extra, cap_kwh * 0.10, headroom] | min if cap_kwh > 0 else 0 %}
+      {% set ve_kwh = f.ve_energy / eta + (extra_kwh * f.ve_extra / (f.ve_extra + f.exp_extra) if raw_extra > 0 else 0) %}
+      {% set ges_kwh = base_kwh + extra_kwh %}
+      {% set extra_soc = extra_kwh / cap_kwh * 100 if cap_kwh > 0 else 0 %}
+      {% set extreme_soc = [max_soc, min_soc + (f.extreme_energy / eta + extra_kwh) / cap_kwh * 100] | min if cap_kwh > 0 else max_soc %}
+      {% if cap_kwh > 0 %}
         {% set ve_soc = [min_soc + ve_kwh / cap_kwh * 100, max_soc] | min %}
         {% set ges_soc = [min_soc + ges_kwh / cap_kwh * 100, max_soc] | min %}
       {% else %}
@@ -765,6 +781,10 @@ template_blocks:
           've_stunden': f.ve | round(2),
           'exp_stunden': f.exp | round(2),
           'benoetigt_kwh': ges_kwh | round(2),
+          'extreme_pending': f.extreme_energy > 0,
+          'extreme_buffer_kwh': extra_kwh,
+          'extreme_buffer_soc': extra_soc,
+          'extreme_reserve_soc': extreme_soc,
           'profile_hours': f.profile_hours,
           'assumed_load_w': ((f.ve_energy + f.exp_energy) / (f.ve + f.exp) * 1000) | round(1) if f.ve + f.exp > 0 else verbrauch_kw * 1000,
           'min_preis_vor_peak_ct': (f.minpre | round(2)) if f.minpre is not none else none,
@@ -786,6 +806,9 @@ template_blocks:
       peak_stunden_ve: '{{ peak.ve_stunden }}'
       peak_stunden_exp: '{{ peak.exp_stunden }}'
       benoetigt_kwh: '{{ peak.benoetigt_kwh }}'
+      extreme_buffer_kwh: '{{ peak.extreme_buffer_kwh }}'
+      extreme_buffer_soc: '{{ peak.extreme_buffer_soc }}'
+      extreme_reserve_soc: '{{ peak.extreme_reserve_soc }}'
       profile_hours: '{{ peak.profile_hours }}'
       assumed_load_w: '{{ peak.assumed_load_w }}'
       min_preis_vor_peak_ct: '{{ peak.min_preis_vor_peak_ct }}'
@@ -795,6 +818,15 @@ template_blocks:
       horizont_ende: '{{ peak.horizont_ende }}'
       branch: '{{ peak.branch }}'
   binary_sensor:
+  - unique_id: opti_extreme_price_hold
+    name: Opti Extrempreis Reserve Halten
+    state: |
+      {% set cur = states('sensor.opti_price_current_ct_kwh') | float(none) %}
+      {% set soc = states('sensor.opti_soc') | float(none) %}
+      {% set band = 2 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden') else 0 %}
+      {{ peak.gueltig and peak.extreme_pending
+         and is_number(cur) and cur <= 60 and is_number(soc)
+         and 0 <= soc <= peak.extreme_reserve_soc + band }}
   - unique_id: opti_peak_reserve_aktiv
     name: Opti Peak Reserve Aktiv
     icon: mdi:shield-lock

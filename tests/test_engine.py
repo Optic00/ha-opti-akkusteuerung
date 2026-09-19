@@ -928,3 +928,41 @@ def test_template_runtime_helpers_fail_closed_on_malformed_resources():
                 }
             ]
         )
+
+
+def test_extreme_reserve_full_pipeline_holds_before_peak_and_releases_during_it():
+    now = NOW.replace(hour=18)
+    states = measurements(**{
+        SOC: 15,
+        "input_number.minsoc": 5,
+        "input_number.opti_peak_verbrauch_kw": 0.9,
+        "input_boolean.opti_prognose_netzladen": "off",
+        "sensor.opti_price_current_ct_kwh": 50,
+        "sensor.opti_forecast_today_kwh": 0,
+        "sensor.opti_forecast_tomorrow_kwh": 0,
+        "sensor.opti_forecast_remaining_today_kwh": 0,
+        "sun.sun": "below_horizon",
+    })
+    attrs = solar_attrs(now)
+    prices = [10] * 24
+    prices[18:20] = [50, 100]
+    attrs["sensor.opti_price_series"] = {"today": prices, "tomorrow": [10] * 24}
+    engine = StrategyEngine()
+    before = evaluate(engine, states, attrs, now)
+    assert before.states["sensor.opti_price_level"] == "VERY_EXPENSIVE"
+    assert before.decision_id == "extreme_peak_hold"
+    assert before.mode == "Akku nur Laden"
+    assert before.attributes["sensor.opti_peak_reserve_soc"]["extreme_buffer_kwh"] == 0.25
+
+    states["sensor.opti_price_current_ct_kwh"] = 100
+    during = evaluate(engine, states, attrs, now + dt.timedelta(hours=1))
+    assert during.decision_id == "peak_l1"
+    assert during.mode == "Akku nur Entladen"
+    states["sensor.opti_price_current_ct_kwh"] = 10
+    after = evaluate(engine, states, attrs, now + dt.timedelta(hours=2))
+    assert after.states["binary_sensor.opti_extreme_price_hold"] == "off"
+    assert after.attributes["sensor.opti_peak_reserve_soc"]["extreme_buffer_kwh"] == 0
+    for result in (before, during, after):
+        assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+        assert result.mode == result.states["sensor.opti_strategie_vorschau"]
+        assert result.mode != "Akku Netzladen"

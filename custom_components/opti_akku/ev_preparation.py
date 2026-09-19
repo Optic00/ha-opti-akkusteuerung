@@ -274,7 +274,7 @@ def apply_preparation(result, preparation):
     if preparation.get("charging_guard"):
         # Stop ordinary PV competition and all automatic discharge into the EV.
         # Explicit higher-priority charging (minimum SoC/balancing) is retained.
-        if ordinary or mode in (
+        if ordinary or result.decision_id == "extreme_peak_hold" or mode in (
             "Akku Dynamisch",
             "Akku nur Entladen",
             "Akku schnell Entladen",

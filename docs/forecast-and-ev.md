@@ -149,6 +149,26 @@ konfigurierten Ersatzverbrauch. Preisfenster, Wiederaufladehorizont,
 Entladewirkungsgrad und Min-/Max-SoC bleiben gleich. Der beobachtende Vorschlag
 „gesamter Bedarf bis PV“ ersetzt die Peak-Reserve nicht.
 
+Für bereits als Peak klassifizierte Zeitfenster über 60 ct/kWh kommt ein
+zusätzlicher Extrempreispuffer hinzu. Er beträgt
+`0,25 × clamp((Preis - 60) / 40, 0, 1)` der bisherigen Lastannahme: bis
+60 ct/kWh null, bei 80 ct/kWh 12,5 % und ab 100 ct/kWh 25 %. Der vorhandene
+Profilaufschlag von 20 % bleibt dabei bestehen. Der neue Zusatz berücksichtigt
+nur die tatsächlich verbleibende Dauer der extrem teuren Phase und wird mit
+deren Ablauf abgebaut. Er ist auf zehn SoC-Punkte begrenzt; die gesamte Reserve
+bleibt zusätzlich am Max-SoC gedeckelt.
+
+Bei einem aktuellen Preis bis 60 ct/kWh bleibt der noch anstehende Extrembedarf
+samt Zusatzpuffer vor vorzeitiger Peak-Entladung geschützt, auch wenn die volle
+Reserve keinen Platz für einen weiteren Zuschlag lässt. Während der teuren Phase
+darf die normale Peaklogik diese Energie nutzen. Balancing, Ladedeckel und der
+Vorrang einer laufenden Autoladung bleiben erhalten.
+
+Der Extrempreispuffer ist eine Sicherheitsheuristik und kein statistisch
+kalibrierter Prognosefehler. Er ändert weder die aktive Scoreformel aus #88 noch
+erteilt er eine Netzladefreigabe oder verspricht ein Nachladen während der teuren
+Spitze.
+
 Heizungs- und Warmwasserverbrauch ist im Hausprofil enthalten. Aktiver Heizbetrieb
 setzt für die aktuelle und folgende Stundenperiode mindestens den aktuellen
 Hausverbrauch beziehungsweise Ersatzverbrauch an, ohne einen zweiten Heizbedarf
@@ -160,8 +180,9 @@ Vergleichstagsauswahl werden für die aktive Peak-Berechnung noch nicht genutzt.
 Eine vollständige zukünftige Heizbedarfsprognose ist damit noch nicht vorhanden.
 
 Die Reserveplanung zeigt den tatsächlich für Peakstunden angesetzten Mittelwert,
-Profilstunden, Prognosepuffer und Rückfallgrund. Profilwechsel löschen keine
-Lernhistorie. Ein Abschalten der Profiloption stellt die feste Lastannahme wieder her.
+Profilstunden, Prognosepuffer, den tatsächlich addierten Extrempreispuffer in kWh
+und SoC-Punkten sowie den Rückfallgrund. Profilwechsel löschen keine Lernhistorie.
+Ein Abschalten der Profiloption stellt die feste Lastannahme wieder her.
 
 Die Entladesperre beginnt bei der Reserve, nicht schon drei Prozentpunkte darüber.
 Nach dem Halten wird erst oberhalb von Reserve plus zwei Prozentpunkten freigegeben.

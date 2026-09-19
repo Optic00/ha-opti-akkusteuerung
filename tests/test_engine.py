@@ -237,6 +237,37 @@ def test_target_missing_forecast_preserves_hysteresis_memory():
     assert float(evaluate(engine, states, now=NOW + dt.timedelta(minutes=1)).states[TARGET]) == 80
 
 
+def test_ready_remaining_day_profile_prevents_short_load_from_becoming_all_day_load():
+    states = measurements(**{
+        SOC: 50,
+        "sensor.opti_forecast_remaining_today_kwh": 10,
+        "sensor.opti_house_consumption_w": 3200,
+        "sensor.opti_house_consumption_60min_w": 1800,
+        "sensor.opti_forecast_remaining_load_profile_kwh": 3,
+    })
+    profiled = evaluate(states=states)
+    assert profiled.states["sensor.opti_forecast_score"] == "10"
+    assert profiled.attributes["sensor.opti_forecast_score"]["projected_load_kwh"] == 3
+    assert profiled.attributes["sensor.opti_forecast_score"]["load_source"] == "online_profile"
+
+    states["sensor.opti_forecast_remaining_load_profile_kwh"] = "unavailable"
+    legacy = evaluate(states=states)
+    assert legacy.states["sensor.opti_forecast_score"] == "0"
+    assert legacy.attributes["sensor.opti_forecast_score"]["load_source"] == "legacy_60min_extrapolation"
+
+
+def test_persistent_extra_base_load_is_included_by_profile_input():
+    states = measurements(**{
+        SOC: 50,
+        "sensor.opti_forecast_remaining_today_kwh": 10,
+        "sensor.opti_house_consumption_60min_w": 1800,
+        "sensor.opti_forecast_remaining_load_profile_kwh": 7,
+    })
+    result = evaluate(states=states)
+    assert result.states["sensor.opti_forecast_score"] == "6"
+    assert result.attributes["sensor.opti_forecast_score"]["pv_surplus_kwh"] == 3
+
+
 def test_maxsoc_latch_requires_real_entry_and_preserves_sensor_gap():
     engine = StrategyEngine()
     for minute, (soc, expected) in enumerate([(93, "off"), (95, "on"), (94, "on"), (92, "on"), ("unavailable", "on"), (91.9, "off"), (93, "off")]):

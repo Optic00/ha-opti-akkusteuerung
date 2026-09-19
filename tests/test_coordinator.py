@@ -1495,6 +1495,88 @@ async def test_active_profile_comparison_requires_enabled_demand(coordinator):
     }
 
 
+@pytest.mark.parametrize(
+    ("profile", "expected_state"),
+    [
+        (
+            {
+                "status": "ready",
+                "reason": "complete_online_profile",
+                "profile_energy_kwh": 3.25,
+                "window_hours": 5,
+            },
+            3.25,
+        ),
+        (
+            {
+                "status": "learning",
+                "reason": "recent_profile_warming_up",
+                "profile_energy_kwh": 3.25,
+            },
+            "unavailable",
+        ),
+    ],
+)
+async def test_only_ready_remaining_day_profile_reaches_engine(
+    coordinator, profile, expected_state
+):
+    coordinator.hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "demand_forecast": {"enabled": True},
+        },
+    )
+    demand_report = {
+        "status": "ready",
+        "observation_only": True,
+        "context": "unknown",
+        "recent_coverage_seconds": 1800,
+    }
+    original = coordinator.engine.evaluate
+    evaluated_states = []
+
+    def capture(states, attributes, now):
+        evaluated_states.append((deepcopy(states), deepcopy(attributes)))
+        return original(states, attributes, now)
+
+    with (
+        patch.object(coordinator._demand_forecast, "update", return_value=demand_report),
+        patch(
+            "custom_components.opti_akku.coordinator.remaining_day_profile",
+            return_value=profile,
+        ),
+        patch.object(coordinator.engine, "evaluate", side_effect=capture),
+    ):
+        result = await coordinator._async_update_data()
+
+    assert evaluated_states[0][0]["sensor.opti_forecast_remaining_load_profile_kwh"] == expected_state
+    assert evaluated_states[0][1]["sensor.opti_forecast_remaining_load_profile_kwh"] == profile
+    assert result["states"]["sensor.opti_forecast_remaining_load_profile_kwh"] == str(expected_state)
+
+
+async def test_active_profile_failure_falls_back_without_blocking_write(coordinator):
+    coordinator.hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "demand_forecast": {"enabled": True},
+        },
+    )
+    coordinator.write_enabled = True
+    with patch(
+        "custom_components.opti_akku.coordinator.remaining_day_profile",
+        side_effect=ValueError("broken profile"),
+    ):
+        result = await coordinator._async_update_data()
+    assert result["states"]["sensor.opti_forecast_remaining_load_profile_kwh"] == "unavailable"
+    assert result["attributes"]["sensor.opti_forecast_remaining_load_profile_kwh"] == {
+        "status": "error",
+        "reason": "profile_error",
+    }
+    coordinator.device.async_apply.assert_awaited_once()
+
+
 @pytest.mark.parametrize("shadow_mode", [False, True])
 async def test_real_profile_comparison_stays_passive_across_two_updates(
     coordinator, shadow_mode

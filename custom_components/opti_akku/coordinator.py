@@ -38,7 +38,7 @@ from .sources import build_inputs, finite
 from .plant import plant_entity_ids, plant_semantic_fingerprint
 from .load_profile import LoadProfile
 from .demand import DemandForecast
-from .demand_comparison import build_strategy_comparison
+from .demand_comparison import build_strategy_comparison, remaining_day_profile
 from .peak_load import peak_load_profile
 from .ev_preparation import EVPreparation, apply_preparation, command_signals
 from .observation import SourceObservation
@@ -560,11 +560,66 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 previous_data.get("engine_requested_mode", previous_mode),
             )
         states["input_select.akkusteuerung_modus"] = self.manual_mode or previous_mode
+        demand_cfg = captured_options.get("demand_forecast", {})
+        demand_comparison_enabled = (
+            isinstance(demand_cfg, dict) and demand_cfg.get("enabled") is True
+        )
+        demand_sources = demand_cfg.get("sources", {}) if demand_comparison_enabled else {}
+        comparison_states = {
+            entity_id: self.hass.states.get(entity_id)
+            for entity_id in demand_sources.values()
+            if isinstance(entity_id, str)
+        }
+        demand_input = {
+            "online": self._online,
+            "states": states,
+            "attributes": attributes,
+            "source_errors": source_errors,
+            "reserve_plan": previous_data.get("reserve_plan", {}),
+        }
+        try:
+            demand_report = self._demand_forecast.update(
+                now,
+                demand_input,
+                self.settings,
+                captured_options,
+                self.hass.states,
+                dt_util.DEFAULT_TIME_ZONE,
+                self._load_source_fingerprint,
+            )
+        except Exception as err:  # Forecast activation must fail back to the legacy score.
+            _LOGGER.debug("Demand observation unavailable: %s", type(err).__name__)
+            demand_report = {"status": "error", "observation_only": True}
+        demand_input["demand_forecast"] = demand_report
+        try:
+            active_profile = remaining_day_profile(
+                self._demand_forecast,
+                now,
+                demand_input,
+                self.settings,
+                captured_options,
+                comparison_states,
+                dt_util.DEFAULT_TIME_ZONE,
+                self._load_source_fingerprint,
+            )
+        except Exception as err:  # Never replace the legacy score with an uncertain profile.
+            _LOGGER.debug("Active remaining-day profile unavailable: %s", type(err).__name__)
+            active_profile = {"status": "error", "reason": "profile_error"}
+        profile_energy = finite(active_profile.get("profile_energy_kwh"))
+        profile_ready = (
+            active_profile.get("status") == "ready"
+            and profile_energy is not None
+            and profile_energy >= 0
+        )
+        states["sensor.opti_forecast_remaining_load_profile_kwh"] = (
+            profile_energy if profile_ready else "unavailable"
+        )
+        attributes["sensor.opti_forecast_remaining_load_profile_kwh"] = active_profile
         try:
             peak_profile = peak_load_profile(
                 self._demand_forecast, now,
                 {"online": self._online, "states": states, "source_errors": source_errors,
-                 "demand_forecast": (self.data or {}).get("demand_forecast", {})},
+                 "demand_forecast": demand_report},
                 self.settings, captured_options, self.hass.states,
                 dt_util.DEFAULT_TIME_ZONE, self._load_source_fingerprint)
         except Exception:
@@ -783,6 +838,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "sensor.opti_soc": {"name": "Ladezustand", "unit_of_measurement": "%", "device_class": "battery", "state_class": "measurement"},
             "sensor.opti_battery_temp": {"name": "Batterietemperatur", "unit_of_measurement": "°C", "device_class": "temperature", "state_class": "measurement"},
             "sensor.opti_battery_capacity_kwh": {"name": "Batteriekapazität", "unit_of_measurement": "kWh", "device_class": "energy_storage", "state_class": "measurement"},
+            "sensor.opti_forecast_remaining_load_profile_kwh": {"name": "Verbrauchsprofil Resttag", "unit_of_measurement": "kWh", "state_class": "measurement"},
             "binary_sensor.opti_connection": {"name": "Verbindung", "device_class": "connectivity"},
             "binary_sensor.opti_block_violation": {"name": "Sperrverletzung", "device_class": "problem"},
             "binary_sensor.opti_write_stalled": {"name": "Schreibstillstand", "device_class": "problem"},
@@ -826,28 +882,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Operating report unavailable: %s", type(err).__name__)
             data["reserve_plan"] = {"status": "no_valid_plan"}
             data["operating_report"] = {"status": "error", "error_type": type(err).__name__}
-        try:
-            data["demand_forecast"] = self._demand_forecast.update(
-                now, data, self.settings, captured_options, self.hass.states,
-                dt_util.DEFAULT_TIME_ZONE, self._load_source_fingerprint)
-        except Exception as err:  # Observation must never alter control or its health alerts.
-            _LOGGER.debug("Demand observation unavailable: %s", type(err).__name__)
-            data["demand_forecast"] = {"status": "error", "observation_only": True}
-        demand_cfg = captured_options.get("demand_forecast", {})
-        demand_comparison_enabled = (
-            isinstance(demand_cfg, dict) and demand_cfg.get("enabled") is True
-        )
+        data["demand_forecast"] = demand_report
         if self.shadow_mode or demand_comparison_enabled:
             try:
-                demand_sources = (
-                    demand_cfg.get("sources", {}) if isinstance(demand_cfg, dict) else {}
-                )
-                comparison_states = {
-                    entity_id: self.hass.states.get(entity_id)
-                    for entity_id in demand_sources.values()
-                    if isinstance(entity_id, str)
-                }
-
                 def compare():
                     return build_strategy_comparison(
                         self._demand_forecast, now, data, self.settings, captured_options,

@@ -149,6 +149,17 @@ konfigurierten Ersatzverbrauch. Preisfenster, Wiederaufladehorizont,
 Entladewirkungsgrad und Min-/Max-SoC bleiben gleich. Der beobachtende Vorschlag
 „gesamter Bedarf bis PV“ ersetzt die Peak-Reserve nicht.
 
+Für den aktiven Resttages-Score wird dasselbe gelernte Onlineprofil bis zum
+Sonnenuntergang integriert, sobald das Fenster vollständig aus Onlinewerten
+besteht und mindestens 20 Minuten aktuelle Messabdeckung vorliegen. Eine kurze
+Warmwasser- oder Heizlast wird dadurch als Teil ihres gelernten Stundenfensters
+bewertet und nicht mit dem 60-Minuten-Mittel auf den ganzen Resttag verlängert.
+Eine tatsächlich länger erhöhte Grundlast bleibt über den gemessenen
+Profilaufschlag berücksichtigt. Solange das Profil lernt, historische oder feste
+Ersatzwerte benötigt, Warmwasser zeitlich nicht zugeordnet werden kann oder ein
+Eingang fehlt, bleibt automatisch die bisherige 60-Minuten-Hochrechnung aktiv.
+Morgen- und Sonnentag-Score verwenden vorerst weiter ihre bisherigen Formeln.
+
 Für bereits als Peak klassifizierte Zeitfenster über 60 ct/kWh kommt ein
 zusätzlicher Extrempreispuffer hinzu. Er beträgt
 `0,25 × clamp((Preis - 60) / 40, 0, 1)` der bisherigen Lastannahme: bis
@@ -165,9 +176,8 @@ darf die normale Peaklogik diese Energie nutzen. Balancing, Ladedeckel und der
 Vorrang einer laufenden Autoladung bleiben erhalten.
 
 Der Extrempreispuffer ist eine Sicherheitsheuristik und kein statistisch
-kalibrierter Prognosefehler. Er ändert weder die aktive Scoreformel aus #88 noch
-erteilt er eine Netzladefreigabe oder verspricht ein Nachladen während der teuren
-Spitze. Ist Prognose-Netzladen bereits freigegeben und das bestehende günstige
+kalibrierter Prognosefehler. Er erteilt keine Netzladefreigabe und verspricht kein
+Nachladen während der teuren Spitze. Ist Prognose-Netzladen bereits freigegeben und das bestehende günstige
 Ladefenster geeignet, kann das Peak-Vorladen auch den Zusatzpuffer auffüllen.
 Dadurch sind bis zu zehn SoC-Punkte mehr Netzladung möglich; die bisherigen
 Preis-, Ladefenster- und Abschaltgrenzen gelten weiter.

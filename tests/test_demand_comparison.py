@@ -9,7 +9,10 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from custom_components.opti_akku.demand import DemandForecast
-from custom_components.opti_akku.demand_comparison import build_strategy_comparison
+from custom_components.opti_akku.demand_comparison import (
+    build_strategy_comparison,
+    remaining_day_profile,
+)
 
 TZ = ZoneInfo("Europe/Berlin")
 
@@ -84,6 +87,13 @@ def compare(
     )
 
 
+def active_profile(model, issued_at, data, *, settings=None, options=None, ha_states=None):
+    return remaining_day_profile(
+        model, issued_at, data, settings or SETTINGS, options or OPTIONS, ha_states or {}, TZ,
+        "fingerprint",
+    )
+
+
 def test_constant_profile_matches_all_three_formulas():
     issued = datetime(2026, 9, 16, 10, tzinfo=UTC)
     result = compare(learned_model(issued), issued, payload(issued))
@@ -102,6 +112,29 @@ def test_partial_hours_are_integrated_exactly():
     setting = issued + timedelta(hours=1, minutes=45)
     result = compare(learned_model(issued), issued, payload(issued, next_setting=setting))
     assert result["blocks"]["remaining_day"]["profile_energy_kwh"] == 1.75
+
+
+def test_active_remaining_day_profile_uses_only_a_complete_online_window():
+    issued = datetime(2026, 9, 16, 10, tzinfo=UTC)
+    ready = active_profile(learned_model(issued), issued, payload(issued))
+    assert ready["status"] == "ready"
+    assert ready["reason"] == "complete_online_profile"
+    assert ready["profile_energy_kwh"] == 6
+
+    warming = payload(issued)
+    warming["demand_forecast"]["recent_coverage_seconds"] = 0
+    result = active_profile(learned_model(issued), issued, warming)
+    assert result["status"] == "learning"
+    assert result["reason"] == "recent_profile_warming_up"
+
+
+def test_active_remaining_day_profile_rejects_unplaced_hot_water_need():
+    issued = datetime(2026, 9, 16, 10, tzinfo=UTC)
+    data = payload(issued)
+    data["demand_forecast"]["dhw_extra_kwh"] = 1
+    result = active_profile(learned_model(issued), issued, data)
+    assert result["status"] == "learning"
+    assert result["reason"] == "dhw_timing_unknown"
 
 
 @pytest.mark.parametrize(

@@ -1493,6 +1493,11 @@ async def test_active_profile_comparison_requires_enabled_demand(coordinator):
         "observation_only": True,
         "blocks": {},
     }
+    assert data["states"]["sensor.opti_forecast_remaining_load_profile_kwh"] == "unavailable"
+    assert data["attributes"]["sensor.opti_forecast_remaining_load_profile_kwh"] == {
+        "status": "disabled",
+        "reason": "active_profile_disabled",
+    }
 
 
 @pytest.mark.parametrize(
@@ -1524,7 +1529,7 @@ async def test_only_ready_remaining_day_profile_reaches_engine(
         coordinator.entry,
         options={
             **coordinator.entry.options,
-            "demand_forecast": {"enabled": True},
+            "demand_forecast": {"enabled": True, "use_for_peak_reserve": True},
         },
     )
     demand_report = {
@@ -1560,7 +1565,7 @@ async def test_active_profile_failure_falls_back_without_blocking_write(coordina
         coordinator.entry,
         options={
             **coordinator.entry.options,
-            "demand_forecast": {"enabled": True},
+            "demand_forecast": {"enabled": True, "use_for_peak_reserve": True},
         },
     )
     coordinator.write_enabled = True
@@ -1575,6 +1580,25 @@ async def test_active_profile_failure_falls_back_without_blocking_write(coordina
         "reason": "profile_error",
     }
     coordinator.device.async_apply.assert_awaited_once()
+
+
+async def test_malformed_demand_sources_fail_back_without_blocking_update(coordinator):
+    coordinator.hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "demand_forecast": {
+                "enabled": True,
+                "use_for_peak_reserve": True,
+                "sources": ["invalid"],
+            },
+        },
+    )
+
+    result = await coordinator._async_update_data()
+
+    assert result["states"]["sensor.opti_forecast_remaining_load_profile_kwh"] == "unavailable"
+    assert result["demand_forecast"]["status"] == "error"
 
 
 @pytest.mark.parametrize("shadow_mode", [False, True])

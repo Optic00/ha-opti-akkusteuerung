@@ -3,9 +3,9 @@
 Unter **Konfigurieren → Bedarfsprofil und Peak-Reserve** lässt sich eine unabhängige
 Vergleichsrechnung einschalten. Sie bleibt standardmäßig aus und verändert weder
 Strategieeingaben noch Sollwerte oder Schreibfreigabe. Die gesonderte Option
-„Stundenprofil für aktive Peak-Reserve verwenden“ beeinflusst dagegen die
-Reserveplanung; sie ist standardmäßig aus.
-Der Sensor **Bedarfsprognose (Beobachtung)** zeigt Lernstatus, Prognosegrundlagen,
+„Stundenprofil in der aktiven Strategie verwenden“ beeinflusst dagegen die
+Peak-Reserve und den Resttages-Score; sie ist standardmäßig aus.
+Der Sensor **Bedarfsprognose** zeigt Lernstatus, Prognosegrundlagen,
 Reservevorschlag und die aktuelle Strategie-Reserve. Das sind unterschiedliche
 Horizonte: Die neue Rechnung betrachtet den gesamten Bedarf bis zur PV-Deckung,
 die bestehende Strategie priorisiert teure Zeitfenster. Eine kleinere Zahl ist
@@ -208,15 +208,15 @@ Nach dem Halten wird erst oberhalb von Reserve plus zwei Prozentpunkten freigege
 Während der jeweils vorgesehenen teuren Stunden wird reservierte Energie weiterhin
 freigegeben.
 
-### Passiver Profilvergleich für die PV-Strategie
+### Profilvergleich und aktive Resttagesnutzung
 
-Bei eingeschaltetem Bedarfsprofil ergänzt der Bedarfsbericht einen strikt passiven
-Vergleich für den Resttag-Score, den Morgen- und Sonnentag-Score sowie den Ziel-SoC.
-Das gilt im Shadowmodus und parallel zu einer aktiven Steuerung. Der Vergleich
-ändert keine Strategie-Entität, keine Reserve, keinen Modus und keinen
-Schreibparameter. Der aktive Rechenweg bleibt unverändert; der Vergleich stellt
-dessen Ergebnis einem Kandidaten gegenüber, der den erwarteten Verbrauch
-stundenweise integriert.
+Bei eingeschaltetem Bedarfsprofil ergänzt der Bedarfsbericht einen Vergleich für
+den Resttag-Score, den Morgen- und Sonnentag-Score sowie den Ziel-SoC. Ohne die
+gesonderte aktive Profiloption bleibt dieser Vergleich strikt passiv. Ist die
+aktive Profiloption eingeschaltet und das Onlineprofil vollständig bereit,
+verwendet der Resttages-Score die stundenweise integrierte Last bis
+Sonnenuntergang. Morgen- und Sonnentag-Score sowie der Ziel-SoC-Vergleich bleiben
+passiv und unverändert.
 
 Vollständig gelernte Stunden und mindestens 20 Minuten aktuelle Profilabdeckung
 ergeben den Status `ready`. Historische Recorder-Werte, der konfigurierte
@@ -227,6 +227,11 @@ fehlender Solcast-Zeitverlauf (`no_pv_timing`) verhindert diesen Vergleich nicht
 weil er nur die vorhandenen Tages- und Restprognosen benötigt. Ein fälliger, aber
 noch nicht zeitlich eingeplanter Warmwasserbedarf bleibt dabei als
 `dhw_timing_unknown` in der Lernphase sichtbar.
+
+Fällt die aktuelle Messabdeckung länger aus, verwendet der aktive Resttages-Score
+wieder die bisherige 60-Minuten-Hochrechnung. Nach mindestens 20 Minuten
+vollständiger aktueller Abdeckung wechselt er zurück auf das Onlineprofil. Dieser
+bewusste Rückfall kann den Score an der Umschaltgrenze verändern.
 
 Der Resttag reicht exakt bis zum heutigen Sonnenuntergang. Morgen und Sonnentag
 verwenden ganze lokale Kalendertage einschließlich 23- oder 25-stündiger

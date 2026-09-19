@@ -128,6 +128,22 @@ def test_active_remaining_day_profile_uses_only_a_complete_online_window():
     assert result["reason"] == "recent_profile_warming_up"
 
 
+def test_active_remaining_day_profile_reports_disabled_forecast():
+    issued = datetime(2026, 9, 16, 10, tzinfo=UTC)
+
+    result = active_profile(
+        learned_model(issued),
+        issued,
+        payload(issued),
+        options={"demand_forecast": {"enabled": False}},
+    )
+
+    assert result == {
+        "status": "disabled",
+        "reason": "demand_forecast_disabled",
+    }
+
+
 def test_active_remaining_day_profile_rejects_unplaced_hot_water_need():
     issued = datetime(2026, 9, 16, 10, tzinfo=UTC)
     data = payload(issued)

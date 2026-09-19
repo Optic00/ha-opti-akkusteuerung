@@ -477,7 +477,7 @@
       },
       "demand": {
         "title": "Demand profile and peak reserve",
-        "description": "The night/PV forecast remains observational. Optionally use comparable historical or learned hourly loads for the active peak reserve, with a 20% forecast margin and configured fallback load. This changes battery control. Heating and hot water are included in the household profile; future cycles are not scheduled. Unknown heat context or detected unquantified hot-water demand retains the fallback. Separate heat-meter mode is not yet supported for the active peak profile.",
+        "description": "Learning and comparison remain observational. Optionally use the hourly profile in the active strategy for the peak reserve and remaining-day score, with a 20% peak-reserve margin and the configured fallback load or previous remaining-day calculation. This changes battery control. Heating and hot water are included in the household profile; future cycles are not scheduled. Unknown heat context or detected unquantified hot-water demand retains the safe fallback. Separate heat-meter mode is not yet supported for the active peak profile.",
         "data": {
           "enabled": "Learn demand profile and observe forecast",
           "heat_power": "Heat pump total electrical power, included in house consumption",
@@ -495,7 +495,7 @@
           "context_water_target": "Target hot water temperature (context and demand check)",
           "history_house": "Historical house consumption (same measurement scope)",
           "temperature_matching": "Prefer similar outdoor temperatures (experimental)",
-          "use_for_peak_reserve": "Use hourly profile for active peak reserve"
+          "use_for_peak_reserve": "Use hourly profile in the active strategy"
         }
       },
       "arbitrage": {
@@ -875,7 +875,7 @@
         }
       },
       "demand_forecast": {
-        "name": "Demand forecast (observation)",
+        "name": "Demand forecast",
         "state": {
           "disabled": "Disabled",
           "learning": "Learning load profile",

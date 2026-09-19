@@ -565,6 +565,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             isinstance(demand_cfg, dict) and demand_cfg.get("enabled") is True
         )
         demand_sources = demand_cfg.get("sources", {}) if demand_comparison_enabled else {}
+        if not isinstance(demand_sources, dict):
+            demand_sources = {}
         comparison_states = {
             entity_id: self.hass.states.get(entity_id)
             for entity_id in demand_sources.values()
@@ -575,6 +577,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "states": states,
             "attributes": attributes,
             "source_errors": source_errors,
+            # The report is calculated before this cycle's engine result. Its
+            # current-strategy reserve field is therefore deliberately the
+            # previous cycle's diagnostic value.
             "reserve_plan": previous_data.get("reserve_plan", {}),
         }
         try:
@@ -591,20 +596,28 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Demand observation unavailable: %s", type(err).__name__)
             demand_report = {"status": "error", "observation_only": True}
         demand_input["demand_forecast"] = demand_report
-        try:
-            active_profile = remaining_day_profile(
-                self._demand_forecast,
-                now,
-                demand_input,
-                self.settings,
-                captured_options,
-                comparison_states,
-                dt_util.DEFAULT_TIME_ZONE,
-                self._load_source_fingerprint,
-            )
-        except Exception as err:  # Never replace the legacy score with an uncertain profile.
-            _LOGGER.debug("Active remaining-day profile unavailable: %s", type(err).__name__)
-            active_profile = {"status": "error", "reason": "profile_error"}
+        active_profile_enabled = (
+            demand_comparison_enabled
+            and demand_cfg.get("use_for_peak_reserve") is True
+        )
+        if active_profile_enabled:
+            try:
+                active_profile = await self.hass.async_add_executor_job(
+                    remaining_day_profile,
+                    self._demand_forecast,
+                    now,
+                    demand_input,
+                    self.settings,
+                    captured_options,
+                    comparison_states,
+                    dt_util.DEFAULT_TIME_ZONE,
+                    self._load_source_fingerprint,
+                )
+            except Exception as err:  # Never replace the legacy score with an uncertain profile.
+                _LOGGER.debug("Active remaining-day profile unavailable: %s", type(err).__name__)
+                active_profile = {"status": "error", "reason": "profile_error"}
+        else:
+            active_profile = {"status": "disabled", "reason": "active_profile_disabled"}
         profile_energy = finite(active_profile.get("profile_energy_kwh"))
         profile_ready = (
             active_profile.get("status") == "ready"

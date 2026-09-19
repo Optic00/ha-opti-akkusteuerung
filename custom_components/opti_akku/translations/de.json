@@ -477,7 +477,7 @@
       },
       "demand": {
         "title": "Bedarfsprofil und Peak-Reserve",
-        "description": "Die Nacht-/PV-Prognose bleibt beobachtend. Optional beeinflusst das Stundenprofil aktiv die Peak-Reserve: vergleichbare historische oder gelernte Stunden, 20 % Prognosepuffer, sonst eingestellter Ersatzverbrauch. Dies verändert die Akkusteuerung. Heizungs- und Warmwasserverbrauch ist bereits im Hausprofil enthalten; zukünftige Zyklen werden nicht zeitlich vorhergesagt. Bei unklarem Heizkontext oder erkennbarem, unbeziffertem Warmwasserbedarf bleibt der Ersatzverbrauch. Ein eigener Wärmepumpenzähler wird im aktiven Peak-Profil noch nicht unterstützt.",
+        "description": "Das Lernen und der Vergleich bleiben beobachtend. Optional verwendet die aktive Strategie das Stundenprofil für Peak-Reserve und Resttages-Score: vergleichbare historische oder gelernte Stunden, 20 % Prognosepuffer in der Peak-Reserve, sonst eingestellter Ersatzverbrauch beziehungsweise bisherige Resttages-Hochrechnung. Dies verändert die Akkusteuerung. Heizungs- und Warmwasserverbrauch ist bereits im Hausprofil enthalten; zukünftige Zyklen werden nicht zeitlich vorhergesagt. Bei unklarem Heizkontext oder erkennbarem, unbeziffertem Warmwasserbedarf bleibt der sichere Rückfall. Ein eigener Wärmepumpenzähler wird im aktiven Peak-Profil noch nicht unterstützt.",
         "data": {
           "enabled": "Bedarfsprofil lernen und Prognose beobachten",
           "heat_power": "Elektrische Gesamtleistung der Wärmepumpe, im Hausverbrauch enthalten",
@@ -495,7 +495,7 @@
           "context_water_target": "Warmwasser Soll (Kontext und Bedarfsprüfung)",
           "history_house": "Historischer Hausverbrauch (gleicher Messumfang)",
           "temperature_matching": "Ähnliche Außentemperaturen bevorzugen (experimentell)",
-          "use_for_peak_reserve": "Stundenprofil für aktive Peak-Reserve verwenden"
+          "use_for_peak_reserve": "Stundenprofil in der aktiven Strategie verwenden"
         }
       },
       "arbitrage": {
@@ -875,7 +875,7 @@
         }
       },
       "demand_forecast": {
-        "name": "Bedarfsprognose (Beobachtung)",
+        "name": "Bedarfsprognose",
         "state": {
           "disabled": "Aus",
           "learning": "Lernt Verbrauchsprofil",

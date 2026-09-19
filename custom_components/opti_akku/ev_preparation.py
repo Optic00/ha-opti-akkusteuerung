@@ -139,15 +139,16 @@ def command_signals(cfg, states, now, timezone=UTC):
     """
     soc, charging, away = signals(cfg, states, now)
     plan = deadline_plan(cfg, states, now, soc, timezone)
+    active_deadline = plan.get("deadline_status") in {"ready", "target_reached"}
     threshold = finite(
         cfg.get("vehicle_target_soc")
-        if plan.get("deadline_status") in {"ready", "target_reached"}
+        if active_deadline
         else cfg.get("vehicle_threshold", 40)
     )
     region = "invalid"
-    upper = 100 if cfg.get("departure") else 95
+    upper = 100 if active_deadline else 95
     if soc is not None and threshold is not None and 0 <= threshold <= upper:
-        satisfied = threshold if cfg.get("departure") else min(100, threshold + 5)
+        satisfied = threshold if active_deadline else min(100, threshold + 5)
         region = "need" if soc < threshold else "satisfied" if soc >= satisfied else "band"
     return (
         region,

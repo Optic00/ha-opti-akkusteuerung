@@ -376,6 +376,18 @@ def test_expired_absolute_deadline_falls_back_to_legacy_preparation():
     assert first["deadline_status"] == "deadline_passed"
     assert ready["ready"] is True
 
+    # Once the absolute departure is past, both policy and pre-write guard
+    # must keep the legacy demand latch until threshold + five points.
+    now = NOW + timedelta(seconds=61)
+    states["sensor.car"] = state(42, "%")
+    assert model.update(cfg, states, now, measurements, 95, True)["ready"] is True
+    pending_signals = command_signals(cfg, states, now)
+    states["sensor.car"] = state(43, "%")
+    assert command_signals(cfg, states, now) == pending_signals
+    states["sensor.car"] = state(45, "%")
+    assert command_signals(cfg, states, now) != pending_signals
+    assert model.update(cfg, states, now, measurements, 95, True)["status"] == "no_demand"
+
 
 def test_recurring_deadline_documents_dst_gap_and_first_fold():
     berlin = ZoneInfo("Europe/Berlin")

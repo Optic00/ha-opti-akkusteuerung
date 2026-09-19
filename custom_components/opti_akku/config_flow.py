@@ -596,9 +596,12 @@ class WizardSections:
         cfg = self._draft.get("ev_preparation", {})
         errors = {}
         if user_input is not None:
+            if user_input.get("enabled") is not True:
+                self._draft["ev_preparation"] = dict(user_input)
+                return await self.async_step_init()
             for key in ("vehicle_soc", "charging", "away", "departure"):
                 entity_id = user_input.get(key)
-                if user_input.get("enabled") and key in ("vehicle_soc", "charging") and not entity_id:
+                if key in ("vehicle_soc", "charging") and not entity_id:
                     errors[key] = "missing_or_stale"
                 if entity_id:
                     entity = er.async_get(self.hass).async_get(entity_id)

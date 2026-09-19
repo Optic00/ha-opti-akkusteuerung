@@ -153,6 +153,36 @@ def test_minsoc_precedes_price_and_forecast_rules():
     assert result.reason.startswith("MinSOC")
 
 
+@pytest.mark.parametrize("minimum", [0, 5, 10])
+@pytest.mark.parametrize("daylight", ["above_horizon", "below_horizon"])
+@pytest.mark.parametrize("as_text", [False, True])
+def test_minsoc_stops_discharge_at_the_exact_configured_floor(minimum, daylight, as_text):
+    engine = StrategyEngine()
+    states = measurements(**{
+        SOC: minimum + 1,
+        MODE: "Akku Dynamisch",
+        "input_number.minsoc": str(minimum) if as_text else minimum,
+        "sun.sun": daylight,
+    })
+    evaluate(engine, states=states)
+    states[SOC] = str(minimum) if as_text else minimum
+    result = evaluate(engine, states=states, now=NOW + dt.timedelta(seconds=30))
+    assert result.mode == "Akku nur Laden"
+    assert result.reason.startswith("MinSOC")
+    assert result.decision_id == "minimum_soc"
+    assert result.states["sensor.opti_strategie_vorschau"] == "Akku nur Laden"
+
+
+def test_minsoc_protection_releases_when_soc_recovers_above_floor():
+    engine = StrategyEngine()
+    states = measurements(**{SOC: 5, "input_number.minsoc": 5})
+    assert evaluate(engine, states=states).mode == "Akku nur Laden"
+    states[SOC] = 6
+    result = evaluate(engine, states=states, now=NOW + dt.timedelta(seconds=30))
+    assert result.mode == "Akku Dynamisch"
+    assert result.reason == "dyn bis Ziel (tag)"
+
+
 @pytest.mark.parametrize("temperature", [-10, -5, 50, 55])
 def test_temperature_cutoffs_survive_complete_pipeline(temperature):
     result = evaluate(states=measurements(**{TEMP: temperature}))

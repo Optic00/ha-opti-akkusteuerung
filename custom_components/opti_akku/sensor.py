@@ -185,7 +185,7 @@ class OptiAkkuReportSensor(OptiAkkuDiagnosticSensor):
 
 
 class OptiAkkuArbitrageSensor(OptiAkkuReportSensor):
-    """Price-dependent display value; never an input to the controller."""
+    """Price spread with optional residual-value hold details."""
 
     _attr_native_unit_of_measurement = "ct/kWh"
 

@@ -251,6 +251,71 @@ def _overall(blocks: dict[str, dict[str, Any]]) -> str:
     return "not_applicable"
 
 
+def _remaining_day_window(
+    model: DemandForecast,
+    issued_at: datetime,
+    data: dict[str, Any],
+    settings: dict[str, Any],
+    options: dict[str, Any],
+    ha_states: Any,
+    timezone: Any,
+    fingerprint: str,
+) -> tuple[dict[str, Any], _Window | None]:
+    """Return the same qualified online-profile window used by the active score."""
+    cfg = options.get("demand_forecast", {})
+    if not isinstance(cfg, dict) or cfg.get("enabled") is not True:
+        return {"status": "disabled", "reason": "demand_forecast_disabled"}, None
+    report = data.get("demand_forecast", {})
+    if not isinstance(report, dict) or report.get("status") not in (
+        "ready", "learning", "no_pv_timing"
+    ):
+        return _missing("demand_observation_unavailable"), None
+    issued_at = instant(issued_at)
+    states = data.get("states", {})
+    attributes = data.get("attributes", {})
+    today = issued_at.astimezone(timezone).date()
+    next_setting = _timestamp(attributes, "sun.sun", "next_setting")
+    if (
+        states.get("sun.sun") != "above_horizon"
+        or next_setting is None
+        or next_setting.astimezone(timezone).date() != today
+    ):
+        return {"status": "not_applicable", "reason": "outside_daylight"}, None
+    window = _window(
+        model,
+        issued_at,
+        next_setting,
+        issued_at,
+        report,
+        settings,
+        options,
+        ha_states,
+        timezone,
+        fingerprint,
+        _dhw_timing_unknown(report, options, ha_states, issued_at),
+    )
+    if window is None:
+        return _missing("profile_window_unavailable"), None
+    return {"status": window.status, "reason": window.reason, **window.report()}, window
+
+
+def remaining_day_profile(
+    model: DemandForecast,
+    issued_at: datetime,
+    data: dict[str, Any],
+    settings: dict[str, Any],
+    options: dict[str, Any],
+    ha_states: Any,
+    timezone: Any,
+    fingerprint: str,
+) -> dict[str, Any]:
+    """Expose a fail-closed rest-of-day load for the active forecast score."""
+    report, _window_value = _remaining_day_window(
+        model, issued_at, data, settings, options, ha_states, timezone, fingerprint
+    )
+    return report
+
+
 def build_strategy_comparison(
     model: DemandForecast,
     issued_at: datetime,
@@ -301,12 +366,16 @@ def build_strategy_comparison(
     next_rising = _timestamp(attributes, "sun.sun", "next_rising")
 
     blocks: dict[str, dict[str, Any]] = {}
-    if (states.get("sun.sun") != "above_horizon" or next_setting is None
-            or next_setting.astimezone(timezone).date() != today):
-        blocks["remaining_day"] = {"status": "not_applicable", "reason": "outside_daylight"}
+    remaining_report, window = _remaining_day_window(
+        model, issued_at, data, settings, options, ha_states, timezone, fingerprint
+    )
+    if window is None:
+        blocks["remaining_day"] = (
+            _missing("remaining_day_inputs")
+            if remaining_report.get("reason") == "profile_window_unavailable"
+            else remaining_report
+        )
     else:
-        window = _window(model, issued_at, next_setting, issued_at, report, settings,
-                         options, ha_states, timezone, fingerprint, dhw_timing_unknown)
         remaining = _value(states, "sensor.opti_forecast_remaining_today_kwh")
         effective = _value(states, "sensor.opti_forecast_effective_remaining_kwh")
         capacity = _value(states, "sensor.opti_battery_capacity_kwh")
@@ -336,7 +405,7 @@ def build_strategy_comparison(
                 "active_score": active,
                 "candidate_score": candidate,
                 "score_delta": candidate - active if candidate is not None and active is not None else None,
-                **window.report(),
+                **remaining_report,
             }
 
     tomorrow_start, tomorrow_end = _day_bounds(tomorrow, timezone)

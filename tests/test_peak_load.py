@@ -174,7 +174,7 @@ def test_real_peak_template_integrates_hourly_loads_not_single_average():
         "sun.sun": "below_horizon",
     }
     prices = [0] * 24
-    prices[6], prices[7] = 100, 90
+    prices[6], prices[7] = 50, 40
     attributes = {
         "sensor.opti_price_series": {"today": prices},
         "sun.sun": {"next_rising": (NOW + timedelta(hours=1)).isoformat()},

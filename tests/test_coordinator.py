@@ -810,6 +810,455 @@ async def test_arbitrage_sensor_is_display_only(coordinator, entry, hass):
     assert sensor.extra_state_attributes is None
 
 
+@pytest.mark.parametrize(
+    ("demand_status", "expected_profile_ready"),
+    [("learning", False), ("ready", True)],
+)
+async def test_arbitrage_receives_passive_terminal_value_context(
+    coordinator, entry, hass, demand_status, expected_profile_ready
+):
+    forecast_slots = [{
+        "start": "2026-09-18T08:00:00+00:00",
+        "end": "2026-09-18T08:30:00+00:00",
+        "load_w": 1000,
+        "pv_p10_w": 0,
+    }]
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            **entry.options,
+            "demand_forecast": {"enabled": True, "sources": {}},
+        },
+    )
+    with (
+        patch.object(
+            coordinator._demand_forecast,
+            "update",
+            return_value={
+                "status": demand_status,
+                "forecast_slots": forecast_slots,
+                "pv_cover_from": "2026-09-18T08:30:00+00:00",
+                "profile_ready": True,
+            },
+        ),
+        patch(
+            "custom_components.opti_akku.coordinator.build_arbitrage_estimate",
+            return_value={"status": "not_configured", "controls_battery": False},
+        ) as build,
+    ):
+        data = await coordinator._async_update_data()
+
+    context = build.call_args.kwargs["terminal_context"]
+    assert context["forecast_slots"] == forecast_slots
+    assert context["profile_ready"] is expected_profile_ready
+    assert context["battery_capacity_kwh"] == 12.8
+    assert context["current_soc"] == 60
+    assert data["arbitrage_estimate"]["controls_battery"] is False
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+async def test_arbitrage_observation_failure_cannot_fail_update(
+    coordinator, entry
+):
+    with patch(
+        "custom_components.opti_akku.coordinator.build_arbitrage_estimate",
+        side_effect=RuntimeError("display failed"),
+    ):
+        data = await coordinator._async_update_data()
+
+    assert data["arbitrage_estimate"] == {
+        "status": "error", "informational_only": True, "controls_battery": False
+    }
+    assert data["online"] is True
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+def active_hold_options():
+    return {
+        "enabled": True,
+        "hold_enabled": True,
+        "battery_price_eur": 5000,
+        "degradation_percent": 20,
+        "cycles": 5000,
+        "usable_capacity_kwh": 10,
+        "charge_efficiency_percent": 90,
+        "discharge_efficiency_percent": 90,
+        "margin_ct": 2,
+    }
+
+
+def active_hold_report(now):
+    return {
+        "status": "ready",
+        "hold_enabled": True,
+        "terminal_value_status": "ready",
+        "terminal_value_issued_at": now.isoformat(),
+        "terminal_value_current_soc": 60,
+        "terminal_value_battery_capacity_kwh": 12.8,
+        "terminal_value_minimum_soc": 10,
+        "terminal_value_maximum_soc": 95,
+        "terminal_value_current_marginal_ct_kwh": 30,
+        "throughput_cost_ct_kwh": 1,
+        "battery_price_eur": 5000,
+        "degradation_percent": 20,
+        "cycles": 5000,
+        "usable_capacity_kwh": 10,
+        "charge_efficiency": 0.9,
+        "discharge_efficiency": 0.9,
+        "margin_ct": 2,
+    }
+
+
+def active_hold_evaluation(price=10):
+    from custom_components.opti_akku.engine import Evaluation
+
+    return Evaluation(
+        {
+            "sensor.opti_soc": 60,
+            "sensor.opti_house_consumption_w": 800,
+            "sensor.opti_battery_capacity_kwh": 12.8,
+            "sensor.opti_battery_power_w": 0,
+            "sensor.opti_battery_temp": 22,
+            "sensor.opti_charge_power_w": 2000,
+            "sensor.opti_price_current_ct_kwh": price,
+            "input_number.minsoc": 10,
+            "input_number.maxsoc": 95,
+        },
+        {},
+        "Akku nur Entladen",
+        "Peak-Leiter L2",
+        {},
+        decision_id="peak_l2",
+    )
+
+
+async def test_active_hold_never_inherits_force_charge_or_discharge_minima(
+    coordinator, hass
+):
+    hass.config_entries.async_update_entry(
+        coordinator.entry,
+        data={**coordinator.entry.data, "backend": "sma_modbus"},
+    )
+    hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "arbitrage_estimate": active_hold_options(),
+            "demand_forecast": {"enabled": True, "sources": {}},
+        },
+    )
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.akkusteuerung_min_ladestaerke"] = 500
+    coordinator.settings["input_number.akkusteuerung_min_entladestaerke"] = 500
+    coordinator.write_enabled = True
+    coordinator.async_set_updated_data(
+        {
+            "arbitrage_estimate": active_hold_report(dt_util.utcnow()),
+            "engine_requested_mode": "Akku nur Entladen",
+        }
+    )
+    with patch.object(
+        coordinator.engine, "evaluate", return_value=active_hold_evaluation()
+    ):
+        data = await coordinator._async_update_data()
+
+    assert data["mode"] == "Akku nur Laden"
+    assert data["arbitrage_estimate"]["hold_status"] == "holding"
+    params = coordinator.device.async_apply.await_args.args[1]
+    assert params["min_charge_w"] == 0
+    assert params["min_discharge_w"] == 0
+
+
+async def test_safety_pause_reports_priority_over_active_hold(coordinator, hass):
+    hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "arbitrage_estimate": active_hold_options(),
+            "demand_forecast": {"enabled": True, "sources": {}},
+        },
+    )
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.write_enabled = True
+    report = active_hold_report(dt_util.utcnow())
+    coordinator.async_set_updated_data(
+        {"arbitrage_estimate": report}
+    )
+    evaluation = active_hold_evaluation()
+    evaluation.states["sensor.opti_battery_temp"] = 60
+
+    with patch.object(coordinator.engine, "evaluate", return_value=evaluation):
+        data = await coordinator._async_update_data()
+
+    assert data["decision_id"] == "arbitrage_hold"
+    assert data["mode"] == "Akku Pause"
+    assert data["arbitrage_estimate"]["hold_status"] == "higher_priority"
+    assert data["arbitrage_estimate"]["hold_would_control_battery"] is True
+    assert data["arbitrage_estimate"]["hold_controls_battery"] is False
+    assert data["arbitrage_estimate"]["controls_battery"] is False
+    coordinator.device.async_apply.assert_awaited_once()
+    assert coordinator.device.async_apply.await_args.args[0] == "Akku Pause"
+
+    coordinator.async_set_updated_data(
+        {
+            **data,
+            "arbitrage_estimate": {
+                **report,
+                "hold_status": data["arbitrage_estimate"]["hold_status"],
+            },
+        }
+    )
+    coordinator.device.async_apply.reset_mock()
+    with patch.object(
+        coordinator.engine,
+        "evaluate",
+        return_value=active_hold_evaluation(price=29),
+    ):
+        resumed = await coordinator._async_update_data()
+
+    assert resumed["mode"] == "Akku nur Entladen"
+    assert resumed["arbitrage_estimate"]["hold_status"] == "release"
+    assert resumed["arbitrage_estimate"]["hold_would_control_battery"] is False
+    coordinator.device.async_apply.assert_awaited_once()
+    assert coordinator.device.async_apply.await_args.args[0] == "Akku nur Entladen"
+
+
+async def test_active_hold_failure_retains_engine_decision(coordinator, hass):
+    hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "arbitrage_estimate": active_hold_options(),
+            "demand_forecast": {"enabled": True, "sources": {}},
+        },
+    )
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    with (
+        patch.object(
+            coordinator.engine, "evaluate", return_value=active_hold_evaluation()
+        ),
+        patch(
+            "custom_components.opti_akku.coordinator.apply_discharge_hold",
+            side_effect=RuntimeError("synthetic"),
+        ),
+    ):
+        data = await coordinator._async_update_data()
+
+    assert data["mode"] == "Akku nur Entladen"
+    assert data["arbitrage_estimate"]["hold_status"] == "error"
+
+
+@pytest.mark.parametrize(
+    ("previous_decision", "previous_mode", "expected_previous_mode"),
+    [
+        ("arbitrage_hold", "Akku nur Laden", "Akku nur Entladen"),
+        ("arbitrage_hold", "Akku Pause", "Akku Pause"),
+        ("ev_prepare", "Akku nur Laden", "Akku nur Laden"),
+    ],
+)
+async def test_only_active_hold_hides_policy_mode_from_engine_feedback(
+    coordinator, previous_decision, previous_mode, expected_previous_mode
+):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.async_set_updated_data(
+        {
+            "mode": previous_mode,
+            "decision_id": previous_decision,
+            "engine_base_mode": "Akku nur Entladen",
+        }
+    )
+    with patch.object(
+        coordinator.engine,
+        "evaluate",
+        return_value=active_hold_evaluation(price=40),
+    ) as evaluate:
+        await coordinator._async_update_data()
+
+    assert (
+        evaluate.call_args.args[0]["input_select.akkusteuerung_modus"]
+        == expected_previous_mode
+    )
+
+
+async def test_active_hold_is_blocked_for_huawei_backend(coordinator, hass):
+    hass.config_entries.async_update_entry(
+        coordinator.entry,
+        data={**coordinator.entry.data, "backend": "huawei_solar"},
+    )
+    hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "arbitrage_estimate": active_hold_options(),
+            "demand_forecast": {"enabled": True, "sources": {}},
+        },
+    )
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.async_set_updated_data(
+        {
+            "arbitrage_estimate": active_hold_report(dt_util.utcnow()),
+            "mode": "Akku nur Entladen",
+            "decision_id": "peak_l2",
+        }
+    )
+    with (
+        patch.object(
+            coordinator.engine,
+            "evaluate",
+            return_value=active_hold_evaluation(),
+        ),
+        patch(
+            "custom_components.opti_akku.coordinator.apply_discharge_hold"
+        ) as apply_hold,
+        patch.object(
+            coordinator,
+            "_safe_mode",
+            side_effect=lambda requested, _states: (requested, None),
+        ),
+    ):
+        data = await coordinator._async_update_data()
+
+    apply_hold.assert_not_called()
+    assert data["mode"] == "Akku nur Entladen"
+    assert data["arbitrage_estimate"]["hold_status"] == "backend_not_supported"
+    assert data["arbitrage_estimate"]["hold_controls_battery"] is False
+    assert data["arbitrage_estimate"]["controls_battery"] is False
+
+
+async def test_ev_preparation_reports_priority_over_active_hold(coordinator, hass):
+    hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "arbitrage_estimate": active_hold_options(),
+            "demand_forecast": {"enabled": True, "sources": {}},
+            "ev_preparation": {
+                "enabled": True,
+                "vehicle_soc": "sensor.car",
+                "charging": "binary_sensor.car_charging",
+            },
+        },
+    )
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.async_set_updated_data(
+        {"arbitrage_estimate": active_hold_report(dt_util.utcnow())}
+    )
+    hass.states.async_set("sensor.car", "20", {"unit_of_measurement": "%"})
+    hass.states.async_set("binary_sensor.car_charging", "off")
+    with (
+        patch.object(
+            coordinator.engine,
+            "evaluate",
+            return_value=active_hold_evaluation(),
+        ),
+        patch.object(
+            coordinator._ev_preparation,
+            "update",
+            return_value={
+                "status": "ready",
+                "ready": True,
+                "target_soc": 80,
+                "surplus_before_battery_w": 700,
+            },
+        ),
+    ):
+        data = await coordinator._async_update_data()
+
+    assert data["decision_id"] == "ev_preparation"
+    assert data["engine_requested_mode"] == "Akku nur Laden"
+    assert data["engine_base_mode"] == "Akku nur Entladen"
+    assert data["arbitrage_estimate"]["hold_status"] == "higher_priority"
+    assert data["arbitrage_estimate"]["hold_controls_battery"] is False
+
+
+async def test_active_hold_write_guard_detects_entity_price_change(
+    coordinator, hass
+):
+    hass.states.async_set(
+        "sensor.hold_price", "0.10", {"unit_of_measurement": "EUR/kWh"}
+    )
+    hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "price_unit": "EUR/kWh",
+            "sources": {"price_current": "sensor.hold_price"},
+            "arbitrage_estimate": active_hold_options(),
+            "demand_forecast": {"enabled": True, "sources": {}},
+        },
+    )
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.write_enabled = True
+    coordinator.async_set_updated_data(
+        {
+            "arbitrage_estimate": active_hold_report(dt_util.utcnow()),
+            "engine_requested_mode": "Akku nur Entladen",
+        }
+    )
+    checked = []
+
+    async def apply(_mode, _params, current):
+        assert current()
+        hass.states.async_set(
+            "sensor.hold_price", "0.40", {"unit_of_measurement": "EUR/kWh"}
+        )
+        checked.append(current())
+
+    coordinator.device.async_apply.side_effect = apply
+    with patch.object(
+        coordinator.engine, "evaluate", return_value=active_hold_evaluation()
+    ):
+        await coordinator._async_update_data()
+
+    assert checked == [False]
+
+
+async def test_active_hold_write_guard_also_invalidates_released_discharge(
+    coordinator, hass
+):
+    hass.states.async_set(
+        "sensor.hold_price", "0.40", {"unit_of_measurement": "EUR/kWh"}
+    )
+    hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "price_unit": "EUR/kWh",
+            "sources": {"price_current": "sensor.hold_price"},
+            "arbitrage_estimate": active_hold_options(),
+            "demand_forecast": {"enabled": True, "sources": {}},
+        },
+    )
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.write_enabled = True
+    coordinator.async_set_updated_data(
+        {
+            "arbitrage_estimate": active_hold_report(dt_util.utcnow()),
+            "engine_requested_mode": "Akku nur Entladen",
+        }
+    )
+    checked = []
+
+    async def apply(_mode, _params, current):
+        assert current()
+        hass.states.async_set(
+            "sensor.hold_price", "0.10", {"unit_of_measurement": "EUR/kWh"}
+        )
+        checked.append(current())
+
+    coordinator.device.async_apply.side_effect = apply
+    with patch.object(
+        coordinator.engine,
+        "evaluate",
+        return_value=active_hold_evaluation(price=40),
+    ):
+        data = await coordinator._async_update_data()
+
+    assert data["mode"] == "Akku nur Entladen"
+    assert data["arbitrage_estimate"]["hold_status"] == "release"
+    assert checked == [False]
+
+
 async def test_backward_clock_keeps_coordinator_safety_evaluation(coordinator, hass):
     hass.config_entries.async_update_entry(coordinator.entry, options={**coordinator.entry.options,
         "plant_mode": "balance", "plant_meter_confirmed": True, "forecast_min_load_w": 0})
@@ -1044,6 +1493,112 @@ async def test_active_profile_comparison_requires_enabled_demand(coordinator):
         "observation_only": True,
         "blocks": {},
     }
+    assert data["states"]["sensor.opti_forecast_remaining_load_profile_kwh"] == "unavailable"
+    assert data["attributes"]["sensor.opti_forecast_remaining_load_profile_kwh"] == {
+        "status": "disabled",
+        "reason": "active_profile_disabled",
+    }
+
+
+@pytest.mark.parametrize(
+    ("profile", "expected_state"),
+    [
+        (
+            {
+                "status": "ready",
+                "reason": "complete_online_profile",
+                "profile_energy_kwh": 3.25,
+                "window_hours": 5,
+            },
+            3.25,
+        ),
+        (
+            {
+                "status": "learning",
+                "reason": "recent_profile_warming_up",
+                "profile_energy_kwh": 3.25,
+            },
+            "unavailable",
+        ),
+    ],
+)
+async def test_only_ready_remaining_day_profile_reaches_engine(
+    coordinator, profile, expected_state
+):
+    coordinator.hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "demand_forecast": {"enabled": True, "use_for_peak_reserve": True},
+        },
+    )
+    demand_report = {
+        "status": "ready",
+        "observation_only": True,
+        "context": "unknown",
+        "recent_coverage_seconds": 1800,
+    }
+    original = coordinator.engine.evaluate
+    evaluated_states = []
+
+    def capture(states, attributes, now):
+        evaluated_states.append((deepcopy(states), deepcopy(attributes)))
+        return original(states, attributes, now)
+
+    with (
+        patch.object(coordinator._demand_forecast, "update", return_value=demand_report),
+        patch(
+            "custom_components.opti_akku.coordinator.remaining_day_profile",
+            return_value=profile,
+        ),
+        patch.object(coordinator.engine, "evaluate", side_effect=capture),
+    ):
+        result = await coordinator._async_update_data()
+
+    assert evaluated_states[0][0]["sensor.opti_forecast_remaining_load_profile_kwh"] == expected_state
+    assert evaluated_states[0][1]["sensor.opti_forecast_remaining_load_profile_kwh"] == profile
+    assert result["states"]["sensor.opti_forecast_remaining_load_profile_kwh"] == str(expected_state)
+
+
+async def test_active_profile_failure_falls_back_without_blocking_write(coordinator):
+    coordinator.hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "demand_forecast": {"enabled": True, "use_for_peak_reserve": True},
+        },
+    )
+    coordinator.write_enabled = True
+    with patch(
+        "custom_components.opti_akku.coordinator.remaining_day_profile",
+        side_effect=ValueError("broken profile"),
+    ):
+        result = await coordinator._async_update_data()
+    assert result["states"]["sensor.opti_forecast_remaining_load_profile_kwh"] == "unavailable"
+    assert result["attributes"]["sensor.opti_forecast_remaining_load_profile_kwh"] == {
+        "status": "error",
+        "reason": "profile_error",
+    }
+    coordinator.device.async_apply.assert_awaited_once()
+
+
+async def test_malformed_demand_sources_fail_back_without_blocking_update(coordinator):
+    coordinator.hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={
+            **coordinator.entry.options,
+            "demand_forecast": {
+                "enabled": True,
+                "use_for_peak_reserve": True,
+                "sources": ["invalid"],
+            },
+        },
+    )
+
+    result = await coordinator._async_update_data()
+
+    assert result["states"]["sensor.opti_forecast_remaining_load_profile_kwh"] == "unavailable"
+    assert result["demand_forecast"]["status"] == "error"
 
 
 @pytest.mark.parametrize("shadow_mode", [False, True])

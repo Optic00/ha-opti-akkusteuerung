@@ -1,10 +1,17 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from copy import deepcopy
+from zoneinfo import ZoneInfo
 
 import pytest
 
-from custom_components.opti_akku.ev_preparation import EVPreparation, apply_preparation, signals
+from custom_components.opti_akku.ev_preparation import (
+    EVPreparation,
+    apply_preparation,
+    command_signals,
+    deadline_plan,
+    signals,
+)
 from custom_components.opti_akku.engine import Evaluation
 
 NOW = datetime(2026, 9, 15, 9, tzinfo=UTC)
@@ -242,3 +249,173 @@ def test_vehicle_charging_retains_explicit_price_charging_priority(decision_id):
     result, report = apply_preparation(e, {"charging_guard": True})
     assert result is e
     assert report["controls_battery"] is False
+
+
+def test_vehicle_charging_overrides_residual_value_hold():
+    held = evaluation(
+        "Akku nur Laden", "Restwert halten", decision_id="arbitrage_hold"
+    )
+    result, report = apply_preparation(held, {"charging_guard": True})
+    assert result.mode == "Akku Pause"
+    assert result.decision_id == "ev_priority"
+    assert report["controls_battery"] is True
+
+
+def test_deadline_plan_reports_energy_latest_start_and_feasibility():
+    cfg = {
+        **CFG,
+        "departure": "input_datetime.departure",
+        "vehicle_target_soc": 80,
+        "vehicle_capacity_kwh": 60,
+        "charge_power_kw": 11,
+        "vehicle_charge_efficiency_percent": 90,
+    }
+    states, _ = fixture()
+    states["input_datetime.departure"] = state(
+        (NOW + timedelta(hours=4)).isoformat()
+    )
+    plan = deadline_plan(cfg, states, NOW, 20)
+    assert plan["deadline_status"] == "ready"
+    assert plan["vehicle_required_energy_kwh"] == 36
+    assert plan["vehicle_required_ac_energy_kwh"] == 40
+    assert plan["vehicle_charge_hours"] == pytest.approx(3.64, abs=0.01)
+    assert plan["vehicle_required_average_kw"] == 10
+    assert plan["vehicle_deadline_feasible"] is True
+    assert plan["deadline_urgent"] is False
+
+
+def test_deadline_target_drives_preparation_above_legacy_threshold():
+    cfg = {
+        **CFG,
+        "departure": "input_datetime.departure",
+        "vehicle_target_soc": 80,
+        "vehicle_capacity_kwh": 60,
+        "charge_power_kw": 11,
+        "vehicle_charge_efficiency_percent": 90,
+    }
+    states, measurements = fixture()
+    states["sensor.car"] = state(60, "%")
+    states["input_datetime.departure"] = state(
+        (NOW + timedelta(hours=8)).isoformat()
+    )
+    model = EVPreparation()
+    first = model.update(cfg, states, NOW, measurements, 95, True)
+    ready = model.update(
+        cfg, states, NOW + timedelta(seconds=60), measurements, 95, True
+    )
+    assert first["deadline_status"] == "ready"
+    assert ready["ready"] is True
+    assert ready["vehicle_required_energy_kwh"] == 12
+
+
+def test_deadline_configuration_fails_closed_when_source_or_values_are_missing():
+    states, measurements = fixture()
+    cfg = {**CFG, "departure": "input_datetime.departure", "vehicle_target_soc": 80}
+    report = EVPreparation().update(cfg, states, NOW, measurements, 95, True)
+    assert report["status"] == "data_missing"
+    assert report["ready"] is False
+
+
+def test_recurring_deadline_and_write_guard_cross_latest_start():
+    cfg = {
+        **CFG,
+        "departure": "input_datetime.departure",
+        "vehicle_target_soc": 80,
+        "vehicle_capacity_kwh": 60,
+        "charge_power_kw": 10,
+        "vehicle_charge_efficiency_percent": 90,
+    }
+    states, _ = fixture()
+    states["sensor.car"] = state(70, "%")
+    states["input_datetime.departure"] = state("11:00:00")
+    before = command_signals(cfg, states, NOW)
+    after = command_signals(cfg, states, NOW + timedelta(hours=1, minutes=30))
+    assert before[3] == after[3] == "ready"
+    assert before[4] is False
+    assert after[4] is True
+    tomorrow = deadline_plan(cfg, states, NOW + timedelta(hours=3), 70)
+    assert datetime.fromisoformat(tomorrow["departure_at"]).date() == (
+        NOW + timedelta(days=1)
+    ).date()
+
+
+def test_naive_local_datetime_uses_configured_timezone():
+    cfg = {
+        **CFG,
+        "departure": "input_datetime.departure",
+        "vehicle_target_soc": 80,
+        "vehicle_capacity_kwh": 60,
+        "charge_power_kw": 11,
+        "vehicle_charge_efficiency_percent": 90,
+    }
+    states, _ = fixture()
+    states["input_datetime.departure"] = state("2026-09-15 12:00:00")
+    plan = deadline_plan(cfg, states, NOW, 20, ZoneInfo("Europe/Berlin"))
+    assert plan["deadline_time_resolution"] == "local_datetime"
+    assert datetime.fromisoformat(plan["departure_at"]).hour == 10
+
+
+def test_expired_absolute_deadline_falls_back_to_legacy_preparation():
+    cfg = {
+        **CFG,
+        "departure": "input_datetime.departure",
+        "vehicle_target_soc": 80,
+        "vehicle_capacity_kwh": 60,
+        "charge_power_kw": 11,
+        "vehicle_charge_efficiency_percent": 90,
+    }
+    states, measurements = fixture()
+    states["input_datetime.departure"] = state(
+        (NOW - timedelta(hours=1)).isoformat()
+    )
+    model = EVPreparation()
+    first = model.update(cfg, states, NOW, measurements, 95, True)
+    ready = model.update(
+        cfg, states, NOW + timedelta(seconds=60), measurements, 95, True
+    )
+    assert first["deadline_status"] == "deadline_passed"
+    assert ready["ready"] is True
+
+    # Once the absolute departure is past, both policy and pre-write guard
+    # must keep the legacy demand latch until threshold + five points.
+    now = NOW + timedelta(seconds=61)
+    states["sensor.car"] = state(42, "%")
+    assert model.update(cfg, states, now, measurements, 95, True)["ready"] is True
+    pending_signals = command_signals(cfg, states, now)
+    states["sensor.car"] = state(43, "%")
+    assert command_signals(cfg, states, now) == pending_signals
+    states["sensor.car"] = state(45, "%")
+    assert command_signals(cfg, states, now) != pending_signals
+    assert model.update(cfg, states, now, measurements, 95, True)["status"] == "no_demand"
+
+
+def test_recurring_deadline_documents_dst_gap_and_first_fold():
+    berlin = ZoneInfo("Europe/Berlin")
+    cfg = {
+        **CFG,
+        "departure": "input_datetime.departure",
+        "vehicle_target_soc": 80,
+        "vehicle_capacity_kwh": 60,
+        "charge_power_kw": 11,
+        "vehicle_charge_efficiency_percent": 90,
+    }
+    states, _ = fixture()
+    states["input_datetime.departure"] = state("02:30:00")
+    spring = deadline_plan(
+        cfg,
+        states,
+        datetime(2026, 3, 29, 0, 0, tzinfo=UTC),
+        20,
+        berlin,
+    )
+    assert spring["deadline_time_resolution"] == "recurring_shifted_forward_dst_gap"
+    assert datetime.fromisoformat(spring["departure_at"]).astimezone(berlin).hour == 3
+    autumn = deadline_plan(
+        cfg,
+        states,
+        datetime(2026, 10, 25, 0, 0, tzinfo=UTC),
+        20,
+        berlin,
+    )
+    assert autumn["deadline_time_resolution"] == "recurring_first_occurrence"
+    assert datetime.fromisoformat(autumn["departure_at"]).astimezone(berlin).fold == 0

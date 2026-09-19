@@ -153,6 +153,36 @@ def test_minsoc_precedes_price_and_forecast_rules():
     assert result.reason.startswith("MinSOC")
 
 
+@pytest.mark.parametrize("minimum", [0, 5, 10])
+@pytest.mark.parametrize("daylight", ["above_horizon", "below_horizon"])
+@pytest.mark.parametrize("as_text", [False, True])
+def test_minsoc_stops_discharge_at_the_exact_configured_floor(minimum, daylight, as_text):
+    engine = StrategyEngine()
+    states = measurements(**{
+        SOC: minimum + 1,
+        MODE: "Akku Dynamisch",
+        "input_number.minsoc": str(minimum) if as_text else minimum,
+        "sun.sun": daylight,
+    })
+    evaluate(engine, states=states)
+    states[SOC] = str(minimum) if as_text else minimum
+    result = evaluate(engine, states=states, now=NOW + dt.timedelta(seconds=30))
+    assert result.mode == "Akku nur Laden"
+    assert result.reason.startswith("MinSOC")
+    assert result.decision_id == "minimum_soc"
+    assert result.states["sensor.opti_strategie_vorschau"] == "Akku nur Laden"
+
+
+def test_minsoc_protection_releases_when_soc_recovers_above_floor():
+    engine = StrategyEngine()
+    states = measurements(**{SOC: 5, "input_number.minsoc": 5})
+    assert evaluate(engine, states=states).mode == "Akku nur Laden"
+    states[SOC] = 6
+    result = evaluate(engine, states=states, now=NOW + dt.timedelta(seconds=30))
+    assert result.mode == "Akku Dynamisch"
+    assert result.reason == "dyn bis Ziel (tag)"
+
+
 @pytest.mark.parametrize("temperature", [-10, -5, 50, 55])
 def test_temperature_cutoffs_survive_complete_pipeline(temperature):
     result = evaluate(states=measurements(**{TEMP: temperature}))
@@ -205,6 +235,37 @@ def test_target_missing_forecast_preserves_hysteresis_memory():
     assert missing.attributes[TARGET]["level"] == 2
     states["sensor.opti_forecast_remaining_today_kwh"] = 8.5
     assert float(evaluate(engine, states, now=NOW + dt.timedelta(minutes=1)).states[TARGET]) == 80
+
+
+def test_ready_remaining_day_profile_prevents_short_load_from_becoming_all_day_load():
+    states = measurements(**{
+        SOC: 50,
+        "sensor.opti_forecast_remaining_today_kwh": 10,
+        "sensor.opti_house_consumption_w": 3200,
+        "sensor.opti_house_consumption_60min_w": 1800,
+        "sensor.opti_forecast_remaining_load_profile_kwh": 3,
+    })
+    profiled = evaluate(states=states)
+    assert profiled.states["sensor.opti_forecast_score"] == "10"
+    assert profiled.attributes["sensor.opti_forecast_score"]["projected_load_kwh"] == 3
+    assert profiled.attributes["sensor.opti_forecast_score"]["load_source"] == "online_profile"
+
+    states["sensor.opti_forecast_remaining_load_profile_kwh"] = "unavailable"
+    legacy = evaluate(states=states)
+    assert legacy.states["sensor.opti_forecast_score"] == "0"
+    assert legacy.attributes["sensor.opti_forecast_score"]["load_source"] == "legacy_60min_extrapolation"
+
+
+def test_persistent_extra_base_load_is_included_by_profile_input():
+    states = measurements(**{
+        SOC: 50,
+        "sensor.opti_forecast_remaining_today_kwh": 10,
+        "sensor.opti_house_consumption_60min_w": 1800,
+        "sensor.opti_forecast_remaining_load_profile_kwh": 7,
+    })
+    result = evaluate(states=states)
+    assert result.states["sensor.opti_forecast_score"] == "6"
+    assert result.attributes["sensor.opti_forecast_score"]["pv_surplus_kwh"] == 3
 
 
 def test_maxsoc_latch_requires_real_entry_and_preserves_sensor_gap():
@@ -898,3 +959,71 @@ def test_template_runtime_helpers_fail_closed_on_malformed_resources():
                 }
             ]
         )
+
+
+def test_extreme_reserve_full_pipeline_holds_before_peak_and_releases_during_it():
+    now = NOW.replace(hour=18)
+    states = measurements(**{
+        SOC: 15,
+        "input_number.minsoc": 5,
+        "input_number.opti_peak_verbrauch_kw": 0.9,
+        "input_boolean.opti_prognose_netzladen": "off",
+        "sensor.opti_price_current_ct_kwh": 50,
+        "sensor.opti_forecast_today_kwh": 0,
+        "sensor.opti_forecast_tomorrow_kwh": 0,
+        "sensor.opti_forecast_remaining_today_kwh": 0,
+        "sun.sun": "below_horizon",
+    })
+    attrs = solar_attrs(now)
+    prices = [10] * 24
+    prices[18:20] = [50, 100]
+    attrs["sensor.opti_price_series"] = {"today": prices, "tomorrow": [10] * 24}
+    engine = StrategyEngine()
+    before = evaluate(engine, states, attrs, now)
+    assert before.states["sensor.opti_price_level"] == "VERY_EXPENSIVE"
+    assert before.decision_id == "extreme_peak_hold"
+    assert before.mode == "Akku nur Laden"
+    assert before.attributes["sensor.opti_peak_reserve_soc"]["extreme_buffer_kwh"] == pytest.approx(0.25)
+
+    states["sensor.opti_price_current_ct_kwh"] = 100
+    during = evaluate(engine, states, attrs, now + dt.timedelta(hours=1))
+    assert during.decision_id == "peak_l1"
+    assert during.mode == "Akku nur Entladen"
+    states["sensor.opti_price_current_ct_kwh"] = 10
+    after = evaluate(engine, states, attrs, now + dt.timedelta(hours=2))
+    assert after.states["binary_sensor.opti_extreme_price_hold"] == "off"
+    assert after.attributes["sensor.opti_peak_reserve_soc"]["extreme_buffer_kwh"] == 0
+    for result in (before, during, after):
+        assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+        assert result.mode == result.states["sensor.opti_strategie_vorschau"]
+        assert result.mode != "Akku Netzladen"
+
+
+@pytest.mark.parametrize("price, grid_enabled, soc, charging", [
+    (60, True, 13, False),
+    (100, True, 13, True),
+    (100, False, 13, False),
+    (100, True, 15, False),
+])
+def test_extreme_buffer_can_extend_only_authorized_peak_precharge(price, grid_enabled, soc, charging):
+    now = NOW.replace(hour=17)
+    states = measurements(**{
+        SOC: soc,
+        "input_number.minsoc": 5,
+        "input_number.opti_peak_verbrauch_kw": 0.9,
+        "input_boolean.opti_prognose_netzladen": "on" if grid_enabled else "off",
+        "sensor.opti_price_current_ct_kwh": 10,
+        "sensor.opti_forecast_today_kwh": 0,
+        "sensor.opti_forecast_tomorrow_kwh": 0,
+        "sensor.opti_forecast_remaining_today_kwh": 0,
+        "sun.sun": "below_horizon",
+    })
+    attrs = solar_attrs(now)
+    prices = [10] * 24
+    prices[19] = price
+    attrs["sensor.opti_price_series"] = {"today": prices, "tomorrow": [10] * 24}
+    result = evaluate(states=states, attributes=attrs, now=now)
+    assert float(result.states["sensor.opti_peak_reserve_soc"]) == (15 if price == 60 else 17.5)
+    assert (result.decision_id == "peak_precharge") is charging
+    assert (result.mode == "Akku Netzladen") is charging
+    assert result.states["sensor.opti_engine_diagnostics"] == "ok"

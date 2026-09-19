@@ -908,6 +908,7 @@ async def test_arbitrage_estimate_requires_explicit_assumptions_and_stays_option
     assert enabled.default() is True
     configured = {
         "enabled": True,
+        "hold_enabled": False,
         "battery_price_eur": 5000,
         "degradation_percent": 20,
         "cycles": 5000,
@@ -939,6 +940,61 @@ async def test_arbitrage_estimate_requires_explicit_assumptions_and_stays_option
     result = await hass.config_entries.options.async_configure(result["flow_id"], {})
     assert result["type"] == "create_entry"
     assert "arbitrage_estimate" not in entry.options
+
+
+async def test_active_arbitrage_hold_requires_demand_forecast_and_is_saved(hass):
+    assumptions = {
+        "enabled": True,
+        "hold_enabled": True,
+        "battery_price_eur": 5000,
+        "degradation_percent": 20,
+        "cycles": 5000,
+        "usable_capacity_kwh": 10,
+        "charge_efficiency_percent": 90,
+        "discharge_efficiency_percent": 90,
+        "margin_ct": 2,
+    }
+    entry = MockConfigEntry(
+        domain="opti_akku",
+        title="Test",
+        data={"host": "127.0.0.1", "port": 502, "unit_id": 3},
+        options={"single_inverter": True, "sources": {}},
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "arbitrage"}
+    )
+    blocked = await hass.config_entries.options.async_configure(
+        result["flow_id"], assumptions
+    )
+    assert blocked["errors"]["base"] == "arbitrage_hold_requires_demand"
+
+    entry = MockConfigEntry(
+        domain="opti_akku",
+        title="Test with demand",
+        data={"host": "127.0.0.2", "port": 502, "unit_id": 3},
+        options={
+            "single_inverter": True,
+            "sources": {},
+            "demand_forecast": {"enabled": True, "sources": {}},
+        },
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "arbitrage"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], assumptions
+    )
+    assert result["type"] == "menu"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "finish"}
+    )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["type"] == "create_entry"
+    assert entry.options["arbitrage_estimate"] == assumptions
 
 
 async def test_observation_options_never_replace_controller_sources(hass):
@@ -1005,6 +1061,146 @@ async def test_ev_preparation_is_opt_in_and_needs_soc_and_charging(hass):
     assert result['type']=='create_entry'
     assert entry.options['ev_preparation']['enabled'] is True
     assert entry.options['sources']=={}
+
+
+@pytest.mark.parametrize(
+    ("value", "attributes"),
+    [
+        ("not-a-time", {"has_time": True}),
+        ("2026-09-19", {"has_time": False}),
+    ],
+)
+async def test_ev_departure_must_be_a_usable_time_source(hass, value, attributes):
+    entry = MockConfigEntry(
+        domain="opti_akku",
+        title="Test",
+        data={"host": "127.0.0.1", "port": 502, "unit_id": 3},
+        options={"sources": {}},
+    )
+    entry.add_to_hass(hass)
+    hass.states.async_set("sensor.car", "20", {"unit_of_measurement": "%"})
+    hass.states.async_set("binary_sensor.charging", "off")
+    hass.states.async_set("input_datetime.departure", value, attributes)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "ev_preparation"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "enabled": True,
+            "vehicle_soc": "sensor.car",
+            "charging": "binary_sensor.charging",
+            "departure": "input_datetime.departure",
+            "vehicle_threshold": 40,
+            "house_target": 80,
+            "vehicle_target_soc": 80,
+            "vehicle_capacity_kwh": 60,
+            "charge_power_kw": 11,
+            "vehicle_charge_efficiency_percent": 90,
+        },
+    )
+    assert result["errors"]["departure"] == "ev_deadline_value"
+
+
+async def test_ev_departure_requires_explicit_capacity_power_and_efficiency(hass):
+    entry = MockConfigEntry(
+        domain="opti_akku",
+        title="Test",
+        data={"host": "127.0.0.1", "port": 502, "unit_id": 3},
+        options={"sources": {}},
+    )
+    entry.add_to_hass(hass)
+    hass.states.async_set("sensor.car", "20", {"unit_of_measurement": "%"})
+    hass.states.async_set("binary_sensor.charging", "off")
+    hass.states.async_set(
+        "input_datetime.departure",
+        (dt_util.utcnow() + timedelta(hours=4)).isoformat(),
+        {"has_time": True},
+    )
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "ev_preparation"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "enabled": True,
+            "vehicle_soc": "sensor.car",
+            "charging": "binary_sensor.charging",
+            "departure": "input_datetime.departure",
+            "vehicle_threshold": 40,
+            "house_target": 80,
+            "vehicle_target_soc": 80,
+        },
+    )
+    assert result["errors"] == {
+        "vehicle_capacity_kwh": "ev_deadline_value",
+        "charge_power_kw": "ev_deadline_value",
+        "vehicle_charge_efficiency_percent": "ev_deadline_value",
+    }
+
+
+@pytest.mark.parametrize(
+    ("missing_source", "expected_error"),
+    [("departure", "ev_deadline_value"), ("vehicle_soc", "missing_or_stale")],
+)
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_ev_preparation_can_be_disabled_with_unavailable_sources(
+    hass, missing_source, expected_error, enabled
+):
+    ev_options = {
+        "enabled": True,
+        "vehicle_soc": "sensor.car",
+        "charging": "binary_sensor.charging",
+        "departure": "input_datetime.departure",
+        "vehicle_threshold": 40,
+        "house_target": 80,
+        "vehicle_target_soc": 80,
+        "vehicle_capacity_kwh": 60,
+        "charge_power_kw": 11,
+        "vehicle_charge_efficiency_percent": 90,
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={
+            "sources": {},
+            "single_inverter": True,
+            "ev_preparation": ev_options,
+        },
+    )
+    entry.add_to_hass(hass)
+    if missing_source != "vehicle_soc":
+        hass.states.async_set("sensor.car", 20, {"unit_of_measurement": "%"})
+    hass.states.async_set("binary_sensor.charging", "off")
+    if missing_source == "departure":
+        hass.states.async_set("input_datetime.departure", "unavailable", {"has_time": True})
+    else:
+        hass.states.async_set(
+            "input_datetime.departure",
+            (dt_util.utcnow() + timedelta(hours=4)).isoformat(),
+            {"has_time": True},
+        )
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "ev_preparation"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {"enabled": enabled})
+    )
+
+    if enabled:
+        assert result["errors"][missing_source] == expected_error
+        return
+    assert result["step_id"] == "init"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "finish"}
+    )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options["ev_preparation"] == {**ev_options, "enabled": False}
 
 
 async def huawei_source_form(hass, *, shadow=True, temperature=True):

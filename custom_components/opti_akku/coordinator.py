@@ -21,7 +21,7 @@ from homeassistant.helpers import sun
 from homeassistant.util import dt as dt_util
 
 from .alerts import HealthAlerts
-from .arbitrage import build_arbitrage_estimate
+from .arbitrage import apply_discharge_hold, build_arbitrage_estimate
 from .command_evidence import build_command_evidence
 from .device import PendingCommandError, DeviceAdapter, StaleCommandError
 from .engine import Evaluation
@@ -38,7 +38,7 @@ from .sources import build_inputs, finite
 from .plant import plant_entity_ids, plant_semantic_fingerprint
 from .load_profile import LoadProfile
 from .demand import DemandForecast
-from .demand_comparison import build_strategy_comparison
+from .demand_comparison import build_strategy_comparison, remaining_day_profile
 from .peak_load import peak_load_profile
 from .ev_preparation import EVPreparation, apply_preparation, command_signals
 from .observation import SourceObservation
@@ -549,12 +549,90 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             states["sensor.opti_load_profile_mean_w"] = profile.raw_mean_w if profile.raw_mean_w is not None else "unavailable"
         self._add_sun(states, attributes, now)
         states.update({key: ("on" if val else "off") if isinstance(val, bool) else val for key, val in self.settings.items()})
-        states["input_select.akkusteuerung_modus"] = self.manual_mode or (self.data or {}).get("mode", "Akku Pause")
+        previous_data = self.data if isinstance(self.data, dict) else {}
+        previous_mode = previous_data.get("mode", "Akku Pause")
+        if (
+            previous_data.get("decision_id") == "arbitrage_hold"
+            and previous_mode == "Akku nur Laden"
+        ):
+            previous_mode = previous_data.get(
+                "engine_base_mode",
+                previous_data.get("engine_requested_mode", previous_mode),
+            )
+        states["input_select.akkusteuerung_modus"] = self.manual_mode or previous_mode
+        demand_cfg = captured_options.get("demand_forecast", {})
+        demand_comparison_enabled = (
+            isinstance(demand_cfg, dict) and demand_cfg.get("enabled") is True
+        )
+        demand_sources = demand_cfg.get("sources", {}) if demand_comparison_enabled else {}
+        if not isinstance(demand_sources, dict):
+            demand_sources = {}
+        comparison_states = {
+            entity_id: self.hass.states.get(entity_id)
+            for entity_id in demand_sources.values()
+            if isinstance(entity_id, str)
+        }
+        demand_input = {
+            "online": self._online,
+            "states": states,
+            "attributes": attributes,
+            "source_errors": source_errors,
+            # The report is calculated before this cycle's engine result. Its
+            # current-strategy reserve field is therefore deliberately the
+            # previous cycle's diagnostic value.
+            "reserve_plan": previous_data.get("reserve_plan", {}),
+        }
+        try:
+            demand_report = self._demand_forecast.update(
+                now,
+                demand_input,
+                self.settings,
+                captured_options,
+                self.hass.states,
+                dt_util.DEFAULT_TIME_ZONE,
+                self._load_source_fingerprint,
+            )
+        except Exception as err:  # Forecast activation must fail back to the legacy score.
+            _LOGGER.debug("Demand observation unavailable: %s", type(err).__name__)
+            demand_report = {"status": "error", "observation_only": True}
+        demand_input["demand_forecast"] = demand_report
+        active_profile_enabled = (
+            demand_comparison_enabled
+            and demand_cfg.get("use_for_peak_reserve") is True
+        )
+        if active_profile_enabled:
+            try:
+                active_profile = await self.hass.async_add_executor_job(
+                    remaining_day_profile,
+                    self._demand_forecast,
+                    now,
+                    demand_input,
+                    self.settings,
+                    captured_options,
+                    comparison_states,
+                    dt_util.DEFAULT_TIME_ZONE,
+                    self._load_source_fingerprint,
+                )
+            except Exception as err:  # Never replace the legacy score with an uncertain profile.
+                _LOGGER.debug("Active remaining-day profile unavailable: %s", type(err).__name__)
+                active_profile = {"status": "error", "reason": "profile_error"}
+        else:
+            active_profile = {"status": "disabled", "reason": "active_profile_disabled"}
+        profile_energy = finite(active_profile.get("profile_energy_kwh"))
+        profile_ready = (
+            active_profile.get("status") == "ready"
+            and profile_energy is not None
+            and profile_energy >= 0
+        )
+        states["sensor.opti_forecast_remaining_load_profile_kwh"] = (
+            profile_energy if profile_ready else "unavailable"
+        )
+        attributes["sensor.opti_forecast_remaining_load_profile_kwh"] = active_profile
         try:
             peak_profile = peak_load_profile(
                 self._demand_forecast, now,
                 {"online": self._online, "states": states, "source_errors": source_errors,
-                 "demand_forecast": (self.data or {}).get("demand_forecast", {})},
+                 "demand_forecast": demand_report},
                 self.settings, captured_options, self.hass.states,
                 dt_util.DEFAULT_TIME_ZONE, self._load_source_fingerprint)
         except Exception:
@@ -563,12 +641,16 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         states["sensor.opti_peak_load_profile"] = peak_profile["status"]
         attributes["sensor.opti_peak_load_profile"] = peak_profile
         ev_cfg = captured_options.get("ev_preparation", {})
-        ev_signals = command_signals(ev_cfg, self.hass.states, now)
+        ev_signals = command_signals(
+            ev_cfg, self.hass.states, now, dt_util.DEFAULT_TIME_ZONE
+        )
         ev_preparation = self._ev_preparation.update(
             ev_cfg, self.hass.states, now, states, finite(self.settings.get("input_number.maxsoc")),
             self.strategy_enabled and self.manual_mode is None and self._online
             and self.settings.get("input_boolean.akku_opti_automatik") is True,
-            can_prepare=not source_errors and states.get("sun.sun") == "above_horizon")
+            can_prepare=not source_errors and states.get("sun.sun") == "above_horizon",
+            timezone=dt_util.DEFAULT_TIME_ZONE,
+        )
         previous_target_level = finite(
             self._engine_snapshot.get("attributes", {})
             .get("sensor.opti_target_soc", {})
@@ -583,7 +665,56 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             self._add_manual_ev_safety(states, now)
             result = Evaluation(states, attributes, "Beobachtung", "Strategie deaktiviert", {})
+        engine_base_mode = result.mode
+        arbitrage_cfg = captured_options.get("arbitrage_estimate", {})
+        previous_arbitrage = (
+            self.data.get("arbitrage_estimate") if isinstance(self.data, dict) else None
+        )
+        if (
+            self.strategy_enabled
+            and self.manual_mode is None
+            and self.entry.data.get("backend", "sma") in ("sma", "sma_modbus")
+            and isinstance(captured_options.get("demand_forecast"), dict)
+            and captured_options["demand_forecast"].get("enabled") is True
+        ):
+            try:
+                result, arbitrage_hold = apply_discharge_hold(
+                    result,
+                    previous_arbitrage,
+                    arbitrage_cfg,
+                    finite(result.states.get("sensor.opti_price_current_ct_kwh")),
+                    now,
+                )
+            except Exception as err:
+                _LOGGER.debug("Arbitrage hold unavailable: %s", type(err).__name__)
+                arbitrage_hold = {
+                    "hold_enabled": True,
+                    "hold_status": "error",
+                    "hold_controls_battery": False,
+                }
+        else:
+            arbitrage_hold = {
+                "hold_enabled": isinstance(arbitrage_cfg, dict)
+                and arbitrage_cfg.get("hold_enabled") is True,
+                "hold_status": (
+                    "backend_not_supported"
+                    if self.entry.data.get("backend", "sma") not in ("sma", "sma_modbus")
+                    else "demand_forecast_required"
+                    if not isinstance(captured_options.get("demand_forecast"), dict)
+                    or captured_options["demand_forecast"].get("enabled") is not True
+                    else "manual_or_strategy_disabled"
+                ),
+                "hold_controls_battery": False,
+            }
         result, ev_report = apply_preparation(result, ev_preparation)
+        if (
+            arbitrage_hold.get("hold_controls_battery") is True
+            and result.decision_id != "arbitrage_hold"
+        ):
+            arbitrage_hold.update(
+                hold_status="higher_priority",
+                hold_controls_battery=False,
+            )
         for key, value in result.helper_updates.items():
             if key in self.settings and revision == self._revision:
                 try:
@@ -597,6 +728,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             mode, safety_reason = self._safe_mode(requested, result.states)
         reason = safety_reason or ("Manuelle Auswahl" if self.manual_mode else result.reason)
         params = self._parameters(result.states)
+        if arbitrage_hold.get("hold_controls_battery"):
+            params["min_charge_w"] = 0
+            params["min_discharge_w"] = 0
         if ev_cfg.get("enabled") is True and self.strategy_enabled and self.manual_mode is None:
             # This feature never imposes minimum export/discharge or minimum
             # charging that could pull power from the grid.
@@ -632,10 +766,20 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if time.monotonic() - read_started > 30:
                         return False
                     checked_at = dt_util.utcnow()
-                    if ev_cfg.get("enabled") is True and command_signals(ev_cfg, self.hass.states, checked_at) != ev_signals:
+                    if ev_cfg.get("enabled") is True and command_signals(
+                        ev_cfg,
+                        self.hass.states,
+                        checked_at,
+                        dt_util.DEFAULT_TIME_ZONE,
+                    ) != ev_signals:
                         return False
-                    _, fresh_attributes, fresh_errors = build_inputs(self._measurements, input_options, self.hass.states, checked_at,
-                                                                     price_snapshot=self._current_price_snapshot())
+                    fresh_states, fresh_attributes, fresh_errors = build_inputs(
+                        self._measurements,
+                        input_options,
+                        self.hass.states,
+                        checked_at,
+                        price_snapshot=self._current_price_snapshot(),
+                    )
                     source_keys = set(input_options.get("sources", {}))
                     source_keys.update(f"plant:{key}" for key in plant_entity_ids(self.entry.options))
                     source_keys.update(key for key in source_errors if key.startswith("plant:"))
@@ -648,6 +792,15 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         if (attributes.get("sensor.opti_price_current_ct_kwh")
                                 != fresh_attributes.get("sensor.opti_price_current_ct_kwh")):
                             return False
+                    if (
+                        isinstance(arbitrage_cfg, dict)
+                        and arbitrage_cfg.get("hold_enabled") is True
+                        and (
+                            result.states.get("sensor.opti_price_current_ct_kwh")
+                            != fresh_states.get("sensor.opti_price_current_ct_kwh")
+                        )
+                    ):
+                        return False
                     previously_valid = {key for key in source_keys if key not in source_errors}
                     return not (previously_valid & fresh_errors.keys())
 
@@ -698,6 +851,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "sensor.opti_soc": {"name": "Ladezustand", "unit_of_measurement": "%", "device_class": "battery", "state_class": "measurement"},
             "sensor.opti_battery_temp": {"name": "Batterietemperatur", "unit_of_measurement": "°C", "device_class": "temperature", "state_class": "measurement"},
             "sensor.opti_battery_capacity_kwh": {"name": "Batteriekapazität", "unit_of_measurement": "kWh", "device_class": "energy_storage", "state_class": "measurement"},
+            "sensor.opti_forecast_remaining_load_profile_kwh": {"name": "Verbrauchsprofil Resttag", "unit_of_measurement": "kWh", "state_class": "measurement"},
             "binary_sensor.opti_connection": {"name": "Verbindung", "device_class": "connectivity"},
             "binary_sensor.opti_block_violation": {"name": "Sperrverletzung", "device_class": "problem"},
             "binary_sensor.opti_write_stalled": {"name": "Schreibstillstand", "device_class": "problem"},
@@ -717,7 +871,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ),
         )
         data = {"states": result.states, "attributes": result.attributes, "metadata": metadata,
-                "mode": mode, "reason": reason, "engine_requested_mode": result.mode,
+                "mode": mode, "reason": reason, "decision_id": result.decision_id,
+                "engine_requested_mode": result.mode,
+                "engine_base_mode": engine_base_mode,
                 "command_result_this_update": command_result, "write_enabled": self.write_enabled and not self.shadow_mode,
                 "pause_pending": self._pause_pending and not self.write_enabled,
                 "command_confirmation": "waiting_ready" if self.write_enabled and not connection["write_ready"] else "pending" if self._command_pending else "idle_or_confirmed",
@@ -731,11 +887,6 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "price_last_success": self._price_last_success,
                 "notification_error": self.alerts.delivery_error,
                 "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled}
-        data["arbitrage_estimate"] = build_arbitrage_estimate(
-            captured_options.get("arbitrage_estimate"),
-            finite(result.states.get("sensor.opti_price_current_ct_kwh")),
-            strategy_enabled=self.strategy_enabled,
-        )
         try:
             data["ev_preparation"] = {**ev_report, "controls_battery": bool(ev_report.get("controls_battery") and self.write_enabled and not self.shadow_mode and safety_reason is None), "observation_only": self.shadow_mode or not self.write_enabled}
             data["reserve_plan"] = reserve_plan(data, self.settings, now, shadow=self.shadow_mode)
@@ -744,28 +895,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Operating report unavailable: %s", type(err).__name__)
             data["reserve_plan"] = {"status": "no_valid_plan"}
             data["operating_report"] = {"status": "error", "error_type": type(err).__name__}
-        try:
-            data["demand_forecast"] = self._demand_forecast.update(
-                now, data, self.settings, captured_options, self.hass.states,
-                dt_util.DEFAULT_TIME_ZONE, self._load_source_fingerprint)
-        except Exception as err:  # Observation must never alter control or its health alerts.
-            _LOGGER.debug("Demand observation unavailable: %s", type(err).__name__)
-            data["demand_forecast"] = {"status": "error", "observation_only": True}
-        demand_cfg = captured_options.get("demand_forecast", {})
-        demand_comparison_enabled = (
-            isinstance(demand_cfg, dict) and demand_cfg.get("enabled") is True
-        )
+        data["demand_forecast"] = demand_report
         if self.shadow_mode or demand_comparison_enabled:
             try:
-                demand_sources = (
-                    demand_cfg.get("sources", {}) if isinstance(demand_cfg, dict) else {}
-                )
-                comparison_states = {
-                    entity_id: self.hass.states.get(entity_id)
-                    for entity_id in demand_sources.values()
-                    if isinstance(entity_id, str)
-                }
-
                 def compare():
                     return build_strategy_comparison(
                         self._demand_forecast, now, data, self.settings, captured_options,
@@ -779,6 +911,64 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 comparison = {"status": "error", "observation_only": True}
             data["demand_forecast"] = {
                 **data["demand_forecast"], "strategy_comparison": comparison
+            }
+        try:
+            terminal_context = None
+            if demand_comparison_enabled:
+                demand_report = data.get("demand_forecast", {})
+                terminal_context = {
+                    "forecast_slots": demand_report.get("forecast_slots"),
+                    "price_series": result.attributes.get("sensor.opti_price_series"),
+                    "now": now,
+                    "timezone": dt_util.DEFAULT_TIME_ZONE,
+                    "refill_from": demand_report.get("pv_cover_from"),
+                    "battery_capacity_kwh": finite(
+                        result.states.get("sensor.opti_battery_capacity_kwh")
+                    ),
+                    "current_soc": finite(result.states.get("sensor.opti_soc")),
+                    "minimum_soc": finite(self.settings.get("input_number.minsoc")),
+                    "maximum_soc": finite(self.settings.get("input_number.maxsoc")),
+                    "profile_ready": (
+                        demand_report.get("profile_ready") is True
+                        and demand_report.get("status") == "ready"
+                    ),
+                }
+            data["arbitrage_estimate"] = build_arbitrage_estimate(
+                arbitrage_cfg,
+                finite(result.states.get("sensor.opti_price_current_ct_kwh")),
+                strategy_enabled=self.strategy_enabled,
+                terminal_context=terminal_context,
+            )
+            would_control = (
+                arbitrage_hold.get("hold_controls_battery") is True
+                and result.decision_id == "arbitrage_hold"
+            )
+            data["arbitrage_estimate"].update(arbitrage_hold)
+            data["arbitrage_estimate"].update(
+                hold_status=(
+                    "higher_priority"
+                    if would_control and safety_reason is not None
+                    else arbitrage_hold.get("hold_status")
+                ),
+                hold_would_control_battery=would_control,
+                hold_controls_battery=bool(
+                    would_control
+                    and self.write_enabled
+                    and not self.shadow_mode
+                    and safety_reason is None
+                ),
+                controls_battery=bool(
+                    would_control
+                    and self.write_enabled
+                    and not self.shadow_mode
+                    and safety_reason is None
+                ),
+                informational_only=not bool(arbitrage_hold.get("hold_enabled")),
+            )
+        except Exception as err:  # A display-only estimate must never interrupt control.
+            _LOGGER.debug("Arbitrage estimate unavailable: %s", type(err).__name__)
+            data["arbitrage_estimate"] = {
+                "status": "error", "informational_only": True, "controls_battery": False
             }
         try:
             probe = getattr(self.device, "last_probe_registers", {})

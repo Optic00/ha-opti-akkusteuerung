@@ -139,11 +139,13 @@ strategy:
   actions:
   - alias: Zwischen Speicherszenarien wählen
     choose:
-    - alias: 'Modus ''nur Laden'' (Entladesperre): MinSOC-Schutz, SOC unter MinSOC (tag+nacht)'
+    - alias: 'Modus ''nur Laden'' (Entladesperre): MinSOC-Schutz, SOC an oder unter MinSOC (tag+nacht)'
       conditions:
-      - condition: numeric_state
-        entity_id: sensor.opti_soc
-        below: input_number.minsoc
+      - condition: template
+        value_template: |-
+          {% set soc = states('sensor.opti_soc') | float(none) %}
+          {% set minimum = states('input_number.minsoc') | float(none) %}
+          {{ is_number(soc) and is_number(minimum) and soc <= minimum }}
       sequence:
       - action: input_select.select_option
         decision_id: minimum_soc
@@ -199,6 +201,8 @@ strategy:
           entity_id: input_select.akkusteuerung_modus
     - alias: 'Peak-Leiter L1 ''nur Entladen'': Preisspitze VERY_EXPENSIVE'
       conditions:
+      - condition: template
+        value_template: "{{ not is_state('binary_sensor.opti_extreme_price_hold', 'on') }}"
       - condition: state
         entity_id: binary_sensor.opti_peak_reserve_aktiv
         state: 'on'
@@ -221,6 +225,8 @@ strategy:
           entity_id: input_select.akkusteuerung_modus
     - alias: 'Peak-Leiter L2 ''nur Entladen'': EXPENSIVE, SoC ueber VE-Reserve'
       conditions:
+      - condition: template
+        value_template: "{{ not is_state('binary_sensor.opti_extreme_price_hold', 'on') }}"
       - condition: state
         entity_id: binary_sensor.opti_peak_reserve_aktiv
         state: 'on'
@@ -548,6 +554,18 @@ strategy:
         decision_id: battery_full
         data:
           option: Akku Dynamisch
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: Extrempreis-Reserve vor der Preisspitze halten
+      conditions:
+      - condition: state
+        entity_id: binary_sensor.opti_extreme_price_hold
+        state: 'on'
+      sequence:
+      - action: input_select.select_option
+        decision_id: extreme_peak_hold
+        data:
+          option: Akku nur Laden
         target:
           entity_id: input_select.akkusteuerung_modus
     - alias: 'Peak-Leiter L3 ''nur Laden'' (halten): EXPENSIVE, Reserve fuer VERY_EXPENSIVE'

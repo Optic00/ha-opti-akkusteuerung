@@ -4,7 +4,7 @@
 
 Opti Akku verbindet lokale Akkusteuerung mit einer optionalen Strategie für PV-Überschuss, Strompreise und Verbrauchsreserve. Die Einrichtung erfolgt über einen geführten Assistenten. Zusätzliche YAML-Automationen oder manuell angelegte Helfer sind für die Integration nicht erforderlich.
 
-**Beta-Reihe 2026.9, aktueller Stand `2026.9-beta4`.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md) umstellen.
+**Beta-Reihe 2026.9, aktueller Stand `2026.9-beta5`.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md) umstellen.
 
 > **Aktive Akkusteuerung:** Freigegebene Schreibzugriffe verändern das Lade- und Entladeverhalten. Falsche Einstellungen oder Fehler können zusätzliche Kosten und unerwünschten Betrieb verursachen. Herstellervorgaben beachten und andere schreibende Steuerungen vor der Freigabe deaktivieren. Neue Einträge starten ohne Schreibfreigabe; Shadow-Einträge bleiben dauerhaft lesend.
 
@@ -24,7 +24,7 @@ Die Software wird unter der [MIT-Lizenz](https://github.com/Optic00/ha-opti-akku
 ## Installation mit HACS
 
 1. In HACS unter **Benutzerdefinierte Repositories** `https://github.com/Optic00/ha-opti-akkusteuerung` als Typ **Integration** hinzufügen.
-2. **Opti Akku** herunterladen. Solange kein Vorabrelease veröffentlicht ist, bietet HACS nur den Hauptzweig an. Dieser ist Entwicklungsstand und keine stabile Freigabe. Sobald ein Vorabrelease existiert, die Beta-Auswahl aktivieren und die gewünschte Beta wählen.
+2. **Opti Akku** herunterladen. Die Beta-Auswahl aktivieren und die gewünschte veröffentlichte Beta wählen. Der Hauptzweig bleibt Entwicklungsstand und ist keine stabile Freigabe.
 3. Home Assistant neu starten.
 4. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen → Opti Akku** den Assistenten starten. Für den ersten Vergleich Shadow eingeschaltet lassen.
 
@@ -35,7 +35,7 @@ Dies ist ein benutzerdefiniertes HACS-Repository, keine behauptete Aufnahme in d
 - SMA-Telemetrie und Steuerung über die Modbus-Schnittstelle von HA; wahlweise Beobachtung, Strategie oder manuelle Betriebsarten.
 - Lade-/Entladegrenzen, Hysterese, Preisfenster, Reserveplanung und optionale Balancing-Planung.
 - Native Tibber-Preise über die vorhandene HA-Integration oder zugeordnete Preisentitäten.
-- Optionaler, rein informativer Wirtschaftlichkeitsvergleich für Akku-Arbitrage mit ausdrücklich eingetragenen Kosten- und Effizienzannahmen.
+- Optionaler Wirtschaftlichkeitsvergleich und Energierestwert mit ausdrücklich eingetragenen Kosten- und Effizienzannahmen; ein darauf beruhender automatischer Entladeschutz für SMA ist separat zuschaltbar und standardmäßig aus.
 - Optionales Stundenverbrauchsprofil mit Recorder-Import und gesonderter Aktivierung für die Peak-Reserve.
 - Optionale EV-Entladesperre und frühere PV-Ladung des Hausakkus bei Fahrzeug-Ladebedarf.
 - Geführtes Einstellungsmenü, Diagnoseentitäten und lesende 24-Stunden-Shadow-Aufzeichnung.

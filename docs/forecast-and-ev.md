@@ -3,9 +3,9 @@
 Unter **Konfigurieren → Bedarfsprofil und Peak-Reserve** lässt sich eine unabhängige
 Vergleichsrechnung einschalten. Sie bleibt standardmäßig aus und verändert weder
 Strategieeingaben noch Sollwerte oder Schreibfreigabe. Die gesonderte Option
-„Stundenprofil für aktive Peak-Reserve verwenden“ beeinflusst dagegen die
-Reserveplanung; sie ist standardmäßig aus.
-Der Sensor **Bedarfsprognose (Beobachtung)** zeigt Lernstatus, Prognosegrundlagen,
+„Stundenprofil in der aktiven Strategie verwenden“ beeinflusst dagegen die
+Peak-Reserve und den Resttages-Score; sie ist standardmäßig aus.
+Der Sensor **Bedarfsprognose** zeigt Lernstatus, Prognosegrundlagen,
 Reservevorschlag und die aktuelle Strategie-Reserve. Das sind unterschiedliche
 Horizonte: Die neue Rechnung betrachtet den gesamten Bedarf bis zur PV-Deckung,
 die bestehende Strategie priorisiert teure Zeitfenster. Eine kleinere Zahl ist
@@ -149,6 +149,45 @@ konfigurierten Ersatzverbrauch. Preisfenster, Wiederaufladehorizont,
 Entladewirkungsgrad und Min-/Max-SoC bleiben gleich. Der beobachtende Vorschlag
 „gesamter Bedarf bis PV“ ersetzt die Peak-Reserve nicht.
 
+Für den aktiven Resttages-Score wird dasselbe gelernte Onlineprofil bis zum
+Sonnenuntergang integriert, sobald das Fenster vollständig aus Onlinewerten
+besteht und mindestens 20 Minuten aktuelle Messabdeckung vorliegen. Eine kurze
+Warmwasser- oder Heizlast wird dadurch als Teil ihres gelernten Stundenfensters
+bewertet und nicht mit dem 60-Minuten-Mittel auf den ganzen Resttag verlängert.
+Eine tatsächlich länger erhöhte Grundlast bleibt über den gemessenen
+Profilaufschlag berücksichtigt. Solange das Profil lernt, historische oder feste
+Ersatzwerte benötigt, Warmwasser zeitlich nicht zugeordnet werden kann oder ein
+Eingang fehlt, bleibt automatisch die bisherige 60-Minuten-Hochrechnung aktiv.
+Morgen- und Sonnentag-Score verwenden vorerst weiter ihre bisherigen Formeln.
+
+Für bereits als Peak klassifizierte Zeitfenster über 60 ct/kWh kommt ein
+zusätzlicher Extrempreispuffer hinzu. Er beträgt
+`0,25 × clamp((Preis - 60) / 40, 0, 1)` der bisherigen Lastannahme: bis
+60 ct/kWh null, bei 80 ct/kWh 12,5 % und ab 100 ct/kWh 25 %. Der vorhandene
+Profilaufschlag von 20 % bleibt dabei bestehen. Der neue Zusatz berücksichtigt
+nur die tatsächlich verbleibende Dauer der extrem teuren Phase und wird mit
+deren Ablauf abgebaut. Er ist auf zehn SoC-Punkte begrenzt; die gesamte Reserve
+bleibt zusätzlich am Max-SoC gedeckelt.
+
+Bei einem aktuellen Preis bis 60 ct/kWh bleibt der noch anstehende Extrembedarf
+samt Zusatzpuffer vor vorzeitiger Peak-Entladung geschützt, auch wenn die volle
+Reserve keinen Platz für einen weiteren Zuschlag lässt. Während der teuren Phase
+darf die normale Peaklogik diese Energie nutzen. Balancing, Ladedeckel und der
+Vorrang einer laufenden Autoladung bleiben erhalten.
+
+Der Extrempreispuffer ist eine Sicherheitsheuristik und kein statistisch
+kalibrierter Prognosefehler. Er erteilt keine Netzladefreigabe und verspricht kein
+Nachladen während der teuren Spitze. Ist Prognose-Netzladen bereits freigegeben und das bestehende günstige
+Ladefenster geeignet, kann das Peak-Vorladen auch den Zusatzpuffer auffüllen.
+Dadurch sind bis zu zehn SoC-Punkte mehr Netzladung möglich; die bisherigen
+Preis-, Ladefenster- und Abschaltgrenzen gelten weiter.
+
+Bei selbst zugeordneten Preisentitäten müssen aktueller Preis und Preisreihe
+denselben Tarif und dasselbe aktuelle Zeitfenster abbilden. Ein Stundenmittel als
+aktueller Preis passt nicht zu einem abweichenden Viertelstundenpreis: Dann kann
+die Freigabe für die teure Phase zu spät erfolgen. Der direkte Tibber-Bezug liefert
+beide Werte aus derselben Preisreihe.
+
 Heizungs- und Warmwasserverbrauch ist im Hausprofil enthalten. Aktiver Heizbetrieb
 setzt für die aktuelle und folgende Stundenperiode mindestens den aktuellen
 Hausverbrauch beziehungsweise Ersatzverbrauch an, ohne einen zweiten Heizbedarf
@@ -160,23 +199,24 @@ Vergleichstagsauswahl werden für die aktive Peak-Berechnung noch nicht genutzt.
 Eine vollständige zukünftige Heizbedarfsprognose ist damit noch nicht vorhanden.
 
 Die Reserveplanung zeigt den tatsächlich für Peakstunden angesetzten Mittelwert,
-Profilstunden, Prognosepuffer und Rückfallgrund. Profilwechsel löschen keine
-Lernhistorie. Ein Abschalten der Profiloption stellt die feste Lastannahme wieder her.
+Profilstunden, Prognosepuffer, den tatsächlich addierten Extrempreispuffer in kWh
+und SoC-Punkten sowie den Rückfallgrund. Profilwechsel löschen keine Lernhistorie.
+Ein Abschalten der Profiloption stellt die feste Lastannahme wieder her.
 
 Die Entladesperre beginnt bei der Reserve, nicht schon drei Prozentpunkte darüber.
 Nach dem Halten wird erst oberhalb von Reserve plus zwei Prozentpunkten freigegeben.
 Während der jeweils vorgesehenen teuren Stunden wird reservierte Energie weiterhin
 freigegeben.
 
-### Passiver Profilvergleich für die PV-Strategie
+### Profilvergleich und aktive Resttagesnutzung
 
-Bei eingeschaltetem Bedarfsprofil ergänzt der Bedarfsbericht einen strikt passiven
-Vergleich für den Resttag-Score, den Morgen- und Sonnentag-Score sowie den Ziel-SoC.
-Das gilt im Shadowmodus und parallel zu einer aktiven Steuerung. Der Vergleich
-ändert keine Strategie-Entität, keine Reserve, keinen Modus und keinen
-Schreibparameter. Der aktive Rechenweg bleibt unverändert; der Vergleich stellt
-dessen Ergebnis einem Kandidaten gegenüber, der den erwarteten Verbrauch
-stundenweise integriert.
+Bei eingeschaltetem Bedarfsprofil ergänzt der Bedarfsbericht einen Vergleich für
+den Resttag-Score, den Morgen- und Sonnentag-Score sowie den Ziel-SoC. Ohne die
+gesonderte aktive Profiloption bleibt dieser Vergleich strikt passiv. Ist die
+aktive Profiloption eingeschaltet und das Onlineprofil vollständig bereit,
+verwendet der Resttages-Score die stundenweise integrierte Last bis
+Sonnenuntergang. Morgen- und Sonnentag-Score sowie der Ziel-SoC-Vergleich bleiben
+passiv und unverändert.
 
 Vollständig gelernte Stunden und mindestens 20 Minuten aktuelle Profilabdeckung
 ergeben den Status `ready`. Historische Recorder-Werte, der konfigurierte
@@ -187,6 +227,11 @@ fehlender Solcast-Zeitverlauf (`no_pv_timing`) verhindert diesen Vergleich nicht
 weil er nur die vorhandenen Tages- und Restprognosen benötigt. Ein fälliger, aber
 noch nicht zeitlich eingeplanter Warmwasserbedarf bleibt dabei als
 `dhw_timing_unknown` in der Lernphase sichtbar.
+
+Fällt die aktuelle Messabdeckung länger aus, verwendet der aktive Resttages-Score
+wieder die bisherige 60-Minuten-Hochrechnung. Nach mindestens 20 Minuten
+vollständiger aktueller Abdeckung wechselt er zurück auf das Onlineprofil. Dieser
+bewusste Rückfall kann den Score an der Umschaltgrenze verändern.
 
 Der Resttag reicht exakt bis zum heutigen Sonnenuntergang. Morgen und Sonnentag
 verwenden ganze lokale Kalendertage einschließlich 23- oder 25-stündiger
@@ -205,6 +250,43 @@ Vergleich Max-SoC.
 Der Support-Export enthält hiervon nur Status und Grundcodes, keine Energiewerte,
 Zeitfenster, Profile oder Quellnamen.
 
+### Passiver Energierestwert
+
+Wenn Bedarfsprofil und Arbitrage-Anzeige eingeschaltet sind, ergänzt die
+Arbitrage-Anzeige eine passive Restwertkurve für vorhandene Akkuenergie. Sie
+ordnet die prognostizierte, nicht durch PV gedeckte Hauslast bis zum nächsten
+belastbaren PV-Wiederaufladebeginn nach Strompreis:
+Die erste verfügbare Kilowattstunde ersetzt damit den teuersten erwarteten
+Netzbezug, weitere Energie schrittweise günstigere Restlast. Vom vermiedenen
+Netzpreis werden die eingetragenen Entlade-Durchsatzkosten und der
+Entladewirkungsgrad berücksichtigt.
+
+Angezeigt werden unter anderem Prognose- und Preisabdeckung, Restlast,
+Knickpunkt der Kurve sowie der rechnerische Wert des aktuellen und eines voll
+nutzbaren Akkus innerhalb der eingestellten Min-/Max-SoC-Spanne. Historische
+Ersatzprofile, ein fehlender Wiederaufladebeginn oder ein unvollständiger
+Preishorizont bleiben als `learning` sichtbar. Die Rechnung extrapoliert keine
+fehlenden Preise, bewertet keine Einspeisung aus dem Akku und gibt noch keinen
+Soll-SoC vor. Standardmäßig verändert sie weder Halten, Laden, Entladen noch
+eine bestehende Preis- oder Reserveentscheidung.
+
+Optional kann **Restwert als automatischen Entladeschutz verwenden** aktiviert
+werden. Der Schutz benötigt zusätzlich eine aktivierte, vollständig gelernte
+Bedarfsprognose und steht zunächst nur für den SMA-Adapter zur Verfügung. Nach
+einem Neustart müssen auch bei wiederhergestelltem Profil zunächst wieder
+mindestens 20 Minuten gültige Verbrauchsmesswerte vorliegen. Der Schutz greift
+ausschließlich bei bekannten automatischen Entladeentscheidungen. Ist die spätere
+Grenzenergie mindestens um die eingetragene Marge plus 0,5 ct/kWh
+wertvoller als die aktuell vermiedene Netzenergie nach Entladekosten,
+setzt er `Akku nur Laden`. Zum Lösen gilt eine um 1 ct/kWh versetzte Schwelle.
+Damit führen kleine Prognoseänderungen nicht alle 15 Sekunden zu einem
+Moduswechsel. Der Schutz übernimmt keine Mindestlade- oder Entladeleistung und
+startet kein Netzladen. Fehlende, ältere als 90 Sekunden oder nicht mehr zu SoC,
+Kapazität und Min-/Max-SoC passende Berechnungen lassen die bisherige
+Strategieentscheidung unverändert. Schutz- und Ladeentscheidungen sowie der
+Vorrang eines ladenden Autos bleiben übergeordnet. Nach einer Sicherheitspause
+muss der Entladeschutz erneut die höhere Eintrittsschwelle erreichen.
+
 ### PV-Vorbereitung fürs Auto (0.5.2b4)
 
 Unter **Konfigurieren → PV-Vorbereitung fürs Auto** kann der Hausakku bei niedrigem
@@ -213,14 +295,28 @@ Einmalig Fahrzeug-SoC (%) und ein verlässliches Signal „Auto lädt“ auswäh
 Standardwerte: Ladebedarf unter 40 %, Hausakku vorbereiten bis 80 % (höchstens
 konfigurierter Max-SoC). Ein optionaler Schalter für längere Abwesenheit sperrt
 nur die Vorbereitung. Fahrzeuganwesenheit, Rückkehrzeiten und tägliche Freigaben
-sind nicht nötig.
+sind für die einfache Schwellenregel nicht nötig.
+
+Optional kann ein `input_datetime` oder Zeitstempel-Sensor für die Abfahrt
+gewählt werden. Zusammen mit Fahrzeugziel, nutzbarer Fahrzeugkapazität,
+verfügbarer AC-Ladeleistung und Ladewirkungsgrad zeigt der Bericht benötigte
+Akku- und AC-Energie, mittlere erforderliche Leistung, spätesten Ladestart und
+eine einfache Machbarkeit bei durchgehend verfügbarer Ladeleistung. Eine reine
+Uhrzeit gilt täglich; in einer nicht vorhandenen Sommerzeitstunde wird sie auf
+die nächste gültige Ortszeit verschoben, in der doppelten Stunde gilt das erste
+Vorkommen. Bis zum Ziel-SoC nutzt die PV-Vorbereitung das Abfahrtsziel statt der
+einfachen Bedarfsschwelle. Ein abgelaufener absoluter Zeitpunkt bleibt im
+Bericht sichtbar und fällt für die Vorbereitung auf die normale Schwelle zurück.
+Die Integration steuert damit weiterhin keine Wallbox und kann den Ziel-SoC zur
+Abfahrt nicht garantieren.
 
 Die zusätzliche PV-Ladung startet nach einer Minute mit mindestens 300 W
 Überschuss vor Hausakkuladung und bleibt ab 100 W aktiv. Laufende Hausakkuladung
-zählt zum verfügbaren Überschuss, Akkuentladung wird abgezogen. Der Fahrzeugbedarf
-endet ab Schwelle plus fünf Prozentpunkten; nach erreichtem Hausziel startet die
-Vorbereitung erst zwei Prozentpunkte darunter erneut. Neustarts und Messlücken
-setzen die kurze Bestätigungszeit zurück. Der SoC benötigt ein HA-Reportingalter
+zählt zum verfügbaren Überschuss, Akkuentladung wird abgezogen. Bei der einfachen
+Schwellenregel endet der Fahrzeugbedarf ab Schwelle plus fünf Prozentpunkten;
+bei aktiver Abfahrtsplanung endet er am eingestellten Fahrzeugziel. Nach erreichtem
+Hausziel startet die Vorbereitung erst zwei Prozentpunkte darunter erneut.
+Neustarts und Messlücken setzen die kurze Bestätigungszeit zurück. Der SoC benötigt ein HA-Reportingalter
 von höchstens 24 Stunden; das ist kein Beweis eines neuen Fahrzeugabrufs, wenn
 dessen Integration zwischengespeicherte Werte wiederholt meldet.
 
@@ -243,5 +339,5 @@ für unterbrechungsfreie Prioritätswechsel zwischen zwei Geräteabfragen.
 
 Der Diagnosesensor zeigt Vorbereitung, Ladebedarf, Datenlücken und Vorrangregeln.
 Im Shadowmode ist dies nur eine berechnete Entscheidung. Keine zusätzliche
-Wärmepumpen-, Fahrzeug- oder Wallboxsteuerung, keine Rückkehrprognose und kein
-Versprechen, dass die verbleibende PV den Fahrzeugbedarf vollständig deckt.
+Wärmepumpen-, Fahrzeug- oder Wallboxsteuerung und kein Versprechen, dass die
+verbleibende PV den Fahrzeugbedarf vollständig deckt.

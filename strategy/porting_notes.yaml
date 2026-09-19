@@ -11,3 +11,5 @@ porting_notes:
   support.
 - Peak slots use actual local calendar day lengths and UTC arithmetic, correcting the source DST approximation.
   The source hourly floor for quarter-hour reserve remains conservative.
+- Minimum-SoC protection includes equality; discharge is blocked as soon as the reported SoC reaches the
+  configured floor, rather than waiting for the next lower measurement.

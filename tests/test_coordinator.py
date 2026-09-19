@@ -810,8 +810,12 @@ async def test_arbitrage_sensor_is_display_only(coordinator, entry, hass):
     assert sensor.extra_state_attributes is None
 
 
+@pytest.mark.parametrize(
+    ("demand_status", "expected_profile_ready"),
+    [("learning", False), ("ready", True)],
+)
 async def test_arbitrage_receives_passive_terminal_value_context(
-    coordinator, entry, hass
+    coordinator, entry, hass, demand_status, expected_profile_ready
 ):
     forecast_slots = [{
         "start": "2026-09-18T08:00:00+00:00",
@@ -831,7 +835,7 @@ async def test_arbitrage_receives_passive_terminal_value_context(
             coordinator._demand_forecast,
             "update",
             return_value={
-                "status": "ready",
+                "status": demand_status,
                 "forecast_slots": forecast_slots,
                 "pv_cover_from": "2026-09-18T08:30:00+00:00",
                 "profile_ready": True,
@@ -846,7 +850,7 @@ async def test_arbitrage_receives_passive_terminal_value_context(
 
     context = build.call_args.kwargs["terminal_context"]
     assert context["forecast_slots"] == forecast_slots
-    assert context["profile_ready"] is True
+    assert context["profile_ready"] is expected_profile_ready
     assert context["battery_capacity_kwh"] == 12.8
     assert context["current_soc"] == 60
     assert data["arbitrage_estimate"]["controls_battery"] is False

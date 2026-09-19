@@ -878,7 +878,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "current_soc": finite(result.states.get("sensor.opti_soc")),
                     "minimum_soc": finite(self.settings.get("input_number.minsoc")),
                     "maximum_soc": finite(self.settings.get("input_number.maxsoc")),
-                    "profile_ready": demand_report.get("profile_ready") is True,
+                    "profile_ready": (
+                        demand_report.get("profile_ready") is True
+                        and demand_report.get("status") == "ready"
+                    ),
                 }
             data["arbitrage_estimate"] = build_arbitrage_estimate(
                 arbitrage_cfg,

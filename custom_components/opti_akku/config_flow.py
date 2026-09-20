@@ -192,7 +192,7 @@ def _huawei_entities(hass: Any, device_id: str, entry_id: str, domain: str = "se
 
 # The same sections power first-time setup and the editable options menu.
 SETTING_GROUPS = {
-    "battery": ["minsoc", "maxsoc", "akkusteuerung_max_ladestaerke", "akkusteuerung_max_entladestaerke", "opti_pv_ueberschuss_ladung"],
+    "battery": ["minsoc", "maxsoc", "akkusteuerung_max_ladestaerke", "akkusteuerung_max_entladestaerke", "opti_pv_ueberschuss_ladung", "opti_manuelle_ladegrenze"],
     "tariff": ["ladepreis", "mindestpreisdifferenz_lade_entladepreis", "opti_einspeiseverguetung_ct", "opti_netzlade_spread_ct", "opti_peak_min_aufschlag_ct", "opti_halte_spread_ct", "hausakku_aus_netz_laden"],
     "forecast": ["opti_forecast_optimismus", "opti_peak_verbrauch_kw", "opti_prognose_netzladen"],
     "ev": ["opti_ev_akku_pause"],

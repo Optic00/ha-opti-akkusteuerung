@@ -434,6 +434,11 @@ template_blocks:
           {% endif %}
         {% endif %}
 
+        {# Explicit override replaces forecast pacing, not protection limits. #}
+        {% if is_state('input_boolean.opti_manuelle_ladegrenze', 'on') %}
+          {% set max_helper = [[max_helper, 0] | max, 10000] | min %}
+          {% set c = [max_helper, c] | min if soc >= 97 else max_helper %}
+        {% endif %}
         {% set ladeleistung = [c * temp_faktor, max_helper] | min %}
         {# Balancing-spezifischer Vollladungs-Taper: nur zusaetzlich deckeln,
            niemals den regulaeren SoC-/Temperatur-Taper erhoehen. #}

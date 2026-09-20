@@ -69,13 +69,14 @@
       },
       "battery": {
         "title": "Battery and power limits",
-        "description": "Set charge-level limits and maximum charge/discharge power from your battery specifications or previous controller. These are strategy limits, not verified hardware protection. Capacity and temperature are read automatically.",
+        "description": "Set charge-level limits and maximum charge/discharge power from your battery specifications or previous controller. These are strategy limits, not verified hardware protection. Capacity and temperature are read automatically. The forecast-independent limit uses maximum charge power in automatic modes too. Temperature, upper SoC and balancing limits remain active. It turns off again after restart or reload.",
         "data": {
           "minsoc": "Minimum charge level",
           "maxsoc": "Maximum charge level",
           "akkusteuerung_max_ladestaerke": "Maximum charge power",
           "akkusteuerung_max_entladestaerke": "Maximum discharge power",
-          "opti_pv_ueberschuss_ladung": "Allow PV surplus charging"
+          "opti_pv_ueberschuss_ladung": "Allow PV surplus charging",
+          "opti_manuelle_ladegrenze": "Forecast-independent charge limit (temporary)"
         }
       },
       "tariff": {
@@ -341,13 +342,14 @@
       },
       "battery": {
         "title": "Battery and power limits",
-        "description": "Set charge-level limits and maximum charge/discharge power from your battery specifications or previous controller. These are strategy limits, not verified hardware protection. Capacity and temperature are read automatically.",
+        "description": "Set charge-level limits and maximum charge/discharge power from your battery specifications or previous controller. These are strategy limits, not verified hardware protection. Capacity and temperature are read automatically. The forecast-independent limit uses maximum charge power in automatic modes too. Temperature, upper SoC and balancing limits remain active. It turns off again after restart or reload.",
         "data": {
           "minsoc": "Minimum charge level",
           "maxsoc": "Maximum charge level",
           "akkusteuerung_max_ladestaerke": "Maximum charge power",
           "akkusteuerung_max_entladestaerke": "Maximum discharge power",
-          "opti_pv_ueberschuss_ladung": "Allow PV surplus charging"
+          "opti_pv_ueberschuss_ladung": "Allow PV surplus charging",
+          "opti_manuelle_ladegrenze": "Forecast-independent charge limit (temporary)"
         }
       },
       "tariff": {
@@ -598,6 +600,9 @@
       },
       "hausakku_aus_netz_laden": {
         "name": "Allow winter grid charging"
+      },
+      "opti_manuelle_ladegrenze": {
+        "name": "Forecast-independent charge limit (temporary)"
       },
       "opti_prognose_netzladen": {
         "name": "Allow reserve planning with grid charging"

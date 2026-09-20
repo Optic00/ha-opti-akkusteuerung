@@ -271,6 +271,11 @@ helper_definitions:
     domain: input_boolean
     name: Speicher Eco Netzladen
     icon: mdi:leaf
+  input_boolean.opti_manuelle_ladegrenze:
+    domain: input_boolean
+    name: Prognoseunabhängige Ladegrenze
+    icon: mdi:battery-edit
+    initial: false
   input_boolean.opti_prognose_netzladen:
     domain: input_boolean
     name: Opti Reserve-halten bei schlechter Prognose
@@ -355,6 +360,7 @@ helper_defaults:
   input_boolean.hausakku_wurde_netzgeladen: 'off'
   input_boolean.akku_nach_preis_laden: 'off'
   input_boolean.speicher_eco_netzladen: 'off'
+  input_boolean.opti_manuelle_ladegrenze: 'off'
   input_boolean.opti_prognose_netzladen: 'on'
   input_boolean.opti_pv_ueberschuss_ladung: 'on'
   input_boolean.opti_ev_akku_pause: 'off'

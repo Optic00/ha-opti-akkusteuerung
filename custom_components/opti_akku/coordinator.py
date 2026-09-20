@@ -180,6 +180,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if invalid:
             self._last_error = "Ungültige gespeicherte Einstellungen zurückgesetzt: " + ", ".join(sorted(set(invalid)))
             _LOGGER.warning(self._last_error)
+        # This temporary override follows the legacy initial:false contract,
+        # including reloads and settings supplied through the migration wizard.
+        self.settings["input_boolean.opti_manuelle_ladegrenze"] = False
         self.engine.restore(stored.get("engine", {}))
         self._demand_forecast.restore(stored.get("demand_forecast", {}))
         self._source_observation.restore(stored.get("source_observation", {}))

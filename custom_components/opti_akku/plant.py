@@ -353,6 +353,6 @@ def plant_semantic_fingerprint(options: Mapping[str, Any]) -> tuple[Any, ...]:
         config.meter_confirmed,
     )
     # Preserve existing learned profiles when the new option is unused.
-    if config.event_based_excluded_sources:
+    if config.mode != "legacy" and config.event_based_excluded_sources:
         return (*fingerprint, tuple(sorted(config.event_based_excluded_sources)))
     return fingerprint

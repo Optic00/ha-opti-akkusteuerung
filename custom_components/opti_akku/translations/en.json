@@ -69,7 +69,7 @@
       },
       "battery": {
         "title": "Battery and power limits",
-        "description": "Set charge-level limits and maximum charge/discharge power from your battery specifications or previous controller. These are strategy limits, not verified hardware protection. Capacity and temperature are read automatically. The forecast-independent limit uses maximum charge power in automatic modes too. Temperature, upper SoC and balancing limits remain active. It turns off again after restart or reload.",
+        "description": "Set charge-level limits and maximum charge/discharge power from your battery specifications or previous controller. These are strategy limits, not verified hardware protection. Capacity and temperature are read automatically.",
         "data": {
           "minsoc": "Minimum charge level",
           "maxsoc": "Maximum charge level",
@@ -342,7 +342,7 @@
       },
       "battery": {
         "title": "Battery and power limits",
-        "description": "Set charge-level limits and maximum charge/discharge power from your battery specifications or previous controller. These are strategy limits, not verified hardware protection. Capacity and temperature are read automatically. The forecast-independent limit uses maximum charge power in automatic modes too. Temperature, upper SoC and balancing limits remain active. It turns off again after restart or reload.",
+        "description": "Set charge-level limits and maximum charge/discharge power from your battery specifications or previous controller. These are strategy limits, not verified hardware protection. Capacity and temperature are read automatically. The forecast-independent limit uses maximum charge power in automatic modes too. Temperature, upper SoC and balancing limits remain active. It turns off again after restart or reload. Enable it after setup without changing connections or sources in the same save; those changes reload the integration.",
         "data": {
           "minsoc": "Minimum charge level",
           "maxsoc": "Maximum charge level",

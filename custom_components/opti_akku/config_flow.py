@@ -262,6 +262,8 @@ class WizardSections:
                 schema = {marker: value for marker, value in schema.items()
                           if marker.schema not in ("price_current", "price_series", "price_unit")}
         for name in SETTING_GROUPS.get(section, []):
+            if name == "opti_manuelle_ladegrenze" and not isinstance(self, OptionsFlow):
+                continue  # A temporary override cannot survive first setup.
             key = _setting_key(name)
             definition = DEFINITIONS[key]
             if key in SWITCH_DEFINITIONS:
@@ -297,6 +299,14 @@ class WizardSections:
         return None
 
     def _validate_sources(self, section: str, draft: dict, settings: dict, connection=None) -> dict:
+        if section == "sources":
+            from .plant import validate_plant_sources
+            # Check the new contract's shape even with legacy/disabled strategy;
+            # legacy mode validates configuration without reading plant sources.
+            shape_errors = validate_plant_sources(
+                {**draft, "plant_mode": "legacy"}, self.hass.states, dt_util.utcnow())
+            if "event_based_excluded_sources" in shape_errors:
+                return {"event_based_excluded_sources": "plant_sources_invalid"}
         if section == "sources" and (error := self._huawei_source_error(draft, connection)):
             return {"base": error}
         if draft.get("strategy_enabled", True) is False and section in ("sources", "tariff", "forecast", "balancing"):

@@ -30,7 +30,7 @@ Bei Modus, Ladestatus und Smart Cost von evcc wird nur geprüft, ob der Zustand
 gültig ist. Das Alter des Werts spielt keine Rolle, weil evcc unveränderte Werte
 nicht regelmäßig neu senden muss.
 
-Unter **Batterie und Leistungsgrenzen** kann die **Prognoseunabhängige Ladegrenze**
+Nach der Einrichtung unter **Akku und Leistungsgrenzen** kann die **Prognoseunabhängige Ladegrenze**
 vorübergehend aktiviert werden. Dann verwendet die berechnete Ladeleistung die
 eingestellte maximale Ladestärke statt der prognoseabhängigen Staffelung.
 Temperaturdrosselung und -abschaltung, der obere SoC-Taper ab 97 Prozent sowie
@@ -38,7 +38,8 @@ der Balancing-Taper bleiben wirksam. Das gilt sowohl für manuell gewählte als
 auch für automatisch gewählte Modi, die die berechnete Ladeleistung verwenden
 (**Akku nur Laden**, **Akku Dynamisch**, **Akku Netzladen**).
 Nach HA-Neustart oder Neuladen der Integration ist die Option wieder aus; eine
-YAML-Migration aktiviert sie nicht automatisch. Die Wattgrenze wird übernommen.
+YAML-Migration aktiviert sie nicht automatisch. Nicht zusammen mit Verbindungs-
+oder Quellenänderungen einschalten, da diese ein Neuladen auslösen. Die Wattgrenze wird übernommen.
 Eine Ladeobergrenze erzwingt kein reines PV-Laden; dafür müssen auch Betriebsart,
 Mindestladeleistung und Netzladefreigaben passen. **Strategie berechnen** aus
 bleibt eine Pause, auch bei manueller Moduswahl. Die Option ist kein Ersatz für

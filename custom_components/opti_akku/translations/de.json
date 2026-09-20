@@ -69,7 +69,7 @@
       },
       "battery": {
         "title": "Akku und Leistungsgrenzen",
-        "description": "Lege den gewünschten Ladestand und die zulässigen Lade- und Entladeleistungen fest. Übernimm die Grenzen deiner Batterie bzw. deiner bisherigen Steuerung. Dies sind Strategiegrenzen, keine bestätigten Hardware-Schutzgrenzen. Kapazität und Temperatur werden automatisch gelesen. Die prognoseunabhängige Grenze nutzt die maximale Ladestärke auch in Automatik. Temperatur-, oberer SoC- und Balancing-Schutz bleiben aktiv. Nach Neustart oder Neuladen ist sie wieder aus.",
+        "description": "Lege den gewünschten Ladestand und die zulässigen Lade- und Entladeleistungen fest. Übernimm die Grenzen deiner Batterie bzw. deiner bisherigen Steuerung. Dies sind Strategiegrenzen, keine bestätigten Hardware-Schutzgrenzen. Kapazität und Temperatur werden automatisch gelesen.",
         "data": {
           "minsoc": "Minimaler Ladestand",
           "maxsoc": "Maximaler Ladestand",
@@ -342,7 +342,7 @@
       },
       "battery": {
         "title": "Akku und Leistungsgrenzen",
-        "description": "Lege den gewünschten Ladestand und die zulässigen Lade- und Entladeleistungen fest. Übernimm die Grenzen deiner Batterie bzw. deiner bisherigen Steuerung. Dies sind Strategiegrenzen, keine bestätigten Hardware-Schutzgrenzen. Kapazität und Temperatur werden automatisch gelesen. Die prognoseunabhängige Grenze nutzt die maximale Ladestärke auch in Automatik. Temperatur-, oberer SoC- und Balancing-Schutz bleiben aktiv. Nach Neustart oder Neuladen ist sie wieder aus.",
+        "description": "Lege den gewünschten Ladestand und die zulässigen Lade- und Entladeleistungen fest. Übernimm die Grenzen deiner Batterie bzw. deiner bisherigen Steuerung. Dies sind Strategiegrenzen, keine bestätigten Hardware-Schutzgrenzen. Kapazität und Temperatur werden automatisch gelesen. Die prognoseunabhängige Grenze nutzt die maximale Ladestärke auch in Automatik. Temperatur-, oberer SoC- und Balancing-Schutz bleiben aktiv. Nach Neustart oder Neuladen ist sie wieder aus. Aktiviere sie nach der Einrichtung ohne gleichzeitige Verbindungs- oder Quellenänderung; solche Änderungen laden die Integration neu.",
         "data": {
           "minsoc": "Minimaler Ladestand",
           "maxsoc": "Maximaler Ladestand",

@@ -514,12 +514,14 @@ async def test_event_based_idle_exclusion_can_be_configured_with_old_zero(hass):
         assert saved["options"]["event_based_excluded_sources"] == ["sensor.wallbox"]
 
 
-async def test_idle_exclusion_wizard_rejects_source_not_excluded(hass):
+@pytest.mark.parametrize("mode", ["legacy", "balance"])
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_idle_exclusion_wizard_rejects_source_not_excluded(hass, mode, enabled):
     hass.states.async_set("sensor.wallbox", "0", {"unit_of_measurement": "W"})
     with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
         result = await begin(hass)
         result = await hass.config_entries.flow.async_configure(result["flow_id"], form_values(result, {
-            "plant_mode": "balance", "plant_meter_confirmed": True,
+            "plant_mode": mode, "plant_meter_confirmed": True, "strategy_enabled": enabled,
             "event_based_excluded_sources": ["sensor.wallbox"],
         }))
     assert result["errors"]["event_based_excluded_sources"] == "plant_sources_invalid"
@@ -1881,3 +1883,20 @@ async def test_guided_features_can_open_ev_and_options_can_open_balancing(hass):
         result["flow_id"], {"next_step_id": "balancing"}
     )
     assert result["step_id"] == "balancing"
+
+
+async def test_temporary_charge_override_only_offered_after_initial_setup(hass):
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
+        result = await begin(hass)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], form_values(result, {
+            "plant_mode": "balance", "plant_meter_confirmed": True,
+        }))
+        assert result["step_id"] == "battery"
+        assert "opti_manuelle_ladegrenze" not in {m.schema for m in result["data_schema"].schema}
+        hass.config_entries.flow.async_abort(result["flow_id"])
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, options={"sources": {}, "single_inverter": True})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "battery"})
+    assert "opti_manuelle_ladegrenze" in {m.schema for m in result["data_schema"].schema}
+    hass.config_entries.options.async_abort(result["flow_id"])

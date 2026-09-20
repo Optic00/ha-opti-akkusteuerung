@@ -494,3 +494,10 @@ def test_idle_validity_change_resets_profile_but_empty_default_preserves_it():
     original = plant_semantic_fingerprint(options)
     assert plant_semantic_fingerprint({**options, "event_based_excluded_sources": []}) == original
     assert plant_semantic_fingerprint({**options, "event_based_excluded_sources": ["sensor.ev"]}) != original
+
+
+def test_legacy_profile_ignores_unused_idle_zero_contract():
+    options = {"plant_mode": "legacy", "excluded_load_sources": ["sensor.ev"]}
+    assert plant_semantic_fingerprint(options) == plant_semantic_fingerprint({
+        **options, "event_based_excluded_sources": ["sensor.ev"],
+    })

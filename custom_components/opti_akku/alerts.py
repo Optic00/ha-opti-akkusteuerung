@@ -14,10 +14,10 @@ PRICE_STARTUP_GRACE_SECONDS = 360
 PRICE_SOURCE_KEYS = {"price_current", "price_series"}
 MESSAGES = {
     "pause": ("Huawei-Pause nicht bestätigt. Geräteeinstellungen können weiterwirken; automatische Nachholung nur bei unveränderter Bindung und Freigabe.", "Huawei pause is unconfirmed. Device settings may remain active; automatic retry requires unchanged binding and permission."),
-    "connection": ("Wechselrichter nicht erreichbar oder noch nicht betriebsbereit", "Inverter offline or not yet ready"),
+    "connection": ("Wechselrichter nicht erreichbar oder noch nicht betriebsbereit. Gerätebereitschaft und Verbindung prüfen: bei SMA die Modbus-Einstellungen, bei Huawei die Huawei-Solar-Integration.", "Inverter offline or not yet ready. Check device readiness and connection: Modbus settings for SMA, or the Huawei Solar integration for Huawei."),
     "block": ("Lade-/Entladesperre wird verletzt", "Charge/discharge restriction violated"),
     "write": ("Schreibvorgang fehlgeschlagen oder seit über 240 Sekunden nicht bestätigt", "Write failed or not confirmed for more than 240 seconds"),
-    "sources": ("Benötigte Eingangsdaten fehlen oder sind ungültig", "Input data is missing or invalid"),
+    "sources": ("Benötigte Eingangsdaten fehlen oder sind ungültig. Am Opti-Akku-Gerät Quellenfehler prüfen, dann den betroffenen Sensor und seine Zuordnung unter Konfigurieren kontrollieren.", "Input data is missing or invalid. Check Source errors on the Opti Akku device, then the affected sensor and its mapping under Configure."),
     "prices": ("Tibber-Preisabruf fehlgeschlagen; Cache gilt nur bis zu seiner ursprünglichen Ablaufzeit", "Tibber price fetch failed; cached prices keep their original expiry"),
 }
 

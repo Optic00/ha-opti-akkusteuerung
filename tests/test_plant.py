@@ -417,3 +417,80 @@ def test_external_entity_dependency_and_validation_are_explicit():
     assert validate_plant_sources(options, {}, NOW) == {
         "house_consumption": "missing_or_stale"
     }
+
+
+@pytest.mark.parametrize("unit", ["W", "kW"])
+@pytest.mark.parametrize("age", [900, 901, 7 * 86400])
+def test_event_based_idle_exclusion_requires_explicit_source_opt_in(unit, age):
+    options = balance_options(excluded_load_sources=["sensor.wallbox"])
+    states = {"sensor.wallbox": state(0, unit, age)}
+    before = evaluate_plant(NATIVE, options, states, NOW)
+    assert (before.house_w is not None) == (age <= 900)
+    options["event_based_excluded_sources"] = ["sensor.wallbox"]
+    result = evaluate_plant(NATIVE, options, states, NOW)
+    assert result.house_w == result.forecast_input_w == 1000
+    assert not result.errors
+    assert result.attributes["stale_zero_sources"] == (["sensor.wallbox"] if age > 900 else [])
+    assert validate_plant_sources(options, states, NOW) == {}
+
+
+@pytest.mark.parametrize("sample", [
+    None, state(1, age=901), state(-1, age=901), state("unknown", age=901),
+    state("unavailable", age=901), state("nan", age=901), state("inf", age=901),
+    state(0, "A", age=901), state(0, age=-61),
+])
+def test_event_based_exclusion_never_hides_real_source_errors(sample):
+    options = balance_options(excluded_load_sources=["sensor.wallbox"],
+                              event_based_excluded_sources=["sensor.wallbox"])
+    states = {} if sample is None else {"sensor.wallbox": sample}
+    result = evaluate_plant(NATIVE, options, states, NOW)
+    assert result.house_w is result.base_load_w is result.forecast_input_w is None
+    assert "sensor.wallbox" in result.errors
+    assert validate_plant_sources(options, states, NOW) == result.errors
+
+
+@pytest.mark.parametrize("reported", [None, datetime(2026, 9, 13, 9)])
+def test_idle_zero_still_requires_valid_timestamp(reported):
+    sample = state(0)
+    sample.last_reported = reported
+    options = balance_options(excluded_load_sources=["sensor.wallbox"],
+                              event_based_excluded_sources=["sensor.wallbox"])
+    assert evaluate_plant(NATIVE, options, {"sensor.wallbox": sample}, NOW).errors
+
+
+def test_unchanged_but_reported_exclusion_needs_no_idle_exception():
+    sample = state(0)
+    sample.last_updated = NOW - timedelta(days=7)
+    options = balance_options(excluded_load_sources=["sensor.wallbox"])
+    result = evaluate_plant(NATIVE, options, {"sensor.wallbox": sample}, NOW)
+    assert result.house_w == 1000
+    assert result.attributes["stale_zero_sources"] == []
+
+
+@pytest.mark.parametrize("selected", ["sensor.ev", ["sensor.other"], ["sensor.ev", "sensor.ev"]])
+def test_idle_exception_must_be_unique_subset_of_excluded_sources(selected):
+    options = balance_options(excluded_load_sources=["sensor.ev"],
+                              event_based_excluded_sources=selected)
+    result = evaluate_plant(NATIVE, options, {}, NOW)
+    assert "event_based_excluded_sources" in result.errors
+    assert result.house_w is None
+    assert validate_plant_sources(options, {}, NOW)["event_based_excluded_sources"]
+
+
+def test_idle_exception_is_per_source_and_never_applies_to_meters():
+    options = balance_options(excluded_load_sources=["sensor.ev", "sensor.other"],
+                              event_based_excluded_sources=["sensor.ev"],
+                              additional_ac_sources=["sensor.inverter"])
+    states = {key: state(0, age=901) for key in ("sensor.ev", "sensor.other", "sensor.inverter")}
+    assert set(validate_plant_sources(options, states, NOW)) == {"sensor.other", "sensor.inverter"}
+    external = {**options, "plant_mode": "external", "additional_ac_sources": [],
+                "sources": {"house_consumption": "sensor.house"}}
+    states["sensor.house"] = state(0, age=901)
+    assert "house_consumption" in validate_plant_sources(external, states, NOW)
+
+
+def test_idle_validity_change_resets_profile_but_empty_default_preserves_it():
+    options = balance_options(excluded_load_sources=["sensor.ev"])
+    original = plant_semantic_fingerprint(options)
+    assert plant_semantic_fingerprint({**options, "event_based_excluded_sources": []}) == original
+    assert plant_semantic_fingerprint({**options, "event_based_excluded_sources": ["sensor.ev"]}) != original

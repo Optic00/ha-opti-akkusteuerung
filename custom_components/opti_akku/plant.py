@@ -19,6 +19,7 @@ class PlantConfig:
     mode: str
     additional_ac_sources: tuple[str, ...]
     excluded_load_sources: tuple[str, ...]
+    event_based_excluded_sources: tuple[str, ...]
     external_house_source: str | None
     source_max_age: float
     forecast_min_load_w: float | None
@@ -75,6 +76,12 @@ def _config(options: Mapping[str, Any]) -> tuple[PlantConfig | None, dict[str, s
     if excluded is None:
         errors["excluded_load_sources"] = "invalid_entity_list"
         excluded = ()
+    event_based = _entity_ids(options.get("event_based_excluded_sources", []))
+    if event_based is None:
+        errors["event_based_excluded_sources"] = "invalid_entity_list"
+        event_based = ()
+    elif not set(event_based) <= set(excluded):
+        errors["event_based_excluded_sources"] = "not_an_excluded_source"
 
     max_age = _finite(options.get("source_max_age", 900))
     if max_age is None or max_age < 0:
@@ -114,6 +121,7 @@ def _config(options: Mapping[str, Any]) -> tuple[PlantConfig | None, dict[str, s
         mode=mode,
         additional_ac_sources=additional,
         excluded_load_sources=excluded,
+        event_based_excluded_sources=event_based,
         external_house_source=external,
         source_max_age=max_age,
         forecast_min_load_w=floor,
@@ -139,11 +147,16 @@ def _ha_power(
     max_age: float,
     *,
     signed: bool,
+    allow_idle_zero: bool = False,
 ) -> tuple[float | None, str | None]:
     state = ha_states.get(entity_id)
-    if state is None or not _fresh(state, now, max_age):
+    if state is None:
         return None, "missing_or_stale"
     value = _finite(getattr(state, "state", None))
+    if not _fresh(state, now, max_age) and not (
+        allow_idle_zero and value == 0 and _fresh(state, now, math.inf)
+    ):
+        return None, "missing_or_stale"
     if value is None:
         return None, "invalid_value"
     attributes = getattr(state, "attributes", {})
@@ -242,12 +255,18 @@ def evaluate_plant(
         house = max(0.0, house)
 
     excluded_total = 0.0
+    stale_zero_sources: list[str] = []
     for entity_id in config.excluded_load_sources:
-        value, error = _ha_power(entity_id, ha_states, now, config.source_max_age, signed=False)
+        value, error = _ha_power(
+            entity_id, ha_states, now, config.source_max_age, signed=False,
+            allow_idle_zero=entity_id in config.event_based_excluded_sources,
+        )
         if error:
             errors[entity_id] = error
         else:
             assert value is not None
+            if not _fresh(ha_states.get(entity_id), now, config.source_max_age):
+                stale_zero_sources.append(entity_id)
             excluded_total += value
             if not math.isfinite(excluded_total):
                 errors["excluded_load_sources"] = "invalid_sum"
@@ -268,6 +287,7 @@ def evaluate_plant(
         "plant_mode": config.mode,
         "components": components,
         "excluded_load_w": excluded_total,
+        "stale_zero_sources": stale_zero_sources,
         "forecast_min_load_w": config.forecast_min_load_w,
         "noise_tolerance_w": MEASUREMENT_NOISE_TOLERANCE_W,
     }
@@ -310,7 +330,10 @@ def validate_plant_sources(
         if error:
             errors[entity_id] = error
     for entity_id in config.excluded_load_sources:
-        _, error = _ha_power(entity_id, ha_states, now, config.source_max_age, signed=False)
+        _, error = _ha_power(
+            entity_id, ha_states, now, config.source_max_age, signed=False,
+            allow_idle_zero=entity_id in config.event_based_excluded_sources,
+        )
         if error:
             errors[entity_id] = error
     return errors
@@ -321,7 +344,7 @@ def plant_semantic_fingerprint(options: Mapping[str, Any]) -> tuple[Any, ...]:
     config, errors = _config(options)
     if config is None or errors:
         return ("invalid", tuple(sorted(errors.items())))
-    return (
+    fingerprint = (
         config.mode,
         tuple(sorted(config.additional_ac_sources)),
         tuple(sorted(config.excluded_load_sources)),
@@ -329,3 +352,7 @@ def plant_semantic_fingerprint(options: Mapping[str, Any]) -> tuple[Any, ...]:
         config.source_max_age,
         config.meter_confirmed,
     )
+    # Preserve existing learned profiles when the new option is unused.
+    if config.event_based_excluded_sources:
+        return (*fingerprint, tuple(sorted(config.event_based_excluded_sources)))
+    return fingerprint

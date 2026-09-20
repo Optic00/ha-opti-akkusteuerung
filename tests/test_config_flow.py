@@ -494,6 +494,37 @@ async def test_two_inverter_wizard_without_house_helper(hass):
     assert not result["options"]["sources"].get("house_consumption")
 
 
+async def test_event_based_idle_exclusion_can_be_configured_with_old_zero(hass):
+    hass.states.async_set("sensor.wallbox", "0", {"unit_of_measurement": "W"})
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
+        result = await begin(hass)
+        values = form_values(result, {
+            "plant_mode": "balance", "plant_meter_confirmed": True,
+            "excluded_load_sources": ["sensor.wallbox"],
+        })
+        with patch("custom_components.opti_akku.config_flow.dt_util.utcnow",
+                   return_value=dt_util.utcnow() + timedelta(days=7)):
+            rejected = await hass.config_entries.flow.async_configure(result["flow_id"], values)
+            assert rejected["errors"]["excluded_load_sources"] == "missing_or_stale"
+            values["event_based_excluded_sources"] = ["sensor.wallbox"]
+            accepted = await hass.config_entries.flow.async_configure(result["flow_id"], values)
+        assert accepted["step_id"] == "battery"
+        with patch("custom_components.opti_akku.async_setup_entry", AsyncMock(return_value=True)):
+            saved = await finish_wizard(hass, accepted)
+        assert saved["options"]["event_based_excluded_sources"] == ["sensor.wallbox"]
+
+
+async def test_idle_exclusion_wizard_rejects_source_not_excluded(hass):
+    hass.states.async_set("sensor.wallbox", "0", {"unit_of_measurement": "W"})
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
+        result = await begin(hass)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], form_values(result, {
+            "plant_mode": "balance", "plant_meter_confirmed": True,
+            "event_based_excluded_sources": ["sensor.wallbox"],
+        }))
+    assert result["errors"]["event_based_excluded_sources"] == "plant_sources_invalid"
+
+
 async def test_initial_form_selects_backend_before_connection(hass):
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}

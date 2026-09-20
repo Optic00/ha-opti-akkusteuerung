@@ -30,6 +30,21 @@ Bei Modus, Ladestatus und Smart Cost von evcc wird nur geprüft, ob der Zustand
 gültig ist. Das Alter des Werts spielt keine Rolle, weil evcc unveränderte Werte
 nicht regelmäßig neu senden muss.
 
+Für ausgeschlossene Verbraucher wie Wallboxen gibt es unter **Anlage und
+Messwerte** die Auswahl **Ausschlusslasten mit unverändert gültigen 0 W**.
+Hier dürfen nur bereits ausgeschlossene Sensoren gewählt werden, deren
+Integration unveränderte Nullwerte nicht regelmäßig meldet und einen
+Verbindungsausfall zuverlässig als `unavailable` kennzeichnet. Für diese Quellen
+bleiben exakt 0 W oder 0 kW ohne Altersgrenze gültig. Positive Leistungen,
+ungültige Einheiten, fehlende oder nicht verfügbare Quellen werden weiterhin
+abgewiesen. Hauszähler und zusätzliche Wechselrichter erhalten diese Ausnahme
+nicht. Standardmäßig ist die Auswahl leer; ein hängender letzter Nullwert ohne
+verlässliche Verfügbarkeitsmeldung ist kein Nachweis für einen ausgeschalteten
+Verbraucher. Der Sensor für den rohen Hausverbrauch zeigt die dabei verwendeten
+alten Nullwerte im Attribut `stale_zero_sources`. Eine Änderung der Auswahl
+beginnt ein neues Verbrauchsprofil, damit unterschiedliche Gültigkeitsregeln
+nicht vermischt werden.
+
 **Upgrade:** Einstellungen werden erhalten. Ein einzelner ungültiger gespeicherter
 Wert setzt nur diesen Wert bzw. ein widersprüchliches Grenzpaar zurück und sperrt
 Schreibzugriffe mit einer Diagnose. Schreibfreigaben sind nun an Verbindung und

@@ -607,6 +607,28 @@ async def test_plant_source_invalidated_during_write_cancels_guard(coordinator, 
     coordinator.device.async_apply.assert_awaited_once()
 
 
+async def test_idle_excluded_source_keeps_balance_but_outage_still_cancels_write(coordinator, hass):
+    hass.config_entries.async_update_entry(coordinator.entry, options={**coordinator.entry.options,
+        "plant_mode": "balance", "plant_meter_confirmed": True, "forecast_min_load_w": 0,
+        "excluded_load_sources": ["sensor.ev_load"],
+        "event_based_excluded_sources": ["sensor.ev_load"]})
+    hass.states.async_set("sensor.ev_load", "0", {"unit_of_measurement": "W"})
+    now = dt_util.utcnow() + timedelta(days=7)
+    coordinator.write_enabled = True
+
+    async def apply(mode, params, current):
+        assert current()
+        hass.states.async_set("sensor.ev_load", "unavailable", {"unit_of_measurement": "W"})
+        assert not current()
+
+    coordinator.device.async_apply.side_effect = apply
+    with patch("custom_components.opti_akku.coordinator.dt_util.utcnow", return_value=now):
+        data = await coordinator._async_update_data()
+    coordinator.device.async_apply.assert_awaited_once()
+    assert float(data["states"]["sensor.opti_house_raw_w"]) == 800
+    assert data["attributes"]["sensor.opti_house_raw_w"]["stale_zero_sources"] == ["sensor.ev_load"]
+
+
 async def test_disabled_strategy_observes_without_engine_or_provider(hass, entry):
     hass.config_entries.async_update_entry(entry, options={"strategy_enabled": False, "sources": {},
         "single_writer_confirmed": True, "price_provider": "tibber"})

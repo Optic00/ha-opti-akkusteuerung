@@ -205,7 +205,7 @@ SOURCE_GROUPS = {"sources": ["house_consumption", "pv_generation", "pv_power"],
                  "tariff": ["price_current", "price_series"],
                  "forecast": ["forecast_today", "forecast_tomorrow", "forecast_remaining"],
                  "ev": list(EV_SOURCE_KEYS), "balancing": ["cell_spread"]}
-OPTION_GROUPS = {"sources": ["strategy_enabled", "single_inverter", "plant_mode", "additional_ac_sources", "excluded_load_sources", "plant_meter_confirmed", "forecast_min_load_w"], "tariff": ["price_unit", "price_provider"],
+OPTION_GROUPS = {"sources": ["strategy_enabled", "single_inverter", "plant_mode", "additional_ac_sources", "excluded_load_sources", "event_based_excluded_sources", "plant_meter_confirmed", "forecast_min_load_w"], "tariff": ["price_unit", "price_provider"],
                  "advanced": ["source_max_age", "forecast_max_age", "price_max_age"],
                  "finish": ["shadow_reference_mode", "single_writer_confirmed"]}
 DEFINITIONS = {**NUMBER_DEFINITIONS, **SWITCH_DEFINITIONS}
@@ -244,7 +244,7 @@ class WizardSections:
             schema[vol.Required("strategy_enabled", default=self._draft.get("strategy_enabled", True))] = BooleanSelector()
             schema[vol.Required("plant_mode", default=self._draft.get("plant_mode", "legacy"))] = SelectSelector(
                 SelectSelectorConfig(options=["legacy", "external"] if huawei else ["legacy", "balance", "external"], translation_key="plant_mode"))
-            for key in ("additional_ac_sources", "excluded_load_sources"):
+            for key in ("additional_ac_sources", "excluded_load_sources", "event_based_excluded_sources"):
                 schema[vol.Optional(key, default=self._draft.get(key, []))] = EntitySelector(
                     EntitySelectorConfig(domain=["sensor"], multiple=True))
             schema[vol.Required("plant_meter_confirmed", default=self._draft.get("plant_meter_confirmed", False))] = BooleanSelector()
@@ -322,7 +322,7 @@ class WizardSections:
                 errors["base"] = "plant_duplicate_source"
             for key, error in validate_plant_sources(draft, self.hass.states, dt_util.utcnow()).items():
                 field = ("additional_ac_sources" if key in ac else "excluded_load_sources" if key in excluded else key)
-                if field not in ("additional_ac_sources", "excluded_load_sources", "house_consumption", "pv_power", "plant_meter_confirmed", "forecast_min_load_w"):
+                if field not in ("additional_ac_sources", "excluded_load_sources", "event_based_excluded_sources", "house_consumption", "pv_power", "plant_meter_confirmed", "forecast_min_load_w"):
                     field = "base"
                 errors.setdefault(field, error if error in ("missing_or_stale", "unsupported_unit", "negative_value", "invalid_value") else "plant_sources_invalid")
             registry = er.async_get(self.hass)

@@ -51,7 +51,7 @@
       },
       "sources": {
         "title": "Anlage und Messwerte",
-        "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig.",
+        "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig. Nur bereits oben ausgeschlossene Lasten auswählen, die unveränderte 0 W nicht regelmäßig melden und Verbindungsausfälle zuverlässig als nicht verfügbar kennzeichnen. Nur exakt 0 W bzw. 0 kW dürfen dann älter sein; positive Leistungen werden weiter auf Aktualität geprüft.",
         "data": {
           "house_consumption": "Hausverbrauch",
           "pv_generation": "PV-Erzeugung DC (nur Anzeige, optional)",
@@ -60,6 +60,7 @@
           "plant_mode": "Berechnung des Hausverbrauchs",
           "additional_ac_sources": "Weitere Wechselrichter: AC-Ausgangsleistung",
           "excluded_load_sources": "Aus der Prognose auszunehmende Verbraucher",
+          "event_based_excluded_sources": "Ausschlusslasten mit unverändert gültigen 0 W",
           "plant_meter_confirmed": "Der Netzzähler erfasst alle gewählten Erzeuger und Verbraucher",
           "forecast_min_load_w": "Mindestgrundlast für die Prognose",
           "strategy_enabled": "Automatische Strategie aktivieren",
@@ -322,7 +323,7 @@
       },
       "sources": {
         "title": "Anlage und Messwerte",
-        "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig.",
+        "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig. Nur bereits oben ausgeschlossene Lasten auswählen, die unveränderte 0 W nicht regelmäßig melden und Verbindungsausfälle zuverlässig als nicht verfügbar kennzeichnen. Nur exakt 0 W bzw. 0 kW dürfen dann älter sein; positive Leistungen werden weiter auf Aktualität geprüft.",
         "data": {
           "house_consumption": "Hausverbrauch",
           "pv_generation": "PV-Erzeugung DC (nur Anzeige, optional)",
@@ -331,6 +332,7 @@
           "plant_mode": "Berechnung des Hausverbrauchs",
           "additional_ac_sources": "Weitere Wechselrichter: AC-Ausgangsleistung",
           "excluded_load_sources": "Aus der Prognose auszunehmende Verbraucher",
+          "event_based_excluded_sources": "Ausschlusslasten mit unverändert gültigen 0 W",
           "plant_meter_confirmed": "Der Netzzähler erfasst alle gewählten Erzeuger und Verbraucher",
           "forecast_min_load_w": "Mindestgrundlast für die Prognose",
           "strategy_enabled": "Automatische Strategie aktivieren",

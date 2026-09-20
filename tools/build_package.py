@@ -13,6 +13,42 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION = re.compile(r"20\d{2}\.(?:[1-9]|1[0-2])(?:-beta[1-9]\d*|\.(?:0|[1-9]\d*))")
 
 
+def release_version() -> str:
+    manifest_path = ROOT / "custom_components" / "opti_akku" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    version = manifest["version"]
+    project_version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    if (
+        not isinstance(version, str)
+        or not VERSION.fullmatch(version)
+        or project_version != version
+    ):
+        raise ValueError("Manifest and project must have the same calendar version")
+    return version
+
+
+def verify_release_ref(tag: str) -> None:
+    """Require an annotated version tag pointing at the checked-out commit."""
+    if tag != release_version():
+        raise ValueError("Release tag must exactly match manifest version")
+    ref = f"refs/tags/{tag}"
+    result = subprocess.run(
+        ["git", "cat-file", "-t", ref], cwd=ROOT, capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        raise ValueError(f"Release tag does not exist: {tag}")
+    if result.stdout.strip() != "tag":
+        raise ValueError(f"Release tag must be annotated: {tag}")
+    tagged_commit = subprocess.check_output(
+        ["git", "rev-parse", f"{ref}^{{commit}}"], cwd=ROOT, text=True
+    ).strip()
+    checked_out_commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD^{commit}"], cwd=ROOT, text=True
+    ).strip()
+    if tagged_commit != checked_out_commit:
+        raise ValueError("Release tag must point at the checked-out commit")
+
+
 def build(output: Path, tag: str | None = None) -> Path:
     component = ROOT / "custom_components" / "opti_akku"
     manifest = json.loads((component / "manifest.json").read_text())
@@ -20,10 +56,7 @@ def build(output: Path, tag: str | None = None) -> Path:
     required = {"domain", "name", "version", "config_flow", "dependencies", "documentation", "codeowners"}
     if required - manifest.keys() or manifest["domain"] != "opti_akku" or "modbus" not in manifest["dependencies"]:
         raise ValueError("Invalid integration manifest")
-    version = manifest["version"]
-    project_version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
-    if not isinstance(version, str) or not VERSION.fullmatch(version) or project_version != version:
-        raise ValueError("Manifest and project must have the same calendar version")
+    version = release_version()
     if tag is not None and tag != version:
         raise ValueError("Release tag must exactly match manifest version")
     if hacs.get("homeassistant") != "2026.9.1":
@@ -78,5 +111,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=ROOT / ".build")
     parser.add_argument("--tag", help="Require an exact match with the release tag")
+    parser.add_argument(
+        "--check-release-ref",
+        action="store_true",
+        help="Check that --tag is annotated and points at HEAD without building",
+    )
     args = parser.parse_args()
-    print(build(args.output, args.tag))
+    if args.check_release_ref:
+        if args.tag is None:
+            parser.error("--check-release-ref requires --tag")
+        try:
+            verify_release_ref(args.tag)
+        except ValueError as error:
+            parser.exit(1, f"Release preflight failed: {error}\n")
+        print(f"Verified annotated release tag {args.tag} at HEAD")
+    else:
+        print(build(args.output, args.tag))

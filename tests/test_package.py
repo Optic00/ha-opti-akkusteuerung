@@ -58,6 +58,7 @@ def test_release_version_order():
         "2026.9-beta3",
         "2026.9-beta4",
         "2026.9-beta5",
+        "2026.9-beta6",
         "2026.9.0",
         "2026.9.1",
     ]

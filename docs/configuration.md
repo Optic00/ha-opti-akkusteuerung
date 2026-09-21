@@ -85,17 +85,18 @@ Für Dashboards sind diese Werte zu unterscheiden:
 | `sensor.opti_forecast_tomorrow_kwh` | PV-Prognose morgen | Zugeordnete Tagesprognose für morgen, auf kWh normalisiert |
 | `sensor.opti_forecast_effective_remaining_kwh` | Opti Forecast Effective Remaining kWh | Restprognose nach P10-/Median-Mischung und eingestelltem Optimismus |
 
-Die Morgenprognose ist als normaler Sensor standardmäßig aktiviert. Beim Update
-wird eine frühere Deaktivierung durch die Integration aufgehoben; eine eigene
-Deaktivierung durch den Benutzer bleibt erhalten. Die übrigen
-Prognoseanzeigen in der Tabelle sind Diagnoseentitäten und standardmäßig
-deaktiviert. Unter **Einstellungen → Geräte & Dienste → Entitäten** nach Integration
+Bei neuen Installationen ist die Morgenprognose als normaler Sensor aktiviert.
+Beim Update bleibt eine bestehende Deaktivierung erhalten, auch wenn sie von
+der Integration stammt. Den Sensor bei Bedarf einmal selbst aktivieren. Ohne
+zugeordnete Quelle ist er nicht verfügbar. Die übrigen Prognoseanzeigen in der
+Tabelle sind Diagnoseentitäten und standardmäßig deaktiviert. Unter **Einstellungen → Geräte & Dienste → Entitäten** nach Integration
 **Opti Akku** filtern, deaktivierte Entitäten einblenden und den gewünschten Sensor
 aktivieren. Die internen Namen
 in der Tabelle sind keine garantierten HA-Entitäts-IDs. HA bildet diese aus
 Geräte- und Entitätsnamen; eine ID kann deshalb zweimal `opti` enthalten.
 Die tatsächliche ID steht in den Entitätseinstellungen. Bestehende IDs werden
-beim Upgrade nicht umbenannt.
+beim Upgrade nicht umbenannt. Der voreingestellte Anzeigename der Morgenprognose
+lautet nun **PV-Prognose morgen**; selbst vergebene Namen bleiben erhalten.
 
 Die Morgenprognose ist keine zusätzliche, bereits gemischte Restprognose. Die
 Strategie berücksichtigt ihr P10-Attribut und den Optimismus an den jeweiligen

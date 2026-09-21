@@ -11,9 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import MATCH_ALL
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers import entity_registry as er
 
-from .const import DOMAIN
 from .entity import OptiAkkuEntity, coordinator_data, readable_name
 
 SENSOR_PREFIXES = ("sensor.", "counter.", "input_datetime.")
@@ -25,23 +23,11 @@ CORE_UNITS = {"soc": "%", "battery_temp": "°C", "battery_capacity_kwh": "kWh",
               "forecast_tomorrow_kwh": "kWh"}
 
 
-def _enable_tomorrow_forecast(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Expose the former diagnostic forecast without overriding user choice."""
-    registry = er.async_get(hass)
-    entity_id = registry.async_get_entity_id(
-        "sensor", DOMAIN, f"{entry.entry_id}_sensor.opti_forecast_tomorrow_kwh"
-    )
-    entity = registry.async_get(entity_id) if entity_id else None
-    if entity is not None and entity.disabled_by is er.RegistryEntryDisabler.INTEGRATION:
-        registry.async_update_entity(entity.entity_id, disabled_by=None)
-
-
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
     coordinator = entry.runtime_data
     known: set[str] = set()
-    _enable_tomorrow_forecast(hass, entry)
 
     @callback
     def add_new_entities() -> None:

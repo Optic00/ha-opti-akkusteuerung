@@ -65,6 +65,42 @@ alten Nullwerte im Attribut `stale_zero_sources`. Eine Änderung der Auswahl
 beginnt ein neues Verbrauchsprofil, damit unterschiedliche Gültigkeitsregeln
 nicht vermischt werden.
 
+### Prognosewerte im Dashboard und bisherige Mapping-Sensoren
+
+Unter **Konfigurieren → PV-Prognose** können die ursprünglichen HA-Sensoren für
+heute, morgen und den Rest von heute direkt ausgewählt werden. Die Helfer aus
+`opti_mapping.yaml` sind für HACS keine Voraussetzung. Bei direkter Zuordnung
+müssen Einheit und benötigte Attribute erhalten sein, insbesondere `estimate10`
+für die P10-Mischung und datierte `detailedForecast`-Intervalle für die
+Bedarfsprognose. Eine bestehende Umrechnung oder Zusammenfassung mehrerer Quellen
+im Mapping darf nicht ersatzlos entfallen.
+
+Für Dashboards sind diese Werte zu unterscheiden:
+
+| Interner Wert | Anzeige in der Entitätsverwaltung | Bedeutung |
+| --- | --- | --- |
+| `sensor.opti_forecast_today_kwh` | PV-Prognose heute | Zugeordnete Tagesprognose, auf kWh normalisiert |
+| `sensor.opti_forecast_tomorrow_kwh` | PV-Prognose morgen | Zugeordnete Tagesprognose für morgen, auf kWh normalisiert |
+| `sensor.opti_forecast_effective_remaining_kwh` | Opti Forecast Effective Remaining kWh | Restprognose nach P10-/Median-Mischung und eingestelltem Optimismus |
+
+Diese Diagnoseentitäten sind standardmäßig deaktiviert. Unter **Einstellungen →
+Geräte & Dienste → Entitäten** nach Integration **Opti Akku** filtern, deaktivierte
+Entitäten einblenden und den gewünschten Sensor aktivieren. Die internen Namen
+in der Tabelle sind keine garantierten HA-Entitäts-IDs. HA bildet diese aus
+Geräte- und Entitätsnamen; eine ID kann deshalb zweimal `opti` enthalten.
+Die tatsächliche ID steht in den Entitätseinstellungen. Bestehende IDs werden
+beim Upgrade nicht umbenannt.
+
+Die Morgenprognose ist keine zusätzliche, bereits gemischte Restprognose. Die
+Strategie berücksichtigt ihr P10-Attribut und den Optimismus an den jeweiligen
+Berechnungsstellen. Deaktivierte Anzeigeentitäten verhindern diese interne
+Berechnung nicht.
+
+Vor dem Entfernen alter Mapping-Sensoren erst die Quellen in HACS umstellen
+und gültige Werte prüfen. Anschließend auch Dashboards, andere Automationen und
+die noch verwendete Legacy-Steuerung auf Verweise prüfen. Erst nicht mehr
+benötigte Mapping-Sensoren entfernen.
+
 ### Unveränderte HA-Leistungswerte und Ausfälle
 
 Unter **Anlage und Messwerte** legt **Altersgrenze für HA-Leistungswerte** fest,

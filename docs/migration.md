@@ -8,12 +8,15 @@ Der letzte YAML-Stand einschließlich PR #78 liegt auf `legacy-yaml`; der feste 
 2. Opti Akku installieren und im Assistenten **Bisherige Opti-Automation übernehmen** wählen. Der Import erzeugt einen dauerhaft lesenden Shadow-Eintrag. Die Vorschau übernimmt nur bestätigte gültige Helferwerte; Hauptfreigabe, Schreibrechte, Betriebszustände und Lernhistorie werden nicht kopiert.
 3. Zuordnungen und Anlagenumfang prüfen. Externe Quellen müssen auch ohne alte Packages verfügbar sein. Die Migrationshilfe löst Template-Ketten nicht bis zum ursprünglichen Anbieter auf. Auch alte YAML-Modbus-Hubs und andere Abfragen desselben Wechselrichters erfassen. Benötigte Messquellen im Shadow-Test erhalten; vor dem Aufräumen ihre Verbraucher prüfen. Eine zusätzliche Verbindung nicht ungeprüft als konfliktfrei voraussetzen; Verbindungsfehler und die gleichzeitige Abfrage im Shadow-Test beobachten.
 4. Strategie-Berechnung im Shadow aktivieren, eine 24-Stunden-Aufzeichnung starten und Datenlücken sowie Entscheidungen prüfen. Der Test belegt keine physische Schreibwirkung.
-5. Für aktiven Betrieb einen ausdrücklich schreibfähigen Eintrag mit geprüften Einstellungen vorbereiten. Die im Shadow geprüften Werte müssen
-   ausdrücklich in den neuen Eintrag übertragen werden: insbesondere Anlagenmodus,
-   Messquellen, Verbrauchsumfang, Batteriegrenzen, Tarif und optionale Funktionen.
-   Der neue Eintrag übernimmt den Shadow-Stand nicht automatisch. Vor Schreibfreigabe
-   beide Zusammenfassungen vergleichen; ein Test mit anderen Quellen/Parametern
-   ist keine Abnahme dieses Writers. Ein Shadow-Eintrag lässt sich nicht nachträglich freischalten. Alle bisherigen Schreiber deaktivieren, Geräteidentität prüfen und erst dann Single-Writer-Bestätigung und Schreibfreigabe setzen.
+5. Für aktiven Betrieb über **Integration hinzufügen → Opti Akku → Shadow-Einstellungen
+   für aktive Steuerung übernehmen** einen neuen Eintrag vorbereiten. Der Assistent
+   übernimmt die geprüften Quellen, Grenzen und Zusatzfunktionen zur Durchsicht.
+   Schreibfreigabe, laufende Betriebszustände und Lernhistorien werden nicht kopiert.
+   Vor Schreibfreigabe beide Zusammenfassungen vergleichen; ein Test mit anderen
+   Quellen oder Parametern ist keine Abnahme dieses Writers. Der alte Shadow-Eintrag
+   bleibt lesend. Alle bisherigen Schreiber deaktivieren, Geräteidentität prüfen
+   und erst dann Single-Writer-Bestätigung und Schreibfreigabe setzen. Den vollständigen
+   Ablauf beschreibt [Vom Shadow-Test zur aktiven Steuerung](operation.md#vom-shadow-test-zur-aktiven-steuerung).
 6. Kontrolliert die erwartete Gerätewirkung und den Rückweg prüfen. Alte Helfer und Packages erst nach Prüfung ihrer Verbraucher und Dashboards aufräumen.
 
 Die Hilfe deaktiviert oder löscht keine alte Automation. Neue Integrationseinträge erzeugen eigene Entitäten; bestehende Dashboards und Dritt-Automationen müssen bewusst auf die neuen Entitäten umgestellt werden. Keine automatische Übernahme alter Entity-IDs versprechen. Optionale BYD-Überwachung bleibt separat.

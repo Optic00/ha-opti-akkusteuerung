@@ -233,9 +233,9 @@
       },
       "notifications": {
         "title": "Notifications",
-        "description": "Probleme erscheinen immer als Home-Assistant-Meldung. Optional zusätzlich einen vorhandenen Push-Dienst auswählen. Der Testknopf auf der Geräteseite prüft die Zustellung. Während HA selbst ausfällt, kann die Integration nicht alarmieren.",
+        "description": "Problems always appear as Home Assistant notifications. Optionally select an existing push service. Use the device-page test button to check delivery. The integration cannot alert while HA itself is down.",
         "data": {
-          "notification_service": "Zusätzlicher Push-Dienst"
+          "notification_service": "Additional push service"
         }
       },
       "huawei_controls": {
@@ -354,7 +354,7 @@
       "tibber_home_changed": "The selected Tibber home is no longer available. Check the selection.",
       "tibber_eur_required": "Explicitly confirm EUR/kWh. Other currencies are not supported.",
       "tibber_price_age": "For Tibber, the maximum price age in Advanced settings must be at least 60 seconds.",
-      "notification_service_unavailable": "Benachrichtigungsdienst nicht verfügbar",
+      "notification_service_unavailable": "Notification service unavailable",
       "plant_confirmation_required": "Confirm the shared meter boundary.",
       "plant_duplicate_source": "A source is selected more than once or in conflicting roles.",
       "plant_sources_invalid": "Check plant sources: meter boundary, duplicate selections and calculation mode must agree.",
@@ -563,9 +563,9 @@
       },
       "notifications": {
         "title": "Notifications",
-        "description": "Probleme erscheinen immer als Home-Assistant-Meldung. Optional zusätzlich einen vorhandenen Push-Dienst auswählen. Der Testknopf auf der Geräteseite prüft die Zustellung. Während HA selbst ausfällt, kann die Integration nicht alarmieren.",
+        "description": "Problems always appear as Home Assistant notifications. Optionally select an existing push service. Use the device-page test button to check delivery. The integration cannot alert while HA itself is down.",
         "data": {
-          "notification_service": "Zusätzlicher Push-Dienst"
+          "notification_service": "Additional push service"
         }
       },
       "huawei_controls": {
@@ -679,7 +679,7 @@
       "tibber_home_changed": "The selected Tibber home is no longer available. Check the selection.",
       "tibber_eur_required": "Explicitly confirm EUR/kWh. Other currencies are not supported.",
       "tibber_price_age": "For Tibber, the maximum price age in Advanced settings must be at least 60 seconds.",
-      "notification_service_unavailable": "Benachrichtigungsdienst nicht verfügbar",
+      "notification_service_unavailable": "Notification service unavailable",
       "plant_confirmation_required": "Confirm the shared meter boundary.",
       "plant_duplicate_source": "A source is selected more than once or in conflicting roles.",
       "plant_sources_invalid": "Check plant sources: meter boundary, duplicate selections and calculation mode must agree.",
@@ -790,17 +790,20 @@
       "value_charge_power_w": {
         "name": "Planned charge power"
       },
+      "value_forecast_tomorrow_kwh": {
+        "name": "PV forecast tomorrow"
+      },
       "value_price_current_ct_kwh": {
         "name": "Electricity price"
       },
       "price_provider_error": {
-        "name": "Preisabruf-Fehler"
+        "name": "Price fetch error"
       },
       "price_last_success": {
-        "name": "Letzter erfolgreicher Preisabruf"
+        "name": "Last successful price fetch"
       },
       "notification_error": {
-        "name": "Benachrichtigungsfehler"
+        "name": "Notification error"
       },
       "load_profile": {
         "name": "Load profile",
@@ -1097,7 +1100,7 @@
         "name": "Stop shadow test"
       },
       "notification_test": {
-        "name": "Benachrichtigung testen"
+        "name": "Test notification"
       },
       "demand_history_import": {
         "name": "Demand forecast: import history"

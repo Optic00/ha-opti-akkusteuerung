@@ -790,6 +790,9 @@
       "value_charge_power_w": {
         "name": "Planned charge power"
       },
+      "value_forecast_tomorrow_kwh": {
+        "name": "PV forecast tomorrow"
+      },
       "value_price_current_ct_kwh": {
         "name": "Electricity price"
       },

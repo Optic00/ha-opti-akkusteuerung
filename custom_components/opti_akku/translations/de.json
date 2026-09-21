@@ -790,6 +790,9 @@
       "value_charge_power_w": {
         "name": "Geplante Ladeleistung"
       },
+      "value_forecast_tomorrow_kwh": {
+        "name": "PV-Prognose morgen"
+      },
       "value_price_current_ct_kwh": {
         "name": "Strompreis"
       },

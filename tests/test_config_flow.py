@@ -1926,3 +1926,16 @@ def test_huawei_temperature_keeps_age_gate_with_power_availability_policy(hass):
     assert wizard._huawei_temperature_valid(conn, {'source_max_age':0})
     with patch('custom_components.opti_akku.config_flow.dt_util.utcnow',return_value=dt_util.utcnow()+timedelta(seconds=901)):
         assert not wizard._huawei_temperature_valid(conn, {'source_max_age':0})
+
+
+@pytest.mark.parametrize("value", [0.001, 0.4, 0.999])
+def test_fractional_source_age_cannot_enable_availability_only(value):
+    import voluptuous as vol
+    from custom_components.opti_akku.config_flow import _sources_schema
+
+    schema = _sources_schema({}, require_confirmation=False)
+    validator = next(v for k, v in schema.schema.items() if k.schema == "source_max_age")
+    with pytest.raises(vol.Invalid):
+        validator(value)
+    assert validator(0) == 0
+    assert validator(900) == 900

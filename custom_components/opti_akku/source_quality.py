@@ -6,7 +6,11 @@ from typing import Any
 
 
 def measurement_max_age(value: Any, *, event_based: bool = False) -> float:
-    """Zero opts HA power into availability checks; battery inputs stay bounded."""
+    """Convert a stored option, never an effective limit; zero opts HA power in.
+
+    Persisted infinity is invalid. Only this conversion may produce an
+    unlimited effective limit; battery inputs stay bounded.
+    """
     if isinstance(value, bool):
         return -math.inf
     try:

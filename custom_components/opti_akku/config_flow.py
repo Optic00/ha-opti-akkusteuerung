@@ -117,6 +117,8 @@ def _sources_schema(defaults: dict[str, Any], *, require_confirmation: bool, sha
                 "source_max_age", default=defaults.get("source_max_age", 900)
             ): vol.All(
                 NumberSelector(NumberSelectorConfig(min=0, max=3600, mode=NumberSelectorMode.BOX)),
+                # A positive fraction must never become the explicit zero opt-in.
+                vol.Any(0, vol.Range(min=1)),
                 vol.Coerce(int),
             ),
             vol.Required(

@@ -174,6 +174,8 @@ def test_reserve_uses_deficit_until_pv_not_daily_total_or_confirmation_hour():
     assert out["pv_cover_min_net_kwh"] == 0.5
     assert out["pv_cover_net_kwh"] >= 0.5
     assert out["refill_covered"] is True
+    assert out["refill_missing_kwh"] == 0
+    assert out["refill_coverage_percent"] == 100
 
 
 def test_low_light_ratio_without_useful_energy_is_not_pv_cover():
@@ -216,6 +218,8 @@ def test_insufficient_refill_is_reported_without_changing_reserve():
     assert out["refill_surplus_kwh"] == 0.5
     assert out["refill_battery_kwh"] == 0.45
     assert out["refill_covered"] is False
+    assert out["refill_missing_kwh"] == pytest.approx(1.106)
+    assert out["refill_coverage_percent"] == pytest.approx(28.93)
     assert out["suggested_reserve_soc"] == baseline["suggested_reserve_soc"]
     assert out["observation_only"] is True
     assert out["controls_battery"] is False
@@ -285,6 +289,8 @@ def test_refill_target_is_limited_to_usable_capacity():
     assert out["refill_target_kwh"] == 0.9
     assert out["refill_storable_kwh"] == 0.9
     assert out["refill_covered"] is True
+    assert out["refill_missing_kwh"] == 0
+    assert out["refill_coverage_percent"] == 100
 
 
 def test_extra_server_increases_base_but_decays():
@@ -513,3 +519,20 @@ def test_changed_history_binding_discards_incompatible_prior():
 
     assert model.history.binding is None
     assert model.history.rows == {}
+
+
+@pytest.mark.parametrize("gap,coverage", [(0.007, 99.55), (0.000001, 99.99)])
+def test_small_refill_gap_remains_visible_without_changing_control(gap, coverage):
+    model, data, options, states, baseline = trained(base=500, house=500, pv_at=2)
+    target = (1 * 1.2 + 0.2) / 0.9
+    for row in states["sensor.pv"].attributes["detailedForecast"]:
+        if row["period_start"] >= NOW + timedelta(hours=2):
+            row["pv_estimate10"] = 0.5 + (target - gap) / 0.9
+        if row["period_start"] >= NOW + timedelta(hours=3):
+            row["pv_estimate10"] = 0
+    out = update(model, data, options, states)
+    assert out["refill_covered"] is False
+    assert out["refill_missing_kwh"] == round(gap, 3)
+    assert out["refill_coverage_percent"] == coverage
+    assert out["suggested_reserve_soc"] == baseline["suggested_reserve_soc"]
+    assert out["observation_only"] is True and out["controls_battery"] is False

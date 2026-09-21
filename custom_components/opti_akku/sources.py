@@ -14,6 +14,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import SOURCE_DEFINITIONS
 from .plant import evaluate_plant
+from .source_quality import measurement_max_age, reported_recently
 
 if TYPE_CHECKING:
     from .tibber_prices import TibberPriceSnapshot
@@ -51,14 +52,6 @@ def _factor(family: str, unit: str | None, price_unit: str) -> float:
     if family == "voltage_spread":
         return {"mV": 1, "V": 1000}[unit]
     raise ValueError(f"Unknown source family: {family}")
-
-
-def _fresh(state: Any, now: datetime, max_age: float) -> bool:
-    reported = getattr(state, "last_reported", None) or getattr(state, "last_updated", None)
-    if not isinstance(reported, datetime):
-        return False
-    age = (now - reported).total_seconds()
-    return -60 <= age <= max_age
 
 
 def _price_timestamp(value: Any) -> datetime:
@@ -154,12 +147,12 @@ def build_inputs(
             continue
         source = ha_states.get(entity_id)
         states[canonical] = "unavailable"
-        max_age = options.get("source_max_age", 900)
+        max_age = measurement_max_age(options.get("source_max_age", 900), event_based=family == "power")
         if family == "energy":
             max_age = options.get("forecast_max_age", 21600)
         elif family == "price":
             max_age = options.get("price_max_age", 7200)
-        if source is None or not _fresh(source, now, max_age):
+        if source is None or not reported_recently(source, now, max_age):
             errors[key] = "missing_or_stale"
             continue
         value = finite(source.state)

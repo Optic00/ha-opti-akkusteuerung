@@ -43,6 +43,7 @@ from .const import (
 )
 from .sma import SmaDevice, UnsupportedDeviceError
 from .device import DeviceError
+from .source_quality import measurement_max_age, reported_recently
 
 CONF_UNIT_ID = "unit_id"
 CONF_PROFILE = "profile"
@@ -115,7 +116,7 @@ def _sources_schema(defaults: dict[str, Any], *, require_confirmation: bool, sha
             vol.Required(
                 "source_max_age", default=defaults.get("source_max_age", 900)
             ): vol.All(
-                NumberSelector(NumberSelectorConfig(min=1, max=3600, mode=NumberSelectorMode.BOX)),
+                NumberSelector(NumberSelectorConfig(min=0, max=3600, mode=NumberSelectorMode.BOX)),
                 vol.Coerce(int),
             ),
             vol.Required(
@@ -205,8 +206,8 @@ SOURCE_GROUPS = {"sources": ["house_consumption", "pv_generation", "pv_power"],
                  "tariff": ["price_current", "price_series"],
                  "forecast": ["forecast_today", "forecast_tomorrow", "forecast_remaining"],
                  "ev": list(EV_SOURCE_KEYS), "balancing": ["cell_spread"]}
-OPTION_GROUPS = {"sources": ["strategy_enabled", "single_inverter", "plant_mode", "additional_ac_sources", "excluded_load_sources", "event_based_excluded_sources", "plant_meter_confirmed", "forecast_min_load_w"], "tariff": ["price_unit", "price_provider"],
-                 "advanced": ["source_max_age", "forecast_max_age", "price_max_age"],
+OPTION_GROUPS = {"sources": ["source_max_age", "strategy_enabled", "single_inverter", "plant_mode", "additional_ac_sources", "excluded_load_sources", "event_based_excluded_sources", "plant_meter_confirmed", "forecast_min_load_w"], "tariff": ["price_unit", "price_provider"],
+                 "advanced": ["forecast_max_age", "price_max_age"],
                  "finish": ["shadow_reference_mode", "single_writer_confirmed"]}
 DEFINITIONS = {**NUMBER_DEFINITIONS, **SWITCH_DEFINITIONS}
 
@@ -284,8 +285,8 @@ class WizardSections:
         if state is None or state.attributes.get("unit_of_measurement") != "°C":
             return False
         value = finite(state.state)
-        age = (dt_util.utcnow() - (state.last_reported or state.last_updated)).total_seconds()
-        return value is not None and -60 <= value <= 100 and -60 <= age <= draft.get("source_max_age", 900)
+        return (value is not None and -60 <= value <= 100
+                and reported_recently(state, dt_util.utcnow(), measurement_max_age(draft.get("source_max_age", 900))))
 
     def _huawei_source_error(self, draft=None, connection=None):
         draft = self._draft if draft is None else draft
@@ -486,7 +487,7 @@ class WizardSections:
                     entry_id=self._connection["huawei_entry_id"],
                     device_id=self._connection["huawei_device_id"],
                     sources=self._connection["huawei_sources"],
-                    source_max_age=self._draft.get("source_max_age", 900),
+                    source_max_age=measurement_max_age(self._draft.get("source_max_age", 900)),
                     grid_positive=self._connection["grid_positive"],
                     controls=self._connection.get("huawei_controls"))
                 await device.async_probe()

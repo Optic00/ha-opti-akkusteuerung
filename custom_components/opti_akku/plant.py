@@ -7,6 +7,8 @@ from datetime import datetime
 import math
 from typing import Any, Mapping
 
+from .source_quality import measurement_max_age, reported_recently
+
 
 PLANT_MODES = {"legacy", "balance", "external"}
 MEASUREMENT_NOISE_TOLERANCE_W = 25.0
@@ -129,17 +131,6 @@ def _config(options: Mapping[str, Any]) -> tuple[PlantConfig | None, dict[str, s
     ), errors
 
 
-def _fresh(state: Any, now: datetime, max_age: float) -> bool:
-    reported = getattr(state, "last_reported", None) or getattr(state, "last_updated", None)
-    if not isinstance(reported, datetime):
-        return False
-    try:
-        age = (now - reported).total_seconds()
-    except (TypeError, ValueError):
-        return False
-    return -60 <= age <= max_age
-
-
 def _ha_power(
     entity_id: str,
     ha_states: Any,
@@ -149,12 +140,13 @@ def _ha_power(
     signed: bool,
     allow_idle_zero: bool = False,
 ) -> tuple[float | None, str | None]:
+    max_age = measurement_max_age(max_age, event_based=True)
     state = ha_states.get(entity_id)
     if state is None:
         return None, "missing_or_stale"
     value = _finite(getattr(state, "state", None))
-    if not _fresh(state, now, max_age) and not (
-        allow_idle_zero and value == 0 and _fresh(state, now, math.inf)
+    if not reported_recently(state, now, max_age) and not (
+        allow_idle_zero and value == 0 and reported_recently(state, now, math.inf)
     ):
         return None, "missing_or_stale"
     if value is None:
@@ -265,7 +257,7 @@ def evaluate_plant(
             errors[entity_id] = error
         else:
             assert value is not None
-            if not _fresh(ha_states.get(entity_id), now, config.source_max_age):
+            if not reported_recently(ha_states.get(entity_id), now, measurement_max_age(config.source_max_age, event_based=True)):
                 stale_zero_sources.append(entity_id)
             excluded_total += value
             if not math.isfinite(excluded_total):

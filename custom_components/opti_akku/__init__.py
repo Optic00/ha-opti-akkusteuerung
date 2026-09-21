@@ -11,6 +11,7 @@ from .const import DOMAIN, NO_RELOAD_OPTION_KEYS, PLATFORMS
 from .coordinator import OptiCoordinator
 from .engine import StrategyEngine
 from .sma import SmaDevice
+from .source_quality import measurement_max_age
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -24,7 +25,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             device = HuaweiDevice(hass, entry_id=entry.data["huawei_entry_id"],
                 device_id=entry.data["huawei_device_id"], sources=entry.data["huawei_sources"],
-                grid_positive=entry.data["grid_positive"], source_max_age=entry.options.get("source_max_age", 900),
+                grid_positive=entry.data["grid_positive"], source_max_age=measurement_max_age(entry.options.get("source_max_age", 900)),
                 controls=entry.data.get("huawei_controls"), read_only=entry.data.get("shadow_mode", True),
                 grid_charge_for_surplus=entry.data.get("huawei_grid_surplus", False))
         except (ValueError, TypeError, KeyError, DeviceError) as err:

@@ -226,3 +226,22 @@ zusammengefasste Fehlercodes. Hostnamen, IP-Adressen, Seriennummern, Entity-IDs,
 Fahrzeugdaten, Messwerte und Historien werden nicht exportiert. Prüfe die Datei
 trotzdem vor einer Veröffentlichung und teile sie bevorzugt über die
 Issue-Vorlage statt als vollständige Home-Assistant-Konfiguration.
+
+### Wie viel Energie zum Nachfüllen fehlt
+
+Die rein beobachtende Bedarfsprognose zeigt zusätzlich zu `refill_covered`:
+
+- `refill_missing_kwh`: fehlende Batterieenergie bis zum Nachfüllziel, mindestens 0.
+- `refill_coverage_percent`: Anteil des Nachfüllziels, den der prognostizierte
+  Nettoüberschuss nach Ladeverlusten decken kann, höchstens 100 %.
+
+Beispiel: Ein Ziel von 1,180 kWh und erwartete 1,173 kWh bedeuten 0,007 kWh
+fehlende Energie und etwa 99,41 % Deckung. Das zeigt die Größenordnung hinter
+einem `refill_covered: false`, statt eine neue Toleranzschwelle einzuführen.
+Die Werte sind gerundet; solange rechnerisch etwas fehlt, bleibt die angezeigte
+Deckung unter 100 %. Ein Abstand unter der Anzeigeauflösung kann als 0,000 kWh
+erscheinen. `refill_covered` vergleicht weiterhin die ungerundeten Energien.
+
+Der Bezugszeitraum steht in `refill_horizon_end`; es handelt sich nicht um die
+PV-Tagesmenge. `refill_profile_ready` bleibt ein gesonderter Qualitätsnachweis.
+Diese Angaben sind keine Ladefreigabe und ändern weder Reserve noch Steuerung.

@@ -297,3 +297,21 @@ def test_restore_rejects_untrusted_observation_shapes_and_values():
 
 def test_non_numeric_observation_value_is_missing():
     assert finite(object()) is None
+
+
+def test_event_based_power_observation_stays_consistent_with_active_contract():
+    m, s, o = inputs()
+    o['source_max_age']=0
+    o['source_observation']['gross_house']='sensor.gross'
+    s['sensor.gross']=sample(900)
+    model=SourceObservation()
+    for seconds in range(0,3631,30):
+        result=observe(model,NOW+timedelta(seconds=seconds),m,s,o)
+    assert result['difference_w']==0
+    assert result['gross_difference_w']==0
+    assert result['native_instant_w']==800
+    assert not result['balance_errors']
+    s['sensor.extra']=sample('unavailable')
+    result=observe(model,NOW+timedelta(seconds=3660),m,s,o)
+    assert result['native_instant_w'] is None
+    assert result['balance_errors']['sensor.extra']=='invalid_value'

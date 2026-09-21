@@ -501,3 +501,28 @@ def test_legacy_profile_ignores_unused_idle_zero_contract():
     assert plant_semantic_fingerprint(options) == plant_semantic_fingerprint({
         **options, "event_based_excluded_sources": ["sensor.ev"],
     })
+
+
+@pytest.mark.parametrize("role", ["house", "additional", "excluded"])
+@pytest.mark.parametrize("value,error", [(0,None), (100,None), ("unavailable","invalid_value"), ("nan","invalid_value")])
+def test_event_based_sources_share_setup_and_runtime_validity(role, value, error):
+    options = balance_options(source_max_age=0)
+    if role == "house":
+        options.update(plant_mode="external", sources={"house_consumption":"sensor.external"})
+    else:
+        options['additional_ac_sources' if role=='additional' else 'excluded_load_sources']=['sensor.external']
+    states = {"sensor.external": state(value, age=86400)}
+    result = evaluate_plant(NATIVE, options, states, NOW)
+    errors = validate_plant_sources(options, states, NOW)
+    assert bool(result.errors) == bool(errors) == bool(error)
+    if error:
+        assert set(result.errors.values()) == set(errors.values()) == {error}
+    else:
+        assert result.house_w is not None
+        assert result.attributes['stale_zero_sources'] == []
+
+
+def test_existing_fingerprint_preserved_but_new_reporting_contract_resets_profile():
+    options = balance_options()
+    assert plant_semantic_fingerprint(options) == ('balance', (), (), None, 900.0, True)
+    assert plant_semantic_fingerprint({**options, 'source_max_age':0}) != plant_semantic_fingerprint(options)

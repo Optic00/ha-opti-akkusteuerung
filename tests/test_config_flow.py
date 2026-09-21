@@ -1265,7 +1265,8 @@ async def test_huawei_shadow_without_temperature_requires_telemetry_only(hass):
     assert result["options"]["strategy_enabled"] is False
 
 
-async def test_huawei_strategy_requires_external_house_and_completes_shadow_wizard(hass):
+@pytest.mark.parametrize("max_age", [900, 0])
+async def test_huawei_strategy_requires_external_house_and_completes_shadow_wizard(hass, max_age):
     result = await huawei_source_form(hass)
     assert "single_inverter" not in {m.schema for m in result["data_schema"].schema}
     from homeassistant.data_entry_flow import InvalidData
@@ -1277,12 +1278,13 @@ async def test_huawei_strategy_requires_external_house_and_completes_shadow_wiza
         await hass.config_entries.flow.async_configure(result["flow_id"], form_values(result, {"plant_mode": "balance", "plant_meter_confirmed": True}))
     hass.states.async_set("sensor.actual_house", "600", {"unit_of_measurement": "W"})
     with patch("custom_components.opti_akku.async_setup_entry", AsyncMock(return_value=True)):
-        result = await hass.config_entries.flow.async_configure(result["flow_id"], form_values(result, {"plant_mode": "external", "house_consumption": "sensor.actual_house"}))
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], form_values(result, {"plant_mode": "external", "house_consumption": "sensor.actual_house", "source_max_age": max_age}))
         result = await finish_wizard(hass, result)
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["options"]["strategy_enabled"] is True
     assert result["options"]["single_inverter"] is False
     assert result["options"]["sources"]["house_consumption"] == "sensor.actual_house"
+    assert result["options"]["source_max_age"] == max_age
 
 
 async def test_huawei_temperature_loss_before_finish_rejected(hass):
@@ -1900,3 +1902,27 @@ async def test_temporary_charge_override_only_offered_after_initial_setup(hass):
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "battery"})
     assert "opti_manuelle_ladegrenze" in {m.schema for m in result["data_schema"].schema}
     hass.config_entries.options.async_abort(result["flow_id"])
+
+
+async def test_reporting_policy_is_reachable_before_validating_stale_sources(hass):
+    hass.states.async_set('sensor.old_house','700',{'unit_of_measurement':'W'})
+    with patch('custom_components.opti_akku.config_flow._probe',AsyncMock(return_value=PROBE)):
+        result=await begin(hass)
+        values=form_values(result,{'house_consumption':'sensor.old_house','source_max_age':0,'plant_mode':'external','forecast_min_load_w':0})
+        with patch('custom_components.opti_akku.config_flow.dt_util.utcnow',return_value=dt_util.utcnow()+timedelta(hours=3)):
+            result=await hass.config_entries.flow.async_configure(result['flow_id'], values)
+        assert result['step_id']=='battery' and not result['errors'], result
+        with patch('custom_components.opti_akku.async_setup_entry',AsyncMock(return_value=True)):
+            saved=await finish_wizard(hass,result)
+        assert saved['options']['source_max_age']==0
+
+
+def test_huawei_temperature_keeps_age_gate_with_power_availability_policy(hass):
+    from custom_components.opti_akku.config_flow import WizardSections
+    wizard=WizardSections()
+    wizard.hass=hass
+    hass.states.async_set('sensor.temp','25',{'unit_of_measurement':'°C'})
+    conn={'huawei_sources':{'battery_temp':'sensor.temp'}}
+    assert wizard._huawei_temperature_valid(conn, {'source_max_age':0})
+    with patch('custom_components.opti_akku.config_flow.dt_util.utcnow',return_value=dt_util.utcnow()+timedelta(seconds=901)):
+        assert not wizard._huawei_temperature_valid(conn, {'source_max_age':0})

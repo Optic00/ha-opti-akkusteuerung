@@ -60,6 +60,38 @@ alten Nullwerte im Attribut `stale_zero_sources`. Eine Änderung der Auswahl
 beginnt ein neues Verbrauchsprofil, damit unterschiedliche Gültigkeitsregeln
 nicht vermischt werden.
 
+### Unveränderte HA-Leistungswerte und Ausfälle
+
+Unter **Anlage und Messwerte** legt **Altersgrenze für HA-Leistungswerte** fest,
+wie lange gemappte Leistungen ohne neue Meldung verwendet werden. Standard
+bleibt 900 Sekunden. Maßgeblich ist `last_reported`, nicht die letzte Wertänderung.
+[HA aktualisiert diesen Zeitstempel bei jeder Meldung](https://developers.home-assistant.io/blog/2024/03/20/state_reported_timestamp/),
+auch wenn der Zahlenwert gleich bleibt. Eine ereignisbasierte Integration muss
+aber nicht regelmäßig melden. Eine alte Meldung beweist daher keinen Geräteausfall.
+
+**0** wählt ausdrücklich die Verfügbarkeit der HA-Quelle statt einer zusätzlichen
+Altersgrenze. Das gilt für gemappten Hausverbrauch, PV-/AC-Leistung, weitere
+Wechselrichter und Ausschlusslasten, auch bei positiven Leistungen. Fehlende,
+`unknown`/`unavailable`, unplausible Zeitstempel, ungültige Einheiten und Werte
+bleiben Fehler. Native Geräteabfragen, Huawei-Batterieeingänge, Zellspreizung,
+Preise, PV-Prognosen und die gesonderten Wärmepumpenquellen der Bedarfsprognose
+werden dadurch nicht von ihren Prüfungen befreit. Huawei und Zellspreizung
+behalten bei 0 die bisherige 900-Sekunden-Grenze.
+
+Nur 0 wählen, wenn die Quellintegration Ausfälle zuverlässig als `unavailable`
+meldet. Bei selbst gebauten [Template-Sensoren](https://www.home-assistant.io/integrations/template/#availability)
+muss deren `availability` die tatsächliche Quelle berücksichtigen. Ein Template,
+das bei fehlenden Daten per `float(0)` weiter Null liefert oder immer verfügbar
+bleibt, ist dafür ungeeignet. Ein Zeittrigger, der lediglich denselben alten Wert
+neu veröffentlicht, ist ebenfalls kein Nachweis aktueller Gerätedaten.
+
+Bestehende Einstellungen ändern sich beim Update nicht. Eine Änderung dieser
+Gültigkeitsregel beginnt ein neues Verbrauchsprofil. Die gezielte Beta-6-Ausnahme
+für alte Nullwerte von Ausschlusslasten bleibt verfügbar; bei 0 ist sie nicht
+zusätzlich nötig. Vor einem Downgrade auf Beta 6 wieder eine positive Altersgrenze
+setzen: Dort bedeutet 0 noch nicht „HA-Verfügbarkeit“ und führt zur Ablehnung
+älterer Messwerte.
+
 **Upgrade:** Einstellungen werden erhalten. Ein einzelner ungültiger gespeicherter
 Wert setzt nur diesen Wert bzw. ein widersprüchliches Grenzpaar zurück und sperrt
 Schreibzugriffe mit einer Diagnose. Schreibfreigaben sind nun an Verbindung und

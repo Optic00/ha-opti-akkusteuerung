@@ -71,8 +71,9 @@ Unter **Konfigurieren → PV-Prognose** können die ursprünglichen HA-Sensoren 
 heute, morgen und den Rest von heute direkt ausgewählt werden. Die Helfer aus
 `opti_mapping.yaml` sind für HACS keine Voraussetzung. Bei direkter Zuordnung
 müssen Einheit und benötigte Attribute erhalten sein, insbesondere `estimate10`
-für die P10-Mischung und datierte `detailedForecast`-Intervalle für die
-Bedarfsprognose. Eine bestehende Umrechnung oder Zusammenfassung mehrerer Quellen
+für die P10-Mischung. Die Bedarfsprognose verwendet separat ausgewählte
+Solcast-Quellen für heute und morgen mit datierten `detailedForecast`-Intervallen
+und `pv_estimate10` in kW; diese Quellen werden im Bedarfsprofil konfiguriert. Eine bestehende Umrechnung oder Zusammenfassung mehrerer Quellen
 im Mapping darf nicht ersatzlos entfallen.
 
 Für Dashboards sind diese Werte zu unterscheiden:

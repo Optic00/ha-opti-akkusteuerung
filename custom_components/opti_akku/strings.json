@@ -4,9 +4,9 @@
     "step": {
       "user": {
         "title": "Welcome: connect your inverter",
-        "description": "Choose your battery connection: SMA STP SE or an existing Huawei Solar integration. Configure the connection and operating mode in the following steps.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.",
+        "description": "Choose your battery connection: SMA STP SE or an existing Huawei Solar integration. Configure the connection and operating mode in the following steps.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.\n\nA loaded Shadow entry can supply settings for a new standard entry. Choose “Copy Shadow settings for active control”.",
         "data": {
-          "backend": "Battery backend",
+          "backend": "Setup",
           "host": "Host",
           "port": "Port",
           "unit_id": "Unit ID",
@@ -252,6 +252,14 @@
           "forced_status": "Forced charge/discharge status",
           "huawei_grid_surplus": "Allow grid charging in self-consumption for additional AC generators"
         }
+      },
+      "shadow_copy": {
+        "title": "From Shadow to active control",
+        "description": "The selected Shadow entry remains unchanged and read-only. Connection, sources, limits and optional features are prefilled for a new standard entry. Review them in the next steps.\n\nWrite permission, temporary overrides, learned profiles and recordings are not copied. Calculate strategy and write access start off. Disable the previous writing controller before the final confirmation. Without confirmation no standard entry is created.\n\nIf no further comparison is needed, you can disable the old Shadow entry afterwards to avoid additional polling. It is not automatically disabled or deleted.",
+        "data": {
+          "shadow_entry": "Existing Shadow entry",
+          "confirm_copy": "Copy settings into a new standard entry"
+        }
       }
     },
     "error": {
@@ -288,10 +296,16 @@
       "huawei_write_access_missing": "Required Huawei controls/actions are missing, unavailable or do not belong to the selected battery inverter.",
       "huawei_cutoff_soc_unsupported": "Maximum charge level is outside the Huawei grid-charge cutoff range (typically 20–100%).",
       "huawei_temperature_required": "A valid Huawei battery temperature is missing. Select it under System and measurements or Connection. Read-only telemetry is available in shadow mode with strategy disabled.",
-      "huawei_house_source_required": "Huawei requires an existing house consumption sensor. The SMA single-inverter balance is not available here."
+      "huawei_house_source_required": "Huawei requires an existing house consumption sensor. The SMA single-inverter balance is not available here.",
+      "shadow_source_changed": "The Shadow entry changed, was removed or is no longer loaded. Cancel setup and start the copy again.",
+      "shadow_identity_missing": "The Shadow entry has no stored device identity. Check and save its connection settings first.",
+      "shadow_identity_changed": "The device identity does not match the Shadow entry. Check the connection. No standard entry will be created.",
+      "shadow_copy_confirmation_required": "Confirm copying into a new standard entry.",
+      "shadow_writer_confirmation_required": "Disable other writing controllers and confirm this before saving the new standard entry."
     },
     "abort": {
-      "already_configured": "This Modbus connection is already configured."
+      "already_configured": "An entry already exists for this device and operating mode.",
+      "no_shadow_entries": "No loaded Shadow entry is available. Enable the appropriate Shadow entry first."
     }
   },
   "options": {
@@ -306,7 +320,8 @@
           "forecast": "PV forecast",
           "features": "Optional features",
           "maintenance": "Advanced and diagnostics",
-          "finish": "Review and save"
+          "finish": "Review and save",
+          "active_setup": "Set up active control"
         }
       },
       "maintenance": {
@@ -560,6 +575,10 @@
           "charge_power_kw": "Available charge power",
           "vehicle_charge_efficiency_percent": "Charging efficiency to the vehicle battery"
         }
+      },
+      "active_setup": {
+        "title": "Set up active control",
+        "description": "This Shadow entry remains permanently read-only.\n\n1. Close this dialog. If you changed settings, save them first via Review and save.\n2. Open Settings → Devices & services → Add integration → Opti Akku.\n3. Choose Copy Shadow settings for active control and select this Shadow entry.\n\nThe new wizard uses the settings as suggestions and checks device identity again. Write access starts disabled. Disable the previous writing controller before the final confirmation. This step itself changes nothing."
       }
     },
     "error": {
@@ -822,9 +841,7 @@
           "command_confirmation": {
             "name": "Command status"
           },
-          "execution_completed_at": {
-            "name": "Last adapter execution completed"
-          },
+          "execution_completed_at": {"name": "Last adapter execution completed"},
           "last_confirmed_command_at": {
             "name": "Not populated (legacy field)"
           },
@@ -991,6 +1008,9 @@
           "preparing": "preparing",
           "higher_priority": "higher priority"
         }
+      },
+      "last_write_values": {
+        "name": "Last SMA control values"
       }
     },
     "button": {
@@ -1095,7 +1115,8 @@
     "backend": {
       "options": {
         "sma_modbus": "SMA Modbus",
-        "huawei_solar": "Huawei Solar (LUNA2000, experimental)"
+        "huawei_solar": "Huawei Solar (LUNA2000, experimental)",
+        "shadow_copy": "Copy Shadow settings for active control"
       }
     },
     "grid_positive": {

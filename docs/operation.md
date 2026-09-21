@@ -46,6 +46,44 @@ Mittelwerte und Hysterese erst aufbauen und übernimmt alte Helferzustände
 nicht automatisch. Ein Shadow-Test belegt keine physische Wirkung der
 Schreibregister und ersetzt keinen späteren begleiteten Schreibtest.
 
+### Vom Shadow-Test zur aktiven Steuerung
+
+Unter **Integration hinzufügen → Opti Akku** steht bei geladenen
+Shadow-Einträgen **Shadow-Einstellungen für aktive Steuerung übernehmen** zur
+Auswahl. Auch das Konfigurationsmenü eines Shadow-Eintrags erklärt diesen Weg
+unter **Aktive Steuerung einrichten**.
+
+1. Passenden Shadow-Eintrag auswählen und die Übernahme bestätigen. Der
+   Assistent legt einen **neuen Standard-Eintrag** an. Der alte Eintrag wird
+   weder entsichert noch gelöscht oder automatisch deaktiviert.
+2. Die vorbelegten Quellen, Grenzen und Funktionen prüfen. Die Gerätekennung
+   wird vor der Übernahme und beim Speichern erneut lesend geprüft. Ein
+   vorhandener Standard-Eintrag für dasselbe Gerät verhindert ein Duplikat.
+   Bei Huawei müssen zusätzlich die Steuerentitäten zugeordnet und die
+   Temperaturquelle geprüft werden.
+3. Die bisherige schreibende Steuerung deaktivieren und dies im letzten Schritt
+   bestätigen. Erst dann lässt sich die Übernahme speichern. Anschließend am
+   neuen Eintrag **Strategie berechnen**, **Betriebsart → Strategie** und bewusst
+   **Schreibzugriffe freigeben** einschalten. Bei deaktivierter optionaler
+   Strategie stattdessen eine verfügbare manuelle Betriebsart wählen.
+4. Modus, Entscheidungsgrund, Befehlsnachweis und tatsächliche Akkuleistung beim
+   ersten Schreibbetrieb beobachten. Ist kein weiterer Vergleich nötig, den
+   alten Shadow-Eintrag deaktivieren, um zusätzliche Abfragen zu vermeiden.
+
+Übernommen werden Verbindung, Quellen, aktuelle Einstellungen und konfigurierte
+optionale Funktionen. Schreibfreigabe, vorübergehende Ladegrenzen-Übersteuerung,
+manuelle Betriebsart, gelernte Profile und Aufzeichnungen werden **nicht**
+kopiert. **Strategie berechnen** ist zunächst aus und kann im letzten Schritt
+bewusst aktiviert werden; die Schreibfreigabe bleibt beim neuen Eintrag immer
+aus. Neue Profile müssen sich erst aufbauen oder erneut importiert werden.
+Ändert sich der Shadow-Eintrag während der Einrichtung, muss die Übernahme neu
+gestartet werden. Nicht geladene Einträge zuerst aktivieren und ihre Verbindung
+prüfen.
+
+In Beta 6 und älter gibt es diese Einstellungsübernahme noch nicht. Dort ist
+ein neuer Eintrag mit abgewähltem Shadow-Modus und manueller Eingabe der
+Einstellungen erforderlich.
+
 ### Schreibender Betrieb
 
 Die Strategieparameter werden über **Konfigurieren** gepflegt. Die zugehörigen
@@ -147,6 +185,30 @@ erhalten. Sein Zustand **Kein offener Befehl** sagt nur, dass aktuell keine
 Transaktion aussteht.
 
 ### SMA-Befehle prüfen
+
+**Letzte SMA-Steuerwerte** zeigt die zuletzt durch den Modbus-Transport
+quittierten Register und Werte als kompakten String, etwa `40151=803, 40793=0`.
+Die Attribute enthalten die Registerfolge, den angeforderten Modus, den
+Zeitpunkt der letzten quittierten Schreiboperation und den Ausführungsstatus.
+Das ergänzt den bisherigen Sensor **Letzter Schreibzugriff**, der nur den
+Zeitpunkt zeigt.
+
+Eine vollständige Folge meldet `completed`. Nach Fehler oder Überholung kann
+die Anzeige auch die quittierten Schreiboperationen des anschließenden
+Pauseversuchs enthalten (`failed_safe_pause` bzw. `superseded_safe_pause`).
+Scheitert dieser Versuch, bleiben nur die tatsächlich quittierten Teile mit
+Status `failed` bzw. `superseded` sichtbar. Ein Timeout kann trotzdem am Gerät
+angekommen sein; solche unbestätigten Schreiboperationen werden nicht als
+quittierte Werte ausgegeben. Ohne neue quittierte Werte bleibt der vorherige
+Nachweis mit seinem ursprünglichen Zeitpunkt stehen. Den aktuellen Fehler
+zusätzlich unter **Letzter Fehler** und **Befehlsnachweis** prüfen.
+
+Die Anzeige ist **keine unabhängige Registerrücklesung** und kein Nachweis der
+physischen Wirkung. Sie beginnt nach Neustart oder Neuladen leer; im Shadow-Modus
+bleibt sie leer. Die detaillierten Attribute werden nicht mit jedem Abruf in
+Recorder gespeichert. Bei Huawei bleibt der vorhandene Befehlsnachweis
+maßgeblich, da dort über HA-Steuerentitäten statt direkt auf SMA-Register
+geschrieben wird.
 
 Die drei Nachweisstufen werden getrennt bewertet:
 

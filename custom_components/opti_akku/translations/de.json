@@ -4,9 +4,9 @@
     "step": {
       "user": {
         "title": "Willkommen: Wechselrichter verbinden",
-        "description": "Wähle die Anbindung deiner Batterie: SMA STP SE oder eine vorhandene Huawei-Solar-Integration. Verbindung und Betriebsweise richtest du in den folgenden Schritten ein.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.",
+        "description": "Wähle die Anbindung deiner Batterie: SMA STP SE oder eine vorhandene Huawei-Solar-Integration. Verbindung und Betriebsweise richtest du in den folgenden Schritten ein.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.\n\nEin geladener Shadow-Eintrag kann als Vorlage für einen neuen Standard-Eintrag dienen. Wähle dafür „Shadow-Einstellungen für aktive Steuerung übernehmen“.",
         "data": {
-          "backend": "Akku-Anbindung",
+          "backend": "Einrichtung",
           "host": "Host",
           "port": "Port",
           "unit_id": "Unit-ID",
@@ -252,6 +252,14 @@
           "forced_status": "Status erzwungenes Laden/Entladen",
           "huawei_grid_surplus": "Netzladen im Eigenverbrauch für zusätzliche AC-Erzeuger zulassen"
         }
+      },
+      "shadow_copy": {
+        "title": "Von Shadow zur aktiven Steuerung",
+        "description": "Der gewählte Shadow-Eintrag bleibt unverändert und lesend. Verbindung, Quellen, Grenzen und optionale Funktionen werden für einen neuen Standard-Eintrag vorbelegt. Prüfe sie in den nächsten Schritten.\n\nSchreibfreigabe, vorübergehende Übersteuerungen, gelernte Profile und Aufzeichnungen werden nicht übernommen. „Strategie berechnen“ und Schreibzugriffe starten ausgeschaltet. Deaktiviere die bisherige schreibende Steuerung vor der abschließenden Bestätigung. Ohne diese Bestätigung wird kein Standard-Eintrag angelegt.\n\nFalls kein weiterer Vergleich nötig ist, kannst du den alten Shadow-Eintrag nach der Einrichtung deaktivieren und damit zusätzliche Abfragen vermeiden. Er wird nicht automatisch deaktiviert oder gelöscht.",
+        "data": {
+          "shadow_entry": "Vorhandener Shadow-Eintrag",
+          "confirm_copy": "Einstellungen in einen neuen Standard-Eintrag übernehmen"
+        }
       }
     },
     "error": {
@@ -288,10 +296,16 @@
       "huawei_write_access_missing": "Die benötigten Huawei-Aktoren oder Aktionen fehlen, sind nicht verfügbar oder gehören nicht zum gewählten Batterie-Wechselrichter.",
       "huawei_cutoff_soc_unsupported": "Der maximale Ladestand liegt außerhalb der Huawei-Netzladeabschaltung (typisch 20–100 %).",
       "huawei_temperature_required": "Eine gültige Huawei-Batterietemperatur fehlt. Wähle sie unter Anlagen und Messwerte oder Verbindung aus. Rein lesende Messwerte sind im Shadow-Modus ohne Strategie möglich.",
-      "huawei_house_source_required": "Huawei benötigt einen vorhandenen Hausverbrauchssensor. Die SMA-Ein-Wechselrichter-Bilanz ist hier nicht verfügbar."
+      "huawei_house_source_required": "Huawei benötigt einen vorhandenen Hausverbrauchssensor. Die SMA-Ein-Wechselrichter-Bilanz ist hier nicht verfügbar.",
+      "shadow_source_changed": "Der Shadow-Eintrag wurde geändert, entfernt oder ist nicht mehr geladen. Brich die Einrichtung ab und starte die Übernahme erneut.",
+      "shadow_identity_missing": "Dem Shadow-Eintrag fehlt eine gespeicherte Gerätekennung. Prüfe und speichere zuerst seine Verbindungseinstellungen.",
+      "shadow_identity_changed": "Die gelesene Gerätekennung stimmt nicht mit dem Shadow-Eintrag überein. Prüfe die Verbindung. Es wird kein Standard-Eintrag angelegt.",
+      "shadow_copy_confirmation_required": "Bestätige die Übernahme in einen neuen Standard-Eintrag.",
+      "shadow_writer_confirmation_required": "Deaktiviere andere schreibende Steuerungen und bestätige dies, bevor du den neuen Standard-Eintrag speicherst."
     },
     "abort": {
-      "already_configured": "Diese Modbus-Verbindung ist bereits eingerichtet."
+      "already_configured": "Für dieses Gerät und diese Betriebsart ist bereits ein Eintrag vorhanden.",
+      "no_shadow_entries": "Kein geladener Shadow-Eintrag vorhanden. Aktiviere zuerst den passenden Shadow-Eintrag."
     }
   },
   "options": {
@@ -306,7 +320,8 @@
           "forecast": "PV-Prognose",
           "features": "Optionale Funktionen",
           "maintenance": "Erweitert und Diagnose",
-          "finish": "Prüfen und speichern"
+          "finish": "Prüfen und speichern",
+          "active_setup": "Aktive Steuerung einrichten"
         }
       },
       "maintenance": {
@@ -560,6 +575,10 @@
           "charge_power_kw": "Verfügbare Ladeleistung",
           "vehicle_charge_efficiency_percent": "Ladewirkungsgrad bis zum Fahrzeugakku"
         }
+      },
+      "active_setup": {
+        "title": "Aktive Steuerung einrichten",
+        "description": "Dieser Shadow-Eintrag bleibt dauerhaft lesend.\n\n1. Schließe diesen Dialog. Falls du Einstellungen geändert hast, speichere sie zuerst über „Prüfen und speichern“.\n2. Öffne Einstellungen → Geräte & Dienste → Integration hinzufügen → Opti Akku.\n3. Wähle „Shadow-Einstellungen für aktive Steuerung übernehmen“ und diesen Shadow-Eintrag.\n\nDer neue Assistent übernimmt die Einstellungen als Vorschläge und prüft die Gerätebindung erneut. Schreibzugriffe bleiben zunächst gesperrt. Die bisherige schreibende Steuerung muss vor der abschließenden Bestätigung deaktiviert sein. Dieser Schritt selbst verändert nichts."
       }
     },
     "error": {
@@ -822,9 +841,7 @@
           "command_confirmation": {
             "name": "Befehlsstatus"
           },
-          "execution_completed_at": {
-            "name": "Letzte abgeschlossene Adapterausführung"
-          },
+          "execution_completed_at": {"name": "Letzte abgeschlossene Adapterausführung"},
           "last_confirmed_command_at": {
             "name": "Nicht belegt (Legacy-Feld)"
           },
@@ -991,6 +1008,9 @@
           "preparing": "Hausakku wird vorbereitet",
           "higher_priority": "Andere Regel hat Vorrang"
         }
+      },
+      "last_write_values": {
+        "name": "Letzte SMA-Steuerwerte"
       }
     },
     "button": {
@@ -1095,7 +1115,8 @@
     "backend": {
       "options": {
         "sma_modbus": "SMA Modbus",
-        "huawei_solar": "Huawei Solar (LUNA2000, experimentell)"
+        "huawei_solar": "Huawei Solar (LUNA2000, experimentell)",
+        "shadow_copy": "Shadow-Einstellungen für aktive Steuerung übernehmen"
       }
     },
     "grid_positive": {

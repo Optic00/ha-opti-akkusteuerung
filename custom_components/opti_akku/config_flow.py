@@ -16,7 +16,7 @@ from modbus_connection import ModbusError, ModbusTcpParams
 import voluptuous as vol
 
 from homeassistant.components.modbus import async_get_temporary_unit
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.config_entries import ConfigEntryState, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.selector import (
@@ -195,6 +195,27 @@ OPTION_GROUPS = {"sources": ["source_max_age", "strategy_enabled", "single_inver
                  "advanced": ["forecast_max_age", "price_max_age"],
                  "finish": ["shadow_reference_mode", "single_writer_confirmed"]}
 DEFINITIONS = {**NUMBER_DEFINITIONS, **SWITCH_DEFINITIONS}
+
+# Copy configuration only; entry-specific journals, permissions and learned state
+# belong to the original entry. Unknown future options are not copied implicitly.
+SHADOW_COPY_OPTIONS = frozenset({
+    *DEFAULT_OPTIONS, *(key for keys in OPTION_GROUPS.values() for key in keys),
+    "tibber_home", "tibber_entry_id", "tibber_eur_confirmed", "notification_service",
+    "ev_preparation", "demand_forecast", "arbitrage_estimate", "source_observation",
+}) - {"settings", "single_writer_confirmed", "shadow_reference_mode"}
+SHADOW_COPY_CONNECTION = frozenset({
+    CONF_HOST, CONF_PORT, CONF_UNIT_ID, CONF_PROFILE, "backend", "serial_number",
+    "huawei_entry_id", "huawei_device_id", "huawei_sources", "grid_positive",
+})
+
+
+def _effective_settings(options, settings, applied_revision):
+    """Apply the same pending settings patch for options editing and copying."""
+    effective = {key: value for key, value in settings.items() if key in DEFINITIONS}
+    if options.get("settings_revision") and options["settings_revision"] != applied_revision:
+        effective.update({key: value for key, value in options.get("settings", {}).items()
+                          if key in DEFINITIONS})
+    return effective
 
 
 def _setting_key(name: str) -> str:
@@ -846,7 +867,7 @@ class WizardSections:
                 return await self.async_step_ev()
             return await (self.async_step_balancing() if self._use_balancing else self.async_step_notifications())
         return self.async_show_form(step_id="features", data_schema=vol.Schema({
-            vol.Required("configure_ev", default=False): BooleanSelector(),
+            vol.Required("configure_ev", default=any(self._draft["sources"].get(key) for key in EV_SOURCE_KEYS)): BooleanSelector(),
             vol.Required("configure_balancing", default=self._use_balancing): BooleanSelector(),
         }))
 
@@ -863,17 +884,106 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
         self._migration_mapping = {}
         self._migration_values = {}
         self._migration_report = {}
+        self._shadow_source = None
+        self._shadow_snapshot = None
+
+    def _shadow_entries(self):
+        return {entry.entry_id: entry for entry in self.hass.config_entries.async_entries(DOMAIN)
+                if entry.data.get("shadow_mode") is True
+                and entry.data.get("backend", BACKEND_SMA) in ("sma", BACKEND_SMA, BACKEND_HUAWEI)
+                and entry.state is ConfigEntryState.LOADED
+                and getattr(entry, "runtime_data", None) is not None
+                and entry.runtime_data.connection_config == dict(entry.data)}
+
+    def _copy_snapshot(self, entry):
+        runtime = entry.runtime_data
+        return (deepcopy(dict(entry.data)), deepcopy(dict(entry.options)),
+                _effective_settings(entry.options, runtime.settings, runtime._settings_revision))
+
+    async def _check_shadow_copy(self):
+        """Re-probe without writes; the expected identity is never learned anew."""
+        entry = self._shadow_entries().get(self._shadow_source)
+        if entry is None or self._copy_snapshot(entry) != self._shadow_snapshot:
+            return "shadow_source_changed"
+        expected = self._shadow_snapshot[0].get("serial_number")
+        if not expected:
+            return "shadow_identity_missing"
+        try:
+            if self._connection.get("backend") == BACKEND_HUAWEI:
+                from .huawei import HuaweiDevice
+                device = HuaweiDevice(self.hass,
+                    entry_id=self._connection["huawei_entry_id"],
+                    device_id=self._connection["huawei_device_id"],
+                    sources=self._connection["huawei_sources"],
+                    grid_positive=self._connection["grid_positive"], read_only=True)
+                probe = await device.async_probe()
+            else:
+                probe = await _probe(self.hass, self._connection)
+        except (DeviceError, ModbusError, HomeAssistantError, OSError, TimeoutError, ValueError, KeyError):
+            return "cannot_connect"
+        if probe.get("serial_number") != expected:
+            return "shadow_identity_changed"
+        # Re-check after the await; a concurrent flow or settings edit may have
+        # completed while the read-only probe was in flight.
+        entry = self._shadow_entries().get(self._shadow_source)
+        if entry is None or self._copy_snapshot(entry) != self._shadow_snapshot:
+            return "shadow_source_changed"
+        await self.async_set_unique_id(_device_unique_id(self._connection, probe))
+        self._abort_if_unique_id_configured()
+        return None
+
+    async def async_step_shadow_copy(self, user_input=None):
+        entries = self._shadow_entries()
+        if not entries:
+            return self.async_abort(reason="no_shadow_entries")
+        errors = {}
+        if user_input is not None:
+            entry = entries.get(user_input.get("shadow_entry"))
+            if entry is None:
+                errors["base"] = "shadow_source_changed"
+            elif user_input.get("confirm_copy") is not True:
+                errors["base"] = "shadow_copy_confirmation_required"
+            else:
+                self._shadow_source = entry.entry_id
+                self._shadow_snapshot = self._copy_snapshot(entry)
+                data, options, settings = self._shadow_snapshot
+                self._connection = {key: deepcopy(value) for key, value in data.items()
+                                    if key in SHADOW_COPY_CONNECTION}
+                self._connection["shadow_mode"] = False
+                self._init_draft({key: deepcopy(value) for key, value in options.items()
+                                  if key in SHADOW_COPY_OPTIONS}, settings)
+                self._settings["input_boolean.opti_manuelle_ladegrenze"] = False
+                self._settings["input_boolean.akku_opti_automatik"] = False
+                self._draft["single_writer_confirmed"] = False
+                self._use_balancing = self._settings["input_number.opti_balancing_intervall_tage"] > 0
+                if error := await self._check_shadow_copy():
+                    errors["base"] = error
+                elif self._connection.get("backend") == BACKEND_HUAWEI:
+                    return await self.async_step_huawei_controls()
+                else:
+                    return await self.async_step_sources()
+        return self.async_show_form(step_id="shadow_copy", errors=errors, data_schema=vol.Schema({
+            vol.Required("shadow_entry"): SelectSelector(SelectSelectorConfig(options=[
+                {"value": entry.entry_id, "label": f"{entry.title} ({entry.data.get(CONF_HOST) or entry.data.get('huawei_device_id', '')})"}
+                for entry in entries.values()])),
+            vol.Required("confirm_copy", default=False): BooleanSelector(),
+        }))
 
     async def async_step_user(self, user_input=None):
         if user_input is None:
+            backends = [BACKEND_SMA, BACKEND_HUAWEI]
+            if self._shadow_entries():
+                backends.append("shadow_copy")
             return self.async_show_form(step_id="user", data_schema=vol.Schema({
                 vol.Required("backend", default=BACKEND_SMA): SelectSelector(
                     SelectSelectorConfig(
-                        options=[BACKEND_SMA, BACKEND_HUAWEI], translation_key="backend"
+                        options=backends, translation_key="backend"
                     )
                 ),
             }))
         if CONF_HOST not in user_input:
+            if user_input.get("backend") == "shadow_copy":
+                return await self.async_step_shadow_copy()
             if user_input.get("backend") == BACKEND_HUAWEI:
                 return await self.async_step_huawei_device()
             return await self.async_step_sma_connection()
@@ -1043,6 +1153,13 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
         if not await self._validate_final_sources(self._settings):
             return self.async_show_form(step_id="finish", data_schema=self._schema("finish"),
                 errors={"base": self._huawei_source_error() or "sources_changed"}, description_placeholders=self._summary())
+        if self._shadow_source:
+            if self._draft.get("single_writer_confirmed") is not True:
+                return self.async_show_form(step_id="finish", data_schema=self._schema("finish"),
+                    errors={"base": "shadow_writer_confirmation_required"}, description_placeholders=self._summary())
+            if error := await self._check_shadow_copy():
+                return self.async_show_form(step_id="finish", data_schema=self._schema("finish"),
+                    errors={"base": error}, description_placeholders=self._summary())
         self._draft["settings"] = dict(self._settings)
         self._draft["settings_revision"] = uuid4().hex
         return self.async_create_entry(title="Opti Akku Shadow" if self._connection.get("shadow_mode") else "Opti Akku",
@@ -1076,7 +1193,7 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
         self._had_pending_settings = bool(self._draft.get("settings_revision")
             and self._draft["settings_revision"] != applied_revision)
         if self._had_pending_settings:
-            self._settings.update({k: v for k, v in self._draft.get("settings", {}).items() if k in DEFINITIONS})
+            self._settings = _effective_settings(self._draft, self._settings, applied_revision)
         self._edited_settings = {key for key in self._settings if self._settings[key] != self._initial_settings[key]}
         self._settings_dirty = bool(self._edited_settings)
 
@@ -1089,7 +1206,15 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
                 self._settings = {key: definition["default"] for key, definition in DEFINITIONS.items()}
                 self._settings.update({k: v for k, v in stored.get("settings", {}).items() if k in DEFINITIONS})
                 self._merge_pending_settings(stored.get("settings_revision"))
-        return self.async_show_menu(step_id="init", menu_options=["sources", "battery", "tariff", "forecast", "features", "maintenance", "finish"])
+        menu = ["sources", "battery", "tariff", "forecast", "features", "maintenance", "finish"]
+        if self._entry.data.get("shadow_mode") is True:
+            menu.insert(0, "active_setup")
+        return self.async_show_menu(step_id="init", menu_options=menu)
+
+    async def async_step_active_setup(self, user_input=None):
+        if user_input is not None:
+            return await self.async_step_init()
+        return self.async_show_form(step_id="active_setup", data_schema=vol.Schema({}))
 
     async def async_step_maintenance(self, user_input=None):
         return self.async_show_menu(step_id="maintenance", menu_options=["connection", "observation", "advanced", "init"])

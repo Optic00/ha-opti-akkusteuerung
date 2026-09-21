@@ -803,6 +803,37 @@ async def test_command_evidence_sensor_is_additive_and_unrecorded(coordinator, e
     assert last_write.unique_id == f"{entry.entry_id}_diagnostic_last_write"
 
 
+async def test_last_write_values_sensor_exposes_compact_state_and_evidence(coordinator, entry):
+    from custom_components.opti_akku.sensor import OptiAkkuReportSensor
+
+    coordinator.device.last_write_values = {
+        "summary": "40151=803, 40793=0",
+        "status": "completed",
+        "requested_mode": "Akku Pause",
+        "written_at": "2026-09-21T12:00:00+00:00",
+        "register_writes": [
+            {"address": 40151, "value": 803},
+            {"address": 40793, "value": 0},
+        ],
+        "device_effect": "not_verified",
+    }
+    coordinator.async_set_updated_data(await coordinator._async_update_data())
+    entry.runtime_data = coordinator
+    sensor = OptiAkkuReportSensor(entry, "last_write_values")
+
+    assert sensor.native_value == "40151=803, 40793=0"
+    assert sensor.extra_state_attributes == {
+        "status": "completed",
+        "requested_mode": "Akku Pause",
+        "written_at": "2026-09-21T12:00:00+00:00",
+        "register_writes": [
+            {"address": 40151, "value": 803},
+            {"address": 40793, "value": 0},
+        ],
+        "device_effect": "not_verified",
+    }
+
+
 async def test_arbitrage_sensor_is_display_only(coordinator, entry, hass):
     from custom_components.opti_akku.sensor import OptiAkkuArbitrageSensor
 

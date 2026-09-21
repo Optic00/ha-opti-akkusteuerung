@@ -940,6 +940,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "pause_pending": self._pause_pending and not self.write_enabled,
                 "command_confirmation": "waiting_ready" if self.write_enabled and not connection["write_ready"] else "pending" if self._command_pending else "idle_or_confirmed",
                 "command_evidence": command_evidence,
+                "last_write_values": getattr(self.device, "last_write_values", None),
                 "control_release": ("not_confirmed" if getattr(self.device, "supports_control_release", False) is True else "not_supported"),
                 "connection_status": connection,
                 "online": self._online, "last_write": getattr(self.device, "last_write", None),

@@ -202,6 +202,40 @@ def test_charge_power_respects_exact_configured_limit():
     assert float(result.states[POWER]) == 1501
 
 
+@pytest.mark.parametrize("forecast", [0, 5, 20, 80])
+def test_manual_charge_limit_replaces_forecast_pacing(forecast):
+    states = measurements(**{
+        "input_boolean.opti_manuelle_ladegrenze": "on",
+        "input_number.akkusteuerung_max_ladestaerke": 4001,
+        "sensor.opti_forecast_remaining_today_kwh": forecast,
+    })
+    assert float(evaluate(states=states).states[POWER]) == 4001
+
+
+@pytest.mark.parametrize("temperature,expected", [(-5, 0), (50, 0), (-4, 1000), (0, 1000), (45, 2000), (25, 4000)])
+def test_manual_charge_limit_keeps_temperature_protection(temperature, expected):
+    states = measurements(**{
+        TEMP: temperature, "input_boolean.opti_manuelle_ladegrenze": "on",
+        "input_number.akkusteuerung_max_ladestaerke": 4000,
+    })
+    assert float(evaluate(states=states).states[POWER]) == expected
+
+
+@pytest.mark.parametrize("soc,limit,expected", [(96, 4000, 4000), (97, 4000, 500), (99, 4000, 500), (97, 300, 300), (50, 0, 0)])
+def test_manual_charge_limit_keeps_upper_soc_taper_and_explicit_ceiling(soc, limit, expected):
+    states = measurements(**{
+        SOC: soc, "input_boolean.opti_manuelle_ladegrenze": "on",
+        "input_number.akkusteuerung_max_ladestaerke": limit,
+    })
+    assert float(evaluate(states=states).states[POWER]) == expected
+
+
+def test_manual_charge_limit_off_matches_original_default():
+    default = evaluate()
+    explicitly_off = evaluate(states=measurements(**{"input_boolean.opti_manuelle_ladegrenze": "off"}))
+    assert float(default.states[POWER]) == float(explicitly_off.states[POWER]) == 2000
+
+
 def test_target_hysteresis_persists_and_attributes_use_same_old_snapshot():
     engine = StrategyEngine()
     states = measurements(**{"sensor.opti_house_consumption_w": 0})
@@ -405,10 +439,12 @@ def test_daily_balancing_counter_increments_once_and_skips_completed_day():
     assert int(evaluate(second_engine, states, now=start + dt.timedelta(minutes=1)).states[DAYS]) == 0
 
 
-def test_selected_balancing_branch_applies_high_soc_charge_taper():
+@pytest.mark.parametrize("override", ["off", "on"])
+def test_selected_balancing_branch_applies_high_soc_charge_taper(override):
     result = evaluate(states=measurements(**{
         SOC: 97, DAYS: 20, "input_number.opti_balancing_intervall_tage": 14,
         "input_boolean.opti_prognose_netzladen": "off",
+        "input_boolean.opti_manuelle_ladegrenze": override,
     }))
     assert result.reason.startswith("Balancing-Watchdog")
     assert result.mode == "Akku nur Laden"
@@ -534,12 +570,14 @@ def test_maxsoc_peak_latch_survives_restore_and_releases_below_band():
         assert result.mode == expected_mode
 
 
-def test_maxsoc_with_ev_discharge_block_uses_pause():
+@pytest.mark.parametrize("override", ["off", "on"])
+def test_maxsoc_with_ev_discharge_block_uses_pause(override):
     states, attributes = peak_maxsoc_inputs(
         95,
         **{
             "input_boolean.opti_ev_akku_pause": "on",
             "binary_sensor.opti_ev_schnellladung": "on",
+            "input_boolean.opti_manuelle_ladegrenze": override,
         },
     )
     attributes["sensor.opti_price_series"] = {

@@ -38,7 +38,9 @@ In eigenen Raw-URLs `main` durch `legacy-yaml-2026-09-15` ersetzen. Auch lokale 
 
 Zuerst neue Schreibzugriffe abschalten und den tatsächlichen Gerätezustand prüfen. Dann das passende Backup aus Integrationscode **und** gespeicherter Konfiguration wiederherstellen oder die gesicherte YAML-Steuerung kontrolliert reaktivieren. Niemals beide Writer gleichzeitig aktivieren. Ein HA-Stopp oder eine bestätigte Pause ist keine garantierte dauerhafte Hardware-Sperre; den Rückweg für das konkrete Gerät vor dem ersten Schreibtest kennen.
 
-Beim ersten HACS-Release existiert noch keine ältere HACS-Version als Rückfall. Deshalb das vorherige funktionierende Paket lokal behalten. Der öffentliche Hauptzweig bleibt nach dem HACS-Umstieg eine vollständige Integration; Fehler werden mit gezielten Korrekturen behoben.
+Den vorherigen funktionierenden Versionsstand und das zugehörige Backup lokal
+behalten. Der öffentliche Hauptzweig bleibt nach dem HACS-Umstieg eine vollständige
+Integration; Fehler werden mit gezielten Korrekturen behoben.
 
 ## Separater YAML-Adapter
 
@@ -49,3 +51,12 @@ Die Hinweise im separaten `ha-modbus-akku-adapter`-Repository beziehen sich auf 
 Der übersetzbare Rohwert des Betriebsart-Selects für reine Beobachtung heißt jetzt `observation` statt `Beobachtung`; die deutsche Anzeige bleibt **Beobachtung**. Eigene Automationen, die diesen Select-Zustand direkt vergleichen oder setzen, entsprechend anpassen. Die Entitäts-ID bleibt erhalten.
 
 Sehr alte SMA-Einträge ohne gespeicherten Backend-Schlüssel verlieren beim erneuten Speichern der Verbindung ihre Single-Writer-Bestätigung. Nach Prüfung derselben Geräteidentität bewusst neu bestätigen; die Integration erteilt keine automatische neue Freigabe.
+
+Bei SMA bleiben Lernhistorie und Betriebsbericht nach einer reinen Änderung von
+Host, Port oder Modbus-Geräteadresse erhalten, wenn dieselbe Seriennummer und
+unveränderte Messquellen gespeichert sind. Alte gespeicherte Bindungen werden
+nur bei nachweislich gleicher Geräte- und Quellenidentität übernommen. Ohne
+Seriennummer bleibt die Historie an die Verbindung gebunden. Bei geändertem
+Geräteprofil oder Anlagenumfang beginnt die Auswertung neu. Die Schreibfreigabe
+bleibt an die vollständige Verbindung gebunden und muss nach einer
+Verbindungsänderung neu bestätigt werden.

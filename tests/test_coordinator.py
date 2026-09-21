@@ -93,6 +93,38 @@ async def test_write_activation_and_master_off_pause(coordinator):
     assert data["command_evidence"]["setpoint_readback"] == "not_supported"
 
 
+@pytest.mark.parametrize("mode", ["Akku nur Laden", "Akku Dynamisch", "Akku Netzladen"])
+async def test_manual_modes_use_protected_explicit_charge_limit(coordinator, mode):
+    coordinator.settings.update({
+        "input_boolean.akku_opti_automatik": True,
+        "input_boolean.opti_manuelle_ladegrenze": True,
+        "input_number.akkusteuerung_max_ladestaerke": 4000,
+    })
+    coordinator.manual_mode = mode
+    coordinator.write_enabled = True
+    await coordinator._async_update_data()
+    args = coordinator.device.async_apply.await_args.args
+    assert args[0] == mode
+    assert args[1]["charge_power_w"] == 4000
+    coordinator.settings["input_boolean.akku_opti_automatik"] = False
+    assert (await coordinator._async_update_data())["mode"] == "Akku Pause"
+
+
+async def test_manual_charge_override_is_temporary_even_with_stored_options(coordinator, hass):
+    key = "input_boolean.opti_manuelle_ladegrenze"
+    await coordinator.async_apply_settings({key: True}, "temporary")
+    assert coordinator.settings[key] is True
+    snapshot = coordinator._stored_data()
+    hass.config_entries.async_update_entry(coordinator.entry, options={
+        **coordinator.entry.options, "settings": {key: True}, "settings_revision": "newer",
+    })
+    with patch.object(coordinator._store, "async_load", AsyncMock(return_value=snapshot)):
+        await coordinator.async_restore()
+    assert coordinator.settings[key] is False
+    await coordinator._async_update_data()
+    assert coordinator.settings[key] is False
+
+
 async def test_command_evidence_only_marks_next_read_after_execution(coordinator):
     async def apply(*_args):
         coordinator.device.last_write = dt_util.utcnow() - timedelta(minutes=1)
@@ -329,10 +361,12 @@ async def test_manual_ev_blocks_discharge_but_preserves_charging(coordinator):
     ("Akku nur Entladen", 0, 60, False, "Akku nur Entladen"),
     ("Akku Pause", 22, 60, True, "Akku Pause"),
 ])
+@pytest.mark.parametrize("override", [False, True])
 async def test_manual_direction_limits_combine_before_writing(
-    coordinator, requested, temperature, soc, ev, expected
+    coordinator, requested, temperature, soc, ev, expected, override
 ):
     coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_boolean.opti_manuelle_ladegrenze"] = override
     coordinator.settings["input_boolean.opti_ev_akku_pause"] = ev
     coordinator.manual_mode = requested
     coordinator.write_enabled = True
@@ -605,6 +639,28 @@ async def test_plant_source_invalidated_during_write_cancels_guard(coordinator, 
     coordinator.device.async_apply.side_effect = apply
     await coordinator._async_update_data()
     coordinator.device.async_apply.assert_awaited_once()
+
+
+async def test_idle_excluded_source_keeps_balance_but_outage_still_cancels_write(coordinator, hass):
+    hass.config_entries.async_update_entry(coordinator.entry, options={**coordinator.entry.options,
+        "plant_mode": "balance", "plant_meter_confirmed": True, "forecast_min_load_w": 0,
+        "excluded_load_sources": ["sensor.ev_load"],
+        "event_based_excluded_sources": ["sensor.ev_load"]})
+    hass.states.async_set("sensor.ev_load", "0", {"unit_of_measurement": "W"})
+    now = dt_util.utcnow() + timedelta(days=7)
+    coordinator.write_enabled = True
+
+    async def apply(mode, params, current):
+        assert current()
+        hass.states.async_set("sensor.ev_load", "unavailable", {"unit_of_measurement": "W"})
+        assert not current()
+
+    coordinator.device.async_apply.side_effect = apply
+    with patch("custom_components.opti_akku.coordinator.dt_util.utcnow", return_value=now):
+        data = await coordinator._async_update_data()
+    coordinator.device.async_apply.assert_awaited_once()
+    assert float(data["states"]["sensor.opti_house_raw_w"]) == 800
+    assert data["attributes"]["sensor.opti_house_raw_w"]["stale_zero_sources"] == ["sensor.ev_load"]
 
 
 async def test_disabled_strategy_observes_without_engine_or_provider(hass, entry):

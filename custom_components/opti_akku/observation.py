@@ -99,14 +99,24 @@ class SourceObservation:
         if cfg.get("enabled") is not True:
             self.__init__()
             return {"status": "disabled", "controls_battery": False}
-        binding = json.dumps(
-            [
-                cfg,
-                options.get("sources", {}).get("house_consumption"),
-                options.get("source_max_age", 900),
-            ],
-            sort_keys=True,
+        candidate_exclusions = cfg.get("excluded_load_sources", [])
+        active_event_sources = options.get("event_based_excluded_sources", [])
+        applied_event_sources = (
+            [entity_id for entity_id in candidate_exclusions if entity_id in active_event_sources]
+            if isinstance(candidate_exclusions, (list, tuple))
+            and isinstance(active_event_sources, (list, tuple))
+            else []
         )
+        binding_parts = [
+            cfg,
+            options.get("sources", {}).get("house_consumption"),
+            options.get("source_max_age", 900),
+        ]
+        # Preserve existing observation history when the new option is unused.
+        # Only the subset that changes this candidate's semantics belongs here.
+        if applied_event_sources:
+            binding_parts.append(sorted(applied_event_sources))
+        binding = json.dumps(binding_parts, sort_keys=True)
         if binding != self.binding or (self.previous and now < self.previous[0]):
             self.__init__()
             self.binding = binding
@@ -130,12 +140,20 @@ class SourceObservation:
             "forecast_min_load_w": 0,
             "source_max_age": options.get("source_max_age", 900),
             "additional_ac_sources": cfg.get("additional_ac_sources", []),
-            "excluded_load_sources": cfg.get("excluded_load_sources", []),
+            "excluded_load_sources": candidate_exclusions,
+            "event_based_excluded_sources": applied_event_sources,
             "sources": {},
         }
         plant = evaluate_plant(measurements if online else {}, candidate, states, now)
         gross = evaluate_plant(
-            measurements if online else {}, {**candidate, "excluded_load_sources": []}, states, now
+            measurements if online else {},
+            {
+                **candidate,
+                "excluded_load_sources": [],
+                "event_based_excluded_sources": [],
+            },
+            states,
+            now,
         )
         gross_state = details.get(cfg.get("gross_house"), {})
         gross_age = gross_state.get("last_reported_age_s", float("inf"))

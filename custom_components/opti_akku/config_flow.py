@@ -192,7 +192,7 @@ def _huawei_entities(hass: Any, device_id: str, entry_id: str, domain: str = "se
 
 # The same sections power first-time setup and the editable options menu.
 SETTING_GROUPS = {
-    "battery": ["minsoc", "maxsoc", "akkusteuerung_max_ladestaerke", "akkusteuerung_max_entladestaerke", "opti_pv_ueberschuss_ladung"],
+    "battery": ["minsoc", "maxsoc", "akkusteuerung_max_ladestaerke", "akkusteuerung_max_entladestaerke", "opti_pv_ueberschuss_ladung", "opti_manuelle_ladegrenze"],
     "tariff": ["ladepreis", "mindestpreisdifferenz_lade_entladepreis", "opti_einspeiseverguetung_ct", "opti_netzlade_spread_ct", "opti_peak_min_aufschlag_ct", "opti_halte_spread_ct", "hausakku_aus_netz_laden"],
     "forecast": ["opti_forecast_optimismus", "opti_peak_verbrauch_kw", "opti_prognose_netzladen"],
     "ev": ["opti_ev_akku_pause"],
@@ -205,7 +205,7 @@ SOURCE_GROUPS = {"sources": ["house_consumption", "pv_generation", "pv_power"],
                  "tariff": ["price_current", "price_series"],
                  "forecast": ["forecast_today", "forecast_tomorrow", "forecast_remaining"],
                  "ev": list(EV_SOURCE_KEYS), "balancing": ["cell_spread"]}
-OPTION_GROUPS = {"sources": ["strategy_enabled", "single_inverter", "plant_mode", "additional_ac_sources", "excluded_load_sources", "plant_meter_confirmed", "forecast_min_load_w"], "tariff": ["price_unit", "price_provider"],
+OPTION_GROUPS = {"sources": ["strategy_enabled", "single_inverter", "plant_mode", "additional_ac_sources", "excluded_load_sources", "event_based_excluded_sources", "plant_meter_confirmed", "forecast_min_load_w"], "tariff": ["price_unit", "price_provider"],
                  "advanced": ["source_max_age", "forecast_max_age", "price_max_age"],
                  "finish": ["shadow_reference_mode", "single_writer_confirmed"]}
 DEFINITIONS = {**NUMBER_DEFINITIONS, **SWITCH_DEFINITIONS}
@@ -244,7 +244,7 @@ class WizardSections:
             schema[vol.Required("strategy_enabled", default=self._draft.get("strategy_enabled", True))] = BooleanSelector()
             schema[vol.Required("plant_mode", default=self._draft.get("plant_mode", "legacy"))] = SelectSelector(
                 SelectSelectorConfig(options=["legacy", "external"] if huawei else ["legacy", "balance", "external"], translation_key="plant_mode"))
-            for key in ("additional_ac_sources", "excluded_load_sources"):
+            for key in ("additional_ac_sources", "excluded_load_sources", "event_based_excluded_sources"):
                 schema[vol.Optional(key, default=self._draft.get(key, []))] = EntitySelector(
                     EntitySelectorConfig(domain=["sensor"], multiple=True))
             schema[vol.Required("plant_meter_confirmed", default=self._draft.get("plant_meter_confirmed", False))] = BooleanSelector()
@@ -262,6 +262,8 @@ class WizardSections:
                 schema = {marker: value for marker, value in schema.items()
                           if marker.schema not in ("price_current", "price_series", "price_unit")}
         for name in SETTING_GROUPS.get(section, []):
+            if name == "opti_manuelle_ladegrenze" and not isinstance(self, OptionsFlow):
+                continue  # A temporary override cannot survive first setup.
             key = _setting_key(name)
             definition = DEFINITIONS[key]
             if key in SWITCH_DEFINITIONS:
@@ -297,6 +299,14 @@ class WizardSections:
         return None
 
     def _validate_sources(self, section: str, draft: dict, settings: dict, connection=None) -> dict:
+        if section == "sources":
+            from .plant import validate_plant_sources
+            # Check the new contract's shape even with legacy/disabled strategy;
+            # legacy mode validates configuration without reading plant sources.
+            shape_errors = validate_plant_sources(
+                {**draft, "plant_mode": "legacy"}, self.hass.states, dt_util.utcnow())
+            if "event_based_excluded_sources" in shape_errors:
+                return {"event_based_excluded_sources": "plant_sources_invalid"}
         if section == "sources" and (error := self._huawei_source_error(draft, connection)):
             return {"base": error}
         if draft.get("strategy_enabled", True) is False and section in ("sources", "tariff", "forecast", "balancing"):
@@ -322,7 +332,7 @@ class WizardSections:
                 errors["base"] = "plant_duplicate_source"
             for key, error in validate_plant_sources(draft, self.hass.states, dt_util.utcnow()).items():
                 field = ("additional_ac_sources" if key in ac else "excluded_load_sources" if key in excluded else key)
-                if field not in ("additional_ac_sources", "excluded_load_sources", "house_consumption", "pv_power", "plant_meter_confirmed", "forecast_min_load_w"):
+                if field not in ("additional_ac_sources", "excluded_load_sources", "event_based_excluded_sources", "house_consumption", "pv_power", "plant_meter_confirmed", "forecast_min_load_w"):
                     field = "base"
                 errors.setdefault(field, error if error in ("missing_or_stale", "unsupported_unit", "negative_value", "invalid_value") else "plant_sources_invalid")
             registry = er.async_get(self.hass)

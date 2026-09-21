@@ -30,6 +30,36 @@ Bei Modus, Ladestatus und Smart Cost von evcc wird nur geprüft, ob der Zustand
 gültig ist. Das Alter des Werts spielt keine Rolle, weil evcc unveränderte Werte
 nicht regelmäßig neu senden muss.
 
+Nach der Einrichtung unter **Akku und Leistungsgrenzen** kann die **Prognoseunabhängige Ladegrenze**
+vorübergehend aktiviert werden. Dann verwendet die berechnete Ladeleistung die
+eingestellte maximale Ladestärke statt der prognoseabhängigen Staffelung.
+Temperaturdrosselung und -abschaltung, der obere SoC-Taper ab 97 Prozent sowie
+der Balancing-Taper bleiben wirksam. Das gilt sowohl für manuell gewählte als
+auch für automatisch gewählte Modi, die die berechnete Ladeleistung verwenden
+(**Akku nur Laden**, **Akku Dynamisch**, **Akku Netzladen**).
+Nach HA-Neustart oder Neuladen der Integration ist die Option wieder aus; eine
+YAML-Migration aktiviert sie nicht automatisch. Nicht zusammen mit Verbindungs-
+oder Quellenänderungen einschalten, da diese ein Neuladen auslösen. Die Wattgrenze wird übernommen.
+Eine Ladeobergrenze erzwingt kein reines PV-Laden; dafür müssen auch Betriebsart,
+Mindestladeleistung und Netzladefreigaben passen. **Strategie berechnen** aus
+bleibt eine Pause, auch bei manueller Moduswahl. Die Option ist kein Ersatz für
+Schreibfreigabe oder Hauptschalter.
+
+Für ausgeschlossene Verbraucher wie Wallboxen gibt es unter **Anlage und
+Messwerte** die Auswahl **Ausschlusslasten mit unverändert gültigen 0 W**.
+Hier dürfen nur bereits ausgeschlossene Sensoren gewählt werden, deren
+Integration unveränderte Nullwerte nicht regelmäßig meldet und einen
+Verbindungsausfall zuverlässig als `unavailable` kennzeichnet. Für diese Quellen
+bleiben exakt 0 W oder 0 kW ohne Altersgrenze gültig. Positive Leistungen,
+ungültige Einheiten, fehlende oder nicht verfügbare Quellen werden weiterhin
+abgewiesen. Hauszähler und zusätzliche Wechselrichter erhalten diese Ausnahme
+nicht. Standardmäßig ist die Auswahl leer; ein hängender letzter Nullwert ohne
+verlässliche Verfügbarkeitsmeldung ist kein Nachweis für einen ausgeschalteten
+Verbraucher. Der Sensor für den rohen Hausverbrauch zeigt die dabei verwendeten
+alten Nullwerte im Attribut `stale_zero_sources`. Eine Änderung der Auswahl
+beginnt ein neues Verbrauchsprofil, damit unterschiedliche Gültigkeitsregeln
+nicht vermischt werden.
+
 **Upgrade:** Einstellungen werden erhalten. Ein einzelner ungültiger gespeicherter
 Wert setzt nur diesen Wert bzw. ein widersprüchliches Grenzpaar zurück und sperrt
 Schreibzugriffe mit einer Diagnose. Schreibfreigaben sind nun an Verbindung und

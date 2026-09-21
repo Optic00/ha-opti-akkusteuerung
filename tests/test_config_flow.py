@@ -494,6 +494,39 @@ async def test_two_inverter_wizard_without_house_helper(hass):
     assert not result["options"]["sources"].get("house_consumption")
 
 
+async def test_event_based_idle_exclusion_can_be_configured_with_old_zero(hass):
+    hass.states.async_set("sensor.wallbox", "0", {"unit_of_measurement": "W"})
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
+        result = await begin(hass)
+        values = form_values(result, {
+            "plant_mode": "balance", "plant_meter_confirmed": True,
+            "excluded_load_sources": ["sensor.wallbox"],
+        })
+        with patch("custom_components.opti_akku.config_flow.dt_util.utcnow",
+                   return_value=dt_util.utcnow() + timedelta(days=7)):
+            rejected = await hass.config_entries.flow.async_configure(result["flow_id"], values)
+            assert rejected["errors"]["excluded_load_sources"] == "missing_or_stale"
+            values["event_based_excluded_sources"] = ["sensor.wallbox"]
+            accepted = await hass.config_entries.flow.async_configure(result["flow_id"], values)
+        assert accepted["step_id"] == "battery"
+        with patch("custom_components.opti_akku.async_setup_entry", AsyncMock(return_value=True)):
+            saved = await finish_wizard(hass, accepted)
+        assert saved["options"]["event_based_excluded_sources"] == ["sensor.wallbox"]
+
+
+@pytest.mark.parametrize("mode", ["legacy", "balance"])
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_idle_exclusion_wizard_rejects_source_not_excluded(hass, mode, enabled):
+    hass.states.async_set("sensor.wallbox", "0", {"unit_of_measurement": "W"})
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
+        result = await begin(hass)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], form_values(result, {
+            "plant_mode": mode, "plant_meter_confirmed": True, "strategy_enabled": enabled,
+            "event_based_excluded_sources": ["sensor.wallbox"],
+        }))
+    assert result["errors"]["event_based_excluded_sources"] == "plant_sources_invalid"
+
+
 async def test_initial_form_selects_backend_before_connection(hass):
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -1850,3 +1883,20 @@ async def test_guided_features_can_open_ev_and_options_can_open_balancing(hass):
         result["flow_id"], {"next_step_id": "balancing"}
     )
     assert result["step_id"] == "balancing"
+
+
+async def test_temporary_charge_override_only_offered_after_initial_setup(hass):
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
+        result = await begin(hass)
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], form_values(result, {
+            "plant_mode": "balance", "plant_meter_confirmed": True,
+        }))
+        assert result["step_id"] == "battery"
+        assert "opti_manuelle_ladegrenze" not in {m.schema for m in result["data_schema"].schema}
+        hass.config_entries.flow.async_abort(result["flow_id"])
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, options={"sources": {}, "single_inverter": True})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "battery"})
+    assert "opti_manuelle_ladegrenze" in {m.schema for m in result["data_schema"].schema}
+    hass.config_entries.options.async_abort(result["flow_id"])

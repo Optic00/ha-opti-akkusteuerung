@@ -17,6 +17,9 @@ def seed(hass, low="7", high="91", unit="%"):
     hass.states.async_set("input_number.maxsoc", high, {"unit_of_measurement": "%"})
     hass.states.async_set("input_boolean.akku_opti_automatik", "on")
     hass.states.async_set("input_boolean.opti_ev_akku_pause", "on")
+    hass.states.async_set("input_boolean.opti_manuelle_ladegrenze", "on")
+    hass.states.async_set("input_number.akkusteuerung_min_ladestaerke", "0", {"unit_of_measurement": "W"})
+    hass.states.async_set("input_number.akkusteuerung_max_ladestaerke", "3501", {"unit_of_measurement": "W"})
 
 
 async def begin_migration(hass):
@@ -49,6 +52,8 @@ async def test_migration_frozen_shadow_and_confirmation(hass):
     assert options["settings"]["input_number.minsoc"] == 7
     assert options["settings"]["input_boolean.akku_opti_automatik"] is False
     assert options["settings"]["input_boolean.opti_ev_akku_pause"] is False
+    assert options["settings"]["input_boolean.opti_manuelle_ladegrenze"] is False
+    assert options["settings"]["input_number.akkusteuerung_max_ladestaerke"] == 3501
     assert options["single_writer_confirmed"] is False
     assert options["shadow_reference_mode"] == "input_select.akkusteuerung_modus"
     assert options["migration"]["settings"]["input_number.maxsoc"] == 91

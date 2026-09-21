@@ -172,6 +172,15 @@ ein lokaler Rückweg muss bereitstehen. Eine passende Leistungsrichtung belegt
 nur die Wirkung dieses Versuchs;
 BMS-Begrenzungen, Rampen, PV-Leistung und Hauslast können die Höhe verändern.
 
+Für jede geprüfte Modell-/Firmwarekombination vor dem Versuch eine passende
+Leistungstoleranz, Beobachtungsdauer und lokale Abbruchmöglichkeit festlegen.
+Sollwertübernahme nur dann als geprüft festhalten, wenn eine unabhängige
+Geräteanzeige oder Schnittstelle den übernommenen Modus und Wert bestätigt.
+Fehlt diese Quelle, bleibt dieser Nachweis offen, auch bei passender
+Leistungsrichtung. Ein stabiler Modus muss außerdem über mindestens zwei
+tatsächlich ausgeführte Befehlserneuerungen beobachtet werden. Der reguläre
+Erneuerungsabstand beträgt 120 Sekunden.
+
 Die automatisierten Ausfalltests decken veraltete Daten vor und während einer
 Schreibfolge, Abbruch und Zeitüberschreitung, fehlgeschlagene Bereinigung,
 mehrfache Abbruchsignale, konkurrierende Befehle, Neuladen der Integration und
@@ -188,6 +197,25 @@ keine nachgewiesene dauerhafte Sperre. Ob und wann der Wechselrichter nach einem
 Timeout oder HA-Ausfall seine Eigenregelung übernimmt, wurde nicht unabhängig
 nachgewiesen. Der Diagnosesensor **Rückgabe an Gerätesteuerung** zeigt diese
 fehlende Fähigkeit ausdrücklich als **Nicht unterstützt** an.
+
+Die reale Ausfallabnahme umfasst getrennt das Ausschalten der Schreibfreigabe,
+einen geordneten HA-Neustart sowie einen beaufsichtigten Kommunikations- oder
+HA-Ausfall während aktiver Steuerung. Während HA nicht erreichbar ist, muss
+die Gerätewirkung lokal beobachtbar bleiben. Je Versuch festhalten, ob und
+wann der Akku pausiert, einen alten Sollwert weiterverfolgt oder in
+Eigenregelung wechselt. Nach Wiederverbindung Geräteidentität, aktuelle
+Messwerte und Bereitschaft prüfen; die vorherige manuelle Modusauswahl darf
+nach einem HA-Neustart nicht wiederhergestellt sein.
+
+Zum Abschluss neue Schreibzugriffe ausschalten, den tatsächlichen
+Gerätezustand prüfen und den vorbereiteten Rückweg aus
+[Migration und Rückweg](migration.md#rückweg) ausführen. Die bisherige
+Steuerung erst wieder aktivieren, wenn kein neuer Writer mehr läuft; ihre
+erwartete Wirkung anschließend erneut beobachten. Eine verbleibende
+0-W-Begrenzung ist keine bestätigte Rückgabe an die Eigenregelung. Für Huawei
+eine ausstehende Pause am bisherigen Gerätepfad abschließen, bevor die alte
+Steuerung wieder schreibt. Zusätzlich die fortbestehenden TOU- und
+Netzladeeinstellungen aus [Huawei-Steuerung](../HUAWEI_CONTROL.md) prüfen.
 
 ## Diagnose herunterladen
 

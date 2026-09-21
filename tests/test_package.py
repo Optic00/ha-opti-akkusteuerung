@@ -7,7 +7,7 @@ import subprocess
 import sys
 import zipfile
 
-from tools.build_package import build
+from tools.build_package import build, verify_release_ref
 
 
 def test_archive_is_self_contained(tmp_path):
@@ -58,6 +58,7 @@ def test_release_version_order():
         "2026.9-beta3",
         "2026.9-beta4",
         "2026.9-beta5",
+        "2026.9-beta6",
         "2026.9.0",
         "2026.9.1",
     ]
@@ -85,6 +86,47 @@ def test_release_is_reproducible(tmp_path):
     first = build(tmp_path / "a", version)
     second = build(tmp_path / "b", version)
     assert first.read_bytes() == second.read_bytes()
+
+
+def test_release_ref_must_be_annotated_and_point_at_head(tmp_path, monkeypatch):
+    import shutil
+    import pytest
+    from tools import build_package
+
+    original = build_package.ROOT
+    repository = tmp_path / "repo"
+    for name in ("custom_components/opti_akku/manifest.json", "pyproject.toml"):
+        target = repository / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(original / name, target)
+    subprocess.run(["git", "init", "-q", str(repository)], check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "Release test"], cwd=repository, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "release-test@example.invalid"],
+        cwd=repository,
+        check=True,
+    )
+    subprocess.run(["git", "add", "."], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-qm", "release"], cwd=repository, check=True)
+    monkeypatch.setattr(build_package, "ROOT", repository)
+    version = build_package.release_version()
+
+    subprocess.run(["git", "tag", version], cwd=repository, check=True)
+    with pytest.raises(ValueError, match="must be annotated"):
+        verify_release_ref(version)
+    subprocess.run(
+        ["git", "tag", "-d", version], cwd=repository, check=True, capture_output=True
+    )
+    subprocess.run(["git", "tag", "-a", version, "-m", version], cwd=repository, check=True)
+    verify_release_ref(version)
+
+    (repository / "next").write_text("next")
+    subprocess.run(["git", "add", "next"], cwd=repository, check=True)
+    subprocess.run(["git", "commit", "-qm", "next"], cwd=repository, check=True)
+    with pytest.raises(ValueError, match="checked-out commit"):
+        verify_release_ref(version)
 
 
 def test_only_tracked_files_and_no_symlinks(tmp_path, monkeypatch):

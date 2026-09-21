@@ -483,6 +483,62 @@ async def test_cancel_midflight_802_write_still_attempts_cleanup(device):
     assert raw_writes(unit)[-1] == (41259, 303)
 
 
+@pytest.mark.parametrize("interruption", ["superseded", "cancelled"])
+async def test_interrupt_midflight_setpoint_waits_for_complete_cleanup(device, interruption):
+    adapter, unit, _ = device
+    in_setpoint, release_setpoint = asyncio.Event(), asyncio.Event()
+    in_cleanup, release_cleanup = asyncio.Event(), asyncio.Event()
+    current = True
+
+    async def block(address, values):
+        if address == 40149:
+            # The device may already have accepted this final setpoint even
+            # when cancellation prevents its response reaching the adapter.
+            in_setpoint.set()
+            await release_setpoint.wait()
+        elif in_setpoint.is_set() and address == 40151 and values == [0, 803]:
+            in_cleanup.set()
+            await release_cleanup.wait()
+
+    unit.on_write = block
+    task = asyncio.create_task(adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: current))
+    try:
+        await asyncio.wait_for(in_setpoint.wait(), 1)
+        assert raw_writes(unit)[-1] == (40149, -3000)
+        if interruption == "cancelled":
+            task.cancel()
+            expected_error = asyncio.CancelledError
+        else:
+            current = False
+            release_setpoint.set()
+            expected_error = sma.StaleCommandError
+
+        await asyncio.wait_for(in_cleanup.wait(), 1)
+        assert not task.done() and adapter._lock.locked()
+        release_cleanup.set()
+        with pytest.raises(expected_error):
+            await asyncio.wait_for(task, 1)
+    finally:
+        release_setpoint.set()
+        release_cleanup.set()
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    assert raw_writes(unit)[-7:] == [
+        (40151, 803),
+        (40793, 0),
+        (40795, 0),
+        (40797, 0),
+        (40799, 0),
+        (40801, 0),
+        (41259, 303),
+    ]
+    assert adapter.last_mode == sma.PAUSE
+    assert expected_error.__name__ in adapter.last_error
+    assert not adapter._lock.locked()
+
+
 async def test_error_in_write_cleans_up_and_surfaces_failure(device):
     adapter, unit, _ = device
     unit.fail_write_number = 3

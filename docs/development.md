@@ -39,7 +39,7 @@ geführt.
 ## Versionen und Releases
 
 Versionen folgen dem Veröffentlichungsmonat: `2026.9-beta1`, `2026.9-beta2`,
-`2026.9-beta3`, `2026.9-beta4`, `2026.9-beta5`, danach `2026.9.0` stabil und `2026.9.1` für
+`2026.9-beta3`, `2026.9-beta4`, `2026.9-beta5`, `2026.9-beta6`, danach `2026.9.0` stabil und `2026.9.1` für
 eine Fehlerkorrektur.
 Die Jahres- und Monatsangabe bezeichnet Opti Akku, nicht die erforderliche
 Home-Assistant-Version.
@@ -52,9 +52,13 @@ Versionsvertrag und baut ein reproduzierbares ZIP ausschließlich aus eingecheck
 Komponentendateien. Das ZIP wird für manuelle Installationen in das HA-Konfigurationsverzeichnis
 entpackt; es enthält bereits `custom_components/opti_akku/`.
 
-Nach dem Merge wird ein annotierter Tag auf den geprüften Commit gepusht. Der
-Release-Workflow prüft den Versionsvertrag, baut das ZIP zweimal mit identischen
-Bytes und erzeugt einen **Release-Entwurf samt ZIP**. Betas erhalten das Prerelease-Kennzeichen.
+Nach dem Merge wird auf dem geprüften Commit ein annotierter Tag erstellt und gepusht,
+zum Beispiel mit `git tag -a 2026.9-beta6 -m "Opti Akku 2026.9-beta6"`. Vor dem Push
+prüft `python tools/build_package.py --tag 2026.9-beta6 --check-release-ref`, dass
+Manifest und Projektversion übereinstimmen, der Tag annotiert ist und auf `HEAD` zeigt.
+Der Release-Workflow führt diesen Preflight vor dem ersten Build aus, baut das ZIP
+zweimal mit identischen Bytes und erzeugt einen **Release-Entwurf samt ZIP**. Betas
+erhalten das Prerelease-Kennzeichen.
 Erst nach erfolgreichem Workflow und Prüfung der Release-Notizen wird der Entwurf
 veröffentlicht. Ein erneuter Lauf ersetzt kein bestehendes Release. Nach Prüfung eines gescheiterten
 Laufs kann **Prepare release → Run workflow** auf `main` denselben bestehenden

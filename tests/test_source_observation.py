@@ -163,6 +163,50 @@ def test_stale_ev_blocks_net_but_not_independent_gross_comparison():
     assert result["status"] == "data_missing"
 
 
+def test_selected_event_based_stale_zero_is_valid_for_net_and_gross_comparison():
+    m, s, o = inputs()
+    at = NOW + timedelta(seconds=901)
+    o["event_based_excluded_sources"] = ["sensor.ev"]
+    o["source_observation"]["gross_house"] = "sensor.gross"
+    s = {
+        "sensor.extra": sample(200, at),
+        "sensor.ev": sample(0),
+        "sensor.legacy": sample(900, at),
+        "sensor.instant": sample(900, at),
+        "sensor.gross": sample(900, at),
+    }
+    result = observe(SourceObservation(), at, m, s, o)
+    assert result["native_instant_w"] == 900
+    assert result["gross_native_w"] == 900
+    assert result["gross_difference_w"] == 0
+    assert not result["balance_errors"]
+
+
+def test_event_based_exception_does_not_relax_other_stale_exclusions():
+    m, s, o = inputs()
+    at = NOW + timedelta(seconds=901)
+    o["event_based_excluded_sources"] = ["sensor.other"]
+    s["sensor.extra"] = sample(200, at)
+    for value in (0, 1, "unavailable"):
+        s["sensor.ev"] = sample(value)
+        result = observe(SourceObservation(), at, m, s, o)
+        assert result["native_instant_w"] is None
+        assert result["balance_errors"]["sensor.ev"] == "missing_or_stale"
+
+
+def test_observation_binding_tracks_only_applied_event_based_selection():
+    m, s, o = inputs()
+    model = SourceObservation()
+    observe(model, NOW, m, s, o)
+    original = model.binding
+    o["event_based_excluded_sources"] = ["sensor.other"]
+    observe(model, NOW + timedelta(seconds=30), m, s, o)
+    assert model.binding == original
+    o["event_based_excluded_sources"] = ["sensor.ev"]
+    observe(model, NOW + timedelta(seconds=60), m, s, o)
+    assert model.binding != original
+
+
 def test_gross_reference_kw_is_normalized():
     m, s, o = inputs()
     o["source_observation"]["gross_house"] = "sensor.gross"

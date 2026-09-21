@@ -50,6 +50,46 @@ from .tibber_prices import REFRESH_SECONDS, RETRY_SECONDS, TibberPriceError, Tib
 _LOGGER = logging.getLogger(__name__)
 
 
+def _load_device_identity(connection: dict) -> dict:
+    """Separate an identified SMA's measurement identity from its transport."""
+    identity = dict(connection)
+    serial = identity.get("serial_number")
+    if (identity.get("backend", "sma") in ("sma", "sma_modbus")
+            and isinstance(serial, str) and serial.strip()):
+        for key in ("host", "port", "unit_id"):
+            identity.pop(key, None)
+        identity["backend"] = "sma_modbus"
+        identity.setdefault("shadow_mode", False)
+    return identity
+
+
+def _canonical_load_fingerprint(value: object) -> str | None:
+    """Accept legacy bindings only when every remaining source field matches."""
+    if not isinstance(value, str):
+        return None
+    try:
+        fields = json.loads(value)
+        if not isinstance(fields, dict) or not isinstance(fields.get("device"), dict):
+            return None
+        fields["device"] = _load_device_identity(fields["device"])
+        return json.dumps(fields, sort_keys=True, allow_nan=False)
+    except ValueError:
+        return None
+
+
+def _rebind_load_prefix(value: str | None, old: str, new: str, length: int) -> str | None:
+    """Keep nested source/timezone checks intact when migrating the load key."""
+    if not isinstance(value, str):
+        return value
+    try:
+        parts = json.loads(value)
+    except ValueError:
+        return value
+    if isinstance(parts, list) and len(parts) == length and parts[0] == old:
+        return json.dumps([new, *parts[1:]], sort_keys=True)
+    return value
+
+
 def validate_setting(key: str, value: Any, current: dict) -> float | bool:
     """Validate individual values AND limits that must remain ordered."""
     if key in SWITCH_DEFINITIONS:
@@ -105,7 +145,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "plant": plant_semantic_fingerprint(entry.options),
             "legacy_house": entry.options.get("sources", {}).get("house_consumption") if entry.options.get("plant_mode", "legacy") == "legacy" else None,
             "single_inverter": entry.options.get("single_inverter", False),
-            "device": self.connection_config,
+            "device": _load_device_identity(self.connection_config),
         }, sort_keys=True)
         self._load_profile_status: dict = {}
         self.shadow_mode = entry.data.get("shadow_mode", entry.data.get("backend") == "huawei_solar") is True
@@ -180,13 +220,25 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if invalid:
             self._last_error = "Ungültige gespeicherte Einstellungen zurückgesetzt: " + ", ".join(sorted(set(invalid)))
             _LOGGER.warning(self._last_error)
+        # This temporary override follows the legacy initial:false contract,
+        # including reloads and settings supplied through the migration wizard.
+        self.settings["input_boolean.opti_manuelle_ladegrenze"] = False
         self.engine.restore(stored.get("engine", {}))
         self._demand_forecast.restore(stored.get("demand_forecast", {}))
         self._source_observation.restore(stored.get("source_observation", {}))
-        if stored.get("load_source_fingerprint") == self._load_source_fingerprint:
-            self._operating_report.restore(stored.get("operating_report", {}))
         previous_load_source = stored.get("load_source_fingerprint")
-        if ((previous_load_source is not None and previous_load_source != self._load_source_fingerprint)
+        same_load_source = (
+            _canonical_load_fingerprint(previous_load_source) == self._load_source_fingerprint
+        )
+        if same_load_source:
+            self._operating_report.restore(stored.get("operating_report", {}))
+            self._demand_forecast.fingerprint = _rebind_load_prefix(
+                self._demand_forecast.fingerprint, previous_load_source,
+                self._load_source_fingerprint, 3)
+            self._demand_forecast.history.binding = _rebind_load_prefix(
+                self._demand_forecast.history.binding, previous_load_source,
+                self._load_source_fingerprint, 4)
+        if ((previous_load_source is not None and not same_load_source)
                 or (previous_load_source is None and self.entry.options.get("plant_mode", "legacy") != "legacy")):
             self.engine.reset_load_statistics()
         self._load_profile.restore(stored.get("load_profile", {}), now=dt_util.utcnow(),

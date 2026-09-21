@@ -51,7 +51,7 @@
       },
       "sources": {
         "title": "System and measurements",
-        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode.",
+        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. Only exactly 0 W or 0 kW may remain valid when old; positive power still requires a recent report.",
         "data": {
           "house_consumption": "House consumption",
           "pv_generation": "PV generation DC (display only, optional)",
@@ -60,6 +60,7 @@
           "plant_mode": "House consumption calculation",
           "additional_ac_sources": "Additional inverter AC output sensors",
           "excluded_load_sources": "Loads excluded from the forecast",
+          "event_based_excluded_sources": "Excluded loads with zero valid until changed",
           "plant_meter_confirmed": "The grid meter covers all selected generators and loads",
           "forecast_min_load_w": "Minimum forecast base load",
           "strategy_enabled": "Enable automatic strategy",
@@ -74,7 +75,8 @@
           "maxsoc": "Maximum charge level",
           "akkusteuerung_max_ladestaerke": "Maximum charge power",
           "akkusteuerung_max_entladestaerke": "Maximum discharge power",
-          "opti_pv_ueberschuss_ladung": "Allow PV surplus charging"
+          "opti_pv_ueberschuss_ladung": "Allow PV surplus charging",
+          "opti_manuelle_ladegrenze": "Forecast-independent charge limit (temporary)"
         }
       },
       "tariff": {
@@ -322,7 +324,7 @@
       },
       "sources": {
         "title": "System and measurements",
-        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode.",
+        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. Only exactly 0 W or 0 kW may remain valid when old; positive power still requires a recent report.",
         "data": {
           "house_consumption": "House consumption",
           "pv_generation": "PV generation DC (display only, optional)",
@@ -331,6 +333,7 @@
           "plant_mode": "House consumption calculation",
           "additional_ac_sources": "Additional inverter AC output sensors",
           "excluded_load_sources": "Loads excluded from the forecast",
+          "event_based_excluded_sources": "Excluded loads with zero valid until changed",
           "plant_meter_confirmed": "The grid meter covers all selected generators and loads",
           "forecast_min_load_w": "Minimum forecast base load",
           "strategy_enabled": "Enable automatic strategy",
@@ -339,13 +342,14 @@
       },
       "battery": {
         "title": "Battery and power limits",
-        "description": "Set charge-level limits and maximum charge/discharge power from your battery specifications or previous controller. These are strategy limits, not verified hardware protection. Capacity and temperature are read automatically.",
+        "description": "Set charge-level limits and maximum charge/discharge power from your battery specifications or previous controller. These are strategy limits, not verified hardware protection. Capacity and temperature are read automatically. The forecast-independent limit uses maximum charge power in automatic modes too. Temperature, upper SoC and balancing limits remain active. It turns off again after restart or reload. Enable it after setup without changing connections or sources in the same save; those changes reload the integration.",
         "data": {
           "minsoc": "Minimum charge level",
           "maxsoc": "Maximum charge level",
           "akkusteuerung_max_ladestaerke": "Maximum charge power",
           "akkusteuerung_max_entladestaerke": "Maximum discharge power",
-          "opti_pv_ueberschuss_ladung": "Allow PV surplus charging"
+          "opti_pv_ueberschuss_ladung": "Allow PV surplus charging",
+          "opti_manuelle_ladegrenze": "Forecast-independent charge limit (temporary)"
         }
       },
       "tariff": {
@@ -596,6 +600,9 @@
       },
       "hausakku_aus_netz_laden": {
         "name": "Allow winter grid charging"
+      },
+      "opti_manuelle_ladegrenze": {
+        "name": "Forecast-independent charge limit (temporary)"
       },
       "opti_prognose_netzladen": {
         "name": "Allow reserve planning with grid charging"

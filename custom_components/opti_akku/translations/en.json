@@ -300,19 +300,22 @@
         "title": "Configure Opti Akku",
         "description": "Edit a section, then open Review and save. Changes remain a draft until saved.",
         "menu_options": {
-          "connection": "Connection",
           "sources": "System and measurements",
           "battery": "Battery and power limits",
           "tariff": "Electricity tariff",
           "forecast": "PV forecast",
-          "finish": "Review and save",
-          "advanced": "Advanced settings",
           "features": "Optional features",
-          "notifications": "Notifications",
-          "demand": "Demand profile and peak reserve",
-          "arbitrage": "Battery arbitrage estimate",
+          "maintenance": "Advanced and diagnostics",
+          "finish": "Review and save"
+        }
+      },
+      "maintenance": {
+        "title": "Advanced and diagnostics",
+        "menu_options": {
+          "connection": "Connection",
           "observation": "Compare sources and balance",
-          "ev_preparation": "PV preparation for the car"
+          "advanced": "Advanced settings",
+          "init": "Back to overview"
         }
       },
       "connection": {
@@ -451,7 +454,11 @@
         "description": "Configure only the optional features you need. Changes take effect only after Review and save.",
         "menu_options": {
           "ev": "EV charging / evcc",
+          "ev_preparation": "PV preparation for the car",
           "balancing": "Balancing",
+          "demand": "Demand profile and peak reserve",
+          "arbitrage": "Battery arbitrage estimate",
+          "notifications": "Notifications",
           "init": "Back to overview"
         }
       },

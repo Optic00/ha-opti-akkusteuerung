@@ -7,7 +7,12 @@ abgefragt. Die Zusammenfassung zeigt Quellen, SoC-Grenzen und Shadow-/Standardmo
 Erst das abschließende Speichern übernimmt die Einstellungen. Es werden keine
 externen Helfer oder Automationen angelegt.
 
-Später öffnet **Konfigurieren** ein Menü mit einzeln bearbeitbaren Bereichen.
+Später öffnet **Konfigurieren** die Bereiche Anlage, Batterie, Stromtarif und
+PV-Prognose. Unter **Optionale Funktionen** stehen Wallbox, PV-Vorbereitung fürs
+Auto, Balancing, Bedarfsprofil, Wirtschaftlichkeitsvergleich und Benachrichtigungen.
+**Erweitert und Diagnose** enthält Verbindung, Messquellenvergleich und Feinabstimmung.
+Die eigenständige Vergleichskonfiguration bleibt erhalten, um andere Messquellen
+vor einer aktiven Umstellung zu prüfen.
 Alle Änderungen bleiben bis **Prüfen und speichern** ein Entwurf. Reine
 Strategiewerte werden als ein validierter Satz ohne Neuladen übernommen;
 Verbindungs- oder Quellenänderungen laden die Integration neu. Vorhandene

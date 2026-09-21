@@ -91,7 +91,7 @@ def active_profile(model, issued_at, data, *, settings=None, options=None, ha_st
     return remaining_day_profile(
         model, issued_at, data, settings or SETTINGS, options or OPTIONS, ha_states or {}, TZ,
         "fingerprint",
-    )
+    )[0]
 
 
 def test_constant_profile_matches_all_three_formulas():
@@ -478,3 +478,39 @@ def test_disabled_strategy_has_no_active_baseline_to_compare():
     assert {block["reason"] for block in result["blocks"].values()} == {
         "strategy_disabled"
     }
+
+
+def test_cached_remaining_window_preserves_comparison_and_is_not_recomputed():
+    from unittest.mock import patch
+    issued = datetime(2026, 9, 16, 10, tzinfo=UTC)
+    model = learned_model(issued)
+    data = payload(issued)
+    expected = compare(model, issued, data)
+    prepared = remaining_day_profile(model, issued, data, SETTINGS, OPTIONS, {}, TZ, "fingerprint")
+    with patch("custom_components.opti_akku.demand_comparison.remaining_day_profile",
+               side_effect=AssertionError("remaining window computed twice")):
+        actual = build_strategy_comparison(model, issued, data, SETTINGS, OPTIONS, {}, TZ,
+                                           "fingerprint", 1, remaining_day=prepared)
+    assert actual == expected
+
+
+def test_target_comparison_matches_active_template_at_every_hysteresis_boundary():
+    from custom_components.opti_akku.engine import StrategyEngine, load_resources, TARGET_SOC_BOUNDS, TARGET_SOC_MARGIN
+    resources = load_resources()
+    target = next(entity for block in resources["template_blocks"]
+                  for entity in block.get("sensor", []) if entity["unique_id"] == "opti_target_soc")
+    engine = StrategyEngine({"schema_version": 1, "helper_defaults": resources["helper_defaults"],
+                             "template_blocks": [{"sensor": [target]}]})
+    issued = datetime(2026, 9, 16, 10, tzinfo=UTC)
+    model = learned_model(issued)
+    for previous in range(6):
+        for boundary in TARGET_SOC_BOUNDS:
+            for offset in (-TARGET_SOC_MARGIN - .000001, -TARGET_SOC_MARGIN,
+                           TARGET_SOC_MARGIN - .000001, TARGET_SOC_MARGIN, TARGET_SOC_MARGIN + .000001):
+                data = payload(issued)
+                data["states"]["sensor.opti_forecast_effective_remaining_kwh"] = 6 + (boundary + offset) * 10
+                engine.restore({"version": 1, "attributes": {"sensor.opti_target_soc": {"level": previous}}})
+                result = engine.evaluate({**data["states"], **SETTINGS}, data["attributes"], issued.astimezone(TZ))
+                candidate = compare(model, issued, data, previous=previous)["blocks"]["target_soc"]
+                assert candidate["candidate_level"] == result.attributes["sensor.opti_target_soc"]["level"]
+                assert candidate["candidate_target_soc"] == float(result.states["sensor.opti_target_soc"])

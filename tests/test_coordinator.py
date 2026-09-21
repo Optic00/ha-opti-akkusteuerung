@@ -1605,7 +1605,7 @@ async def test_only_ready_remaining_day_profile_reaches_engine(
         patch.object(coordinator._demand_forecast, "update", return_value=demand_report),
         patch(
             "custom_components.opti_akku.coordinator.remaining_day_profile",
-            return_value=profile,
+            return_value=(profile, None),
         ),
         patch.object(coordinator.engine, "evaluate", side_effect=capture),
     ):
@@ -2139,3 +2139,23 @@ async def test_existing_home_assistant_sun_state_is_used_verbatim(coordinator, h
     assert attributes["sun.sun"] == {
         "next_setting": "2026-09-15T18:00:00+02:00"
     }
+
+
+async def test_shadow_without_demand_does_not_schedule_disabled_comparison(coordinator):
+    coordinator.shadow_mode = True
+    with patch("custom_components.opti_akku.coordinator.build_strategy_comparison") as compare:
+        result = await coordinator._async_update_data()
+    compare.assert_not_called()
+    assert "strategy_comparison" not in result["demand_forecast"]
+    assert "shadow_summary" in result
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+async def test_static_metadata_is_reused_without_mutating_previous_results(coordinator):
+    with patch("custom_components.opti_akku.coordinator._build_metadata",
+               side_effect=AssertionError("static metadata rebuilt during update")):
+        first = await coordinator._async_update_data()
+        first["metadata"]["sensor.opti_soc"]["name"] = "Modified externally"
+        second = await coordinator._async_update_data()
+    assert second["metadata"]["sensor.opti_soc"]["name"] == "Ladezustand"
+    assert second["metadata"]["sensor.opti_battery_power_w"]["device_class"] == "power"

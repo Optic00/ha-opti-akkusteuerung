@@ -99,54 +99,39 @@ def _connection_schema(defaults: dict[str, Any], *, initial: bool = False) -> vo
     return schema
 
 
-def _sources_schema(defaults: dict[str, Any], *, require_confirmation: bool, shadow_mode: bool = False) -> vol.Schema:
+def _sources_schema(defaults: dict[str, Any], section: str, *, shadow_mode: bool = False) -> vol.Schema:
+    """Build only the source fields used by this wizard step."""
     sources = defaults.get("sources", {})
     schema: dict[vol.Marker, Any] = {}
-    for key in (*SOURCE_DEFINITIONS, *EV_SOURCE_KEYS):
+    for key in SOURCE_GROUPS.get(section, []):
         marker = vol.Optional(key, description={"suggested_value": sources[key]}) if key in sources else vol.Optional(key)
         domains = (["select", "input_select"] if key.endswith("_mode")
                    else ["binary_sensor"] if key.endswith(("_charging", "_smart_cost"))
                    else ["sensor"])
         schema[marker] = EntitySelector(EntitySelectorConfig(domain=domains))
-    schema.update(
-        {
-            vol.Required(
-                "price_unit", default=defaults.get("price_unit", "EUR/kWh")
-            ): SelectSelector(SelectSelectorConfig(options=["EUR/kWh", "ct/kWh"])),
-            vol.Required(
-                "source_max_age", default=defaults.get("source_max_age", 900)
-            ): vol.All(
-                NumberSelector(NumberSelectorConfig(min=0, max=3600, mode=NumberSelectorMode.BOX)),
-                # A positive fraction must never become the explicit zero opt-in.
-                vol.Any(0, vol.Range(min=1)),
-                vol.Coerce(int),
-            ),
-            vol.Required(
-                "forecast_max_age", default=defaults.get("forecast_max_age", 21600)
-            ): vol.All(
-                NumberSelector(NumberSelectorConfig(min=1, max=86400, mode=NumberSelectorMode.BOX)),
-                vol.Coerce(int),
-            ),
-            vol.Required(
-                "price_max_age", default=defaults.get("price_max_age", 7200)
-            ): vol.All(
-                NumberSelector(NumberSelectorConfig(min=1, max=86400, mode=NumberSelectorMode.BOX)),
-                vol.Coerce(int),
-            ),
-            vol.Required(
-                "single_inverter", default=defaults.get("single_inverter", False)
-            ): BooleanSelector(),
-            vol.Required(
-                "single_writer_confirmed",
-                default=False if require_confirmation else defaults.get("single_writer_confirmed", False),
-            ): BooleanSelector(),
-            (vol.Optional("shadow_reference_mode", description={"suggested_value": defaults["shadow_reference_mode"]})
-             if defaults.get("shadow_reference_mode") else vol.Optional("shadow_reference_mode")):
-                EntitySelector(EntitySelectorConfig(domain=["input_select", "select", "sensor"])),
-        }
-    )
-    if shadow_mode:
-        schema = {key: value for key, value in schema.items() if key.schema != "single_writer_confirmed"}
+    if section == "sources":
+        schema[vol.Required("source_max_age", default=defaults.get("source_max_age", 900))] = vol.All(
+            NumberSelector(NumberSelectorConfig(min=0, max=3600, mode=NumberSelectorMode.BOX)),
+            vol.Any(0, vol.Range(min=1)),  # Never round a positive fraction to the zero opt-in.
+            vol.Coerce(int),
+        )
+        schema[vol.Required("single_inverter", default=defaults.get("single_inverter", False))] = BooleanSelector()
+    elif section == "tariff":
+        schema[vol.Required("price_unit", default=defaults.get("price_unit", "EUR/kWh"))] = SelectSelector(
+            SelectSelectorConfig(options=["EUR/kWh", "ct/kWh"]))
+    elif section == "advanced":
+        for key, default in (("forecast_max_age", 21600), ("price_max_age", 7200)):
+            minimum = 60 if key == "price_max_age" and defaults.get("price_provider") == "tibber" else 1
+            selector = NumberSelector(NumberSelectorConfig(min=minimum, max=86400, mode=NumberSelectorMode.BOX))
+            schema[vol.Required(key, default=defaults.get(key, default))] = (
+                selector if minimum == 60 else vol.All(selector, vol.Coerce(int))
+            )
+    elif section == "finish":
+        if not shadow_mode:
+            schema[vol.Required("single_writer_confirmed", default=defaults.get("single_writer_confirmed", False))] = BooleanSelector()
+        marker = (vol.Optional("shadow_reference_mode", description={"suggested_value": defaults["shadow_reference_mode"]})
+                  if defaults.get("shadow_reference_mode") else vol.Optional("shadow_reference_mode"))
+        schema[marker] = EntitySelector(EntitySelectorConfig(domain=["input_select", "select", "sensor"]))
     return vol.Schema(schema)
 
 
@@ -231,10 +216,8 @@ class WizardSections:
         self._guided = True
 
     def _schema(self, section: str) -> vol.Schema:
-        keys = set(SOURCE_GROUPS.get(section, []) + OPTION_GROUPS.get(section, []))
-        source_schema = _sources_schema(self._draft, require_confirmation=False,
-                                       shadow_mode=self._connection.get("shadow_mode", False))
-        schema = {marker: validator for marker, validator in source_schema.schema.items() if marker.schema in keys}
+        schema = dict(_sources_schema(self._draft, section,
+            shadow_mode=self._connection.get("shadow_mode", False)).schema)
         if section == "sources":
             huawei = self._connection.get("backend") == BACKEND_HUAWEI
             if huawei:
@@ -253,11 +236,6 @@ class WizardSections:
             schema[vol.Required("plant_meter_confirmed", default=self._draft.get("plant_meter_confirmed", False))] = BooleanSelector()
             schema[vol.Required("forecast_min_load_w", default=self._draft.get("forecast_min_load_w", 0))] = NumberSelector(
                 NumberSelectorConfig(min=0, max=5000, step=1, unit_of_measurement="W", mode=NumberSelectorMode.BOX))
-        if section == "advanced" and self._draft.get("price_provider") == "tibber":
-            for marker in list(schema):
-                if marker.schema == "price_max_age":
-                    schema[marker] = vol.All(NumberSelector(NumberSelectorConfig(
-                        min=60, max=86400, mode=NumberSelectorMode.BOX)), vol.Coerce(int))
         if section == "tariff":
             schema[vol.Required("price_provider", default=self._draft.get("price_provider", "entities"))] = SelectSelector(
                 SelectSelectorConfig(options=["entities", "tibber"], translation_key="price_provider"))
@@ -859,7 +837,7 @@ class WizardSections:
 
     async def async_step_features(self, user_input=None):
         if not self._guided:
-            return self.async_show_menu(step_id="features", menu_options=["ev", "balancing", "init"])
+            return self.async_show_menu(step_id="features", menu_options=["ev", "ev_preparation", "balancing", "demand", "arbitrage", "notifications", "init"])
         if user_input is not None:
             self._use_balancing = user_input.get("configure_balancing", False)
             if not self._use_balancing:
@@ -1113,7 +1091,10 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
                 self._settings = {key: definition["default"] for key, definition in DEFINITIONS.items()}
                 self._settings.update({k: v for k, v in stored.get("settings", {}).items() if k in DEFINITIONS})
                 self._merge_pending_settings(stored.get("settings_revision"))
-        return self.async_show_menu(step_id="init", menu_options=["connection", "sources", "battery", "tariff", "forecast", "features", "notifications", "demand", "arbitrage", "ev_preparation", "observation", "advanced", "finish"])
+        return self.async_show_menu(step_id="init", menu_options=["sources", "battery", "tariff", "forecast", "features", "maintenance", "finish"])
+
+    async def async_step_maintenance(self, user_input=None):
+        return self.async_show_menu(step_id="maintenance", menu_options=["connection", "observation", "advanced", "init"])
 
     async def async_step_connection(self, user_input=None):
         if self._connection.get("backend") == BACKEND_HUAWEI:

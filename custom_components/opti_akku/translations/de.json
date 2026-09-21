@@ -300,19 +300,22 @@
         "title": "Opti Akku konfigurieren",
         "description": "Bereich wählen, ändern und abschließend Prüfen und speichern öffnen. Bis dahin bleibt alles ein Entwurf.",
         "menu_options": {
-          "connection": "Verbindung",
           "sources": "Anlage und Messwerte",
           "battery": "Akku und Leistungsgrenzen",
           "tariff": "Stromtarif",
           "forecast": "PV-Prognose",
-          "finish": "Prüfen und speichern",
-          "advanced": "Erweiterte Einstellungen",
           "features": "Optionale Funktionen",
-          "notifications": "Benachrichtigungen",
-          "demand": "Bedarfsprofil und Peak-Reserve",
-          "arbitrage": "Wirtschaftlichkeitsvergleich",
+          "maintenance": "Erweitert und Diagnose",
+          "finish": "Prüfen und speichern"
+        }
+      },
+      "maintenance": {
+        "title": "Erweitert und Diagnose",
+        "menu_options": {
+          "connection": "Verbindung",
           "observation": "Messquellen und Bilanz vergleichen",
-          "ev_preparation": "PV-Vorbereitung fürs Auto"
+          "advanced": "Erweiterte Einstellungen",
+          "init": "Zurück zur Übersicht"
         }
       },
       "connection": {
@@ -451,7 +454,11 @@
         "description": "Nur benötigte Zusatzfunktionen einrichten. Änderungen werden erst unter Prüfen und speichern übernommen.",
         "menu_options": {
           "ev": "Wallbox / evcc",
+          "ev_preparation": "PV-Vorbereitung fürs Auto",
           "balancing": "Balancing",
+          "demand": "Bedarfsprofil und Peak-Reserve",
+          "arbitrage": "Wirtschaftlichkeitsvergleich",
+          "notifications": "Benachrichtigungen",
           "init": "Zurück zur Übersicht"
         }
       },

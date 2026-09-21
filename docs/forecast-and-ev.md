@@ -1,6 +1,6 @@
 ### Bedarfsprognose als Beobachtung (Vorschau)
 
-Unter **Konfigurieren → Bedarfsprofil und Peak-Reserve** lässt sich eine unabhängige
+Unter **Konfigurieren → Optionale Funktionen → Bedarfsprofil und Peak-Reserve** lässt sich eine unabhängige
 Vergleichsrechnung einschalten. Sie bleibt standardmäßig aus und verändert weder
 Strategieeingaben noch Sollwerte oder Schreibfreigabe. Die gesonderte Option
 „Stundenprofil in der aktiven Strategie verwenden“ beeinflusst dagegen die
@@ -105,7 +105,7 @@ Auswertung an späteren, beim Lernen unbenutzten Tagen.
 
 ### Messquellenvergleich und Wiederanlauf (0.5.2b2)
 
-Das optionale Menü „Messquellen und Bilanz vergleichen“ aktiviert eine rein lesende
+Unter **Erweitert und Diagnose** aktiviert „Messquellen und Bilanz vergleichen“ eine rein lesende
 Diagnose. Es ersetzt weder die aktive Hausquelle noch deren Frischeprüfung. Wählbar
 sind die momentane Gesamt-Hausleistung, der Momentanwert nach Lastabzug, weitere
 Wechselrichter, ausgeschlossene Lasten und bis zu acht zusätzliche Beobachtungsquellen.
@@ -289,7 +289,7 @@ muss der Entladeschutz erneut die höhere Eintrittsschwelle erreichen.
 
 ### PV-Vorbereitung fürs Auto (0.5.2b4)
 
-Unter **Konfigurieren → PV-Vorbereitung fürs Auto** kann der Hausakku bei niedrigem
+Unter **Konfigurieren → Optionale Funktionen → PV-Vorbereitung fürs Auto** kann der Hausakku bei niedrigem
 Fahrzeug-Ladezustand vorhandenen PV-Überschuss früher aufnehmen. Standardmäßig aus.
 Einmalig Fahrzeug-SoC (%) und ein verlässliches Signal „Auto lädt“ auswählen;
 Standardwerte: Ladebedarf unter 40 %, Hausakku vorbereiten bis 80 % (höchstens

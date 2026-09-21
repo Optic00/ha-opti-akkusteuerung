@@ -6,6 +6,7 @@ from math import isfinite
 
 from .load_profile import LoadProfile
 from .plant import evaluate_plant
+from .source_quality import measurement_max_age, reported_recently
 
 
 def finite(value):
@@ -156,15 +157,14 @@ class SourceObservation:
             now,
         )
         gross_state = details.get(cfg.get("gross_house"), {})
-        gross_age = gross_state.get("last_reported_age_s", float("inf"))
-        limit = finite(options.get("source_max_age", 900)) or 900
+        limit = measurement_max_age(options.get("source_max_age", 900), event_based=True)
         gross_difference = (
             gross.house_w - watts(gross_state)
             if online
             and gross.house_w is not None
             and gross_state.get("available")
             and watts(gross_state) is not None
-            and -60 <= gross_age <= limit
+            and reported_recently(states.get(cfg.get("gross_house")), now, limit)
             else None
         )
         native = plant.base_load_w if online else None
@@ -176,11 +176,10 @@ class SourceObservation:
             else None
         )
         legacy = details.get(legacy_id, {})
-        limit = finite(options.get("source_max_age", 900)) or 900
         legacy_valid = (
             legacy.get("available")
             and watts(legacy) is not None
-            and -60 <= legacy.get("last_reported_age_s", float("inf")) <= limit
+            and reported_recently(states.get(legacy_id), now, limit)
         )
         difference = comparison - watts(legacy) if comparison is not None and legacy_valid else None
         reason = (
@@ -197,7 +196,7 @@ class SourceObservation:
                 connection.get("status"),
                 plant.errors,
                 {
-                    k: (v.get("available"), not -60 <= v.get("last_reported_age_s", 1e9) <= limit)
+                    k: (v.get("available"), not reported_recently(states.get(k), now, limit))
                     for k, v in details.items()
                 },
             ],

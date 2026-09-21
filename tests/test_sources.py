@@ -273,3 +273,53 @@ def test_external_hybrid_ac_can_be_negative_while_house_cannot():
     assert states["sensor.opti_pv_power_w"] == -1000
     assert "pv_power" not in errors
     assert errors["house_consumption"] == "negative_value"
+
+
+@pytest.mark.parametrize("key,canonical", [
+    ("house_consumption", "sensor.opti_house_consumption_w"),
+    ("pv_generation", "sensor.opti_pv_generation_w"),
+    ("pv_power", "sensor.opti_pv_power_w"),
+])
+@pytest.mark.parametrize("value", [0, 1234])
+def test_event_based_power_opt_in_accepts_unchanged_reports(key, canonical, value):
+    options = {"sources": {key: "sensor.external"}}
+    external = {"sensor.external": state(value, age=86400)}
+    assert build_inputs({}, options, external, NOW)[2][key] == "missing_or_stale"
+    values, _, errors = build_inputs({}, {**options, "source_max_age": 0}, external, NOW)
+    assert values[canonical] == value
+    assert not errors
+
+
+@pytest.mark.parametrize("sample,error", [
+    (state("unavailable", age=86400), "invalid_value"),
+    (state("unknown", age=86400), "invalid_value"),
+    (state("nan", age=86400), "invalid_value"),
+    (state(0, "A", age=86400), "unsupported_unit"),
+    (state(-1, age=86400), "negative_value"),
+    (state(0, age=-61), "missing_or_stale"),
+    (None, "missing_or_stale"),
+])
+def test_event_based_power_never_converts_bad_sources_to_zero(sample, error):
+    options = {"source_max_age": 0, "sources": {"pv_generation": "sensor.external"}}
+    values, _, errors = build_inputs({}, options, {"sensor.external": sample}, NOW)
+    assert values["sensor.opti_pv_generation_w"] == "unavailable"
+    assert errors["pv_generation"] == error
+
+
+@pytest.mark.parametrize("timestamp", [None, "invalid", NOW.replace(tzinfo=None)])
+def test_event_based_power_still_requires_a_real_report_timestamp(timestamp):
+    sample = state(0)
+    sample.last_reported = timestamp
+    _, _, errors = build_inputs({}, {"source_max_age": 0, "sources": {"pv_power": "sensor.external"}},
+                                {"sensor.external": sample}, NOW)
+    assert errors == {"pv_power": "missing_or_stale"}
+
+
+def test_power_opt_in_does_not_disable_other_source_age_limits():
+    options = {"source_max_age": 0, "sources": {
+        "forecast_today": "sensor.forecast", "price_current": "sensor.price", "cell_spread": "sensor.cells"}}
+    external = {"sensor.forecast": state(50, "kWh", age=21601),
+                "sensor.price": state(.3, "EUR/kWh", age=7201),
+                "sensor.cells": state(10, "mV", age=901)}
+    _, _, errors = build_inputs({}, options, external, NOW)
+    assert errors == dict.fromkeys(options["sources"], "missing_or_stale")

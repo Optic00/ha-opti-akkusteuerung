@@ -276,7 +276,8 @@ async def test_apply_is_blocked_without_service_calls(hass):
         call.assert_not_awaited()
 
 
-async def test_real_opti_huawei_setup_never_acquires_modbus_or_writes(hass, enable_custom_integrations):
+@pytest.mark.parametrize("max_age", [900, 0])
+async def test_real_opti_huawei_setup_never_acquires_modbus_or_writes(hass, enable_custom_integrations, max_age):
     from unittest.mock import patch
     from homeassistant.exceptions import HomeAssistantError
     backend, source_entry, inverter, _ = make_backend(hass)
@@ -285,13 +286,19 @@ async def test_real_opti_huawei_setup_never_acquires_modbus_or_writes(hass, enab
         "huawei_entry_id": source_entry.entry_id, "huawei_device_id": inverter.id,
         "huawei_sources": SOURCES, "grid_positive": "export"}, options={
         "strategy_enabled": True, "plant_mode": "balance", "plant_meter_confirmed": True,
-        "forecast_min_load_w": 0, "sources": {}})
+        "forecast_min_load_w": 0, "sources": {}, "source_max_age": max_age})
     opti.add_to_hass(hass)
     with patch("custom_components.opti_akku.async_get_unit", side_effect=AssertionError("No Modbus acquisition")):
         assert await hass.config_entries.async_setup(opti.entry_id)
         await hass.async_block_till_done()
         coordinator = opti.runtime_data
         assert coordinator.data["identity"]["manufacturer"] == "Huawei"
+        assert coordinator.device.source_max_age == 900
+        with patch("custom_components.opti_akku.huawei.dt_util.utcnow",
+                   return_value=dt_util.utcnow() + timedelta(seconds=901)):
+            stale = await coordinator.device.async_read()
+        assert stale["sensor.opti_soc"] is None
+        assert stale["sensor.opti_battery_temp"] is None
         assert coordinator.shadow_mode
         assert coordinator.supported_modes == ()
         assert coordinator.data["online"]

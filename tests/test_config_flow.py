@@ -15,6 +15,18 @@ PROBE = {"inverter_status": 235, "model": "STP10.0-3SE-40", "serial_number": "12
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 
+async def configure_options(hass, flow_id, user_input):
+    """Navigate the real submenu before submitting an existing feature test."""
+    section = user_input.get("next_step_id")
+    parents = {
+        **dict.fromkeys(("ev_preparation", "demand", "arbitrage", "notifications"), "features"),
+        **dict.fromkeys(("connection", "observation", "advanced"), "maintenance"),
+    }
+    if section in parents and hass.config_entries.options.async_get(flow_id)["step_id"] == "init":
+        await hass.config_entries.options.async_configure(flow_id, {"next_step_id": parents[section]})
+    return await hass.config_entries.options.async_configure(flow_id, user_input)
+
+
 def form_values(result, overrides=None):
     """Act like the frontend: submit displayed defaults and suggestions."""
     values = {}
@@ -156,7 +168,7 @@ async def test_price_unit_mismatch_and_incomplete_ev(hass):
 def test_smart_cost_uses_binary_sensor_selector():
     from custom_components.opti_akku.config_flow import _sources_schema
 
-    schema = _sources_schema({"sources": {}}, require_confirmation=False)
+    schema = _sources_schema({"sources": {}}, "ev")
     validators = {marker.schema: validator for marker, validator in schema.schema.items()}
     assert validators["ev1_smart_cost"].config["domain"] == ["binary_sensor"]
     assert validators["ev2_smart_cost"].config["domain"] == ["binary_sensor"]
@@ -243,7 +255,7 @@ async def test_connection_change_never_carries_writer_permission(hass):
     entry.add_to_hass(hass)
     with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value={**PROBE, "serial_number": "new"})):
         result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "connection"})
+        result = await configure_options(hass, result["flow_id"], {"next_step_id": "connection"})
         connection = {k:v for k,v in CONNECTION.items() if k != "shadow_mode"}
         result = await hass.config_entries.options.async_configure(result["flow_id"], connection)
         assert entry.data["serial_number"] == "1234567890"
@@ -353,7 +365,7 @@ async def test_options_menu_groups_optional_features(hass):
     assert "features" in result["menu_options"]
     assert "ev" not in result["menu_options"]
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "features"})
-    assert result["menu_options"] == ["ev", "balancing", "init"]
+    assert result["menu_options"] == ["ev", "ev_preparation", "balancing", "demand", "arbitrage", "notifications", "init"]
     hass.config_entries.options.async_abort(result["flow_id"])
     assert not entry.options
 
@@ -392,6 +404,11 @@ async def test_options_sections_open_through_http(hass, hass_client, section):
                                  json={"handler": entry.entry_id})
     assert response.status == 200
     flow = await response.json()
+    parent = {"notifications": "features", "advanced": "maintenance"}.get(section)
+    if parent:
+        response = await client.post(f"/api/config/config_entries/options/flow/{flow['flow_id']}",
+                                     json={"next_step_id": parent})
+        assert response.status == 200, await response.text()
     response = await client.post(f"/api/config/config_entries/options/flow/{flow['flow_id']}",
                                  json={"next_step_id": section})
     assert response.status == 200, await response.text()
@@ -455,7 +472,7 @@ async def test_notification_selection_stays_draft_and_validates_service(hass):
     entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, options={"single_inverter": True})
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "notifications"})
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "notifications"})
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"notification_service": "notify.test_phone"})
     assert result["type"] == FlowResultType.MENU
     assert "notification_service" not in entry.options
@@ -660,7 +677,7 @@ async def test_huawei_options_reconnect_keeps_shadow_immutable(hass):
         unique_id=f"shadow:huawei_solar:{inverter.id}", options={"sources": {}})
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "connection"}
     )
     assert "shadow_mode" not in {marker.schema for marker in result["data_schema"].schema}
@@ -872,8 +889,9 @@ async def test_demand_options_are_separate_and_default_off(hass):
                             options={'single_inverter': True, 'sources': {}})
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert 'demand' in result['menu_options']
-    result = await hass.config_entries.options.async_configure(result['flow_id'], {'next_step_id': 'demand'})
+    assert 'features' in result['menu_options']
+    assert 'demand' not in result['menu_options']
+    result = await configure_options(hass, result['flow_id'], {'next_step_id': 'demand'})
     schema = result['data_schema'].schema
     enabled = next(k for k in schema if k.schema == 'enabled')
     assert enabled.default() is False
@@ -885,7 +903,7 @@ async def test_demand_options_are_separate_and_default_off(hass):
     # Merely visiting/editing the draft cannot change strategy or stored options.
     assert result['type'] == 'menu'
     assert dict(entry.options) == before
-    result = await hass.config_entries.options.async_configure(result['flow_id'], {'next_step_id': 'demand'})
+    result = await configure_options(hass, result['flow_id'], {'next_step_id': 'demand'})
     result = await hass.config_entries.options.async_configure(result['flow_id'],
         {'enabled': True, 'dhw_cycle_kwh': 0, 'water_temperature': 'sensor.missing'})
     assert result['errors']['water_temperature'] == 'missing_or_stale'
@@ -918,8 +936,8 @@ async def test_arbitrage_estimate_requires_explicit_assumptions_and_stays_option
     )
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert "arbitrage" in result["menu_options"]
-    result = await hass.config_entries.options.async_configure(
+    assert "arbitrage" not in result["menu_options"]
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "arbitrage"}
     )
     enabled = next(k for k in result["data_schema"].schema if k.schema == "enabled")
@@ -961,7 +979,7 @@ async def test_arbitrage_estimate_requires_explicit_assumptions_and_stays_option
     assert entry.options["arbitrage_estimate"] == configured
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "arbitrage"}
     )
     result = await hass.config_entries.options.async_configure(
@@ -995,7 +1013,7 @@ async def test_active_arbitrage_hold_requires_demand_forecast_and_is_saved(hass)
     )
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "arbitrage"}
     )
     blocked = await hass.config_entries.options.async_configure(
@@ -1015,7 +1033,7 @@ async def test_active_arbitrage_hold_requires_demand_forecast_and_is_saved(hass)
     )
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "arbitrage"}
     )
     result = await hass.config_entries.options.async_configure(
@@ -1040,7 +1058,7 @@ async def test_observation_options_never_replace_controller_sources(hass):
     entry.add_to_hass(hass)
     hass.states.async_set("sensor.gross", "800", {"unit_of_measurement": "W"})
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "observation"}
     )
     enabled = next(k for k in result["data_schema"].schema if k.schema == "enabled")
@@ -1080,7 +1098,7 @@ async def test_ev_preparation_is_opt_in_and_needs_soc_and_charging(hass):
     entry=MockConfigEntry(domain='opti_akku',title='Test',data={'host':'127.0.0.1','port':502,'unit_id':3},options={'sources':{}})
     entry.add_to_hass(hass)
     result=await hass.config_entries.options.async_init(entry.entry_id)
-    result=await hass.config_entries.options.async_configure(result['flow_id'],{'next_step_id':'ev_preparation'})
+    result=await configure_options(hass, result['flow_id'],{'next_step_id':'ev_preparation'})
     enabled=next(k for k in result['data_schema'].schema if k.schema=='enabled')
     assert enabled.default() is False
     result=await hass.config_entries.options.async_configure(result['flow_id'],{'enabled':True,'vehicle_threshold':40,'house_target':80})
@@ -1115,7 +1133,7 @@ async def test_ev_departure_must_be_a_usable_time_source(hass, value, attributes
     hass.states.async_set("binary_sensor.charging", "off")
     hass.states.async_set("input_datetime.departure", value, attributes)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "ev_preparation"}
     )
     result = await hass.config_entries.options.async_configure(
@@ -1152,7 +1170,7 @@ async def test_ev_departure_requires_explicit_capacity_power_and_efficiency(hass
         {"has_time": True},
     )
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "ev_preparation"}
     )
     result = await hass.config_entries.options.async_configure(
@@ -1217,7 +1235,7 @@ async def test_ev_preparation_can_be_disabled_with_unavailable_sources(
         )
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "ev_preparation"}
     )
     result = await hass.config_entries.options.async_configure(
@@ -1265,7 +1283,8 @@ async def test_huawei_shadow_without_temperature_requires_telemetry_only(hass):
     assert result["options"]["strategy_enabled"] is False
 
 
-async def test_huawei_strategy_requires_external_house_and_completes_shadow_wizard(hass):
+@pytest.mark.parametrize("max_age", [900, 0])
+async def test_huawei_strategy_requires_external_house_and_completes_shadow_wizard(hass, max_age):
     result = await huawei_source_form(hass)
     assert "single_inverter" not in {m.schema for m in result["data_schema"].schema}
     from homeassistant.data_entry_flow import InvalidData
@@ -1277,12 +1296,13 @@ async def test_huawei_strategy_requires_external_house_and_completes_shadow_wiza
         await hass.config_entries.flow.async_configure(result["flow_id"], form_values(result, {"plant_mode": "balance", "plant_meter_confirmed": True}))
     hass.states.async_set("sensor.actual_house", "600", {"unit_of_measurement": "W"})
     with patch("custom_components.opti_akku.async_setup_entry", AsyncMock(return_value=True)):
-        result = await hass.config_entries.flow.async_configure(result["flow_id"], form_values(result, {"plant_mode": "external", "house_consumption": "sensor.actual_house"}))
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], form_values(result, {"plant_mode": "external", "house_consumption": "sensor.actual_house", "source_max_age": max_age}))
         result = await finish_wizard(hass, result)
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["options"]["strategy_enabled"] is True
     assert result["options"]["single_inverter"] is False
     assert result["options"]["sources"]["house_consumption"] == "sensor.actual_house"
+    assert result["options"]["source_max_age"] == max_age
 
 
 async def test_huawei_temperature_loss_before_finish_rejected(hass):
@@ -1367,7 +1387,7 @@ async def test_unchanged_sma_connection_preserves_single_writer_confirmation(has
     entry.add_to_hass(hass)
     with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)):
         result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "connection"})
+        result = await configure_options(hass, result["flow_id"], {"next_step_id": "connection"})
         result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
         result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
         result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
@@ -1387,7 +1407,7 @@ async def test_failed_sma_reconnect_keeps_entry_and_retry_values(hass):
     )
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "connection"}
     )
     submitted = {
@@ -1493,7 +1513,7 @@ async def test_saved_tibber_provider_hides_manual_price_sources(hass):
     } & {marker.schema for marker in result["data_schema"].schema}
     hass.config_entries.options.async_abort(result["flow_id"])
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "advanced"}
     )
     assert form_values(result)["price_max_age"] == 7200
@@ -1576,7 +1596,7 @@ async def test_failed_and_duplicate_sma_reconnect_preserve_entry(hass):
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "connection"}
     )
     with patch(
@@ -1595,7 +1615,7 @@ async def test_failed_and_duplicate_sma_reconnect_preserve_entry(hass):
         data={**CONNECTION, "host": "other"},
     ).add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "connection"}
     )
     with patch(
@@ -1649,7 +1669,7 @@ async def test_unavailable_notification_target_is_visible_but_cannot_be_saved(ha
     entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, options=options)
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "notifications"}
     )
     assert form_values(result)["notification_service"] == "notify.removed_phone"
@@ -1668,7 +1688,7 @@ async def test_observation_rejects_duplicate_and_missing_sources(hass):
     )
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "observation"}
     )
     result = await hass.config_entries.options.async_configure(
@@ -1707,7 +1727,7 @@ async def test_ev_preparation_source_errors_are_field_specific(hass, kind, error
         entity_id = entity.entity_id
         hass.states.async_set(entity_id, 20, {"unit_of_measurement": "%"})
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "ev_preparation"}
     )
     result = await hass.config_entries.options.async_configure(
@@ -1843,7 +1863,7 @@ async def test_demand_heat_source_cannot_be_house_total_or_opti_entity(
     )
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
+    result = await configure_options(hass,
         result["flow_id"], {"next_step_id": "demand"}
     )
     result = await hass.config_entries.options.async_configure(
@@ -1900,3 +1920,65 @@ async def test_temporary_charge_override_only_offered_after_initial_setup(hass):
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "battery"})
     assert "opti_manuelle_ladegrenze" in {m.schema for m in result["data_schema"].schema}
     hass.config_entries.options.async_abort(result["flow_id"])
+
+
+async def test_reporting_policy_is_reachable_before_validating_stale_sources(hass):
+    hass.states.async_set('sensor.old_house','700',{'unit_of_measurement':'W'})
+    with patch('custom_components.opti_akku.config_flow._probe',AsyncMock(return_value=PROBE)):
+        result=await begin(hass)
+        values=form_values(result,{'house_consumption':'sensor.old_house','source_max_age':0,'plant_mode':'external','forecast_min_load_w':0})
+        with patch('custom_components.opti_akku.config_flow.dt_util.utcnow',return_value=dt_util.utcnow()+timedelta(hours=3)):
+            result=await hass.config_entries.flow.async_configure(result['flow_id'], values)
+        assert result['step_id']=='battery' and not result['errors'], result
+        with patch('custom_components.opti_akku.async_setup_entry',AsyncMock(return_value=True)):
+            saved=await finish_wizard(hass,result)
+        assert saved['options']['source_max_age']==0
+
+
+def test_huawei_temperature_keeps_age_gate_with_power_availability_policy(hass):
+    from custom_components.opti_akku.config_flow import WizardSections
+    wizard=WizardSections()
+    wizard.hass=hass
+    hass.states.async_set('sensor.temp','25',{'unit_of_measurement':'°C'})
+    conn={'huawei_sources':{'battery_temp':'sensor.temp'}}
+    assert wizard._huawei_temperature_valid(conn, {'source_max_age':0})
+    with patch('custom_components.opti_akku.config_flow.dt_util.utcnow',return_value=dt_util.utcnow()+timedelta(seconds=901)):
+        assert not wizard._huawei_temperature_valid(conn, {'source_max_age':0})
+
+
+@pytest.mark.parametrize("value", [0.001, 0.4, 0.999])
+def test_fractional_source_age_cannot_enable_availability_only(value):
+    import voluptuous as vol
+    from custom_components.opti_akku.config_flow import _sources_schema
+
+    schema = _sources_schema({}, "sources")
+    validator = next(v for k, v in schema.schema.items() if k.schema == "source_max_age")
+    with pytest.raises(vol.Invalid):
+        validator(value)
+    assert validator(0) == 0
+    assert validator(900) == 900
+
+
+async def test_options_overview_and_maintenance_preserve_a_single_draft(hass):
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION)
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["menu_options"] == ["sources", "battery", "tariff", "forecast", "features", "maintenance", "finish"]
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "maintenance"})
+    assert result["menu_options"] == ["connection", "observation", "advanced", "init"]
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "init"})
+    assert result["step_id"] == "init"
+    assert not entry.options
+
+
+@pytest.mark.parametrize("value,expected", [(60.0, 60), (60.5, 60), (7200.0, 7200)])
+def test_tibber_age_keeps_integer_conversion(value, expected):
+    import voluptuous as vol
+    from custom_components.opti_akku.config_flow import _sources_schema
+
+    schema = _sources_schema({"price_provider": "tibber"}, "advanced")
+    validator = next(v for k, v in schema.schema.items() if k.schema == "price_max_age")
+    result = validator(value)
+    assert type(result) is int and result == expected
+    with pytest.raises(vol.Invalid):
+        validator(59)

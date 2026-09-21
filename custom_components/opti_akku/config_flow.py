@@ -16,7 +16,7 @@ from modbus_connection import ModbusError, ModbusTcpParams
 import voluptuous as vol
 
 from homeassistant.components.modbus import async_get_temporary_unit
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.config_entries import ConfigEntryState, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.selector import (
@@ -43,6 +43,7 @@ from .const import (
 )
 from .sma import SmaDevice, UnsupportedDeviceError
 from .device import DeviceError
+from .source_quality import measurement_max_age, reported_recently
 
 CONF_UNIT_ID = "unit_id"
 CONF_PROFILE = "profile"
@@ -98,52 +99,37 @@ def _connection_schema(defaults: dict[str, Any], *, initial: bool = False) -> vo
     return schema
 
 
-def _sources_schema(defaults: dict[str, Any], *, require_confirmation: bool, shadow_mode: bool = False) -> vol.Schema:
+def _sources_schema(defaults: dict[str, Any], section: str, *, shadow_mode: bool = False) -> vol.Schema:
+    """Build only the source fields used by this wizard step."""
     sources = defaults.get("sources", {})
     schema: dict[vol.Marker, Any] = {}
-    for key in (*SOURCE_DEFINITIONS, *EV_SOURCE_KEYS):
+    for key in SOURCE_GROUPS.get(section, []):
         marker = vol.Optional(key, description={"suggested_value": sources[key]}) if key in sources else vol.Optional(key)
         domains = (["select", "input_select"] if key.endswith("_mode")
                    else ["binary_sensor"] if key.endswith(("_charging", "_smart_cost"))
                    else ["sensor"])
         schema[marker] = EntitySelector(EntitySelectorConfig(domain=domains))
-    schema.update(
-        {
-            vol.Required(
-                "price_unit", default=defaults.get("price_unit", "EUR/kWh")
-            ): SelectSelector(SelectSelectorConfig(options=["EUR/kWh", "ct/kWh"])),
-            vol.Required(
-                "source_max_age", default=defaults.get("source_max_age", 900)
-            ): vol.All(
-                NumberSelector(NumberSelectorConfig(min=1, max=3600, mode=NumberSelectorMode.BOX)),
-                vol.Coerce(int),
-            ),
-            vol.Required(
-                "forecast_max_age", default=defaults.get("forecast_max_age", 21600)
-            ): vol.All(
-                NumberSelector(NumberSelectorConfig(min=1, max=86400, mode=NumberSelectorMode.BOX)),
-                vol.Coerce(int),
-            ),
-            vol.Required(
-                "price_max_age", default=defaults.get("price_max_age", 7200)
-            ): vol.All(
-                NumberSelector(NumberSelectorConfig(min=1, max=86400, mode=NumberSelectorMode.BOX)),
-                vol.Coerce(int),
-            ),
-            vol.Required(
-                "single_inverter", default=defaults.get("single_inverter", False)
-            ): BooleanSelector(),
-            vol.Required(
-                "single_writer_confirmed",
-                default=False if require_confirmation else defaults.get("single_writer_confirmed", False),
-            ): BooleanSelector(),
-            (vol.Optional("shadow_reference_mode", description={"suggested_value": defaults["shadow_reference_mode"]})
-             if defaults.get("shadow_reference_mode") else vol.Optional("shadow_reference_mode")):
-                EntitySelector(EntitySelectorConfig(domain=["input_select", "select", "sensor"])),
-        }
-    )
-    if shadow_mode:
-        schema = {key: value for key, value in schema.items() if key.schema != "single_writer_confirmed"}
+    if section == "sources":
+        schema[vol.Required("source_max_age", default=defaults.get("source_max_age", 900))] = vol.All(
+            NumberSelector(NumberSelectorConfig(min=0, max=3600, mode=NumberSelectorMode.BOX)),
+            vol.Any(0, vol.Range(min=1)),  # Never round a positive fraction to the zero opt-in.
+            vol.Coerce(int),
+        )
+        schema[vol.Required("single_inverter", default=defaults.get("single_inverter", False))] = BooleanSelector()
+    elif section == "tariff":
+        schema[vol.Required("price_unit", default=defaults.get("price_unit", "EUR/kWh"))] = SelectSelector(
+            SelectSelectorConfig(options=["EUR/kWh", "ct/kWh"]))
+    elif section == "advanced":
+        for key, default in (("forecast_max_age", 21600), ("price_max_age", 7200)):
+            minimum = 60 if key == "price_max_age" and defaults.get("price_provider") == "tibber" else 1
+            selector = NumberSelector(NumberSelectorConfig(min=minimum, max=86400, mode=NumberSelectorMode.BOX))
+            schema[vol.Required(key, default=defaults.get(key, default))] = vol.All(selector, vol.Coerce(int))
+    elif section == "finish":
+        if not shadow_mode:
+            schema[vol.Required("single_writer_confirmed", default=defaults.get("single_writer_confirmed", False))] = BooleanSelector()
+        marker = (vol.Optional("shadow_reference_mode", description={"suggested_value": defaults["shadow_reference_mode"]})
+                  if defaults.get("shadow_reference_mode") else vol.Optional("shadow_reference_mode"))
+        schema[marker] = EntitySelector(EntitySelectorConfig(domain=["input_select", "select", "sensor"]))
     return vol.Schema(schema)
 
 
@@ -205,10 +191,37 @@ SOURCE_GROUPS = {"sources": ["house_consumption", "pv_generation", "pv_power"],
                  "tariff": ["price_current", "price_series"],
                  "forecast": ["forecast_today", "forecast_tomorrow", "forecast_remaining"],
                  "ev": list(EV_SOURCE_KEYS), "balancing": ["cell_spread"]}
-OPTION_GROUPS = {"sources": ["strategy_enabled", "single_inverter", "plant_mode", "additional_ac_sources", "excluded_load_sources", "event_based_excluded_sources", "plant_meter_confirmed", "forecast_min_load_w"], "tariff": ["price_unit", "price_provider"],
-                 "advanced": ["source_max_age", "forecast_max_age", "price_max_age"],
+OPTION_GROUPS = {"sources": ["source_max_age", "strategy_enabled", "single_inverter", "plant_mode", "additional_ac_sources", "excluded_load_sources", "event_based_excluded_sources", "plant_meter_confirmed", "forecast_min_load_w"], "tariff": ["price_unit", "price_provider"],
+                 "advanced": ["forecast_max_age", "price_max_age"],
                  "finish": ["shadow_reference_mode", "single_writer_confirmed"]}
 DEFINITIONS = {**NUMBER_DEFINITIONS, **SWITCH_DEFINITIONS}
+
+# Copy configuration only; entry-specific journals, permissions and learned state
+# belong to the original entry. Unknown future options are not copied implicitly.
+SHADOW_COPY_OPTIONS = frozenset({
+    *DEFAULT_OPTIONS, *(key for keys in OPTION_GROUPS.values() for key in keys),
+    "tibber_home", "tibber_entry_id", "tibber_eur_confirmed", "notification_service",
+    "ev_preparation", "demand_forecast", "arbitrage_estimate", "source_observation",
+}) - {"settings", "single_writer_confirmed", "shadow_reference_mode"}
+SHADOW_COPY_CONNECTION = frozenset({
+    CONF_HOST, CONF_PORT, CONF_UNIT_ID, CONF_PROFILE, "backend", "serial_number",
+    "huawei_entry_id", "huawei_device_id", "huawei_sources", "grid_positive",
+})
+# These may change during normal strategy evaluation or are reset in the new
+# entry. The user reviews the captured tariff values, not a moving live value.
+SHADOW_COPY_VOLATILE_SETTINGS = frozenset({
+    "input_number.ladepreis", "input_boolean.hausakku_aus_netz_laden",
+    "input_boolean.akku_opti_automatik", "input_boolean.opti_manuelle_ladegrenze",
+})
+
+
+def _effective_settings(options, settings, applied_revision):
+    """Apply the same pending settings patch for options editing and copying."""
+    effective = {key: value for key, value in settings.items() if key in DEFINITIONS}
+    if options.get("settings_revision") and options["settings_revision"] != applied_revision:
+        effective.update({key: value for key, value in options.get("settings", {}).items()
+                          if key in DEFINITIONS})
+    return effective
 
 
 def _setting_key(name: str) -> str:
@@ -228,10 +241,8 @@ class WizardSections:
         self._guided = True
 
     def _schema(self, section: str) -> vol.Schema:
-        keys = set(SOURCE_GROUPS.get(section, []) + OPTION_GROUPS.get(section, []))
-        source_schema = _sources_schema(self._draft, require_confirmation=False,
-                                       shadow_mode=self._connection.get("shadow_mode", False))
-        schema = {marker: validator for marker, validator in source_schema.schema.items() if marker.schema in keys}
+        schema = dict(_sources_schema(self._draft, section,
+            shadow_mode=self._connection.get("shadow_mode", False)).schema)
         if section == "sources":
             huawei = self._connection.get("backend") == BACKEND_HUAWEI
             if huawei:
@@ -250,11 +261,6 @@ class WizardSections:
             schema[vol.Required("plant_meter_confirmed", default=self._draft.get("plant_meter_confirmed", False))] = BooleanSelector()
             schema[vol.Required("forecast_min_load_w", default=self._draft.get("forecast_min_load_w", 0))] = NumberSelector(
                 NumberSelectorConfig(min=0, max=5000, step=1, unit_of_measurement="W", mode=NumberSelectorMode.BOX))
-        if section == "advanced" and self._draft.get("price_provider") == "tibber":
-            for marker in list(schema):
-                if marker.schema == "price_max_age":
-                    schema[marker] = vol.All(NumberSelector(NumberSelectorConfig(
-                        min=60, max=86400, mode=NumberSelectorMode.BOX)), vol.Coerce(int))
         if section == "tariff":
             schema[vol.Required("price_provider", default=self._draft.get("price_provider", "entities"))] = SelectSelector(
                 SelectSelectorConfig(options=["entities", "tibber"], translation_key="price_provider"))
@@ -284,8 +290,8 @@ class WizardSections:
         if state is None or state.attributes.get("unit_of_measurement") != "°C":
             return False
         value = finite(state.state)
-        age = (dt_util.utcnow() - (state.last_reported or state.last_updated)).total_seconds()
-        return value is not None and -60 <= value <= 100 and -60 <= age <= draft.get("source_max_age", 900)
+        return (value is not None and -60 <= value <= 100
+                and reported_recently(state, dt_util.utcnow(), measurement_max_age(draft.get("source_max_age", 900))))
 
     def _huawei_source_error(self, draft=None, connection=None):
         draft = self._draft if draft is None else draft
@@ -439,6 +445,8 @@ class WizardSections:
                     return await self.async_step_tibber()
                 if not self._guided:
                     return await (self.async_step_features() if section in ("ev", "balancing") else self.async_step_init())
+                if section == "advanced" and getattr(self, "_shadow_source", None):
+                    return await self.async_step_init()
                 following = {"sources": "battery", "battery": "tariff", "tariff": "forecast",
                              "forecast": "features", "ev": "balancing" if self._use_balancing else "notifications",
                              "balancing": "notifications"}
@@ -486,7 +494,7 @@ class WizardSections:
                     entry_id=self._connection["huawei_entry_id"],
                     device_id=self._connection["huawei_device_id"],
                     sources=self._connection["huawei_sources"],
-                    source_max_age=self._draft.get("source_max_age", 900),
+                    source_max_age=measurement_max_age(self._draft.get("source_max_age", 900)),
                     grid_positive=self._connection["grid_positive"],
                     controls=self._connection.get("huawei_controls"))
                 await device.async_probe()
@@ -568,7 +576,9 @@ class WizardSections:
                 errors["base"] = "notification_service_unavailable"
             else:
                 self._draft["notification_service"] = selected
-                return await (self.async_step_finish() if self._guided else self.async_step_init())
+                if self._guided and not getattr(self, "_shadow_source", None):
+                    return await self.async_step_finish()
+                return await self.async_step_init()
         if selected not in choices:
             choices.append(selected)
         return self.async_show_form(step_id="notifications", errors=errors, data_schema=vol.Schema({
@@ -856,7 +866,7 @@ class WizardSections:
 
     async def async_step_features(self, user_input=None):
         if not self._guided:
-            return self.async_show_menu(step_id="features", menu_options=["ev", "balancing", "init"])
+            return self.async_show_menu(step_id="features", menu_options=["ev", "ev_preparation", "balancing", "demand", "arbitrage", "notifications", "init"])
         if user_input is not None:
             self._use_balancing = user_input.get("configure_balancing", False)
             if not self._use_balancing:
@@ -867,7 +877,7 @@ class WizardSections:
                 return await self.async_step_ev()
             return await (self.async_step_balancing() if self._use_balancing else self.async_step_notifications())
         return self.async_show_form(step_id="features", data_schema=vol.Schema({
-            vol.Required("configure_ev", default=False): BooleanSelector(),
+            vol.Required("configure_ev", default=any(self._draft["sources"].get(key) for key in EV_SOURCE_KEYS)): BooleanSelector(),
             vol.Required("configure_balancing", default=self._use_balancing): BooleanSelector(),
         }))
 
@@ -884,17 +894,135 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
         self._migration_mapping = {}
         self._migration_values = {}
         self._migration_report = {}
+        self._shadow_source = None
+        self._shadow_snapshot = None
+        self._copy_review_steps = []
+
+    def _shadow_entries(self):
+        return {entry.entry_id: entry for entry in self.hass.config_entries.async_entries(DOMAIN)
+                if entry.data.get("shadow_mode") is True
+                and entry.data.get("backend", BACKEND_SMA) in ("sma", BACKEND_SMA, BACKEND_HUAWEI)
+                and entry.state is ConfigEntryState.LOADED
+                and getattr(entry, "runtime_data", None) is not None
+                and entry.runtime_data.connection_config == dict(entry.data)}
+
+    def _copy_snapshot(self, entry):
+        runtime = entry.runtime_data
+        return (deepcopy(dict(entry.data)), deepcopy(dict(entry.options)),
+                _effective_settings(entry.options, runtime.settings, runtime._settings_revision))
+
+    def _shadow_source_unchanged(self, entry):
+        if entry is None:
+            return False
+        current = self._copy_snapshot(entry)
+        original = self._shadow_snapshot
+        return current[:2] == original[:2] and all(
+            current[2].get(key) == value for key, value in original[2].items()
+            if key not in SHADOW_COPY_VOLATILE_SETTINGS)
+
+    async def async_step_init(self, user_input=None):
+        """Review copied optional configuration through the existing forms."""
+        if self._copy_review_steps:
+            section = self._copy_review_steps.pop(0)
+            return await getattr(self, "async_step_" + section)()
+        return await self.async_step_finish()
+
+    async def _check_shadow_copy(self):
+        """Re-probe without writes; the expected identity is never learned anew."""
+        entry = self._shadow_entries().get(self._shadow_source)
+        if not self._shadow_source_unchanged(entry):
+            return "shadow_source_changed"
+        expected = self._shadow_snapshot[0].get("serial_number")
+        if not expected:
+            return "shadow_identity_missing"
+        try:
+            if self._connection.get("backend") == BACKEND_HUAWEI:
+                from .huawei import HuaweiDevice
+                device = HuaweiDevice(self.hass,
+                    entry_id=self._connection["huawei_entry_id"],
+                    device_id=self._connection["huawei_device_id"],
+                    sources=self._connection["huawei_sources"],
+                    grid_positive=self._connection["grid_positive"], read_only=True)
+                probe = await device.async_probe()
+            else:
+                probe = await _probe(self.hass, self._connection)
+        except (DeviceError, ModbusError, HomeAssistantError, OSError, TimeoutError, ValueError, KeyError):
+            return "cannot_connect"
+        if not probe.get("inverter_status"):
+            return "unsupported_device"
+        if probe.get("serial_number") != expected:
+            return "shadow_identity_changed"
+        # Re-check after the await; a concurrent flow or settings edit may have
+        # completed while the read-only probe was in flight.
+        entry = self._shadow_entries().get(self._shadow_source)
+        if not self._shadow_source_unchanged(entry):
+            return "shadow_source_changed"
+        await self.async_set_unique_id(_device_unique_id(self._connection, probe))
+        self._abort_if_unique_id_configured()
+        return None
+
+    async def async_step_shadow_copy(self, user_input=None):
+        entries = self._shadow_entries()
+        if not entries:
+            return self.async_abort(reason="no_shadow_entries")
+        errors = {}
+        if user_input is not None:
+            entry = entries.get(user_input.get("shadow_entry"))
+            if entry is None:
+                errors["base"] = "shadow_source_changed"
+            elif user_input.get("confirm_copy") is not True:
+                errors["base"] = "shadow_copy_confirmation_required"
+            else:
+                self._shadow_source = entry.entry_id
+                self._shadow_snapshot = self._copy_snapshot(entry)
+                data, options, settings = self._shadow_snapshot
+                self._connection = {key: deepcopy(value) for key, value in data.items()
+                                    if key in SHADOW_COPY_CONNECTION}
+                self._connection["shadow_mode"] = False
+                self._init_draft({key: deepcopy(value) for key, value in options.items()
+                                  if key in SHADOW_COPY_OPTIONS}, settings)
+                self._settings["input_boolean.opti_manuelle_ladegrenze"] = False
+                self._settings["input_boolean.akku_opti_automatik"] = False
+                self._draft["single_writer_confirmed"] = False
+                self._use_balancing = self._settings["input_number.opti_balancing_intervall_tage"] > 0
+                self._copy_review_steps = ["advanced"] + [
+                    step for step, key in (("demand", "demand_forecast"), ("ev_preparation", "ev_preparation"),
+                                          ("arbitrage", "arbitrage_estimate"), ("observation", "source_observation"))
+                    if self._draft.get(key)]
+                if error := await self._check_shadow_copy():
+                    errors["base"] = error
+                elif self._connection.get("backend") == BACKEND_HUAWEI:
+                    return await self.async_step_huawei_controls()
+                else:
+                    return await self.async_step_sources()
+        return self.async_show_form(step_id="shadow_copy", errors=errors, data_schema=vol.Schema({
+            vol.Required("shadow_entry"): SelectSelector(SelectSelectorConfig(options=[
+                {"value": entry.entry_id, "label": self._shadow_label(entry)}
+                for entry in entries.values()])),
+            vol.Required("confirm_copy", default=False): BooleanSelector(),
+        }))
+
+    def _shadow_label(self, entry):
+        from homeassistant.helpers import device_registry as dr
+        device = dr.async_get(self.hass).async_get(entry.data.get("huawei_device_id", ""))
+        name = (device.name_by_user or device.name or device.model) if device else entry.data.get(CONF_HOST)
+        return f"{entry.title} ({name})" if name else entry.title
 
     async def async_step_user(self, user_input=None):
         if user_input is None:
+            backends = [BACKEND_SMA, BACKEND_HUAWEI]
+            if self._shadow_entries():
+                backends.append("shadow_copy")
             return self.async_show_form(step_id="user", data_schema=vol.Schema({
                 vol.Required("backend", default=BACKEND_SMA): SelectSelector(
                     SelectSelectorConfig(
-                        options=[BACKEND_SMA, BACKEND_HUAWEI], translation_key="backend"
+                        options=backends, translation_key="backend"
                     )
                 ),
             }))
         if CONF_HOST not in user_input:
+            if user_input.get("backend") == "shadow_copy":
+                return await self.async_step_shadow_copy()
             if user_input.get("backend") == BACKEND_HUAWEI:
                 return await self.async_step_huawei_device()
             return await self.async_step_sma_connection()
@@ -1064,6 +1192,13 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
         if not await self._validate_final_sources(self._settings):
             return self.async_show_form(step_id="finish", data_schema=self._schema("finish"),
                 errors={"base": self._huawei_source_error() or "sources_changed"}, description_placeholders=self._summary())
+        if self._shadow_source:
+            if self._draft.get("single_writer_confirmed") is not True:
+                return self.async_show_form(step_id="finish", data_schema=self._schema("finish"),
+                    errors={"base": "shadow_writer_confirmation_required"}, description_placeholders=self._summary())
+            if error := await self._check_shadow_copy():
+                return self.async_show_form(step_id="finish", data_schema=self._schema("finish"),
+                    errors={"base": error}, description_placeholders=self._summary())
         self._draft["settings"] = dict(self._settings)
         self._draft["settings_revision"] = uuid4().hex
         return self.async_create_entry(title="Opti Akku Shadow" if self._connection.get("shadow_mode") else "Opti Akku",
@@ -1097,7 +1232,7 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
         self._had_pending_settings = bool(self._draft.get("settings_revision")
             and self._draft["settings_revision"] != applied_revision)
         if self._had_pending_settings:
-            self._settings.update({k: v for k, v in self._draft.get("settings", {}).items() if k in DEFINITIONS})
+            self._settings = _effective_settings(self._draft, self._settings, applied_revision)
         self._edited_settings = {key for key in self._settings if self._settings[key] != self._initial_settings[key]}
         self._settings_dirty = bool(self._edited_settings)
 
@@ -1110,7 +1245,18 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
                 self._settings = {key: definition["default"] for key, definition in DEFINITIONS.items()}
                 self._settings.update({k: v for k, v in stored.get("settings", {}).items() if k in DEFINITIONS})
                 self._merge_pending_settings(stored.get("settings_revision"))
-        return self.async_show_menu(step_id="init", menu_options=["connection", "sources", "battery", "tariff", "forecast", "features", "notifications", "demand", "arbitrage", "ev_preparation", "observation", "advanced", "finish"])
+        menu = ["sources", "battery", "tariff", "forecast", "features", "maintenance", "finish"]
+        if self._entry.data.get("shadow_mode") is True:
+            menu.insert(0, "active_setup")
+        return self.async_show_menu(step_id="init", menu_options=menu)
+
+    async def async_step_active_setup(self, user_input=None):
+        if user_input is not None:
+            return await self.async_step_init()
+        return self.async_show_form(step_id="active_setup", data_schema=vol.Schema({}))
+
+    async def async_step_maintenance(self, user_input=None):
+        return self.async_show_menu(step_id="maintenance", menu_options=["connection", "observation", "advanced", "init"])
 
     async def async_step_connection(self, user_input=None):
         if self._connection.get("backend") == BACKEND_HUAWEI:

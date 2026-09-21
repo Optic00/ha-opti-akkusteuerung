@@ -275,6 +275,16 @@ async def test_all_four_bms_modes(device, mode, windows, opmod, address):
         (address, opmod),
     ]
     assert adapter.last_mode == mode
+    assert adapter.last_write_values == {
+        "summary": ", ".join(f"{register}={value}" for register, value in raw_writes(unit)),
+        "status": "completed",
+        "requested_mode": mode,
+        "written_at": adapter.last_write_values["written_at"],
+        "register_writes": [
+            {"address": register, "value": value} for register, value in raw_writes(unit)
+        ],
+        "device_effect": "not_verified",
+    }
 
 
 async def test_dynamic_settling_and_renewal(device):
@@ -536,6 +546,10 @@ async def test_interrupt_midflight_setpoint_waits_for_complete_cleanup(device, i
     ]
     assert adapter.last_mode == sma.PAUSE
     assert expected_error.__name__ in adapter.last_error
+    assert adapter.last_write_values["status"] == (
+        "failed_safe_pause" if interruption == "cancelled" else "superseded_safe_pause"
+    )
+    assert adapter.last_write_values["summary"].endswith("41259=303")
     assert not adapter._lock.locked()
 
 
@@ -546,6 +560,25 @@ async def test_error_in_write_cleans_up_and_surfaces_failure(device):
         await adapter.async_apply(sma.DYNAMIC, PARAMETERS, lambda: True)
     assert adapter.last_mode == sma.PAUSE
     assert "ModbusError" in adapter.last_error
+    assert adapter.last_write_values["status"] == "failed_safe_pause"
+    assert adapter.last_write_values["summary"].endswith("41259=303")
+    assert adapter.last_write_values["device_effect"] == "not_verified"
+
+
+async def test_failed_first_rail_write_only_reports_acknowledged_cleanup(device):
+    adapter, unit, _ = device
+    adapter.last_mode = sma.FAST_CHARGE
+    unit.fail_write_number = 1
+
+    with pytest.raises(ModbusError):
+        await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
+
+    assert adapter.last_write_values["status"] == "failed_safe_pause"
+    assert adapter.last_write_values["summary"].startswith("40151=803")
+    assert "40151=802" not in adapter.last_write_values["summary"]
+    assert adapter.last_write_values["register_writes"] == [
+        {"address": address, "value": value} for address, value in raw_writes(unit)[1:]
+    ]
 
 
 async def test_cleanup_failure_does_not_claim_safety(device):
@@ -556,6 +589,16 @@ async def test_cleanup_failure_does_not_claim_safety(device):
     assert adapter.last_mode is None
     assert adapter.last_write is None
     assert "Cleanup failed" in adapter.last_error
+    assert adapter.last_write_values is None
+
+
+async def test_shadow_does_not_publish_write_values(device):
+    adapter, unit, _ = device
+    adapter._read_only = True
+    with pytest.raises(PermissionError, match="Shadow"):
+        await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+    assert unit.writes == []
+    assert adapter.last_write_values is None
 
 
 async def test_competing_commands_are_serialized_and_latest_wins(device):
@@ -659,6 +702,43 @@ async def test_status_age_cannot_hold_gate_open(device):
     assert raw_writes(unit)[-1] == (40151, 802)
     assert not any(address == 40149 for address, _ in unit.writes)
     assert adapter.last_mode is None and "Cleanup failed" in adapter.last_error
+    assert adapter.last_write_values["summary"].endswith("40151=802")
+    assert "40149=" not in adapter.last_write_values["summary"]
+    assert adapter.last_write_values["status"] == "failed"
+
+
+async def test_longest_write_summary_fits_home_assistant_state_limit(device):
+    adapter, unit, _ = device
+    await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
+
+    assert len(raw_writes(unit)) == 9
+    assert len(adapter.last_write_values["summary"]) <= 255
+
+
+async def test_longest_failed_sequence_keeps_cleanup_and_previous_evidence(device):
+    adapter, unit, _ = device
+    current = True
+
+    async def supersede_after_setpoint(address, values):
+        nonlocal current
+        if address == 40149:
+            current = False
+
+    unit.on_write = supersede_after_setpoint
+    with pytest.raises(sma.StaleCommandError):
+        await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: current)
+    assert len(raw_writes(unit)) == 16
+    evidence = adapter.last_write_values
+    assert len(evidence["summary"]) <= 255
+    assert evidence["status"] == "superseded_safe_pause"
+    assert evidence["register_writes"][-1] == {"address": 41259, "value": 303}
+
+    # A later total communication failure is no new acknowledgement.
+    unit.fail_all_writes = True
+    with pytest.raises(ModbusError):
+        await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+    assert adapter.last_write_values == evidence
+    assert "Cleanup failed" in adapter.last_error
 
 
 async def test_bms_family_not_read_back(device):

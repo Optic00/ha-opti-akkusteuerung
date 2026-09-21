@@ -23,6 +23,12 @@ from typing import Any
 
 import jinja2
 
+
+# Shared by the active template and the passive target-SoC comparison.
+TARGET_SOC_BOUNDS = (0.375, 0.875, 1.375, 1.875, 2.875)
+TARGET_SOC_MARGIN = 0.10
+TARGET_SOC_LEVELS = (90.0, 80.0, 70.0, 60.0, 50.0)
+
 _UNKNOWN = {"unknown", "unavailable"}
 _TRUE = {"true", "yes", "on", "1", "enable", "enabled"}
 _ENTITY = re.compile(r"\b(?:sensor|binary_sensor|input_number|input_boolean|input_select|input_datetime|input_text|counter|sun)\.[a-z0-9_]+\b")
@@ -179,6 +185,9 @@ class StrategyEngine:
         self._templates: dict[str, jinja2.Template] = {}
         self._env = jinja2.Environment(undefined=jinja2.StrictUndefined)
         self._env.globals.update(
+            target_soc_bounds=TARGET_SOC_BOUNDS,
+            target_soc_margin=TARGET_SOC_MARGIN,
+            target_soc_levels=list(TARGET_SOC_LEVELS),
             states=self._get_state,
             state_attr=self._get_attribute,
             has_value=self._has_value,

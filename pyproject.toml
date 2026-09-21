@@ -1,6 +1,6 @@
 [project]
 name = "ha-opti-akku-hacs"
-version = "2026.9-beta6"
+version = "2026.9-beta7"
 requires-python = ">=3.14.2"
 
 [tool.pytest.ini_options]
@@ -24,6 +24,7 @@ files = [
   "custom_components/opti_akku/device.py",
   "custom_components/opti_akku/load_profile.py",
   "custom_components/opti_akku/plant.py",
+  "custom_components/opti_akku/source_quality.py",
   "custom_components/opti_akku/recovery.py",
   "custom_components/opti_akku/tibber_prices.py",
 ]

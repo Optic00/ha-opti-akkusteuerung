@@ -114,6 +114,7 @@ class SmaDevice:
     command_execution_basis = "modbus_write_sequence"
     setpoint_readback_capability = "not_supported"
     setpoint_readback_limitation = "bms_and_setpoints_not_read_back"
+    supports_write_value_evidence = True
 
     def __init__(
         self,
@@ -139,11 +140,32 @@ class SmaDevice:
         self._status_at: float | None = None
         self._dynamic_since: float | None = None
         self.last_write: datetime | None = None
+        self.last_write_values: dict[str, Any] | None = None
         self.last_mode: str | None = None
         self.last_error: str | None = None
         self.last_read_errors: dict[str, str] = {}
         # API checked against modbus-connection 4.10.0, not its newer docs.
         self.unit.set_message_spacing(0.06)
+        self._write_trace: list[tuple[int, int]] | None = None
+        self._last_acknowledged_write_at: datetime | None = None
+
+    def _publish_write_trace(self, mode: str, status: str) -> None:
+        """Expose only register writes acknowledged by the Modbus transport."""
+        if not self._write_trace or self._last_acknowledged_write_at is None:
+            return
+        self.last_write_values = {
+            "summary": ", ".join(
+                f"{address}={value}" for address, value in self._write_trace
+            ),
+            "status": status,
+            "requested_mode": mode,
+            "written_at": self._last_acknowledged_write_at.isoformat(),
+            "register_writes": [
+                {"address": address, "value": value}
+                for address, value in self._write_trace
+            ],
+            "device_effect": "not_verified",
+        }
 
     @property
     def model(self) -> str | None:
@@ -327,6 +349,9 @@ class SmaDevice:
             self.blocked_write_attempts += 1
             raise PermissionError("Shadow device cannot write Modbus registers")
         await self.unit.write_registers(address, encode_s32(value))
+        if self._write_trace is not None:
+            self._write_trace.append((address, value))
+            self._last_acknowledged_write_at = datetime.now(UTC)
 
     async def _bms(
         self,
@@ -397,6 +422,8 @@ class SmaDevice:
             raise PermissionError("Shadow device cannot apply a battery mode")
         async with self._lock:
             touched = False
+            self._write_trace = []
+            self._last_acknowledged_write_at = None
             try:
                 if mode not in MODES:
                     raise InvalidDataError("Unknown adapter mode")
@@ -480,12 +507,21 @@ class SmaDevice:
                 self.last_write = datetime.now(UTC)
                 self.last_mode = mode
                 self.last_error = None
+                self._publish_write_trace(mode, "completed")
             except BaseException as err:
                 self.last_error = f"{type(err).__name__}: {err}"
+                cleanup_error = None
                 if touched:
                     cleanup_error = await self._protected_cleanup()
                     if cleanup_error:
                         if isinstance(err, StaleCommandError):
                             err.cleanup_failed = True
                         self.last_error += f"; {cleanup_error}"
+                status = "superseded" if isinstance(err, StaleCommandError) else "failed"
+                if touched and cleanup_error is None and self._write_trace:
+                    status += "_safe_pause"
+                self._publish_write_trace(mode, status)
                 raise
+            finally:
+                self._write_trace = None
+                self._last_acknowledged_write_at = None

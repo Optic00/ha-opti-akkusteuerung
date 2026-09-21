@@ -293,9 +293,9 @@ template_blocks:
            0.25-Quantisierung (= nur Kink-Verschiebung, kein Halteband).
            bounds = die alten effektiven 0.25-Rundungsgrenzen (akkuschonende Kennlinie
            1:1 wiederhergestellt), jetzt als Hysterese-Zentren mit Marge m. #}
-        {% set m = 0.10 %}
-        {% set bounds  = [0.375, 0.875, 1.375, 1.875, 2.875] %}
-        {% set targets = [max_soc, 90, 80, 70, 60, 50] %}
+        {% set m = target_soc_margin %}
+        {% set bounds  = target_soc_bounds %}
+        {% set targets = [max_soc] + target_soc_levels %}
         {% set plain = bounds | select('le', ratio) | list | count %}
         {% set prev = this.attributes.get('level', plain) | int(plain) %}
         {% set ns = namespace(l = prev) %}
@@ -323,9 +323,9 @@ template_blocks:
           {% endif %}
           {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
           {% set ratio = 0 if cap_kwh <= 0 else net_available / cap_kwh %}
-          {% set m = 0.10 %}
-          {% set bounds  = [0.375, 0.875, 1.375, 1.875, 2.875] %}
-          {% set targets = [max_soc, 90, 80, 70, 60, 50] %}
+          {% set m = target_soc_margin %}
+          {% set bounds  = target_soc_bounds %}
+          {% set targets = [max_soc] + target_soc_levels %}
           {% set plain = bounds | select('le', ratio) | list | count %}
           {% set prev = this.attributes.get('level', plain) | int(plain) %}
           {% set ns = namespace(l = prev) %}
@@ -350,8 +350,8 @@ template_blocks:
           {% endif %}
           {% set net_available = [0, restproduktion - (hausverbrauch / 1000 * remaining_hours)] | max %}
           {% set ratio = 0 if cap_kwh <= 0 else net_available / cap_kwh %}
-          {% set m = 0.10 %}
-          {% set bounds = [0.375, 0.875, 1.375, 1.875, 2.875] %}
+          {% set m = target_soc_margin %}
+          {% set bounds = target_soc_bounds %}
           {% set plain = bounds | select('le', ratio) | list | count %}
           {% set prev = this.attributes.get('level', plain) | int(plain) %}
           {% set ns = namespace(l = prev) %}

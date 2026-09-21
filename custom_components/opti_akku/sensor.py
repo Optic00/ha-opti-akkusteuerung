@@ -45,6 +45,8 @@ async def async_setup_entry(
         return OptiAkkuDiagnosticSensor(entry, key)
 
     async_add_entities(diagnostic_entity(key) for key in DIAGNOSTICS)
+    if getattr(coordinator.device, "supports_write_value_evidence", False) is True:
+        async_add_entities([OptiAkkuReportSensor(entry, "last_write_values")])
     if coordinator.shadow_mode:
         async_add_entities([OptiAkkuDiagnosticSensor(entry, "shadow_status")])
     entry.async_on_unload(coordinator.async_add_listener(add_new_entities))
@@ -154,6 +156,8 @@ class OptiAkkuDiagnosticSensor(OptiAkkuEntity, SensorEntity):
     @property
     def native_value(self) -> Any:
         value = coordinator_data(self).get(self._data_key)
+        if self._data_key == "last_write_values":
+            return value.get("summary") if isinstance(value, dict) else None
         if self._data_key in ("command_evidence", "reserve_plan", "operating_report", "demand_forecast", "source_observation", "connection_status", "ev_preparation"):
             return value.get("status") if isinstance(value, dict) else None
         if self._data_key == "pause_pending":
@@ -173,13 +177,15 @@ class OptiAkkuDiagnosticSensor(OptiAkkuEntity, SensorEntity):
         if self._data_key == "shadow_status":
             return coordinator_data(self).get("shadow_summary", {})
         value = coordinator_data(self).get(self._data_key)
+        if self._data_key == "last_write_values" and isinstance(value, dict):
+            return {key: item for key, item in value.items() if key != "summary"}
         if self._data_key in ("command_evidence", "reserve_plan", "operating_report", "demand_forecast", "source_observation", "connection_status", "ev_preparation") and isinstance(value, dict):
             return {key: item for key, item in value.items() if key != "status"}
         return {"details": value} if isinstance(value, (dict, list, tuple, set)) else None
 
 
 class OptiAkkuReportSensor(OptiAkkuDiagnosticSensor):
-    """Live report details are stored once in Store, not once per recorder tick."""
+    """Keep detailed live attributes out of Recorder."""
 
     _unrecorded_attributes = frozenset({MATCH_ALL})
 

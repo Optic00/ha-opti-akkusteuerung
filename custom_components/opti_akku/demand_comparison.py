@@ -7,9 +7,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 from .demand import DemandForecast, instant, number, source_value
-
-_BOUNDS = (0.375, 0.875, 1.375, 1.875, 2.875)
-_MARGIN = 0.10
+from .engine import TARGET_SOC_BOUNDS as _BOUNDS, TARGET_SOC_MARGIN as _MARGIN, TARGET_SOC_LEVELS
 
 
 @dataclass(slots=True)
@@ -251,7 +249,7 @@ def _overall(blocks: dict[str, dict[str, Any]]) -> str:
     return "not_applicable"
 
 
-def _remaining_day_window(
+def remaining_day_profile(
     model: DemandForecast,
     issued_at: datetime,
     data: dict[str, Any],
@@ -299,23 +297,6 @@ def _remaining_day_window(
     return {"status": window.status, "reason": window.reason, **window.report()}, window
 
 
-def remaining_day_profile(
-    model: DemandForecast,
-    issued_at: datetime,
-    data: dict[str, Any],
-    settings: dict[str, Any],
-    options: dict[str, Any],
-    ha_states: Any,
-    timezone: Any,
-    fingerprint: str,
-) -> dict[str, Any]:
-    """Expose a fail-closed rest-of-day load for the active forecast score."""
-    report, _window_value = _remaining_day_window(
-        model, issued_at, data, settings, options, ha_states, timezone, fingerprint
-    )
-    return report
-
-
 def build_strategy_comparison(
     model: DemandForecast,
     issued_at: datetime,
@@ -326,6 +307,8 @@ def build_strategy_comparison(
     timezone: Any,
     fingerprint: str,
     previous_level: float | None,
+    *,
+    remaining_day: tuple[dict[str, Any], _Window | None] | None = None,
 ) -> dict[str, Any]:
     """Compare profile candidates without mutating controller or demand state."""
     disabled = {
@@ -366,7 +349,7 @@ def build_strategy_comparison(
     next_rising = _timestamp(attributes, "sun.sun", "next_rising")
 
     blocks: dict[str, dict[str, Any]] = {}
-    remaining_report, window = _remaining_day_window(
+    remaining_report, window = remaining_day if remaining_day is not None else remaining_day_profile(
         model, issued_at, data, settings, options, ha_states, timezone, fingerprint
     )
     if window is None:
@@ -386,7 +369,7 @@ def build_strategy_comparison(
             legacy_w = _value(states, "sensor.opti_house_consumption_w")
         if legacy_w is None:
             legacy_w = 400.0
-        if (window is None or remaining is None or effective is None or capacity is None
+        if (remaining is None or effective is None or capacity is None
                 or capacity < 0 or soc is None or not 0 <= soc <= 100):
             blocks["remaining_day"] = _missing("remaining_day_inputs")
         else:
@@ -492,7 +475,7 @@ def build_strategy_comparison(
             for _ in _BOUNDS:
                 if level > 0 and ratio < _BOUNDS[level - 1] - _MARGIN:
                     level -= 1
-            targets = (high, 90.0, 80.0, 70.0, 60.0, 50.0)
+            targets = (high, *TARGET_SOC_LEVELS)
             target = round(max(low, min(high, targets[level])))
             candidate_target: int | None = (
                 target if target_window.status == "ready" else None

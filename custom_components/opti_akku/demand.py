@@ -504,6 +504,12 @@ class DemandForecast:
             refill_battery_kwh=round(refill_battery_kwh, 3),
             refill_target_kwh=round(refill_target_kwh, 3),
             refill_storable_kwh=round(refill_storable_kwh, 3),
+            refill_missing_kwh=round(max(0.0, refill_target_kwh - refill_battery_kwh), 3),
+            refill_coverage_percent=round(
+                min(99.99, 100 * refill_storable_kwh / refill_target_kwh)
+                if 0 < refill_target_kwh and refill_battery_kwh < refill_target_kwh else 100,
+                2,
+            ),
             refill_covered=refill_battery_kwh >= refill_target_kwh,
             suggested_reserve_soc=round(min(high, uncapped), 1),
             capacity_shortfall_kwh=round(max(0.0, battery_need - usable_capacity_kwh), 3),

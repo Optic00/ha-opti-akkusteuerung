@@ -4,9 +4,9 @@
     "step": {
       "user": {
         "title": "Welcome: connect your inverter",
-        "description": "Choose your battery connection: SMA STP SE or an existing Huawei Solar integration. Configure the connection and operating mode in the following steps.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.",
+        "description": "Choose your battery connection: SMA STP SE or an existing Huawei Solar integration. Configure the connection and operating mode in the following steps.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.\n\nIf a Shadow entry is already loaded, setup also offers “Copy Shadow settings for active control”.",
         "data": {
-          "backend": "Battery backend",
+          "backend": "Setup",
           "host": "Host",
           "port": "Port",
           "unit_id": "Unit ID",
@@ -51,7 +51,7 @@
       },
       "sources": {
         "title": "System and measurements",
-        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. Only exactly 0 W or 0 kW may remain valid when old; positive power still requires a recent report.",
+        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. With a positive age limit, this exception applies only to exactly 0 W or 0 kW; positive power still requires a recent report. With age limit 0, HA availability applies to all power sources instead.",
         "data": {
           "house_consumption": "House consumption",
           "pv_generation": "PV generation DC (display only, optional)",
@@ -64,7 +64,11 @@
           "plant_meter_confirmed": "The grid meter covers all selected generators and loads",
           "forecast_min_load_w": "Minimum forecast base load",
           "strategy_enabled": "Enable automatic strategy",
-          "huawei_battery_temp": "Huawei battery temperature"
+          "huawei_battery_temp": "Huawei battery temperature",
+          "source_max_age": "HA power reporting age (seconds, 0 = HA availability)"
+        },
+        "data_description": {
+          "source_max_age": "Default: 900 seconds. 0 accepts unchanged power values as long as the source reliably becomes unavailable on failure. Templates must propagate availability. A frozen value still marked available cannot then be detected. Battery, price and forecast checks remain bounded. Changing this restarts the consumption profile."
         }
       },
       "battery": {
@@ -162,7 +166,6 @@
           "akkusteuerung_ueberschuss_veto_grenze": "Export: enable above",
           "akkusteuerung_ueberschuss_veto_aus_grenze": "Export: disable below",
           "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Scarcity multiplier",
-          "source_max_age": "Maximum source age (seconds)",
           "forecast_max_age": "Maximum forecast age (seconds)",
           "price_max_age": "Maximum electricity price age (seconds)"
         }
@@ -249,6 +252,83 @@
           "forced_status": "Forced charge/discharge status",
           "huawei_grid_surplus": "Allow grid charging in self-consumption for additional AC generators"
         }
+      },
+      "shadow_copy": {
+        "title": "From Shadow to active control",
+        "description": "The selected Shadow entry remains unchanged and read-only. Connection, sources, limits and optional features are prefilled for a new standard entry. Review them in the next steps. After notifications, advanced limits and previously configured optional features are also shown for review.\n\nWrite permission, temporary overrides, learned profiles and recordings are not copied. Calculate strategy and write access start off. Disable the previous writing controller before the final confirmation. Without confirmation no standard entry is created.\n\nIf no further comparison is needed, you can disable the old Shadow entry afterwards to avoid additional polling. It is not automatically disabled or deleted.",
+        "data": {
+          "shadow_entry": "Existing Shadow entry",
+          "confirm_copy": "Copy settings into a new standard entry"
+        }
+      },
+      "demand": {
+        "title": "Demand profile and peak reserve",
+        "description": "Learning and comparison remain observational. Optionally use the hourly profile in the active strategy for the peak reserve and remaining-day score, with a 20% peak-reserve margin and the configured fallback load or previous remaining-day calculation. This changes battery control. Heating and hot water are included in the household profile; future cycles are not scheduled. Unknown heat context or detected unquantified hot-water demand retains the safe fallback. Separate heat-meter mode is not yet supported for the active peak profile.",
+        "data": {
+          "enabled": "Learn demand profile and observe forecast",
+          "heat_power": "Heat pump total electrical power, included in house consumption",
+          "summer_mode": "Summer mode (on = summer, off = winter)",
+          "heating_active": "Heating currently active",
+          "dhw_active": "Hot water preparation currently active",
+          "dhw_due": "Hot water expected before PV (optional demand signal)",
+          "water_temperature": "Hot water actual temperature",
+          "water_target": "Hot water target temperature",
+          "pv_today": "Solcast today with detailedForecast/P10",
+          "pv_tomorrow": "Solcast tomorrow with detailedForecast/P10",
+          "dhw_cycle_kwh": "Measured electrical energy per hot water cycle (0 = unknown)",
+          "outdoor_temperature": "Outdoor temperature (similar days)",
+          "context_water_temperature": "Actual hot water temperature (context and demand check)",
+          "context_water_target": "Target hot water temperature (context and demand check)",
+          "history_house": "Historical house consumption (same measurement scope)",
+          "temperature_matching": "Prefer similar outdoor temperatures (experimental)",
+          "use_for_peak_reserve": "Use hourly profile in the active strategy"
+        }
+      },
+      "ev_preparation": {
+        "title": "PV preparation for the car",
+        "description": "Prepare the home battery from PV surplus when vehicle SOC is low, including while away. An optional recurring or absolute departure time can add a vehicle target, usable capacity, available charge power and efficiency. Until that deadline, the vehicle target replaces the simple demand threshold. The report shows required energy, latest charge start and feasibility assuming continuous power; the integration does not control the charger. No additional grid charging. While the car charges, ordinary home charging/discharging pauses and priority protection charging remains. Vehicle SOC expires after 24h; an unknown charging state blocks preparation. Minimum discharge power is limited to 0 W while preparation is enabled.",
+        "data": {
+          "enabled": "Enable",
+          "vehicle_soc": "Vehicle SOC",
+          "charging": "Car charging (on = charging)",
+          "away": "Extended absence (optional)",
+          "departure": "Departure time (optional)",
+          "vehicle_threshold": "Vehicle SOC demand threshold",
+          "house_target": "Home preparation target",
+          "vehicle_target_soc": "Vehicle target at departure",
+          "vehicle_capacity_kwh": "Usable vehicle capacity",
+          "charge_power_kw": "Available charge power",
+          "vehicle_charge_efficiency_percent": "Charging efficiency to the vehicle battery"
+        }
+      },
+      "arbitrage": {
+        "title": "Battery arbitrage estimate",
+        "description": "Enter your battery cost, lifetime and efficiency assumptions. The display calculates the price spread and residual energy value. The optional discharge hold retains energy only when complete demand, PV and price forecasts prove that later residual load is materially more valuable. It never starts grid charging and leaves protection, charging and unknown decisions unchanged.",
+        "data": {
+          "enabled": "Calculate comparison",
+          "hold_enabled": "Use residual value as an automatic discharge hold",
+          "battery_price_eur": "Battery share of purchase price",
+          "degradation_percent": "Assumed battery value loss over the stated cycles",
+          "cycles": "Assumed full cycles",
+          "usable_capacity_kwh": "Usable battery capacity",
+          "charge_efficiency_percent": "Charge efficiency",
+          "discharge_efficiency_percent": "Discharge efficiency",
+          "margin_ct": "Additional margin per kWh battery energy"
+        }
+      },
+      "observation": {
+        "title": "Observe measurement sources",
+        "description": "Read-only: active house source stays unchanged. Match the grid connection, additional inverters and excluded loads. HA report timestamps are not proof of a new device measurement. Compare our time-weighted 60-minute value with legacy smoothing; interpolation can differ.",
+        "data": {
+          "enabled": "Enable observation",
+          "meter_confirmed": "Grid meter covers whole plant",
+          "legacy_floor_w": "Legacy mean lower bound",
+          "instant_house": "Unsmoothed house load excluding selected loads",
+          "watch_sources": "Additional sources for timestamp evidence",
+          "additional_ac_sources": "Additional inverter AC power",
+          "excluded_load_sources": "Excluded loads (e.g. EV charger)",
+          "gross_house": "Whole-house consumption before excluded loads (instantaneous)"
+        }
       }
     },
     "error": {
@@ -285,10 +365,23 @@
       "huawei_write_access_missing": "Required Huawei controls/actions are missing, unavailable or do not belong to the selected battery inverter.",
       "huawei_cutoff_soc_unsupported": "Maximum charge level is outside the Huawei grid-charge cutoff range (typically 20–100%).",
       "huawei_temperature_required": "A valid Huawei battery temperature is missing. Select it under System and measurements or Connection. Read-only telemetry is available in shadow mode with strategy disabled.",
-      "huawei_house_source_required": "Huawei requires an existing house consumption sensor. The SMA single-inverter balance is not available here."
+      "huawei_house_source_required": "Huawei requires an existing house consumption sensor. The SMA single-inverter balance is not available here.",
+      "shadow_source_changed": "The Shadow entry changed, was removed or is no longer loaded. Cancel setup and start the copy again.",
+      "shadow_identity_missing": "The Shadow entry has no stored device identity. Check the connection settings for SMA, or the device identity in the Huawei Solar integration. A safe copy requires this identity.",
+      "shadow_identity_changed": "The device identity does not match the Shadow entry. Check the connection. No standard entry will be created.",
+      "shadow_copy_confirmation_required": "Confirm copying into a new standard entry.",
+      "shadow_writer_confirmation_required": "Disable other writing controllers and confirm this before saving the new standard entry.",
+      "demand_heat_meter": "Select a separate heat pump electrical meter.",
+      "demand_water_pair": "Select actual and target water temperature together.",
+      "ev_soc_unit": "Vehicle SOC must use percent (%).",
+      "ev_deadline_value": "Enter vehicle capacity and charge power for departure planning.",
+      "arbitrage_hold_requires_demand": "Enable demand forecasting before activating the residual-value hold.",
+      "arbitrage_value": "Enter a value within the stated range for every assumption.",
+      "observation_sources": "Select existing unique sensors; max 8 per list and 16 total."
     },
     "abort": {
-      "already_configured": "This Modbus connection is already configured."
+      "already_configured": "An entry already exists for this device and operating mode.",
+      "no_shadow_entries": "No loaded Shadow entry is available. Enable the appropriate Shadow entry first."
     }
   },
   "options": {
@@ -297,19 +390,23 @@
         "title": "Configure Opti Akku",
         "description": "Edit a section, then open Review and save. Changes remain a draft until saved.",
         "menu_options": {
-          "connection": "Connection",
           "sources": "System and measurements",
           "battery": "Battery and power limits",
           "tariff": "Electricity tariff",
           "forecast": "PV forecast",
-          "finish": "Review and save",
-          "advanced": "Advanced settings",
           "features": "Optional features",
-          "notifications": "Notifications",
-          "demand": "Demand profile and peak reserve",
-          "arbitrage": "Battery arbitrage estimate",
+          "maintenance": "Advanced and diagnostics",
+          "finish": "Review and save",
+          "active_setup": "Set up active control"
+        }
+      },
+      "maintenance": {
+        "title": "Advanced and diagnostics",
+        "menu_options": {
+          "connection": "Connection",
           "observation": "Compare sources and balance",
-          "ev_preparation": "PV preparation for the car"
+          "advanced": "Advanced settings",
+          "init": "Back to overview"
         }
       },
       "connection": {
@@ -324,7 +421,7 @@
       },
       "sources": {
         "title": "System and measurements",
-        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. Only exactly 0 W or 0 kW may remain valid when old; positive power still requires a recent report.",
+        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. With a positive age limit, this exception applies only to exactly 0 W or 0 kW; positive power still requires a recent report. With age limit 0, HA availability applies to all power sources instead.",
         "data": {
           "house_consumption": "House consumption",
           "pv_generation": "PV generation DC (display only, optional)",
@@ -337,7 +434,11 @@
           "plant_meter_confirmed": "The grid meter covers all selected generators and loads",
           "forecast_min_load_w": "Minimum forecast base load",
           "strategy_enabled": "Enable automatic strategy",
-          "huawei_battery_temp": "Huawei battery temperature"
+          "huawei_battery_temp": "Huawei battery temperature",
+          "source_max_age": "HA power reporting age (seconds, 0 = HA availability)"
+        },
+        "data_description": {
+          "source_max_age": "Default: 900 seconds. 0 accepts unchanged power values as long as the source reliably becomes unavailable on failure. Templates must propagate availability. A frozen value still marked available cannot then be detected. Battery, price and forecast checks remain bounded. Changing this restarts the consumption profile."
         }
       },
       "battery": {
@@ -435,7 +536,6 @@
           "akkusteuerung_ueberschuss_veto_grenze": "Export: enable above",
           "akkusteuerung_ueberschuss_veto_aus_grenze": "Export: disable below",
           "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Scarcity multiplier",
-          "source_max_age": "Maximum source age (seconds)",
           "forecast_max_age": "Maximum forecast age (seconds)",
           "price_max_age": "Maximum electricity price age (seconds)"
         }
@@ -445,7 +545,11 @@
         "description": "Configure only the optional features you need. Changes take effect only after Review and save.",
         "menu_options": {
           "ev": "EV charging / evcc",
+          "ev_preparation": "PV preparation for the car",
           "balancing": "Balancing",
+          "demand": "Demand profile and peak reserve",
+          "arbitrage": "Battery arbitrage estimate",
+          "notifications": "Notifications",
           "init": "Back to overview"
         }
       },
@@ -547,6 +651,10 @@
           "charge_power_kw": "Available charge power",
           "vehicle_charge_efficiency_percent": "Charging efficiency to the vehicle battery"
         }
+      },
+      "active_setup": {
+        "title": "Set up active control",
+        "description": "This Shadow entry remains permanently read-only.\n\n1. Close this dialog. If you changed settings, save them first via Review and save.\n2. Open Settings → Devices & services → Add integration → Opti Akku.\n3. Choose Copy Shadow settings for active control and select this Shadow entry.\n\nThe new wizard uses the settings as suggestions and checks device identity again. Write access starts disabled. Disable the previous writing controller before the final confirmation. This step itself changes nothing."
       }
     },
     "error": {
@@ -809,9 +917,7 @@
           "command_confirmation": {
             "name": "Command status"
           },
-          "execution_completed_at": {
-            "name": "Last adapter execution completed"
-          },
+          "execution_completed_at": {"name": "Last adapter execution completed"},
           "last_confirmed_command_at": {
             "name": "Not populated (legacy field)"
           },
@@ -978,6 +1084,9 @@
           "preparing": "preparing",
           "higher_priority": "higher priority"
         }
+      },
+      "last_write_values": {
+        "name": "Last SMA control values"
       }
     },
     "button": {
@@ -1082,7 +1191,8 @@
     "backend": {
       "options": {
         "sma_modbus": "SMA Modbus",
-        "huawei_solar": "Huawei Solar (LUNA2000, experimental)"
+        "huawei_solar": "Huawei Solar (LUNA2000, experimental)",
+        "shadow_copy": "Copy Shadow settings for active control"
       }
     },
     "grid_positive": {

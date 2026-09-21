@@ -351,3 +351,43 @@ async def test_huawei_copy_final_checks_do_not_send_commands(hass, problem):
             assert result['errors'] == {'base': 'shadow_identity_changed' if problem == 'identity' else 'huawei_temperature_required'}
     assert source.data['shadow_mode'] is True
     assert calls == []
+
+
+def test_all_bundled_actions_changing_settings_are_volatile_for_copy():
+    import json
+    from pathlib import Path
+    from custom_components.opti_akku.config_flow import SHADOW_COPY_VOLATILE_SETTINGS
+    bundle = json.loads((Path(__file__).parents[1] / 'custom_components/opti_akku/resources/strategy.json').read_text())
+    targets = set()
+    def visit(value):
+        if isinstance(value, dict):
+            if 'action' in value:
+                entities = value.get('target', {}).get('entity_id', [])
+                targets.update([entities] if isinstance(entities, str) else entities)
+            for child in value.values():
+                visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child)
+    visit(bundle)
+    assert targets & DEFINITIONS.keys() == {'input_number.ladepreis', 'input_boolean.hausakku_aus_netz_laden'}
+    assert targets & DEFINITIONS.keys() <= SHADOW_COPY_VOLATILE_SETTINGS
+
+
+@pytest.mark.parametrize('configured', [False, True])
+async def test_copy_reviews_existing_optional_sections_in_dependency_order(hass, configured):
+    options = {'sources': {}, 'single_inverter': True}
+    if configured:
+        options.update(demand_forecast={'enabled': True}, ev_preparation={'enabled': False},
+                       arbitrage_estimate=ARBITRAGE_CONFIG, source_observation={'enabled': True})
+    source = shadow_entry(hass, options=options)
+    steps = []
+    with patch('custom_components.opti_akku.config_flow._probe', AsyncMock(return_value=PROBE)):
+        result = await choose_shadow(hass, source)
+        while result['step_id'] != 'finish':
+            assert not result.get('errors')
+            steps.append(result['step_id'])
+            assert len(steps) < 20
+            result = await hass.config_entries.flow.async_configure(result['flow_id'], form_values(result))
+    assert steps[steps.index('notifications'):] == ['notifications', 'advanced'] + (
+        ['demand', 'ev_preparation', 'arbitrage', 'observation'] if configured else [])

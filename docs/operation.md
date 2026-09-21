@@ -83,8 +83,10 @@ auch bisherige Strategie- und Balancing-Zustände bleiben beim Shadow-Eintrag.
 Einstellungen während der Einrichtung, muss die Übernahme neu gestartet
 werden. Normale Strategieaktualisierungen des Ladepreises und Netzlade-Boosters
 blockieren das Speichern nicht: Es gelten die im Assistenten angezeigten und
-geprüften Werte. Nicht geladene Einträge zuerst aktivieren und ihre Verbindung
-prüfen.
+geprüften Werte. Bei deaktivierter Strategie wird die Tarifseite übersprungen;
+der erfasste Netzlade-Booster wird trotzdem übernommen. Vor einer späteren
+Strategieaktivierung die Tarifwerte prüfen. Nicht geladene Einträge zuerst
+aktivieren und ihre Verbindung prüfen.
 
 In Beta 6 und älter gibt es diese Einstellungsübernahme noch nicht. Dort ist
 ein neuer Eintrag mit abgewähltem Shadow-Modus und manueller Eingabe der

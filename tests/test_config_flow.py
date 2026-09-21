@@ -1969,3 +1969,16 @@ async def test_options_overview_and_maintenance_preserve_a_single_draft(hass):
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "init"})
     assert result["step_id"] == "init"
     assert not entry.options
+
+
+@pytest.mark.parametrize("value,expected", [(60.0, 60), (60.5, 60), (7200.0, 7200)])
+def test_tibber_age_keeps_integer_conversion(value, expected):
+    import voluptuous as vol
+    from custom_components.opti_akku.config_flow import _sources_schema
+
+    schema = _sources_schema({"price_provider": "tibber"}, "advanced")
+    validator = next(v for k, v in schema.schema.items() if k.schema == "price_max_age")
+    result = validator(value)
+    assert type(result) is int and result == expected
+    with pytest.raises(vol.Invalid):
+        validator(59)

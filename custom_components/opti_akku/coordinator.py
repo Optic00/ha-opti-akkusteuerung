@@ -693,6 +693,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 active_profile, _ = remaining_day
             except Exception as err:  # Never replace the legacy score with an uncertain profile.
+                remaining_day = None
                 _LOGGER.debug("Active remaining-day profile unavailable: %s", type(err).__name__)
                 active_profile = {"status": "error", "reason": "profile_error"}
         else:

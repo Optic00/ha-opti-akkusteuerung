@@ -123,9 +123,7 @@ def _sources_schema(defaults: dict[str, Any], section: str, *, shadow_mode: bool
         for key, default in (("forecast_max_age", 21600), ("price_max_age", 7200)):
             minimum = 60 if key == "price_max_age" and defaults.get("price_provider") == "tibber" else 1
             selector = NumberSelector(NumberSelectorConfig(min=minimum, max=86400, mode=NumberSelectorMode.BOX))
-            schema[vol.Required(key, default=defaults.get(key, default))] = (
-                selector if minimum == 60 else vol.All(selector, vol.Coerce(int))
-            )
+            schema[vol.Required(key, default=defaults.get(key, default))] = vol.All(selector, vol.Coerce(int))
     elif section == "finish":
         if not shadow_mode:
             schema[vol.Required("single_writer_confirmed", default=defaults.get("single_writer_confirmed", False))] = BooleanSelector()

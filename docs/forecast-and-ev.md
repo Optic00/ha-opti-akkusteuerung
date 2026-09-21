@@ -210,6 +210,11 @@ freigegeben.
 
 ### Profilvergleich und aktive Resttagesnutzung
 
+Bei deaktiviertem Bedarfsprofil fehlt das Attribut `strategy_comparison` künftig
+auch im Shadow-Modus, statt einen leeren Vergleich mit Status `disabled` zu liefern.
+Eigene Vorlagen sollten den fehlenden Schlüssel als deaktivierten Vergleich behandeln.
+Das 24-Stunden-Shadow-Journal bleibt davon unabhängig nutzbar.
+
 Bei eingeschaltetem Bedarfsprofil ergänzt der Bedarfsbericht einen Vergleich für
 den Resttag-Score, den Morgen- und Sonnentag-Score sowie den Ziel-SoC. Ohne die
 gesonderte aktive Profiloption bleibt dieser Vergleich strikt passiv. Ist die

@@ -317,9 +317,57 @@ def test_event_based_power_still_requires_a_real_report_timestamp(timestamp):
 
 def test_power_opt_in_does_not_disable_other_source_age_limits():
     options = {"source_max_age": 0, "sources": {
-        "forecast_today": "sensor.forecast", "price_current": "sensor.price", "cell_spread": "sensor.cells"}}
+        "forecast_today": "sensor.forecast", "price_current": "sensor.price"}}
     external = {"sensor.forecast": state(50, "kWh", age=21601),
-                "sensor.price": state(.3, "EUR/kWh", age=7201),
-                "sensor.cells": state(10, "mV", age=901)}
+                "sensor.price": state(.3, "EUR/kWh", age=7201)}
     _, _, errors = build_inputs({}, options, external, NOW)
     assert errors == dict.fromkeys(options["sources"], "missing_or_stale")
+
+
+@pytest.mark.parametrize("value,unit,expected", [(0, "mV", 0), (25, "mV", 25), (.025, "V", 25)])
+def test_resting_cell_spread_uses_explicit_source_availability_opt_in(value, unit, expected):
+    options = {"sources": {"cell_spread": "sensor.cells"}}
+    external = {"sensor.cells": state(value, unit, age=86400)}
+    _, _, errors = build_inputs({}, options, external, NOW)
+    assert errors == {"cell_spread": "missing_or_stale"}
+    values, _, errors = build_inputs({}, {**options, "source_max_age": 0}, external, NOW)
+    assert not errors
+    assert values["sensor.byd_zellspreizung_ruhe"] == expected
+
+
+@pytest.mark.parametrize("sample", [None, state("unavailable", "mV"), state("unknown", "mV"),
+    state("nan", "mV"), state(-1, "mV"), state(20, "W"), state(20, "mV", age=-61)])
+def test_cell_spread_availability_opt_in_still_rejects_invalid_sources(sample):
+    values, _, errors = build_inputs({}, {"source_max_age": 0,
+        "sources": {"cell_spread": "sensor.cells"}}, {"sensor.cells": sample}, NOW)
+    assert "cell_spread" in errors
+    assert values["sensor.byd_zellspreizung_ruhe"] == "unavailable"
+
+
+@pytest.mark.parametrize("interval,cooldown,days,threshold,available,day,grid,expected", [
+    (14, 3, 5, 20, True, True, False, "pv"),
+    (0, 3, 5, 20, True, True, False, "aus"),
+    (14, 7, 5, 20, True, True, False, "aus"),
+    (14, 3, 5, 0, True, True, False, "aus"),
+    (14, 3, 5, 20, False, True, False, "aus"),
+    (14, 3, 5, 20, True, False, False, "aus"),
+    (14, 3, 5, 20, True, False, True, "netz"),
+])
+def test_old_resting_value_respects_balancing_enable_threshold_and_cooldown(
+    interval, cooldown, days, threshold, available, day, grid, expected
+):
+    from tests.test_engine import measurements, solar_attrs, StrategyEngine
+
+    cells = state(25 if available else "unavailable", "mV", age=86400)
+    values, attrs, errors = build_inputs(measurements(), {"source_max_age": 0,
+        "sources": {"cell_spread": "sensor.cells"}}, {"sensor.cells": cells}, NOW)
+    values.update({"input_number.opti_balancing_intervall_tage": interval,
+        "input_number.opti_balancing_bedarf_cooldown_tage": cooldown,
+        "input_number.opti_balancing_spreizungs_schwelle": threshold,
+        "counter.tage_seit_akku100": days,
+        "sun.sun": "above_horizon" if day else "below_horizon",
+        "input_boolean.opti_balancing_netzladen": "on" if grid else "off",
+        "sensor.opti_price_current_ct_kwh": -1})
+    result = StrategyEngine().evaluate(values, {**solar_attrs(NOW), **attrs}, NOW)
+    assert bool(errors) is not available
+    assert result.states["sensor.opti_balancing_watchdog"] == expected

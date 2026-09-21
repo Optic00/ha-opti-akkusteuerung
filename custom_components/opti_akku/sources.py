@@ -147,7 +147,7 @@ def build_inputs(
             continue
         source = ha_states.get(entity_id)
         states[canonical] = "unavailable"
-        max_age = measurement_max_age(options.get("source_max_age", 900), event_based=family == "power")
+        max_age = measurement_max_age(options.get("source_max_age", 900), event_based=family in {"power", "voltage_spread"})
         if family == "energy":
             max_age = options.get("forecast_max_age", 21600)
         elif family == "price":

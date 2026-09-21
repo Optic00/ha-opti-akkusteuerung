@@ -10,6 +10,7 @@ from statistics import median
 from .load_profile import LoadProfile
 from .demand_accuracy import DemandAccuracy
 from .demand_history import HistoricalPrior, CONTEXT_KEYS
+from .source_quality import measurement_max_age, reported_recently
 
 
 SOURCE_KEYS = (
@@ -49,7 +50,7 @@ def instant(value):
     return value.astimezone(UTC)
 
 
-def source_value(states, entity_id, now, *, kind):
+def source_value(states, entity_id, now, *, kind, source_max_age=900):
     """Read selected signals; unknown never means off or zero."""
     s = states.get(entity_id) if entity_id else None
     if s is None or s.state in ("unknown", "unavailable"):
@@ -58,16 +59,21 @@ def source_value(states, entity_id, now, *, kind):
     # their HA state is authoritative until their integration marks unavailable.
     if kind == "flag":
         return {"on": True, "off": False}.get(s.state)
-    try:
-        age = (
-            0
-            if kind == "target"
-            else (now - instant(s.last_reported or s.last_updated)).total_seconds()
-        )
-    except TypeError, ValueError, AttributeError:
-        return None
-    if not -60 <= age <= (21600 if kind == "temperature" else 900):
-        return None
+    if kind == "power":
+        max_age = measurement_max_age(source_max_age, event_based=True)
+        if not reported_recently(s, now, max_age):
+            return None
+    else:
+        try:
+            age = (
+                0
+                if kind == "target"
+                else (now - instant(s.last_reported or s.last_updated)).total_seconds()
+            )
+        except TypeError, ValueError, AttributeError:
+            return None
+        if not -60 <= age <= (21600 if kind == "temperature" else 900):
+            return None
     v = number(s.state)
     unit = s.attributes.get("unit_of_measurement")
     factor = ({"W": 1, "kW": 1000} if kind == "power" else {"°C": 1}).get(unit)
@@ -260,7 +266,13 @@ class DemandForecast:
             self.history = HistoricalPrior()
 
         def get(key, kind):
-            return source_value(states, sources.get(key), now, kind=kind)
+            return source_value(
+                states,
+                sources.get(key),
+                now,
+                kind=kind,
+                source_max_age=options.get("source_max_age", 900),
+            )
 
         summer, heating, dhw = (
             get(key, "flag") for key in ("summer_mode", "heating_active", "dhw_active")

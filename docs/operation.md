@@ -60,7 +60,9 @@ unter **Aktive Steuerung einrichten**.
    wird vor der Übernahme und beim Speichern erneut lesend geprüft. Ein
    vorhandener Standard-Eintrag für dasselbe Gerät verhindert ein Duplikat.
    Bei Huawei müssen zusätzlich die Steuerentitäten zugeordnet und die
-   Temperaturquelle geprüft werden.
+   Temperaturquelle geprüft werden. Nach den Benachrichtigungen folgen die
+   erweiterten Grenzen und alle bereits konfigurierten Zusatzfunktionen auf
+   ihren vorhandenen Einstellungsseiten.
 3. Die bisherige schreibende Steuerung deaktivieren und dies im letzten Schritt
    bestätigen. Erst dann lässt sich die Übernahme speichern. Anschließend am
    neuen Eintrag **Strategie berechnen**, **Betriebsart → Strategie** und bewusst
@@ -75,9 +77,13 @@ optionale Funktionen. Schreibfreigabe, vorübergehende Ladegrenzen-Übersteuerun
 manuelle Betriebsart, gelernte Profile und Aufzeichnungen werden **nicht**
 kopiert. **Strategie berechnen** ist zunächst aus und kann im letzten Schritt
 bewusst aktiviert werden; die Schreibfreigabe bleibt beim neuen Eintrag immer
-aus. Neue Profile müssen sich erst aufbauen oder erneut importiert werden.
-Ändert sich der Shadow-Eintrag während der Einrichtung, muss die Übernahme neu
-gestartet werden. Nicht geladene Einträge zuerst aktivieren und ihre Verbindung
+aus. Neue Profile müssen sich erst aufbauen oder erneut importiert werden;
+auch bisherige Strategie- und Balancing-Zustände bleiben beim Shadow-Eintrag.
+Ändern sich Verbindung, gespeicherte Konfiguration oder andere feste
+Einstellungen während der Einrichtung, muss die Übernahme neu gestartet
+werden. Normale Strategieaktualisierungen des Ladepreises und Netzlade-Boosters
+blockieren das Speichern nicht: Es gelten die im Assistenten angezeigten und
+geprüften Werte. Nicht geladene Einträge zuerst aktivieren und ihre Verbindung
 prüfen.
 
 In Beta 6 und älter gibt es diese Einstellungsübernahme noch nicht. Dort ist

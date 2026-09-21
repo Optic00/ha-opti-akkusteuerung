@@ -151,9 +151,7 @@ class SmaDevice:
 
     def _publish_write_trace(self, mode: str, status: str) -> None:
         """Expose only register writes acknowledged by the Modbus transport."""
-        if not self._write_trace:
-            return
-        if self._last_acknowledged_write_at is None:
+        if not self._write_trace or self._last_acknowledged_write_at is None:
             return
         self.last_write_values = {
             "summary": ", ".join(

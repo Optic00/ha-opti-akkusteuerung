@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Willkommen: Wechselrichter verbinden",
-        "description": "Wähle die Anbindung deiner Batterie: SMA STP SE oder eine vorhandene Huawei-Solar-Integration. Verbindung und Betriebsweise richtest du in den folgenden Schritten ein.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.\n\nEin geladener Shadow-Eintrag kann als Vorlage für einen neuen Standard-Eintrag dienen. Wähle dafür „Shadow-Einstellungen für aktive Steuerung übernehmen“.",
+        "description": "Wähle die Anbindung deiner Batterie: SMA STP SE oder eine vorhandene Huawei-Solar-Integration. Verbindung und Betriebsweise richtest du in den folgenden Schritten ein.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.\n\nWenn bereits ein Shadow-Eintrag geladen ist, erscheint die zusätzliche Auswahl „Shadow-Einstellungen für aktive Steuerung übernehmen“.",
         "data": {
           "backend": "Einrichtung",
           "host": "Host",
@@ -255,10 +255,79 @@
       },
       "shadow_copy": {
         "title": "Von Shadow zur aktiven Steuerung",
-        "description": "Der gewählte Shadow-Eintrag bleibt unverändert und lesend. Verbindung, Quellen, Grenzen und optionale Funktionen werden für einen neuen Standard-Eintrag vorbelegt. Prüfe sie in den nächsten Schritten.\n\nSchreibfreigabe, vorübergehende Übersteuerungen, gelernte Profile und Aufzeichnungen werden nicht übernommen. „Strategie berechnen“ und Schreibzugriffe starten ausgeschaltet. Deaktiviere die bisherige schreibende Steuerung vor der abschließenden Bestätigung. Ohne diese Bestätigung wird kein Standard-Eintrag angelegt.\n\nFalls kein weiterer Vergleich nötig ist, kannst du den alten Shadow-Eintrag nach der Einrichtung deaktivieren und damit zusätzliche Abfragen vermeiden. Er wird nicht automatisch deaktiviert oder gelöscht.",
+        "description": "Der gewählte Shadow-Eintrag bleibt unverändert und lesend. Verbindung, Quellen, Grenzen und optionale Funktionen werden für einen neuen Standard-Eintrag vorbelegt. Prüfe sie in den nächsten Schritten. Nach den Benachrichtigungen werden auch die erweiterten Grenzen und bereits konfigurierte Zusatzfunktionen erneut angezeigt.\n\nSchreibfreigabe, vorübergehende Übersteuerungen, gelernte Profile und Aufzeichnungen werden nicht übernommen. „Strategie berechnen“ und Schreibzugriffe starten ausgeschaltet. Deaktiviere die bisherige schreibende Steuerung vor der abschließenden Bestätigung. Ohne diese Bestätigung wird kein Standard-Eintrag angelegt.\n\nFalls kein weiterer Vergleich nötig ist, kannst du den alten Shadow-Eintrag nach der Einrichtung deaktivieren und damit zusätzliche Abfragen vermeiden. Er wird nicht automatisch deaktiviert oder gelöscht.",
         "data": {
           "shadow_entry": "Vorhandener Shadow-Eintrag",
           "confirm_copy": "Einstellungen in einen neuen Standard-Eintrag übernehmen"
+        }
+      },
+      "demand": {
+        "title": "Bedarfsprofil und Peak-Reserve",
+        "description": "Das Lernen und der Vergleich bleiben beobachtend. Optional verwendet die aktive Strategie das Stundenprofil für Peak-Reserve und Resttages-Score: vergleichbare historische oder gelernte Stunden, 20 % Prognosepuffer in der Peak-Reserve, sonst eingestellter Ersatzverbrauch beziehungsweise bisherige Resttages-Hochrechnung. Dies verändert die Akkusteuerung. Heizungs- und Warmwasserverbrauch ist bereits im Hausprofil enthalten; zukünftige Zyklen werden nicht zeitlich vorhergesagt. Bei unklarem Heizkontext oder erkennbarem, unbeziffertem Warmwasserbedarf bleibt der sichere Rückfall. Ein eigener Wärmepumpenzähler wird im aktiven Peak-Profil noch nicht unterstützt.",
+        "data": {
+          "enabled": "Bedarfsprofil lernen und Prognose beobachten",
+          "heat_power": "Elektrische Gesamtleistung der Wärmepumpe, im Hausverbrauch enthalten",
+          "summer_mode": "Sommermodus (an = Sommer, aus = Winter)",
+          "heating_active": "Heizbetrieb aktiv",
+          "dhw_active": "Warmwasserbereitung aktiv",
+          "dhw_due": "Warmwasser vor PV erwartet (optionales Bedarfssignal)",
+          "water_temperature": "Warmwasser-Isttemperatur",
+          "water_target": "Warmwasser-Solltemperatur",
+          "pv_today": "Solcast heute mit detailedForecast/P10",
+          "pv_tomorrow": "Solcast morgen mit detailedForecast/P10",
+          "dhw_cycle_kwh": "Gemessener Strombedarf je Warmwasserzyklus (0 = unbekannt)",
+          "outdoor_temperature": "Außentemperatur (Vergleichstage)",
+          "context_water_temperature": "Warmwasser Ist (Kontext und Bedarfsprüfung)",
+          "context_water_target": "Warmwasser Soll (Kontext und Bedarfsprüfung)",
+          "history_house": "Historischer Hausverbrauch (gleicher Messumfang)",
+          "temperature_matching": "Ähnliche Außentemperaturen bevorzugen (experimentell)",
+          "use_for_peak_reserve": "Stundenprofil in der aktiven Strategie verwenden"
+        }
+      },
+      "ev_preparation": {
+        "title": "PV-Vorbereitung fürs Auto",
+        "description": "Bei niedrigem Fahrzeug-SoC vorhandenen PV-Überschuss im Hausakku vorziehen, auch unterwegs. Optional kann ein täglicher oder absoluter Abfahrtszeitpunkt mit Fahrzeugziel, nutzbarer Fahrzeugkapazität, Ladeleistung und Wirkungsgrad geplant werden. Bis zum Termin ersetzt das Fahrzeugziel die einfache Bedarfsschwelle. Angezeigt werden Energiebedarf, spätester Ladestart und Machbarkeit bei durchgehend verfügbarer Leistung; die Integration steuert keine Wallbox. Kein zusätzliches Netzladen. Auto lädt: normale Hausakkuladung und Entladung pausieren; vorrangige Schutzladungen bleiben bestehen. Fahrzeug-SoC verfällt nach 24 Stunden; unbekanntes Ladesignal sperrt die Vorbereitung. Bei aktivierter Vorbereitung wird die Mindest-Entladeleistung auf 0 W begrenzt.",
+        "data": {
+          "enabled": "Aktivieren",
+          "vehicle_soc": "Fahrzeug-Ladezustand",
+          "charging": "Auto lädt (an = lädt)",
+          "away": "Längere Abwesenheit (optional)",
+          "departure": "Abfahrtszeitpunkt (optional)",
+          "vehicle_threshold": "Ladebedarf unter Fahrzeug-SoC",
+          "house_target": "Hausakku vorbereiten bis",
+          "vehicle_target_soc": "Fahrzeugziel zur Abfahrt",
+          "vehicle_capacity_kwh": "Nutzbare Fahrzeugkapazität",
+          "charge_power_kw": "Verfügbare Ladeleistung",
+          "vehicle_charge_efficiency_percent": "Ladewirkungsgrad bis zum Fahrzeugakku"
+        }
+      },
+      "arbitrage": {
+        "title": "Wirtschaftlichkeitsvergleich für Akku-Arbitrage",
+        "description": "Trage deine Annahmen zu Akkukosten, Lebensdauer und Wirkungsgraden ein. Die Anzeige berechnet Preisabstand und Restwert. Der optionale Entladeschutz hält Energie nur bei vollständiger Bedarfs-, PV- und Preisprognose für eine nachweislich wertvollere spätere Restlast zurück. Er lädt nicht aus dem Netz und lässt Schutz-, Lade- und unbekannte Entscheidungen unverändert.",
+        "data": {
+          "enabled": "Vergleich berechnen",
+          "hold_enabled": "Restwert als automatischen Entladeschutz verwenden",
+          "battery_price_eur": "Akkuanteil am Anschaffungspreis",
+          "degradation_percent": "Angesetzter Wertverlust über die angenommenen Zyklen",
+          "cycles": "Angenommene Vollzyklen",
+          "usable_capacity_kwh": "Nutzbare Akkukapazität",
+          "charge_efficiency_percent": "Ladewirkungsgrad",
+          "discharge_efficiency_percent": "Entladewirkungsgrad",
+          "margin_ct": "Zusätzliche Marge je kWh Akkuenergie"
+        }
+      },
+      "observation": {
+        "title": "Messquellen beobachten",
+        "description": "Rein lesend: keine Änderung der aktiven Hausquelle. Bilanz benötigt denselben Netzanschlusspunkt, weitere Wechselrichter und abgezogene Lasten. Zeitstempel sind HA-Meldungen, kein Beweis einer neuen Gerätemessung. Vergleich: eigener zeitgewichteter 60-Minuten-Wert gegen Legacy-Glättung; Unterschiede der Mittelungsverfahren bleiben sichtbar.",
+        "data": {
+          "enabled": "Beobachtung aktivieren",
+          "meter_confirmed": "Netzzähler erfasst die gesamte Anlage",
+          "legacy_floor_w": "Untergrenze des Legacy-Mittelwerts",
+          "instant_house": "Ungemittelter Hausverbrauch ohne ausgeschlossene Lasten",
+          "watch_sources": "Zusätzliche Quellen zur Zeitstempelprüfung",
+          "additional_ac_sources": "Weitere Wechselrichter AC-Leistung",
+          "excluded_load_sources": "Abzuziehende Lasten (z. B. Wallbox)",
+          "gross_house": "Gesamter Hausverbrauch vor Lastabzug (momentan)"
         }
       }
     },
@@ -298,10 +367,17 @@
       "huawei_temperature_required": "Eine gültige Huawei-Batterietemperatur fehlt. Wähle sie unter Anlagen und Messwerte oder Verbindung aus. Rein lesende Messwerte sind im Shadow-Modus ohne Strategie möglich.",
       "huawei_house_source_required": "Huawei benötigt einen vorhandenen Hausverbrauchssensor. Die SMA-Ein-Wechselrichter-Bilanz ist hier nicht verfügbar.",
       "shadow_source_changed": "Der Shadow-Eintrag wurde geändert, entfernt oder ist nicht mehr geladen. Brich die Einrichtung ab und starte die Übernahme erneut.",
-      "shadow_identity_missing": "Dem Shadow-Eintrag fehlt eine gespeicherte Gerätekennung. Prüfe und speichere zuerst seine Verbindungseinstellungen.",
+      "shadow_identity_missing": "Dem Shadow-Eintrag fehlt eine gespeicherte Gerätekennung. Prüfe bei SMA die Verbindungseinstellungen, bei Huawei die Gerätekennung in der Huawei-Solar-Integration. Ohne diese Kennung ist keine sichere Übernahme möglich.",
       "shadow_identity_changed": "Die gelesene Gerätekennung stimmt nicht mit dem Shadow-Eintrag überein. Prüfe die Verbindung. Es wird kein Standard-Eintrag angelegt.",
       "shadow_copy_confirmation_required": "Bestätige die Übernahme in einen neuen Standard-Eintrag.",
-      "shadow_writer_confirmation_required": "Deaktiviere andere schreibende Steuerungen und bestätige dies, bevor du den neuen Standard-Eintrag speicherst."
+      "shadow_writer_confirmation_required": "Deaktiviere andere schreibende Steuerungen und bestätige dies, bevor du den neuen Standard-Eintrag speicherst.",
+      "demand_heat_meter": "Einen getrennten elektrischen Wärmepumpenzähler auswählen.",
+      "demand_water_pair": "Ist- und Solltemperatur gemeinsam auswählen.",
+      "ev_soc_unit": "Fahrzeug-SoC muss Prozent (%) liefern.",
+      "ev_deadline_value": "Für die Abfahrtsplanung Kapazität und Ladeleistung angeben.",
+      "arbitrage_hold_requires_demand": "Für den aktiven Restwertschutz zuerst die Bedarfsprognose aktivieren.",
+      "arbitrage_value": "Für jede Annahme einen Wert im angegebenen Bereich eintragen.",
+      "observation_sources": "Vorhandene, eindeutige Sensoren wählen; maximal 8 je Liste und insgesamt 16."
     },
     "abort": {
       "already_configured": "Für dieses Gerät und diese Betriebsart ist bereits ein Eintrag vorhanden.",

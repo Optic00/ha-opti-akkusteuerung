@@ -207,6 +207,12 @@ SHADOW_COPY_CONNECTION = frozenset({
     CONF_HOST, CONF_PORT, CONF_UNIT_ID, CONF_PROFILE, "backend", "serial_number",
     "huawei_entry_id", "huawei_device_id", "huawei_sources", "grid_positive",
 })
+# These may change during normal strategy evaluation or are reset in the new
+# entry. The user reviews the captured tariff values, not a moving live value.
+SHADOW_COPY_VOLATILE_SETTINGS = frozenset({
+    "input_number.ladepreis", "input_boolean.hausakku_aus_netz_laden",
+    "input_boolean.akku_opti_automatik", "input_boolean.opti_manuelle_ladegrenze",
+})
 
 
 def _effective_settings(options, settings, applied_revision):
@@ -439,6 +445,8 @@ class WizardSections:
                     return await self.async_step_tibber()
                 if not self._guided:
                     return await (self.async_step_features() if section in ("ev", "balancing") else self.async_step_init())
+                if section == "advanced" and getattr(self, "_shadow_source", None):
+                    return await self.async_step_init()
                 following = {"sources": "battery", "battery": "tariff", "tariff": "forecast",
                              "forecast": "features", "ev": "balancing" if self._use_balancing else "notifications",
                              "balancing": "notifications"}
@@ -568,7 +576,9 @@ class WizardSections:
                 errors["base"] = "notification_service_unavailable"
             else:
                 self._draft["notification_service"] = selected
-                return await (self.async_step_finish() if self._guided else self.async_step_init())
+                if self._guided and not getattr(self, "_shadow_source", None):
+                    return await self.async_step_finish()
+                return await self.async_step_init()
         if selected not in choices:
             choices.append(selected)
         return self.async_show_form(step_id="notifications", errors=errors, data_schema=vol.Schema({
@@ -886,6 +896,7 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
         self._migration_report = {}
         self._shadow_source = None
         self._shadow_snapshot = None
+        self._copy_review_steps = []
 
     def _shadow_entries(self):
         return {entry.entry_id: entry for entry in self.hass.config_entries.async_entries(DOMAIN)
@@ -900,10 +911,26 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
         return (deepcopy(dict(entry.data)), deepcopy(dict(entry.options)),
                 _effective_settings(entry.options, runtime.settings, runtime._settings_revision))
 
+    def _shadow_source_unchanged(self, entry):
+        if entry is None:
+            return False
+        current = self._copy_snapshot(entry)
+        original = self._shadow_snapshot
+        return current[:2] == original[:2] and all(
+            current[2].get(key) == value for key, value in original[2].items()
+            if key not in SHADOW_COPY_VOLATILE_SETTINGS)
+
+    async def async_step_init(self, user_input=None):
+        """Review copied optional configuration through the existing forms."""
+        if self._copy_review_steps:
+            section = self._copy_review_steps.pop(0)
+            return await getattr(self, "async_step_" + section)()
+        return await self.async_step_finish()
+
     async def _check_shadow_copy(self):
         """Re-probe without writes; the expected identity is never learned anew."""
         entry = self._shadow_entries().get(self._shadow_source)
-        if entry is None or self._copy_snapshot(entry) != self._shadow_snapshot:
+        if not self._shadow_source_unchanged(entry):
             return "shadow_source_changed"
         expected = self._shadow_snapshot[0].get("serial_number")
         if not expected:
@@ -921,12 +948,14 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
                 probe = await _probe(self.hass, self._connection)
         except (DeviceError, ModbusError, HomeAssistantError, OSError, TimeoutError, ValueError, KeyError):
             return "cannot_connect"
+        if not probe.get("inverter_status"):
+            return "unsupported_device"
         if probe.get("serial_number") != expected:
             return "shadow_identity_changed"
         # Re-check after the await; a concurrent flow or settings edit may have
         # completed while the read-only probe was in flight.
         entry = self._shadow_entries().get(self._shadow_source)
-        if entry is None or self._copy_snapshot(entry) != self._shadow_snapshot:
+        if not self._shadow_source_unchanged(entry):
             return "shadow_source_changed"
         await self.async_set_unique_id(_device_unique_id(self._connection, probe))
         self._abort_if_unique_id_configured()
@@ -956,6 +985,10 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
                 self._settings["input_boolean.akku_opti_automatik"] = False
                 self._draft["single_writer_confirmed"] = False
                 self._use_balancing = self._settings["input_number.opti_balancing_intervall_tage"] > 0
+                self._copy_review_steps = ["advanced"] + [
+                    step for step, key in (("demand", "demand_forecast"), ("ev_preparation", "ev_preparation"),
+                                          ("arbitrage", "arbitrage_estimate"), ("observation", "source_observation"))
+                    if self._draft.get(key)]
                 if error := await self._check_shadow_copy():
                     errors["base"] = error
                 elif self._connection.get("backend") == BACKEND_HUAWEI:
@@ -964,10 +997,16 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
                     return await self.async_step_sources()
         return self.async_show_form(step_id="shadow_copy", errors=errors, data_schema=vol.Schema({
             vol.Required("shadow_entry"): SelectSelector(SelectSelectorConfig(options=[
-                {"value": entry.entry_id, "label": f"{entry.title} ({entry.data.get(CONF_HOST) or entry.data.get('huawei_device_id', '')})"}
+                {"value": entry.entry_id, "label": self._shadow_label(entry)}
                 for entry in entries.values()])),
             vol.Required("confirm_copy", default=False): BooleanSelector(),
         }))
+
+    def _shadow_label(self, entry):
+        from homeassistant.helpers import device_registry as dr
+        device = dr.async_get(self.hass).async_get(entry.data.get("huawei_device_id", ""))
+        name = (device.name_by_user or device.name or device.model) if device else entry.data.get(CONF_HOST)
+        return f"{entry.title} ({name})" if name else entry.title
 
     async def async_step_user(self, user_input=None):
         if user_input is None:

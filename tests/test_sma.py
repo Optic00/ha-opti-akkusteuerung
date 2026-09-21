@@ -715,6 +715,32 @@ async def test_longest_write_summary_fits_home_assistant_state_limit(device):
     assert len(adapter.last_write_values["summary"]) <= 255
 
 
+async def test_longest_failed_sequence_keeps_cleanup_and_previous_evidence(device):
+    adapter, unit, _ = device
+    current = True
+
+    async def supersede_after_setpoint(address, values):
+        nonlocal current
+        if address == 40149:
+            current = False
+
+    unit.on_write = supersede_after_setpoint
+    with pytest.raises(sma.StaleCommandError):
+        await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: current)
+    assert len(raw_writes(unit)) == 16
+    evidence = adapter.last_write_values
+    assert len(evidence["summary"]) <= 255
+    assert evidence["status"] == "superseded_safe_pause"
+    assert evidence["register_writes"][-1] == {"address": 41259, "value": 303}
+
+    # A later total communication failure is no new acknowledgement.
+    unit.fail_all_writes = True
+    with pytest.raises(ModbusError):
+        await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+    assert adapter.last_write_values == evidence
+    assert "Cleanup failed" in adapter.last_error
+
+
 async def test_bms_family_not_read_back(device):
     adapter, unit, _ = device
     await adapter.async_read()

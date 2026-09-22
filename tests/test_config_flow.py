@@ -1,8 +1,10 @@
 """HA-native onboarding, source validation, and cancellation semantics."""
 from unittest.mock import AsyncMock, patch
 import pytest
+from probatio import to_field_list
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 from datetime import timedelta
 from types import SimpleNamespace
@@ -481,6 +483,91 @@ async def test_notification_selection_stays_draft_and_validates_service(hass):
         result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options["notification_service"] == "notify.test_phone"
+
+
+async def test_notification_home_assistant_option_is_optional_and_clears_push(hass):
+    async def push(call):
+        pass
+
+    hass.services.async_register("notify", "test_phone", push)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=CONNECTION,
+        options={
+            "single_inverter": True,
+            "notification_service": "notify.test_phone",
+        },
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await configure_options(
+        hass, result["flow_id"], {"next_step_id": "notifications"}
+    )
+
+    fields = to_field_list(
+        result["data_schema"], custom_serializer=cv.custom_serializer
+    )
+    assert len(fields) == 1
+    assert fields[0]["name"] == "notification_service"
+    assert fields[0]["required"] is False
+    assert fields[0]["optional"] is True
+    assert fields[0]["description"]["suggested_value"] == "notify.test_phone"
+    assert "default" not in fields[0]
+    assert {option["value"] for option in fields[0]["selector"]["select"]["options"]} >= {"", "notify.test_phone"}
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {}
+    )
+    assert result["type"] == FlowResultType.MENU
+    assert entry.options["notification_service"] == "notify.test_phone"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "finish"}
+    )
+    with patch("custom_components.opti_akku.async_setup_entry", AsyncMock(return_value=True)):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], form_values(result)
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options["notification_service"] == ""
+
+
+async def test_fresh_guided_notifications_accepts_home_assistant_default(hass):
+    with patch(
+        "custom_components.opti_akku.config_flow._probe",
+        AsyncMock(return_value=PROBE),
+    ):
+        result = await begin(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            form_values(
+                result,
+                {"strategy_enabled": False, "single_inverter": False},
+            ),
+        )
+    assert result["step_id"] == "battery"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], form_values(result)
+    )
+    assert result["step_id"] == "notifications"
+
+    fields = to_field_list(
+        result["data_schema"], custom_serializer=cv.custom_serializer
+    )
+    assert len(fields) == 1
+    assert fields[0]["name"] == "notification_service"
+    assert fields[0]["required"] is False
+    assert fields[0]["optional"] is True
+    assert "default" not in fields[0]
+    assert "description" not in fields[0]
+    assert any(
+        option["value"] == ""
+        for option in fields[0]["selector"]["select"]["options"]
+    )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {}
+    )
+    assert result["step_id"] == "finish"
 
 
 @pytest.mark.parametrize("mode,additional,excluded,error_field", [

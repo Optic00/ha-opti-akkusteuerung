@@ -581,8 +581,10 @@ class WizardSections:
                 return await self.async_step_init()
         if selected not in choices:
             choices.append(selected)
+        marker = (vol.Optional("notification_service", description={"suggested_value": selected})
+                  if selected else vol.Optional("notification_service"))
         return self.async_show_form(step_id="notifications", errors=errors, data_schema=vol.Schema({
-            vol.Required("notification_service", default=selected): SelectSelector(SelectSelectorConfig(
+            marker: SelectSelector(SelectSelectorConfig(
                 options=[{"value": value, "label": value or "Home Assistant"} for value in choices])),
         }))
 

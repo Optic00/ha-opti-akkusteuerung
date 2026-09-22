@@ -24,7 +24,7 @@ Die Software wird unter der [MIT-Lizenz](https://github.com/Optic00/ha-opti-akku
 ## Installation mit HACS
 
 1. In HACS unter **Benutzerdefinierte Repositories** `https://github.com/Optic00/ha-opti-akkusteuerung` als Typ **Integration** hinzufügen.
-2. **Opti Akku** herunterladen. Die Beta-Auswahl aktivieren und die gewünschte veröffentlichte Beta wählen. Der Hauptzweig bleibt Entwicklungsstand und ist keine stabile Freigabe.
+2. **Opti Akku → Herunterladen → Benötigst du eine andere Version?** öffnen und unter **Release** die gewünschte veröffentlichte Beta wählen. HACS 2.0.5 bietet ohne diese Auswahl zunächst den Hauptzweig an. Dieser bleibt Entwicklungsstand und ist keine stabile Freigabe.
 3. Home Assistant neu starten.
 4. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen → Opti Akku** den Assistenten starten. Für den ersten Vergleich Shadow eingeschaltet lassen.
 

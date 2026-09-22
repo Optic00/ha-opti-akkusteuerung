@@ -50,6 +50,60 @@ async def test_incident_debounce_no_spam_and_recovery(hass, alerts):
     assert not alerts._active
 
 
+async def test_source_incident_debounce_and_reload_lifecycle(hass, alerts):
+    """A reload starts a new bounded incident only after a fresh debounce."""
+    calls = []
+
+    async def push(call):
+        calls.append(call.data)
+
+    hass.services.async_register("notify", "test_phone", push)
+    start = dt_util.utcnow()
+    missing = health(source_errors={"pv_power": "missing_or_stale"})
+
+    # A transient source outage clears before it becomes an incident.
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start):
+        alerts.update(missing)
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=59)):
+        alerts.update(health(source_errors={}))
+    assert not alerts._active
+
+    # A sustained outage emits once and repeated updates do not spam.
+    for seconds in (100, 161, 900):
+        with patch(
+            "custom_components.opti_akku.alerts.dt_util.utcnow",
+            return_value=start + timedelta(seconds=seconds),
+        ):
+            alerts.update(missing)
+        await hass.async_block_till_done(wait_background_tasks=True)
+    assert alerts._active == {"sources"}
+    assert len(calls) == 1
+
+    # A new instance models config-entry reload or HA restart: the ongoing
+    # source failure must satisfy the debounce again before it can notify.
+    await alerts.async_stop()
+    fresh = HealthAlerts(hass, alerts.entry)
+    try:
+        with patch(
+            "custom_components.opti_akku.alerts.dt_util.utcnow",
+            return_value=start + timedelta(seconds=1000),
+        ):
+            fresh.update(missing)
+        assert not fresh._active
+        assert len(calls) == 1
+
+        with patch(
+            "custom_components.opti_akku.alerts.dt_util.utcnow",
+            return_value=start + timedelta(seconds=1061),
+        ):
+            fresh.update(missing)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert fresh._active == {"sources"}
+        assert len(calls) == 2
+    finally:
+        await fresh.async_stop()
+
+
 async def test_write_alert_immediate_but_not_when_disarmed(hass, alerts):
     alerts.update(health(write_enabled=False, last_error="Schreibvorgang nicht bestätigt: OSError"))
     assert not alerts._active

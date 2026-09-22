@@ -51,7 +51,7 @@
       },
       "sources": {
         "title": "Anlage und Messwerte",
-        "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig. Nur bereits oben ausgeschlossene Lasten auswählen, die unveränderte 0 W nicht regelmäßig melden und Verbindungsausfälle zuverlässig als nicht verfügbar kennzeichnen. Bei einer positiven Altersgrenze gilt diese Ausnahme nur für exakt 0 W bzw. 0 kW; positive Leistungen werden weiter auf Aktualität geprüft. Mit Altersgrenze 0 gilt stattdessen die HA-Verfügbarkeit für alle Leistungsquellen.",
+        "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig. Nur bereits oben ausgeschlossene Lasten auswählen, die unveränderte 0 W nicht regelmäßig melden und Verbindungsausfälle zuverlässig als nicht verfügbar kennzeichnen. Bei einer positiven Altersgrenze gilt diese Ausnahme nur für exakt 0 W bzw. 0 kW; positive Leistungen werden weiter auf Aktualität geprüft. Mit Altersgrenze 0 gilt stattdessen die HA-Verfügbarkeit für alle externen Leistungsquellen einschließlich der Wärmepumpen-Leistung im Bedarfsprofil sowie für die Ruhe-Zellspreizung.",
         "data": {
           "house_consumption": "Hausverbrauch",
           "pv_generation": "PV-Erzeugung DC (nur Anzeige, optional)",
@@ -65,10 +65,10 @@
           "forecast_min_load_w": "Mindestgrundlast für die Prognose",
           "strategy_enabled": "Automatische Strategie aktivieren",
           "huawei_battery_temp": "Huawei-Batterietemperatur",
-          "source_max_age": "Altersgrenze für HA-Leistungswerte (Sekunden, 0 = HA-Verfügbarkeit)"
+          "source_max_age": "Altersgrenze für externe Messwerte (Sekunden, 0 = HA-Verfügbarkeit)"
         },
         "data_description": {
-          "source_max_age": "Standard: 900 Sekunden. 0 akzeptiert auch lange unveränderte Leistungen, wenn die Quelle bei Ausfall zuverlässig unavailable meldet. Templates müssen diese Verfügbarkeit weiterreichen. Ein eingefrorener, weiterhin verfügbarer Wert wird dann nicht erkannt. Gilt nicht für Batterie-, Preis- und Prognosedaten. Eine Änderung startet das Verbrauchsprofil neu."
+          "source_max_age": "Standard: 900 Sekunden. Gilt für externe Leistungen, Wärmepumpen-Leistung im Bedarfsprofil und Ruhe-Zellspreizung. 0 vertraut auch bei unveränderten Werten der HA-Verfügbarkeit. Quellen und Templates müssen Ausfälle als unavailable melden; eingefrorene verfügbare Werte werden nicht erkannt. Eine alte hohe Ruhe-Zellspreizung kann Balancing vorziehen. Native Batterie-, Temperatur-, Preis- und Prognoseprüfungen behalten ihre Grenzen. Eine Änderung startet das Verbrauchsprofil neu."
         }
       },
       "battery": {
@@ -132,7 +132,7 @@
       },
       "balancing": {
         "title": "Balancing (optional)",
-        "description": "Optional. Intervall 0 deaktiviert die Balancing-Planung vollständig. Bei aktivierter Planung kann eine Zellspreizung zusätzlichen Bedarf auslösen. Netzladen benötigt eine eigene Freigabe. Neue Einträge übernehmen keine Zähler der bisherigen Automation; vorhandene Integrationszähler bleiben erhalten. Die Zellspreizungsquelle ist optional und kann entfernt werden.",
+        "description": "Optional. Intervall 0 deaktiviert die Balancing-Planung vollständig. Bei aktivierter Planung kann eine Zellspreizung zusätzlichen Bedarf auslösen. Netzladen benötigt eine eigene Freigabe. Neue Einträge übernehmen keine Zähler der bisherigen Automation; vorhandene Integrationszähler bleiben erhalten. Die Zellspreizungsquelle ist optional und kann entfernt werden. Die Altersgrenze unter Anlage und Messwerte gilt auch für die Ruhe-Zellspreizung. Mit 0 bleibt der letzte verfügbare Ruhewert unabhängig vom Alter gültig und kann Balancing auslösen; Intervall, Schwelle, Mindestabstand und die separate Netzladefreigabe gelten weiter.",
         "data": {
           "cell_spread": "BYD-Zellspreizung in Ruhe",
           "opti_balancing_intervall_tage": "Balancing alle … Tage",
@@ -421,7 +421,7 @@
       },
       "sources": {
         "title": "Anlage und Messwerte",
-        "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig. Nur bereits oben ausgeschlossene Lasten auswählen, die unveränderte 0 W nicht regelmäßig melden und Verbindungsausfälle zuverlässig als nicht verfügbar kennzeichnen. Bei einer positiven Altersgrenze gilt diese Ausnahme nur für exakt 0 W bzw. 0 kW; positive Leistungen werden weiter auf Aktualität geprüft. Mit Altersgrenze 0 gilt stattdessen die HA-Verfügbarkeit für alle Leistungsquellen.",
+        "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig. Nur bereits oben ausgeschlossene Lasten auswählen, die unveränderte 0 W nicht regelmäßig melden und Verbindungsausfälle zuverlässig als nicht verfügbar kennzeichnen. Bei einer positiven Altersgrenze gilt diese Ausnahme nur für exakt 0 W bzw. 0 kW; positive Leistungen werden weiter auf Aktualität geprüft. Mit Altersgrenze 0 gilt stattdessen die HA-Verfügbarkeit für alle externen Leistungsquellen einschließlich der Wärmepumpen-Leistung im Bedarfsprofil sowie für die Ruhe-Zellspreizung.",
         "data": {
           "house_consumption": "Hausverbrauch",
           "pv_generation": "PV-Erzeugung DC (nur Anzeige, optional)",
@@ -435,10 +435,10 @@
           "forecast_min_load_w": "Mindestgrundlast für die Prognose",
           "strategy_enabled": "Automatische Strategie aktivieren",
           "huawei_battery_temp": "Huawei-Batterietemperatur",
-          "source_max_age": "Altersgrenze für HA-Leistungswerte (Sekunden, 0 = HA-Verfügbarkeit)"
+          "source_max_age": "Altersgrenze für externe Messwerte (Sekunden, 0 = HA-Verfügbarkeit)"
         },
         "data_description": {
-          "source_max_age": "Standard: 900 Sekunden. 0 akzeptiert auch lange unveränderte Leistungen, wenn die Quelle bei Ausfall zuverlässig unavailable meldet. Templates müssen diese Verfügbarkeit weiterreichen. Ein eingefrorener, weiterhin verfügbarer Wert wird dann nicht erkannt. Gilt nicht für Batterie-, Preis- und Prognosedaten. Eine Änderung startet das Verbrauchsprofil neu."
+          "source_max_age": "Standard: 900 Sekunden. Gilt für externe Leistungen, Wärmepumpen-Leistung im Bedarfsprofil und Ruhe-Zellspreizung. 0 vertraut auch bei unveränderten Werten der HA-Verfügbarkeit. Quellen und Templates müssen Ausfälle als unavailable melden; eingefrorene verfügbare Werte werden nicht erkannt. Eine alte hohe Ruhe-Zellspreizung kann Balancing vorziehen. Native Batterie-, Temperatur-, Preis- und Prognoseprüfungen behalten ihre Grenzen. Eine Änderung startet das Verbrauchsprofil neu."
         }
       },
       "battery": {
@@ -502,7 +502,7 @@
       },
       "balancing": {
         "title": "Balancing (optional)",
-        "description": "Optional. Intervall 0 deaktiviert die Balancing-Planung vollständig. Bei aktivierter Planung kann eine Zellspreizung zusätzlichen Bedarf auslösen. Netzladen benötigt eine eigene Freigabe. Neue Einträge übernehmen keine Zähler der bisherigen Automation; vorhandene Integrationszähler bleiben erhalten. Die Zellspreizungsquelle ist optional und kann entfernt werden.",
+        "description": "Optional. Intervall 0 deaktiviert die Balancing-Planung vollständig. Bei aktivierter Planung kann eine Zellspreizung zusätzlichen Bedarf auslösen. Netzladen benötigt eine eigene Freigabe. Neue Einträge übernehmen keine Zähler der bisherigen Automation; vorhandene Integrationszähler bleiben erhalten. Die Zellspreizungsquelle ist optional und kann entfernt werden. Die Altersgrenze unter Anlage und Messwerte gilt auch für die Ruhe-Zellspreizung. Mit 0 bleibt der letzte verfügbare Ruhewert unabhängig vom Alter gültig und kann Balancing auslösen; Intervall, Schwelle, Mindestabstand und die separate Netzladefreigabe gelten weiter.",
         "data": {
           "cell_spread": "BYD-Zellspreizung in Ruhe",
           "opti_balancing_intervall_tage": "Balancing alle … Tage",
@@ -789,6 +789,9 @@
       },
       "value_charge_power_w": {
         "name": "Geplante Ladeleistung"
+      },
+      "value_forecast_tomorrow_kwh": {
+        "name": "PV-Prognose morgen"
       },
       "value_price_current_ct_kwh": {
         "name": "Strompreis"

@@ -287,6 +287,27 @@ eine ausstehende Pause am bisherigen Gerätepfad abschließen, bevor die alte
 Steuerung wieder schreibt. Zusätzlich die fortbestehenden TOU- und
 Netzladeeinstellungen aus [Huawei-Steuerung](../HUAWEI_CONTROL.md) prüfen.
 
+## Meldungen bei Quellenfehlern und Neustart
+
+Quellen- und Verbindungsfehler müssen mindestens 60 Sekunden anhalten, bevor
+eine Meldung entsteht. Solange derselbe Fehler besteht, erzeugen weitere
+Abfragen keine erneute Meldung. Nach 60 Sekunden ohne Fehler wird der Vorfall
+beendet. Schreibstillstand, Sperrverletzung und eine ausstehende Pause werden
+ohne diese Wartefrist gemeldet; für den ersten Tibber-Abruf gilt die gesonderte
+Startfrist.
+
+Ein Neuladen der Integration oder HA-Neustart beginnt eine neue
+Vorfallserkennung. Ein weiterhin vorhandener Quellenfehler kann deshalb nach
+erneuten 60 Sekunden wieder melden. Häufige Neustarts können diese Meldungen
+wiederholen. Der Shadow-Eintrag verschickt keine solchen Störungsmeldungen;
+seine Fehler bleiben in den Diagnoseanzeigen sichtbar.
+
+Bei unveränderten, aber gültigen Messwerten die
+[Altersgrenze der Quelle](configuration.md#unveränderte-externe-messwerte-und-ausfälle)
+prüfen. Die Einstellung 0 vertraut ihrer HA-Verfügbarkeit. Tatsächlich
+fehlende oder nicht verfügbare Werte bleiben Fehler; ihre Zeitstempel müssen
+nicht künstlich erneuert werden.
+
 ## Diagnose herunterladen
 
 Unter **Einstellungen -> Geräte & Dienste -> Opti Akku -> Drei-Punkte-Menü ->

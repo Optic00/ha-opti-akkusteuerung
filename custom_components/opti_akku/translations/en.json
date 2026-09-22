@@ -51,7 +51,7 @@
       },
       "sources": {
         "title": "System and measurements",
-        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. With a positive age limit, this exception applies only to exactly 0 W or 0 kW; positive power still requires a recent report. With age limit 0, HA availability applies to all power sources instead.",
+        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. With a positive age limit, this exception applies only to exactly 0 W or 0 kW; positive power still requires a recent report. With age limit 0, HA availability applies to external power sources, heat-pump power in the demand profile and resting cell spread instead.",
         "data": {
           "house_consumption": "House consumption",
           "pv_generation": "PV generation DC (display only, optional)",
@@ -65,10 +65,10 @@
           "forecast_min_load_w": "Minimum forecast base load",
           "strategy_enabled": "Enable automatic strategy",
           "huawei_battery_temp": "Huawei battery temperature",
-          "source_max_age": "HA power reporting age (seconds, 0 = HA availability)"
+          "source_max_age": "External measurement reporting age (seconds, 0 = HA availability)"
         },
         "data_description": {
-          "source_max_age": "Default: 900 seconds. 0 accepts unchanged power values as long as the source reliably becomes unavailable on failure. Templates must propagate availability. A frozen value still marked available cannot then be detected. Battery, price and forecast checks remain bounded. Changing this restarts the consumption profile."
+          "source_max_age": "Default: 900 seconds. Applies to external power values, heat-pump power in the demand profile and resting cell spread. 0 trusts HA availability even for unchanged values. Sources and templates must report failures as unavailable; frozen values still marked available cannot be detected. An old high resting cell spread may bring balancing forward. Native battery, temperature, price and forecast checks keep their limits. Changing this restarts the consumption profile."
         }
       },
       "battery": {
@@ -132,7 +132,7 @@
       },
       "balancing": {
         "title": "Balancing (optional)",
-        "description": "Optional. Interval 0 disables all balancing planning. When planning is enabled, cell spread may trigger additional demand. Grid charging needs separate permission. New entries do not import counters from previous automations; existing integration counters are preserved. The cell-spread source is optional and can be removed.",
+        "description": "Optional. Interval 0 disables all balancing planning. When planning is enabled, cell spread may trigger additional demand. Grid charging needs separate permission. New entries do not import counters from previous automations; existing integration counters are preserved. The cell-spread source is optional and can be removed. The reporting-age setting under System and measurements also applies to resting cell spread. With 0, the last available resting value remains valid regardless of age and can trigger balancing; the interval, threshold, cooldown and separate grid-charge permission still apply.",
         "data": {
           "cell_spread": "Resting BYD cell spread",
           "opti_balancing_intervall_tage": "Balancing interval in days",
@@ -421,7 +421,7 @@
       },
       "sources": {
         "title": "System and measurements",
-        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. With a positive age limit, this exception applies only to exactly 0 W or 0 kW; positive power still requires a recent report. With age limit 0, HA availability applies to all power sources instead.",
+        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. With a positive age limit, this exception applies only to exactly 0 W or 0 kW; positive power still requires a recent report. With age limit 0, HA availability applies to external power sources, heat-pump power in the demand profile and resting cell spread instead.",
         "data": {
           "house_consumption": "House consumption",
           "pv_generation": "PV generation DC (display only, optional)",
@@ -435,10 +435,10 @@
           "forecast_min_load_w": "Minimum forecast base load",
           "strategy_enabled": "Enable automatic strategy",
           "huawei_battery_temp": "Huawei battery temperature",
-          "source_max_age": "HA power reporting age (seconds, 0 = HA availability)"
+          "source_max_age": "External measurement reporting age (seconds, 0 = HA availability)"
         },
         "data_description": {
-          "source_max_age": "Default: 900 seconds. 0 accepts unchanged power values as long as the source reliably becomes unavailable on failure. Templates must propagate availability. A frozen value still marked available cannot then be detected. Battery, price and forecast checks remain bounded. Changing this restarts the consumption profile."
+          "source_max_age": "Default: 900 seconds. Applies to external power values, heat-pump power in the demand profile and resting cell spread. 0 trusts HA availability even for unchanged values. Sources and templates must report failures as unavailable; frozen values still marked available cannot be detected. An old high resting cell spread may bring balancing forward. Native battery, temperature, price and forecast checks keep their limits. Changing this restarts the consumption profile."
         }
       },
       "battery": {
@@ -502,7 +502,7 @@
       },
       "balancing": {
         "title": "Balancing (optional)",
-        "description": "Optional. Interval 0 disables all balancing planning. When planning is enabled, cell spread may trigger additional demand. Grid charging needs separate permission. New entries do not import counters from previous automations; existing integration counters are preserved. The cell-spread source is optional and can be removed.",
+        "description": "Optional. Interval 0 disables all balancing planning. When planning is enabled, cell spread may trigger additional demand. Grid charging needs separate permission. New entries do not import counters from previous automations; existing integration counters are preserved. The cell-spread source is optional and can be removed. The reporting-age setting under System and measurements also applies to resting cell spread. With 0, the last available resting value remains valid regardless of age and can trigger balancing; the interval, threshold, cooldown and separate grid-charge permission still apply.",
         "data": {
           "cell_spread": "Resting BYD cell spread",
           "opti_balancing_intervall_tage": "Balancing interval in days",
@@ -789,6 +789,9 @@
       },
       "value_charge_power_w": {
         "name": "Planned charge power"
+      },
+      "value_forecast_tomorrow_kwh": {
+        "name": "PV forecast tomorrow"
       },
       "value_price_current_ct_kwh": {
         "name": "Electricity price"

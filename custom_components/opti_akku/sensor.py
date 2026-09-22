@@ -19,7 +19,8 @@ DIAGNOSTICS = ("mode", "reason", "last_write", "last_error", "source_errors", "p
 CORE_UNITS = {"soc": "%", "battery_temp": "°C", "battery_capacity_kwh": "kWh",
               "battery_power_w": "W", "pv_power_w": "W", "pv_generation_w": "W",
               "grid_import_w": "W", "grid_export_w": "W", "house_consumption_w": "W",
-              "target_soc": "%", "charge_power_w": "W", "price_current_ct_kwh": "ct/kWh"}
+              "target_soc": "%", "charge_power_w": "W", "price_current_ct_kwh": "ct/kWh",
+              "forecast_tomorrow_kwh": "kWh"}
 
 
 async def async_setup_entry(

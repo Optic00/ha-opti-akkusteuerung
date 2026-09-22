@@ -1,4 +1,4 @@
-"""Reporting-age policy shared by external HA power sources and diagnostics."""
+"""Reporting-age policy shared by external HA measurements and diagnostics."""
 
 from datetime import datetime
 import math
@@ -6,10 +6,10 @@ from typing import Any
 
 
 def measurement_max_age(value: Any, *, event_based: bool = False) -> float:
-    """Convert a stored option, never an effective limit; zero opts HA power in.
+    """Convert a stored option, never an effective limit; zero opts event-based HA measurements in.
 
     Persisted infinity is invalid. Only this conversion may produce an
-    unlimited effective limit; battery inputs stay bounded.
+    unlimited effective limit; native battery inputs stay bounded.
     """
     if isinstance(value, bool):
         return -math.inf

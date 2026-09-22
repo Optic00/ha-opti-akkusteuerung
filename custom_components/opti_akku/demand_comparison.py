@@ -125,7 +125,11 @@ def _window(
     sources = cfg.get("sources", {}) if isinstance(cfg, dict) else {}
     heat_meter = bool(sources.get("heat_power"))
     heat = source_value(
-        ha_states, sources.get("heat_power"), issued_at, kind="power"
+        ha_states,
+        sources.get("heat_power"),
+        issued_at,
+        kind="power",
+        source_max_age=options.get("source_max_age", 900),
     ) if heat_meter else 0.0
     if heat is None or heat < 0:
         return None

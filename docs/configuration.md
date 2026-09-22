@@ -85,13 +85,18 @@ Für Dashboards sind diese Werte zu unterscheiden:
 | `sensor.opti_forecast_tomorrow_kwh` | PV-Prognose morgen | Zugeordnete Tagesprognose für morgen, auf kWh normalisiert |
 | `sensor.opti_forecast_effective_remaining_kwh` | Opti Forecast Effective Remaining kWh | Restprognose nach P10-/Median-Mischung und eingestelltem Optimismus |
 
-Diese Diagnoseentitäten sind standardmäßig deaktiviert. Unter **Einstellungen →
-Geräte & Dienste → Entitäten** nach Integration **Opti Akku** filtern, deaktivierte
-Entitäten einblenden und den gewünschten Sensor aktivieren. Die internen Namen
+Bei neuen Installationen ist die Morgenprognose als normaler Sensor aktiviert.
+Beim Update bleibt eine bestehende Deaktivierung erhalten, auch wenn sie von
+der Integration stammt. Den Sensor bei Bedarf einmal selbst aktivieren. Ohne
+zugeordnete Quelle ist er nicht verfügbar. Die übrigen Prognoseanzeigen in der
+Tabelle sind Diagnoseentitäten und standardmäßig deaktiviert. Unter **Einstellungen → Geräte & Dienste → Entitäten** nach Integration
+**Opti Akku** filtern, deaktivierte Entitäten einblenden und den gewünschten Sensor
+aktivieren. Die internen Namen
 in der Tabelle sind keine garantierten HA-Entitäts-IDs. HA bildet diese aus
 Geräte- und Entitätsnamen; eine ID kann deshalb zweimal `opti` enthalten.
 Die tatsächliche ID steht in den Entitätseinstellungen. Bestehende IDs werden
-beim Upgrade nicht umbenannt.
+beim Upgrade nicht umbenannt. Der voreingestellte Anzeigename der Morgenprognose
+lautet nun **PV-Prognose morgen**; selbst vergebene Namen bleiben erhalten.
 
 Die Morgenprognose ist keine zusätzliche, bereits gemischte Restprognose. Die
 Strategie berücksichtigt ihr P10-Attribut und den Optimismus an den jeweiligen
@@ -103,10 +108,11 @@ und gültige Werte prüfen. Anschließend auch Dashboards, andere Automationen u
 die noch verwendete Legacy-Steuerung auf Verweise prüfen. Erst nicht mehr
 benötigte Mapping-Sensoren entfernen.
 
-### Unveränderte HA-Leistungswerte und Ausfälle
+### Unveränderte externe Messwerte und Ausfälle
 
-Unter **Anlage und Messwerte** legt **Altersgrenze für HA-Leistungswerte** fest,
-wie lange gemappte Leistungen ohne neue Meldung verwendet werden. Standard
+Unter **Anlage und Messwerte** legt **Altersgrenze für externe Messwerte** fest,
+wie lange gemappte Leistungen, die separate Wärmepumpen-Leistung im Bedarfsprofil
+und die Ruhe-Zellspreizung ohne neue Meldung verwendet werden. Standard
 bleibt 900 Sekunden. Maßgeblich ist `last_reported`, nicht die letzte Wertänderung.
 [HA aktualisiert diesen Zeitstempel bei jeder Meldung](https://developers.home-assistant.io/blog/2024/03/20/state_reported_timestamp/),
 auch wenn der Zahlenwert gleich bleibt. Eine ereignisbasierte Integration muss
@@ -114,12 +120,23 @@ aber nicht regelmäßig melden. Eine alte Meldung beweist daher keinen Geräteau
 
 **0** wählt ausdrücklich die Verfügbarkeit der HA-Quelle statt einer zusätzlichen
 Altersgrenze. Das gilt für gemappten Hausverbrauch, PV-/AC-Leistung, weitere
-Wechselrichter und Ausschlusslasten, auch bei positiven Leistungen. Fehlende,
+Wechselrichter, Ausschlusslasten, die Wärmepumpen-Leistung im Bedarfsprofil und
+die Ruhe-Zellspreizung, auch bei positiven Werten. Fehlende,
 `unknown`/`unavailable`, unplausible Zeitstempel, ungültige Einheiten und Werte
-bleiben Fehler. Native Geräteabfragen, Huawei-Batterieeingänge, Zellspreizung,
-Preise, PV-Prognosen und die gesonderten Wärmepumpenquellen der Bedarfsprognose
-werden dadurch nicht von ihren Prüfungen befreit. Huawei und Zellspreizung
-behalten bei 0 die bisherige 900-Sekunden-Grenze.
+bleiben Fehler. Native Geräteabfragen, Huawei-Batterieeingänge, Preise, PV-Prognosen und
+Temperaturquellen der Bedarfsprognose behalten ihre eigenen Prüfungen.
+Huawei-Batterieeingänge behalten bei 0 die bisherige 900-Sekunden-Grenze.
+
+Ein verfügbarer Ruhe-Zellspreizungswert wird mit 0 als zuletzt gültige
+Ruhemessung verwendet. Auch ein alter hoher Wert kann dadurch Balancing
+vorziehen. Intervall, Spreizungsschwelle, Mindestabstand zum letzten Vollzyklus
+und die separate Netzladefreigabe bleiben wirksam. Das ist keine
+Live-Zellmessung und kein Ersatz für native Batterieschutzfunktionen.
+
+**Änderung gegenüber Beta 7:** Eine bereits auf 0 gesetzte Altersgrenze gilt
+nun auch für Ruhe-Zellspreizung und Wärmepumpen-Leistung im Bedarfsprofil.
+Wer diese Quellen weiterhin nach Alter verwerfen möchte, muss eine positive
+Altersgrenze wählen. Es werden keine Sensor-Zeitstempel künstlich erneuert.
 
 Nur 0 wählen, wenn die Quellintegration Ausfälle zuverlässig als `unavailable`
 meldet. Bei selbst gebauten [Template-Sensoren](https://www.home-assistant.io/integrations/template/#availability)

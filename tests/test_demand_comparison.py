@@ -245,6 +245,38 @@ def test_extra_load_decays_and_active_separate_heat_is_only_first_hour_floor():
     assert remaining["profile_energy_kwh"] == 11
 
 
+def test_comparison_heat_power_honors_global_source_max_age():
+    issued = datetime(2026, 9, 16, 10, tzinfo=UTC)
+    data = payload(issued)
+    data["demand_forecast"].update(
+        heating_active=True, heat_meter_configured=True
+    )
+    options = {"demand_forecast": {
+        "enabled": True, "sources": {"heat_power": "sensor.heat"}
+    }}
+    heat_state = SimpleNamespace(
+        state="3000",
+        last_reported=issued - timedelta(hours=1),
+        last_updated=issued - timedelta(hours=1),
+        attributes={"unit_of_measurement": "W"},
+    )
+    model = learned_model(issued)
+
+    bounded = active_profile(
+        model, issued, data, options=options, ha_states={"sensor.heat": heat_state}
+    )
+    assert bounded == {
+        "status": "data_missing", "reason": "profile_window_unavailable"
+    }
+
+    options["source_max_age"] = 0
+    available = active_profile(
+        model, issued, data, options=options, ha_states={"sensor.heat": heat_state}
+    )
+    assert available["status"] == "ready"
+    assert available["profile_energy_kwh"] == 9
+
+
 def test_fixed_fallback_is_not_increased_by_heat_or_extra_load():
     issued = datetime(2026, 9, 16, 10, tzinfo=UTC)
     data = payload(issued)

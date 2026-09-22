@@ -67,6 +67,14 @@ abgeschlossenen Vergleiche bleiben während der Laufzeit sichtbar; ein laufender
 Vergleich überlebt Neustarts mit ausgewiesener Datenlücke. Das misst die
 Verbrauchsprognose, nicht hypothetisch vermiedenen Netzbezug.
 
+Die separat zugeordnete Wärmepumpen-Leistung verwendet dieselbe **Altersgrenze
+für externe Messwerte** wie die übrigen Leistungsquellen (Standard 900 Sekunden).
+Mit 0 kann ein unveränderter verfügbarer Wert weiter verwendet werden; die
+Quellintegration muss einen Ausfall selbst als `unavailable` melden. Ungültige
+Werte und Einheiten bleiben ausgeschlossen. Eine Wärmepumpen-Leistung unter 0
+oder über dem Hausverbrauch wird weiterhin verworfen. Temperaturquellen und
+datierte PV-Prognosen behalten ihre eigenen Altersgrenzen.
+
 ### Historische Vorbelegung der Bedarfsprognose (0.5.2b1)
 
 Im Optionsmenü „Bedarfsprofil und Peak-Reserve“ lassen sich ein historischer

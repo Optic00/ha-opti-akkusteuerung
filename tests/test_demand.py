@@ -98,6 +98,96 @@ def test_source_values_reject_ambiguous_or_stale_inputs():
     assert source_value({"sensor.load": state(1, "A")}, "sensor.load", NOW, kind="power") is None
 
 
+def test_power_source_age_can_opt_in_to_ha_availability():
+    old_w = state(500, "W", NOW - timedelta(hours=1))
+    old_kw = state(0.5, "kW", NOW - timedelta(hours=1))
+
+    assert source_value({"sensor.load": old_w}, "sensor.load", NOW, kind="power") is None
+    assert source_value(
+        {"sensor.load": old_w}, "sensor.load", NOW, kind="power", source_max_age=0
+    ) == 500
+    assert source_value(
+        {"sensor.load": old_kw}, "sensor.load", NOW, kind="power", source_max_age=0
+    ) == 500
+
+    unavailable = state("unavailable", "W", NOW - timedelta(hours=1))
+    assert source_value(
+        {"sensor.load": unavailable},
+        "sensor.load",
+        NOW,
+        kind="power",
+        source_max_age=0,
+    ) is None
+    assert source_value({}, "sensor.load", NOW, kind="power", source_max_age=0) is None
+    assert source_value(
+        {"sensor.load": state("unknown")},
+        "sensor.load",
+        NOW,
+        kind="power",
+        source_max_age=0,
+    ) is None
+    assert source_value(
+        {"sensor.load": state(float("nan"))},
+        "sensor.load",
+        NOW,
+        kind="power",
+        source_max_age=0,
+    ) is None
+    assert source_value(
+        {"sensor.load": state(1, "A")},
+        "sensor.load",
+        NOW,
+        kind="power",
+        source_max_age=0,
+    ) is None
+    assert source_value(
+        {"sensor.load": state(500, "W", NOW + timedelta(seconds=61))},
+        "sensor.load",
+        NOW,
+        kind="power",
+        source_max_age=0,
+    ) is None
+
+
+@pytest.mark.parametrize("timestamp", [None, NOW.isoformat(), NOW.replace(tzinfo=None)])
+def test_power_source_requires_ha_datetime_even_with_availability_opt_in(timestamp):
+    # HA State objects supply aware datetimes; serialized or malformed timestamps
+    # must not turn an unverified power reading into valid demand data.
+    assert source_value(
+        {"sensor.load": state(500, "W", timestamp)},
+        "sensor.load",
+        NOW,
+        kind="power",
+        source_max_age=0,
+    ) is None
+
+
+@pytest.mark.parametrize("timestamp", [None, NOW.replace(tzinfo=None), NOW - timedelta(hours=7)])
+def test_temperature_guard_is_not_relaxed_by_power_availability_opt_in(timestamp):
+    assert source_value(
+        {"sensor.temp": state(20, "°C", timestamp)},
+        "sensor.temp",
+        NOW,
+        kind="temperature",
+        source_max_age=0,
+    ) is None
+
+
+def test_demand_forecast_propagates_source_max_age_to_heat_power():
+    data, options, states = fixture(house=500, heat=100)
+    states["sensor.heat"] = state(100, "W", NOW - timedelta(hours=1))
+
+    default = update(DemandForecast(), data, options, states)
+    assert default["status"] == "data_missing"
+    assert default["detail"] == "house_or_heat_power"
+
+    options["source_max_age"] = 0
+    opted_in = DemandForecast()
+    result = update(opted_in, data, options, states)
+    assert result["status"] == "learning"
+    assert opted_in.previous[1] == 400
+
+
 def test_pv_intervals_fail_closed_on_invalid_or_conflicting_forecasts():
     invalid = state(1, "kWh", detailedForecast=[{"period_start": NOW}])
     assert pv_intervals({"sensor.pv": invalid}, {"pv_today": "sensor.pv"}, NOW) == []

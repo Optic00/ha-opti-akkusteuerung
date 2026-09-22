@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from custom_components.opti_akku.shadow import ShadowRecorder
+from custom_components.opti_akku.shadow import ShadowRecorder, _demand_sample
 
 NOW = datetime(2026, 9, 12, 12, tzinfo=UTC)
 MODES = ("Akku Pause", "Akku nur Laden")
@@ -157,3 +157,64 @@ def test_restored_journal_identifies_new_build_without_resetting_deadline(tmp_pa
     assert rows[2]["build"]["sha256"] == "new"
     assert restored.snapshot()["deadline"] == session["deadline"]
     assert restored.snapshot()["samples"] == 2
+
+
+def test_refill_comparison_uses_strict_allowlist_and_preserves_scalars(tmp_path, monkeypatch):
+    recorder = ShadowRecorder(tmp_path)
+    session = recorder.start(NOW, {}, "", "0.3.0")
+    monkeypatch.setattr("custom_components.opti_akku.shadow._build_identity",
+                        lambda: {"version": "0.3.0", "sha256": "test"})
+    data = {
+        **DATA, "entry_shadow_mode": False, "write_enabled": True,
+        "strategy_enabled": True, "command_confirmation": "idle_or_confirmed",
+        "device_errors": {"read": "timeout"}, "price_status": "ready",
+        "foreign_coordinator_key": "secret",
+        "demand_forecast": {
+            "status": "ready", "controls_battery": True, "observation_only": False,
+            "refill_profile_ready": True, "refill_missing_kwh": 1.23456789,
+            "refill_coverage_percent": 78.90123, "refill_target_kwh": {"bad": 1},
+            "forecast_slots": ["private"],
+            "learned_profile": {"raw": "private"},
+            "strategy_comparison": {
+                "status": "ready", "observation_only": True, "foreign": "omit",
+                "blocks": {
+                    "remaining_day": {"status": "ready", "reason": "complete",
+                                      "active_score": 4, "candidate_score": 6,
+                                      "score_delta": 2, "profile_sources": {"omit": 1}},
+                    "unexpected": {"active_score": 99},
+                },
+            },
+        },
+    }
+    recorder.record(NOW, data, {}, None, MODES)
+    rows = [json.loads(row) for row in
+            (tmp_path / f"{session['session_id']}.jsonl").read_text().splitlines()]
+    sample = rows[-1]
+    assert sample["observation_only"] is True
+    assert sample["entry_shadow_mode"] is False
+    assert sample["write_enabled"] is sample["strategy_enabled"] is True
+    assert sample["command_confirmation"] == "idle_or_confirmed"
+    assert sample["device_source_error_count"] == 1
+    assert sample["price_status"] == "ready"
+    demand = sample["demand_forecast"]
+    assert demand["controls_battery"] is True
+    assert demand["observation_only"] is False
+    assert demand["refill_missing_kwh"] == 1.23456789
+    assert demand["refill_coverage_percent"] == 78.90123
+    assert demand["strategy_comparison"]["observation_only"] is True
+    assert demand["strategy_comparison"]["blocks"]["remaining_day"]["score_delta"] == 2
+    assert "foreign_coordinator_key" not in sample
+    assert not {"forecast_slots", "learned_profile", "refill_target_kwh"} & demand.keys()
+    assert "unexpected" not in demand["strategy_comparison"]["blocks"]
+    assert "profile_sources" not in demand["strategy_comparison"]["blocks"]["remaining_day"]
+
+
+def test_demand_allowlist_rejects_invalid_report_shapes_and_scalars():
+    assert _demand_sample({"demand_forecast": []}) == {}
+    assert _demand_sample({"demand_forecast": {
+        "status": "ready", "strategy_comparison": []}}) == {"status": "ready"}
+    assert _demand_sample({"demand_forecast": {
+        "status": "x" * 129, "refill_missing_kwh": float("inf"),
+        "refill_covered": [], "strategy_comparison": {
+            "status": "ready", "blocks": []}}}) == {
+                "strategy_comparison": {"status": "ready"}}

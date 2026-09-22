@@ -97,6 +97,14 @@ async def test_config_flow_read_write_and_shared_connection(hass, simulator, fai
     assert entry.options["sources"] == {}, "Fresh install must not need legacy aliases"
     test_button = er.async_get(hass).async_get_entity_id("button", DOMAIN, f"{entry.entry_id}_notification_test")
     assert test_button
+    comparison_start = er.async_get(hass).async_get_entity_id(
+        "button", DOMAIN, f"{entry.entry_id}_comparison_start")
+    comparison_stop = er.async_get(hass).async_get_entity_id(
+        "button", DOMAIN, f"{entry.entry_id}_comparison_stop")
+    comparison_status = er.async_get(hass).async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_diagnostic_comparison_status")
+    assert comparison_start and comparison_stop and comparison_status
+    assert hass.states.get(comparison_status).state == "idle"
     await hass.services.async_call("button", "press", {"entity_id": test_button}, blocking=True)
     assert not simulator.writes, "Notification test cannot touch inverter registers"
     assert len(hass.data[DATA_MODBUS_CONNECTIONS]) == 1

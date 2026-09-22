@@ -195,6 +195,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._violation_since: float | None = None
         self._violation_mode: str | None = None
         self._update_lock = asyncio.Lock()
+        self._journal_lock = asyncio.Lock()
         self._serial_owner: str | None = None
         self._stop_lock = asyncio.Lock()
         self._stopped = False
@@ -283,9 +284,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     or not self.entry.options.get("single_writer_confirmed", False)):
                 self.write_enabled = False
                 self._last_error = "Frühere Huawei-Pause unbestätigt; geänderte Bindung oder Freigabe verhindert automatische Nachholung. Gerät manuell prüfen."
-        if self.shadow_mode:
-            self._shadow.restore(stored.get("shadow", {}))
-            self._shadow_snapshot = self._shadow.snapshot()
+        self._shadow.restore(stored.get("shadow", {}))
+        self._shadow_snapshot = self._shadow.snapshot()
         # A forced manual charging/discharging command is never resumed after
         # a restart. Strategy decisions are recomputed from current inputs.
         self.manual_mode = None
@@ -503,6 +503,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data = await self._async_update_locked()
         self.alerts.update(data)
         data["notification_error"] = self.alerts.delivery_error
+        await self._async_record_journal(data, dt_util.utcnow())
         return data
 
     @callback
@@ -1059,20 +1060,35 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.debug("Source observation unavailable: %s", type(err).__name__)
             data["source_observation"] = {"status":"error", "controls_battery":False}
+        data["shadow_status"] = self._shadow_snapshot["status"]
+        data["shadow_summary"] = {key: value for key, value in self._shadow_snapshot.items()
+                                  if key not in ("settings", "reference_entity")}
         if self.shadow_mode:
-            reference_id = self._shadow_snapshot.get("reference_entity", "")
-            reference = self.hass.states.get(reference_id) if reference_id else None
-            settings = dict(self.settings)
-            try:
-                self._shadow_snapshot = await self.hass.async_add_executor_job(
-                    self._shadow.record, now, data, settings, reference.state if reference else None, MODES)
-            except (OSError, ValueError):
-                self._shadow.state["status"] = "error"
-                self._shadow.state["error"] = "journal_write_failed"
-                self._shadow_snapshot = self._shadow.snapshot()
-            data["shadow_status"] = self._shadow_snapshot["status"]
-            data["shadow_summary"] = {key: value for key, value in self._shadow_snapshot.items()
-                                      if key not in ("settings", "reference_entity")}
+            attempts = getattr(self.device, "blocked_write_attempts", 0)
+            data["shadow_summary"]["blocked_write_attempts"] = attempts if isinstance(attempts, int) else 0
+
+    async def _async_record_journal(self, data, now):
+        """Append passive diagnostics after the control result and price status are final."""
+        async with self._journal_lock:
+            if self._stopping:
+                return
+            if self._shadow_snapshot.get("status") == "running":
+                reference_id = self._shadow_snapshot.get("reference_entity", "")
+                reference = self.hass.states.get(reference_id) if reference_id else None
+                settings = dict(self.settings)
+                try:
+                    journal_data = {**data, "entry_shadow_mode": self.shadow_mode}
+                    self._shadow_snapshot = await self.hass.async_add_executor_job(
+                        self._shadow.record, now, journal_data, settings,
+                        reference.state if reference else None, MODES)
+                except Exception:  # Journal diagnostics must not interrupt active control.
+                    self._shadow.state["status"] = "error"
+                    self._shadow.state["error"] = "journal_write_failed"
+                    self._shadow_snapshot = self._shadow.snapshot()
+        data["shadow_status"] = self._shadow_snapshot["status"]
+        data["shadow_summary"] = {key: value for key, value in self._shadow_snapshot.items()
+                                  if key not in ("settings", "reference_entity")}
+        if self.shadow_mode:
             attempts = getattr(self.device, "blocked_write_attempts", 0)
             data["shadow_summary"]["blocked_write_attempts"] = attempts if isinstance(attempts, int) else 0
 
@@ -1136,31 +1152,63 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_start_shadow(self) -> None:
         if not self.shadow_mode or not self._online or self._stopping:
             raise HomeAssistantError("Shadow-Aufzeichnung benötigt eine aktive lesende Verbindung")
+        await self._async_start_journal(refresh=True)
+
+    async def async_start_comparison(self) -> None:
+        if self.shadow_mode or not self._online or self._stopping:
+            raise HomeAssistantError("24-Stunden-Vergleich benötigt eine aktive Standard-Integration")
+        await self._async_start_journal(refresh=False)
+
+    async def _async_start_journal(self, *, refresh: bool) -> None:
         async with self._update_lock:
-            now = dt_util.utcnow()
-            settings = dict(self.settings)
-            reference = self.entry.options.get("shadow_reference_mode", "")
-            def start():
-                version = json.loads(Path(__file__).with_name("manifest.json").read_text())["version"]
-                return self._shadow.start(now, settings, reference, version)
-            try:
-                self._shadow_snapshot = await self.hass.async_add_executor_job(start)
-            except (ValueError, OSError) as err:
-                raise HomeAssistantError("Shadow-Aufzeichnung läuft bereits oder kann nicht angelegt werden") from err
-            await self._store.async_save(self._stored_data())
-        await self.async_refresh()
+            async with self._journal_lock:
+                now = dt_util.utcnow()
+                settings = dict(self.settings)
+                reference = self.entry.options.get("shadow_reference_mode", "")
+                def start():
+                    version = json.loads(Path(__file__).with_name("manifest.json").read_text())["version"]
+                    return self._shadow.start(now, settings, reference, version)
+                try:
+                    self._shadow_snapshot = await self.hass.async_add_executor_job(start)
+                except (ValueError, OSError) as err:
+                    raise HomeAssistantError("Shadow-Aufzeichnung läuft bereits oder kann nicht angelegt werden") from err
+                await self._store.async_save(self._stored_data())
+        self._publish_journal_status()
+        if refresh:
+            await self.async_refresh()
 
     async def async_stop_shadow(self) -> None:
         if not self.shadow_mode or self._stopping:
             raise HomeAssistantError("Keine aktive Shadow-Integration")
+        await self._async_stop_journal(refresh=True)
+
+    async def async_stop_comparison(self) -> None:
+        if self.shadow_mode or self._stopping:
+            raise HomeAssistantError("Keine aktive Standard-Integration")
+        await self._async_stop_journal(refresh=False)
+
+    async def _async_stop_journal(self, *, refresh: bool) -> None:
         async with self._update_lock:
-            try:
-                self._shadow_snapshot = await self.hass.async_add_executor_job(
-                    self._shadow.stop, dt_util.utcnow())
-            except OSError as err:
-                raise HomeAssistantError("Shadow-Protokoll kann nicht abgeschlossen werden") from err
-            await self._store.async_save(self._stored_data())
-        await self.async_refresh()
+            async with self._journal_lock:
+                try:
+                    self._shadow_snapshot = await self.hass.async_add_executor_job(
+                        self._shadow.stop, dt_util.utcnow())
+                except OSError as err:
+                    raise HomeAssistantError("Shadow-Protokoll kann nicht abgeschlossen werden") from err
+                await self._store.async_save(self._stored_data())
+        self._publish_journal_status()
+        if refresh:
+            await self.async_refresh()
+
+    @callback
+    def _publish_journal_status(self) -> None:
+        if self.data is None:
+            return
+        summary = {key: value for key, value in self._shadow_snapshot.items()
+                   if key not in ("settings", "reference_entity")}
+        self.data = {**self.data, "shadow_status": self._shadow_snapshot["status"],
+                     "shadow_summary": summary}
+        self.async_update_listeners()
 
     def _validate_ev_enable(self, settings: dict) -> None:
         if not settings.get("input_boolean.opti_ev_akku_pause"):
@@ -1299,5 +1347,6 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         await self.device.async_apply("Akku Pause", self._parameters((self.data or {}).get("states", {})), lambda: True)
                 except Exception as err:
                     self._last_error = f"Pause beim Entladen der Integration nicht bestätigt: {type(err).__name__}"
-            await self._store.async_save(self._stored_data())
             self._release_device()
+            async with self._journal_lock:
+                await self._store.async_save(self._stored_data())

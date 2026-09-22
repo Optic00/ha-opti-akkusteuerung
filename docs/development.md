@@ -39,7 +39,7 @@ geführt.
 ## Versionen und Releases
 
 Versionen folgen dem Veröffentlichungsmonat: `2026.9-beta1`, `2026.9-beta2`,
-`2026.9-beta3`, `2026.9-beta4`, `2026.9-beta5`, `2026.9-beta6`, `2026.9-beta7`, `2026.9-beta8`, danach `2026.9.0` stabil und `2026.9.1` für
+`2026.9-beta3`, `2026.9-beta4`, `2026.9-beta5`, `2026.9-beta6`, `2026.9-beta7`, `2026.9-beta8`, `2026.9-beta9`, danach `2026.9.0` stabil und `2026.9.1` für
 eine Fehlerkorrektur.
 Die Jahres- und Monatsangabe bezeichnet Opti Akku, nicht die erforderliche
 Home-Assistant-Version.
@@ -53,8 +53,8 @@ Komponentendateien. Das ZIP wird für manuelle Installationen in das HA-Konfigur
 entpackt; es enthält bereits `custom_components/opti_akku/`.
 
 Nach dem Merge wird auf dem geprüften Commit ein annotierter Tag erstellt und gepusht,
-zum Beispiel mit `git tag -a 2026.9-beta8 -m "Opti Akku 2026.9-beta8"`. Vor dem Push
-prüft `python tools/build_package.py --tag 2026.9-beta8 --check-release-ref`, dass
+zum Beispiel mit `git tag -a 2026.9-beta9 -m "Opti Akku 2026.9-beta9"`. Vor dem Push
+prüft `python tools/build_package.py --tag 2026.9-beta9 --check-release-ref`, dass
 Manifest und Projektversion übereinstimmen, der Tag annotiert ist und auf `HEAD` zeigt.
 Der Release-Workflow führt diesen Preflight vor dem ersten Build aus, baut das ZIP
 zweimal mit identischen Bytes und erzeugt einen **Release-Entwurf samt ZIP**. Betas

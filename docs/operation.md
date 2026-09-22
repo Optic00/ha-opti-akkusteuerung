@@ -46,6 +46,26 @@ Mittelwerte und Hysterese erst aufbauen und übernimmt alte Helferzustände
 nicht automatisch. Ein Shadow-Test belegt keine physische Wirkung der
 Schreibregister und ersetzt keinen späteren begleiteten Schreibtest.
 
+### Passiver Vergleich während der aktiven Steuerung
+
+Auch ein Standard-Eintrag kann mit **24-Stunden-Vergleich starten** ein
+privates Journal führen. Die laufende Steuerung bleibt unverändert aktiv.
+Start und Stopp verändern weder Schreibfreigabe noch Strategie und lösen
+keine zusätzlichen Gerätebefehle aus. **Status des 24-Stunden-Vergleichs** zeigt den
+Aufzeichnungsstatus; **24-Stunden-Vergleich beenden** stoppt nur das Journal.
+
+Zusätzlich zu Modus und Messwerten enthält jede Stichprobe ausgewählte
+Refill-Prognosen, die Profilreife sowie aktive Werte, beobachtende Kandidaten
+und ihre Differenzen. Die Kandidaten bleiben rein informativ. `read_only` und `observation_only`
+in einer Journalzeile beziehen sich auf die Aufzeichnung; `entry_shadow_mode`
+und `write_enabled` zeigen separat, ob der Eintrag steuern darf. Fehlende oder
+historisch ersetzte Profilwerte sind kein Beleg für eine belastbare Reserve.
+
+Für diese Aufzeichnung gelten dasselbe private Verzeichnis, die feste
+24-Stunden-Frist und die Hinweise zu Datenlücken und Datenschutz wie beim
+Shadow-Journal. Sie startet nur auf ausdrücklichen Knopfdruck. Ein vollständiger
+Lauf belegt noch keine Einsparung oder physische Wirkung der Steuerbefehle.
+
 ### Vom Shadow-Test zur aktiven Steuerung
 
 Unter **Integration hinzufügen → Opti Akku** steht bei geladenen

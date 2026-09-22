@@ -27,6 +27,13 @@ Für eine vorhandene `custom_components/opti_akku`-Installation ist kein erneute
 
 Die Domain `opti_akku` und vorhandene Identitäten bleiben beim Repositorywechsel unverändert. Alte gespeicherte Schreibfreigaben ohne gültige Gerätebindung verlangen eine erneute bewusste Freigabe.
 
+Wurde nach einer HACS-Installation manuell aktualisiert, kann HACS weiterhin die
+zuvor heruntergeladene Version anzeigen. Die Dateien und der HACS-Versionsstand
+sind dann nicht synchron. Die gewünschte veröffentlichte Beta über HACS erneut
+herunterladen und dabei den oben beschriebenen Ablauf mit Backup, abgeschalteter
+Schreibfreigabe und Neustart einhalten. Den Versionsstand nicht durch direkte
+Änderungen an `.storage` korrigieren.
+
 ## Alte Links
 
 Raw-Downloads unter `main/packages/` oder `main/automations/` werden nicht umgeleitet. Für YAML künftig den Legacy-Branch oder den festen Archivtag verwenden. Beispiel:

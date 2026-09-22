@@ -4,6 +4,7 @@ import asyncio
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 import json
+from threading import Event
 import time
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -2180,6 +2181,243 @@ async def test_shadow_without_demand_does_not_schedule_disabled_comparison(coord
     assert "strategy_comparison" not in result["demand_forecast"]
     assert "shadow_summary" in result
     coordinator.device.async_apply.assert_not_awaited()
+
+
+async def test_standard_comparison_start_stop_publish_without_refresh_or_device_call(coordinator):
+    coordinator._online = True
+    coordinator.data = {"mode": "Akku Pause"}
+    coordinator.async_refresh = AsyncMock()
+    coordinator._store.async_save = AsyncMock()
+    coordinator._schedule_refresh = Mock()
+    coordinator._async_unsub_refresh = Mock()
+    coordinator.device.reset_mock()
+
+    await coordinator.async_start_comparison()
+    assert coordinator.data["shadow_status"] == "running"
+    await coordinator.async_stop_comparison()
+    assert coordinator.data["shadow_status"] == "stopped"
+
+    coordinator.async_refresh.assert_not_awaited()
+    coordinator._schedule_refresh.assert_not_called()
+    coordinator._async_unsub_refresh.assert_not_called()
+    coordinator.device.async_apply.assert_not_awaited()
+    coordinator.device.async_read.assert_not_awaited()
+    coordinator.device.async_probe.assert_not_awaited()
+
+
+async def test_shadow_methods_keep_standard_guard(coordinator):
+    coordinator._online = True
+    with pytest.raises(HomeAssistantError, match="Shadow"):
+        await coordinator.async_start_shadow()
+    with pytest.raises(HomeAssistantError, match="Shadow"):
+        await coordinator.async_stop_shadow()
+
+
+async def test_running_standard_journal_failure_does_not_interrupt_control(coordinator):
+    coordinator.write_enabled = True
+    coordinator._shadow_snapshot = {"status": "running", "reference_entity": ""}
+    coordinator._shadow.state = dict(coordinator._shadow_snapshot)
+    with patch.object(coordinator._shadow, "record", side_effect=OSError("disk full")):
+        result = await coordinator._async_update_data()
+    coordinator.device.async_apply.assert_awaited_once()
+    assert result["shadow_status"] == "error"
+    assert result["shadow_summary"]["error"] == "journal_write_failed"
+
+
+async def test_standard_journal_records_during_unchanged_command_cycle(coordinator):
+    await coordinator._async_update_data()
+    coordinator.write_enabled = True
+    coordinator.data = {"shadow_status": "idle"}
+    coordinator._store.async_save = AsyncMock()
+    coordinator.async_refresh = AsyncMock()
+    await coordinator.async_start_comparison()
+    coordinator.device.async_apply.reset_mock()
+
+    result = await coordinator._async_update_data()
+
+    coordinator.device.async_apply.assert_awaited_once()
+    assert result["shadow_status"] == "running"
+    assert result["shadow_summary"]["samples"] == 1
+    assert result["shadow_summary"]["deadline"] == coordinator._shadow_snapshot["deadline"]
+
+
+async def test_standard_journal_restores_same_session_without_auto_start(coordinator, hass, entry):
+    coordinator._online = True
+    coordinator.data = {"shadow_status": "idle"}
+    coordinator._store.async_save = AsyncMock()
+    await coordinator.async_start_comparison()
+    saved = coordinator._stored_data()
+
+    restored = OptiCoordinator(
+        hass, entry, device(), await hass.async_add_executor_job(StrategyEngine))
+    restored._store.async_load = AsyncMock(return_value=saved)
+    await restored.async_restore()
+
+    assert restored._shadow_snapshot["status"] == "running"
+    assert restored._shadow_snapshot["session_id"] == coordinator._shadow_snapshot["session_id"]
+    assert restored._shadow_snapshot["deadline"] == coordinator._shadow_snapshot["deadline"]
+    await restored.async_stop()
+
+
+async def test_journal_stop_and_restart_wait_for_inflight_sample(coordinator, hass):
+    coordinator._online = True
+    coordinator.data = {"shadow_status": "idle"}
+    coordinator._store.async_save = AsyncMock()
+    await coordinator.async_start_comparison()
+    first_session = coordinator._shadow_snapshot["session_id"]
+    original_append = coordinator._shadow._append
+    entered = Event()
+    release = Event()
+
+    def blocking_append(row, *, exclusive=False):
+        if row.get("type") == "sample":
+            entered.set()
+            assert release.wait(2)
+        return original_append(row, exclusive=exclusive)
+
+    sample = {
+        "mode": "Akku Pause", "reason": "test", "online": True,
+        "source_errors": {}, "device_errors": {}, "states": {},
+        "write_enabled": False, "strategy_enabled": True, "price_status": "ready",
+    }
+    with patch.object(coordinator._shadow, "_append", side_effect=blocking_append):
+        record = asyncio.create_task(coordinator._async_record_journal(sample, dt_util.utcnow()))
+        assert await hass.async_add_executor_job(entered.wait, 2)
+        stop = asyncio.create_task(coordinator.async_stop_comparison())
+        await asyncio.sleep(0)
+        assert not stop.done()
+        release.set()
+        await record
+        await stop
+
+    await coordinator.async_start_comparison()
+    assert coordinator._shadow_snapshot["session_id"] != first_session
+
+
+@pytest.mark.parametrize("stale_data", [{}, {"mode": "Akku Pause", "states": {}}])
+async def test_stopping_does_not_record_stale_or_empty_data(coordinator, stale_data):
+    coordinator._shadow_snapshot = {"status": "running", "session_id": "a" * 32}
+    coordinator._shadow.state = dict(coordinator._shadow_snapshot)
+    before = coordinator._shadow.snapshot()
+    coordinator._stopping = True
+
+    with patch.object(coordinator._shadow, "record") as record:
+        await coordinator._async_record_journal(stale_data, dt_util.utcnow())
+
+    record.assert_not_called()
+    assert coordinator._shadow.snapshot() == before
+    assert coordinator._shadow_snapshot == before
+
+
+@pytest.mark.parametrize(
+    ("method", "shadow", "online", "stopping", "message"),
+    [
+        ("async_start_shadow", False, True, False, "Shadow"),
+        ("async_start_shadow", True, False, False, "Shadow"),
+        ("async_start_shadow", True, True, True, "Shadow"),
+        ("async_start_comparison", True, True, False, "24-Stunden"),
+        ("async_start_comparison", False, False, False, "24-Stunden"),
+        ("async_start_comparison", False, True, True, "24-Stunden"),
+        ("async_stop_shadow", False, True, False, "Shadow"),
+        ("async_stop_shadow", True, True, True, "Shadow"),
+        ("async_stop_comparison", True, True, False, "Standard"),
+        ("async_stop_comparison", False, True, True, "Standard"),
+    ],
+)
+async def test_journal_method_guards(
+    coordinator, method, shadow, online, stopping, message
+):
+    coordinator.shadow_mode = shadow
+    coordinator._online = online
+    coordinator._stopping = stopping
+    with pytest.raises(HomeAssistantError, match=message):
+        await getattr(coordinator, method)()
+
+
+@pytest.mark.parametrize("error", [ValueError("running"), OSError("disk")])
+async def test_journal_start_io_errors_are_user_visible(coordinator, error):
+    coordinator._store.async_save = AsyncMock()
+    with patch.object(coordinator._shadow, "start", side_effect=error):
+        with pytest.raises(HomeAssistantError, match="kann nicht angelegt"):
+            await coordinator._async_start_journal(refresh=False)
+    coordinator._store.async_save.assert_not_awaited()
+
+
+async def test_journal_stop_io_error_is_user_visible(coordinator):
+    coordinator._store.async_save = AsyncMock()
+    with patch.object(coordinator._shadow, "stop", side_effect=OSError("disk")):
+        with pytest.raises(HomeAssistantError, match="nicht abgeschlossen"):
+            await coordinator._async_stop_journal(refresh=False)
+    coordinator._store.async_save.assert_not_awaited()
+
+
+async def test_journal_status_publish_without_coordinator_data_is_noop(coordinator):
+    coordinator.data = None
+    coordinator.async_update_listeners = Mock()
+    coordinator._publish_journal_status()
+    coordinator.async_update_listeners.assert_not_called()
+
+
+async def test_shadow_journal_reference_and_blocked_attempt_summary(coordinator, hass):
+    coordinator.shadow_mode = True
+    coordinator.device.blocked_write_attempts = "invalid"
+    coordinator._shadow_snapshot = {"status": "running", "reference_entity": "sensor.mode"}
+    hass.states.async_set("sensor.mode", "Akku Pause")
+    data = {"mode": "Akku Pause"}
+    stopped = {"status": "stopped", "session_id": "a" * 32}
+    with patch.object(coordinator._shadow, "record", return_value=stopped) as record:
+        await coordinator._async_record_journal(data, dt_util.utcnow())
+    assert record.call_args.args[3] == "Akku Pause"
+    assert data["shadow_summary"]["blocked_write_attempts"] == 0
+
+
+async def test_internal_shadow_start_stop_refresh_paths(coordinator):
+    coordinator.data = {"shadow_status": "idle"}
+    coordinator._store.async_save = AsyncMock()
+    coordinator.async_refresh = AsyncMock()
+
+    await coordinator._async_start_journal(refresh=True)
+    await coordinator._async_stop_journal(refresh=True)
+
+    assert coordinator.async_refresh.await_count == 2
+
+
+async def test_integration_stop_waits_for_journal_before_final_save(coordinator, hass):
+    coordinator._online = True
+    coordinator.data = {"shadow_status": "idle"}
+    coordinator._store.async_save = AsyncMock()
+    await coordinator.async_start_comparison()
+    coordinator._store.async_save.reset_mock()
+    original_append = coordinator._shadow._append
+    entered = Event()
+    release = Event()
+
+    def blocking_append(row, *, exclusive=False):
+        if row.get("type") == "sample":
+            entered.set()
+            assert release.wait(2)
+        return original_append(row, exclusive=exclusive)
+
+    sample = {
+        "mode": "Akku Pause", "reason": "test", "online": True,
+        "source_errors": {}, "device_errors": {}, "states": {},
+        "write_enabled": False, "strategy_enabled": True, "price_status": "ready",
+    }
+    with patch.object(coordinator._shadow, "_append", side_effect=blocking_append):
+        record = asyncio.create_task(
+            coordinator._async_record_journal(sample, dt_util.utcnow()))
+        assert await hass.async_add_executor_job(entered.wait, 2)
+        stop = asyncio.create_task(coordinator.async_stop())
+        await asyncio.sleep(0.05)
+        coordinator._store.async_save.assert_not_awaited()
+        release.set()
+        await record
+        await stop
+
+    saved = coordinator._store.async_save.await_args.args[0]
+    assert saved["shadow"]["status"] == "running"
+    assert saved["shadow"]["samples"] == 1
+    assert saved["shadow"] == coordinator._shadow_snapshot
 
 
 async def test_static_metadata_is_reused_without_mutating_previous_results(coordinator):

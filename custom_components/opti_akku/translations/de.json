@@ -757,6 +757,9 @@
       "shadow_status": {
         "name": "Shadow-Aufzeichnung"
       },
+      "comparison_status": {
+        "name": "Status des 24-Stunden-Vergleichs"
+      },
       "value_soc": {
         "name": "Ladezustand"
       },
@@ -1098,6 +1101,12 @@
       },
       "shadow_stop": {
         "name": "Shadow-Test beenden"
+      },
+      "comparison_start": {
+        "name": "24-Stunden-Vergleich starten"
+      },
+      "comparison_stop": {
+        "name": "24-Stunden-Vergleich beenden"
       },
       "notification_test": {
         "name": "Benachrichtigung testen"

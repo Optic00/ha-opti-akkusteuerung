@@ -9,7 +9,8 @@ from .entity import OptiAkkuEntity
 async def async_setup_entry(hass, entry, async_add_entities):
     async_add_entities([OptiDemandHistoryImport(entry)])
     if not entry.runtime_data.shadow_mode:
-        async_add_entities([OptiNotificationTest(entry)])
+        async_add_entities([OptiNotificationTest(entry), OptiComparisonStart(entry),
+                            OptiComparisonStop(entry)])
     if entry.runtime_data.shadow_mode:
         async_add_entities([OptiShadowStart(entry), OptiShadowStop(entry)])
 
@@ -34,6 +35,30 @@ class OptiShadowStop(OptiAkkuEntity, ButtonEntity):
 
     async def async_press(self):
         await self.coordinator.async_stop_shadow()
+
+
+class OptiComparisonStart(OptiAkkuEntity, ButtonEntity):
+    _attr_translation_key = "comparison_start"
+    _attr_icon = "mdi:compare-horizontal"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, entry):
+        super().__init__(entry, "comparison_start")
+
+    async def async_press(self):
+        await self.coordinator.async_start_comparison()
+
+
+class OptiComparisonStop(OptiAkkuEntity, ButtonEntity):
+    _attr_translation_key = "comparison_stop"
+    _attr_icon = "mdi:stop-circle-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, entry):
+        super().__init__(entry, "comparison_stop")
+
+    async def async_press(self):
+        await self.coordinator.async_stop_comparison()
 
 
 class OptiNotificationTest(OptiAkkuEntity, ButtonEntity):

@@ -4,7 +4,7 @@
 
 Opti Akku verbindet lokale Akkusteuerung mit einer optionalen Strategie für PV-Überschuss, Strompreise und Verbrauchsreserve. Die Einrichtung erfolgt über einen geführten Assistenten. Zusätzliche YAML-Automationen oder manuell angelegte Helfer sind für die Integration nicht erforderlich.
 
-**Beta-Reihe 2026.9, aktueller Stand `2026.9-beta8`.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md) umstellen.
+**Beta-Reihe 2026.9, aktueller Stand `2026.9-beta9`.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md) umstellen.
 
 > **Aktive Akkusteuerung:** Freigegebene Schreibzugriffe verändern das Lade- und Entladeverhalten. Falsche Einstellungen oder Fehler können zusätzliche Kosten und unerwünschten Betrieb verursachen. Herstellervorgaben beachten und andere schreibende Steuerungen vor der Freigabe deaktivieren. Neue Einträge starten ohne Schreibfreigabe; Shadow-Einträge bleiben dauerhaft lesend.
 
@@ -38,7 +38,7 @@ Dies ist ein benutzerdefiniertes HACS-Repository, keine behauptete Aufnahme in d
 - Optionaler Wirtschaftlichkeitsvergleich und Energierestwert mit ausdrücklich eingetragenen Kosten- und Effizienzannahmen; ein darauf beruhender automatischer Entladeschutz für SMA ist separat zuschaltbar und standardmäßig aus.
 - Optionales Stundenverbrauchsprofil mit Recorder-Import und gesonderter Aktivierung für die Peak-Reserve.
 - Optionale EV-Entladesperre und frühere PV-Ladung des Hausakkus bei Fahrzeug-Ladebedarf.
-- Geführtes Einstellungsmenü, Diagnoseentitäten und lesende 24-Stunden-Shadow-Aufzeichnung.
+- Geführtes Einstellungsmenü, Diagnoseentitäten und passive 24-Stunden-Aufzeichnung für Shadow und laufende Steuerung.
 
 BYD-Zellüberwachung, KI-Tagesreport und eine eigene Wallbox-/Wärmepumpensteuerung gehören nicht dazu. Eine vollständige zukünftige Heizlast- oder Fahrzeug-Rückkehrprognose wird nicht versprochen. Huawei-Hardwarepilot und vollständige EV-/Nacht-/Preispeak-Abnahme des öffentlichen Kandidaten stehen vor einer stabilen Freigabe noch aus.
 

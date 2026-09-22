@@ -18,6 +18,55 @@ MEASUREMENTS = ("soc", "battery_temp", "battery_power_w", "house_consumption_w",
                 "charge_power_w", "target_soc", "price_current_ct_kwh")
 COUNTERS = ("samples", "online_samples", "source_error_samples", "comparisons",
             "mismatches", "reference_missing", "gaps", "settings_changes")
+DEMAND_FIELDS = (
+    "status", "controls_battery", "observation_only", "profile_ready",
+    "historical_forecast_slots", "recent_coverage_seconds", "pv_cover_from",
+    "expected_deficit_kwh", "required_battery_kwh", "refill_profile_ready",
+    "refill_historical_forecast_slots", "refill_horizon_end", "refill_horizon_hours",
+    "refill_surplus_kwh", "refill_charge_efficiency", "refill_battery_kwh",
+    "refill_target_kwh", "refill_storable_kwh", "refill_missing_kwh",
+    "refill_coverage_percent", "refill_covered",
+)
+COMPARISON_FIELDS = ("status", "reason", "active_score", "candidate_score", "score_delta",
+                     "active_target_soc", "candidate_target_soc", "target_delta")
+COMPARISON_BLOCKS = ("remaining_day", "tomorrow", "sunny_day", "target_soc")
+
+
+def _scalar_fields(source: dict, fields: tuple[str, ...]) -> dict:
+    """Keep exact bounded scalar values from integration-owned reports."""
+    result = {}
+    for key in fields:
+        if key not in source:
+            continue
+        value = source.get(key)
+        if value is None or isinstance(value, bool):
+            result[key] = value
+        elif isinstance(value, int | float) and not isinstance(value, bool) and isfinite(value):
+            result[key] = value
+        elif isinstance(value, str) and len(value) <= 128:
+            result[key] = value
+    return result
+
+
+def _demand_sample(data: dict) -> dict:
+    """Copy only the bounded fields needed for the passive refill comparison."""
+    report = data.get("demand_forecast", {})
+    if not isinstance(report, dict):
+        return {}
+    result = _scalar_fields(report, DEMAND_FIELDS)
+    comparison = report.get("strategy_comparison")
+    if not isinstance(comparison, dict):
+        return result
+    bounded = _scalar_fields(comparison, ("status", "reason", "observation_only"))
+    blocks = comparison.get("blocks", {})
+    if isinstance(blocks, dict):
+        bounded["blocks"] = {
+            name: _scalar_fields(block, COMPARISON_FIELDS)
+            for name in COMPARISON_BLOCKS
+            if isinstance((block := blocks.get(name)), dict)
+        }
+    result["strategy_comparison"] = bounded
+    return result
 
 
 @lru_cache(maxsize=1)
@@ -149,10 +198,19 @@ class ShadowRecorder:
             return self.snapshot()
         reference = reference if reference in modes else None
         row = {"type": "sample", "time": now.isoformat(), "read_only": True,
+               "observation_only": True,
                "build": dict(_build_identity()),
                "mode": data["mode"], "reason": data["reason"], "online": data["online"],
                "source_errors": data["source_errors"], "reference_mode": reference,
-               "measurements": {key: data["states"].get(f"sensor.opti_{key}") for key in MEASUREMENTS}}
+               "measurements": {key: data["states"].get(f"sensor.opti_{key}") for key in MEASUREMENTS},
+               "entry_shadow_mode": data.get("entry_shadow_mode") is True,
+               "write_enabled": data.get("write_enabled") is True,
+               "strategy_enabled": data.get("strategy_enabled") is True,
+               "command_confirmation": data.get("command_confirmation"),
+               "device_source_error_count": len(data.get("device_errors", {}))
+               if isinstance(data.get("device_errors"), dict) else 0,
+               "price_status": data.get("price_status"),
+               "demand_forecast": _demand_sample(data)}
         if settings != self.state["settings"]:
             row["settings"] = dict(settings)
         self._append(row)

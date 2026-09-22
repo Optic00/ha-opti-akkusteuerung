@@ -50,6 +50,8 @@ async def async_setup_entry(
         async_add_entities([OptiAkkuReportSensor(entry, "last_write_values")])
     if coordinator.shadow_mode:
         async_add_entities([OptiAkkuDiagnosticSensor(entry, "shadow_status")])
+    else:
+        async_add_entities([OptiAkkuDiagnosticSensor(entry, "comparison_status")])
     entry.async_on_unload(coordinator.async_add_listener(add_new_entities))
 
 
@@ -114,6 +116,8 @@ class OptiAkkuDiagnosticSensor(OptiAkkuEntity, SensorEntity):
         super().__init__(entry, f"diagnostic_{key}")
         self._data_key = key
         self._attr_translation_key = key
+        if key == "comparison_status":
+            self._data_key = "shadow_status"
         if key == "reserve_plan":
             self._attr_entity_category = None
             self._attr_device_class = SensorDeviceClass.ENUM

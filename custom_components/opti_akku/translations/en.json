@@ -757,6 +757,9 @@
       "shadow_status": {
         "name": "Shadow observation"
       },
+      "comparison_status": {
+        "name": "24-hour comparison status"
+      },
       "value_soc": {
         "name": "Charge level"
       },
@@ -1098,6 +1101,12 @@
       },
       "shadow_stop": {
         "name": "Stop shadow test"
+      },
+      "comparison_start": {
+        "name": "Start 24-hour comparison"
+      },
+      "comparison_stop": {
+        "name": "Stop 24-hour comparison"
       },
       "notification_test": {
         "name": "Test notification"

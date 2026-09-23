@@ -187,10 +187,13 @@ async def test_diagnostics_handles_first_refresh_without_data(hass):
         "command_confirmation": None,
         "command_evidence": {},
         "pause_pending": False,
+        "control_inactive": False,
+        "write_restore_blocked": None,
         "control_release": None,
     }
     assert result["health"]["source_errors"] == {"count": 0, "roles": [], "codes": {}}
     assert result["shadow"] == {"status": "not_active", "blocked_write_attempts": 0}
+    assert result["comparison"] == {"status": "idle", "reference_static": False}
     assert result["strategy_comparison"] == {
         "observation_only": True, "status": None, "blocks": {}
     }

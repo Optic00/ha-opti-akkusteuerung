@@ -2428,3 +2428,21 @@ async def test_static_metadata_is_reused_without_mutating_previous_results(coord
         second = await coordinator._async_update_data()
     assert second["metadata"]["sensor.opti_soc"]["name"] == "Ladezustand"
     assert second["metadata"]["sensor.opti_battery_power_w"]["device_class"] == "power"
+
+
+async def test_lost_write_permission_on_restore_is_named_and_reported(coordinator):
+    """A restart must not silently leave the strategy running without control."""
+    await coordinator._store.async_save({"write_enabled": True, "writer_binding": ["other", 502, 3, "x"]})
+    await coordinator.async_restore()
+    assert coordinator.write_enabled is False
+    assert coordinator._write_restore_blocked == "writer_binding_changed"
+    assert "writer_binding_changed" in coordinator._last_error
+    data = await coordinator._async_update_data()
+    assert data["write_restore_blocked"] == "writer_binding_changed"
+    assert data["control_inactive"] is (coordinator.strategy_enabled and bool(coordinator.supported_modes))
+
+
+async def test_deliberately_disabled_writes_restore_without_blocker(coordinator):
+    await coordinator._store.async_save({"write_enabled": False, "writer_binding": coordinator._writer_binding})
+    await coordinator.async_restore()
+    assert coordinator._write_restore_blocked is None

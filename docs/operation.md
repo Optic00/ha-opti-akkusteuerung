@@ -61,6 +61,13 @@ in einer Journalzeile beziehen sich auf die Aufzeichnung; `entry_shadow_mode`
 und `write_enabled` zeigen separat, ob der Eintrag steuern darf. Fehlende oder
 historisch ersetzte Profilwerte sind kein Beleg für eine belastbare Reserve.
 
+Der Vergleich ist nur aussagekräftig, wenn die Referenz-Entität weiterhin von
+einer laufenden Entscheidungslogik gesetzt wird. Ist die alte Automation
+abgeschaltet, bleibt der Helfer stehen und jede Abweichung ist bedeutungslos.
+Ändert sich die Referenz während der Sitzung nie, obwohl Opti Akku mindestens
+dreimal den Modus wechselt, zeigt der Status `reference_static: true`; die
+Diagnose übernimmt diesen Hinweis.
+
 Für diese Aufzeichnung gelten dasselbe private Verzeichnis, die feste
 24-Stunden-Frist und die Hinweise zu Datenlücken und Datenschutz wie beim
 Shadow-Journal. Sie startet nur auf ausdrücklichen Knopfdruck. Ein vollständiger
@@ -120,6 +127,14 @@ deaktiviert und können bei Bedarf aktiviert werden. Die Vorgaben sind konservat
 ausgeschaltet. **Reserveplanung mit Netzladen erlauben** aktiviert auch
 preisabhängiges Vorladen und Laden bei negativen Preisen; es ist keine reine
 Haltefunktion. Gespeicherte und ausdrücklich importierte Werte bleiben erhalten.
+
+Beide Netzladefälle laden nur im günstigsten Fenster vor der nächsten Spitze:
+Einstieg bis 0,5 ct/kWh über dem Horizont-Tief `min_preis_vor_peak_ct`. Läuft
+`Akku Netzladen` bereits, hält das Fenster bis 1,5 ct/kWh über dem Tief. Diese
+Hysterese verhindert, dass Viertelstundenpreise mit Schwankungen um bis zu
+1 ct/kWh den Modus im Viertelstundentakt zwischen Vorladen und Reserve halten
+umschalten. Ein teurer Slot beendet das Vorladen unabhängig davon, weil der
+Spread zur Spitze dann fehlt.
 
 Die eigentliche Steuerung hat drei getrennte Ebenen:
 
@@ -321,6 +336,14 @@ Vorfallserkennung. Ein weiterhin vorhandener Quellenfehler kann deshalb nach
 erneuten 60 Sekunden wieder melden. Häufige Neustarts können diese Meldungen
 wiederholen. Der Shadow-Eintrag verschickt keine solchen Störungsmeldungen;
 seine Fehler bleiben in den Diagnoseanzeigen sichtbar.
+
+Ist **Strategie berechnen** aktiv und die Alleinsteuerung bestätigt, die
+Schreibfreigabe aber 15 Minuten lang aus, meldet Opti Akku, dass der Akku nicht
+gesteuert wird. Wer nur beobachten will, schaltet die Strategie in den Optionen
+ab. Verwirft ein Neustart eine zuvor aktive Schreibfreigabe, etwa wegen
+geänderter Gerätebindung oder ungültiger gespeicherter Einstellungen, steht der
+Grund im letzten Fehler, im Log und in der Diagnose unter
+`write_restore_blocked`.
 
 Bei unveränderten, aber gültigen Messwerten die
 [Altersgrenze der Quelle](configuration.md#unveränderte-externe-messwerte-und-ausfälle)

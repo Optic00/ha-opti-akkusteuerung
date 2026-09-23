@@ -317,3 +317,24 @@ async def test_recovery_never_suppresses_restriction_or_write_stall(alerts):
         )
     )
     assert {"block", "write"} <= alerts._active
+
+
+async def test_control_inactive_alerts_after_fifteen_minutes_and_clears(hass, alerts):
+    """Strategy on but writes off must not silently last a whole night."""
+    start = dt_util.utcnow()
+    inactive = health(write_enabled=False, control_inactive=True)
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start):
+        alerts.update(inactive)
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=899)):
+        alerts.update(inactive)
+    assert "control" not in alerts._active
+    with (patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=900)),
+          patch("custom_components.opti_akku.alerts.persistent_notification.async_create") as create):
+        alerts.update(inactive)
+    assert alerts._active == {"control"}
+    assert "not controlling" in create.call_args.args[1] or "steuert den Akku nicht" in create.call_args.args[1]
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=1000)):
+        alerts.update(health())
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=1061)):
+        alerts.update(health())
+    assert not alerts._active

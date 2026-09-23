@@ -180,6 +180,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                          {**NUMBER_DEFINITIONS, **SWITCH_DEFINITIONS}.items()}
         self.manual_mode: str | None = None
         self.write_enabled = False
+        self._write_restore_blocked: str | None = None
         self._revision = 0
         self._stopping = False
         self._probed = False
@@ -270,13 +271,23 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._load_profile.restore(stored.get("load_profile", {}), now=dt_util.utcnow(),
                                    fingerprint=json.dumps(plant_semantic_fingerprint(self.entry.options)))
         self._engine_snapshot = self.engine.snapshot()
-        self.write_enabled = bool(stored.get("write_enabled", False)
-                                  and self.entry.options.get("single_writer_confirmed", False)
-                                  and stored.get("writer_binding") == self._writer_binding
-                                  and stored.get("strategy_enabled", True) is self.strategy_enabled
-                                  and not invalid
-                                  and not self.shadow_mode
-                                  and self.strategy_enabled and bool(self.supported_modes))
+        restore_blockers = [code for code, blocked in (
+            ("single_writer_not_confirmed", not self.entry.options.get("single_writer_confirmed", False)),
+            ("writer_binding_changed", stored.get("writer_binding") != self._writer_binding),
+            ("strategy_setting_changed", stored.get("strategy_enabled", True) is not self.strategy_enabled),
+            ("invalid_settings", bool(invalid)),
+            ("shadow_mode", self.shadow_mode),
+            ("strategy_disabled", not self.strategy_enabled),
+            ("no_supported_modes", not self.supported_modes),
+        ) if blocked]
+        self.write_enabled = bool(stored.get("write_enabled", False)) and not restore_blockers
+        if stored.get("write_enabled") is True and restore_blockers:
+            # Never silently lose control across a restart: name the reason.
+            self._write_restore_blocked = restore_blockers[0]
+            message = "Schreibfreigabe nach Neustart nicht wiederhergestellt: " + ", ".join(restore_blockers)
+            _LOGGER.warning(message)
+            # Keep an earlier, more specific restore error (e.g. the reset setting).
+            self._last_error = f"{self._last_error}; {message}" if self._last_error else message
         if getattr(type(self.device), "PHASED", False) and stored.get("pause_pending"):
             self._pause_binding = stored.get("pause_binding", stored.get("writer_binding"))
             self._pause_pending = True
@@ -950,7 +961,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "price_provider_error": self._price_provider_error,
                 "price_last_success": self._price_last_success,
                 "notification_error": self.alerts.delivery_error,
-                "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled}
+                "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled,
+                "control_inactive": bool(self.strategy_enabled and not self.shadow_mode and not self.write_enabled
+                                         and self.supported_modes
+                                         and self.entry.options.get("single_writer_confirmed", False)),
+                "write_restore_blocked": self._write_restore_blocked}
         self._update_operating_report(data, now, ev_report, safety_reason, write_failed)
         data["demand_forecast"] = demand_report
         if demand_comparison_enabled:
@@ -1078,9 +1093,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 settings = dict(self.settings)
                 try:
                     journal_data = {**data, "entry_shadow_mode": self.shadow_mode}
+                    was_running = self._shadow_snapshot.get("status") == "running"
                     self._shadow_snapshot = await self.hass.async_add_executor_job(
                         self._shadow.record, now, journal_data, settings,
                         reference.state if reference else None, MODES)
+                    if was_running and self._shadow_snapshot.get("status") == "completed":
+                        # A crash within the delayed save would resume the run.
+                        await self._store.async_save(self._stored_data())
                 except Exception:  # Journal diagnostics must not interrupt active control.
                     self._shadow.state["status"] = "error"
                     self._shadow.state["error"] = "journal_write_failed"
@@ -1171,7 +1190,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 try:
                     self._shadow_snapshot = await self.hass.async_add_executor_job(start)
                 except (ValueError, OSError) as err:
-                    raise HomeAssistantError("Shadow-Aufzeichnung läuft bereits oder kann nicht angelegt werden") from err
+                    raise HomeAssistantError(
+                        ("Shadow-Aufzeichnung" if self.shadow_mode else "24-Stunden-Vergleich")
+                        + " läuft bereits oder kann nicht angelegt werden") from err
                 await self._store.async_save(self._stored_data())
         self._publish_journal_status()
         if refresh:
@@ -1194,7 +1215,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._shadow_snapshot = await self.hass.async_add_executor_job(
                         self._shadow.stop, dt_util.utcnow())
                 except OSError as err:
-                    raise HomeAssistantError("Shadow-Protokoll kann nicht abgeschlossen werden") from err
+                    raise HomeAssistantError(
+                        ("Shadow-Protokoll" if self.shadow_mode else "Vergleichsprotokoll")
+                        + " kann nicht abgeschlossen werden") from err
                 await self._store.async_save(self._stored_data())
         self._publish_journal_status()
         if refresh:
@@ -1278,6 +1301,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if enabled and not self._identity.get("serial_number"):
             raise HomeAssistantError("Ohne bestätigte Geräteidentität bleibt die Schreibfreigabe gesperrt")
         self._revision += 1
+        self._write_restore_blocked = None
         if not enabled:
             was_enabled = self.write_enabled
             self.write_enabled = False

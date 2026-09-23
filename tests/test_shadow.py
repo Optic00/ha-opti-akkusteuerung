@@ -218,3 +218,103 @@ def test_demand_allowlist_rejects_invalid_report_shapes_and_scalars():
         "refill_covered": [], "strategy_comparison": {
             "status": "ready", "blocks": []}}}) == {
                 "strategy_comparison": {"status": "ready"}}
+
+
+def test_static_reference_is_flagged_when_opti_mode_moves(tmp_path):
+    """Live 2026-09-23: legacy writer off, reference helper frozen all night."""
+    recorder = ShadowRecorder(tmp_path)
+    recorder.start(NOW, {}, "input_select.reference", "0.1.0")
+    modes = ["Akku Pause", "Akku nur Laden"] * 3
+    for index, mode in enumerate(modes):
+        state = recorder.record(NOW + timedelta(minutes=index), {**DATA, "mode": mode}, {},
+                                "Akku Pause", MODES)
+    assert state["mode_changes"] == 5
+    assert state["reference_changes"] == 0
+    assert state["reference_static"] is True
+
+
+def test_moving_reference_or_quiet_opti_is_not_static(tmp_path):
+    recorder = ShadowRecorder(tmp_path)
+    recorder.start(NOW, {}, "input_select.reference", "0.1.0")
+    for index in range(6):
+        mode = MODES[index % 2]
+        state = recorder.record(NOW + timedelta(minutes=index), {**DATA, "mode": mode}, {}, mode, MODES)
+    assert state["reference_changes"] == 5
+    assert state["reference_static"] is False
+    quiet = ShadowRecorder(tmp_path)
+    quiet.start(NOW, {}, "input_select.reference", "0.1.0")
+    for index in range(6):
+        state = quiet.record(NOW + timedelta(minutes=index), DATA, {}, "Akku nur Laden", MODES)
+    assert state["reference_static"] is False
+
+
+def test_old_session_without_transition_counters_restores(tmp_path):
+    recorder = ShadowRecorder(tmp_path)
+    recorder.start(NOW, {}, "", "0.1.0")
+    recorder.record(NOW, DATA, {}, None, MODES)
+    saved = recorder.snapshot()
+    for key in ("mode_changes", "reference_changes", "reference_static", "last_mode", "last_reference"):
+        saved.pop(key, None)
+    restored = ShadowRecorder(tmp_path)
+    restored.restore(saved)
+    assert restored.state["status"] == "running"
+    state = restored.record(NOW + timedelta(minutes=1), {**DATA, "mode": "Akku nur Laden"}, {}, None, MODES)
+    assert state["mode_changes"] == 0
+    assert state["last_mode"] == "Akku nur Laden"
+    corrupt = {**saved, "mode_changes": -1}
+    restored.restore(corrupt)
+    assert restored.state == {"status": "error", "error": "invalid_saved_session"}
+
+
+def test_saved_journal_error_keeps_its_cause_after_restart(tmp_path):
+    recorder = ShadowRecorder(tmp_path)
+    recorder.restore({"status": "error", "error": "journal_write_failed"})
+    assert recorder.snapshot() == {"status": "error", "error": "journal_write_failed"}
+    recorder.restore({"status": "error", "error": "something_else"})
+    assert recorder.snapshot() == {"status": "error", "error": "invalid_saved_session"}
+
+
+def test_start_never_deletes_other_journals(tmp_path):
+    """Several entries share the directory; a start must not touch their files."""
+    other = tmp_path / f"{1:032x}.jsonl"
+    other.write_text("{}\n")
+    for _ in range(12):
+        ShadowRecorder(tmp_path).start(NOW, {}, "", "0.1.0")
+    assert other.exists()
+    assert len(list(tmp_path.glob("*.jsonl"))) == 13
+
+
+def test_unavailable_then_frozen_reference_is_still_static(tmp_path):
+    recorder = ShadowRecorder(tmp_path)
+    recorder.start(NOW, {}, "input_select.reference", "0.1.0")
+    recorder.record(NOW, DATA, {}, "unavailable", MODES)
+    for index in range(1, 7):
+        state = recorder.record(NOW + timedelta(minutes=index), {**DATA, "mode": MODES[index % 2]}, {},
+                                "Akku Pause", MODES)
+    assert state["reference_changes"] == 0
+    assert state["reference_static"] is True
+
+
+def test_restored_old_session_initialises_before_counting(tmp_path):
+    recorder = ShadowRecorder(tmp_path)
+    recorder.start(NOW, {}, "input_select.reference", "0.1.0")
+    recorder.record(NOW, DATA, {}, "Akku nur Laden", MODES)
+    saved = recorder.snapshot()
+    for key in ("mode_changes", "reference_changes", "reference_static", "last_mode", "last_reference"):
+        saved.pop(key, None)
+    restored = ShadowRecorder(tmp_path)
+    restored.restore(saved)
+    for index in range(1, 6):
+        state = restored.record(NOW + timedelta(minutes=index), {**DATA, "mode": MODES[index % 2]}, {},
+                                "Akku Pause", MODES)
+    assert state["mode_changes"] == 4
+    assert state["reference_changes"] == 0
+    assert state["reference_static"] is True
+
+
+def test_sampling_tolerates_rounded_update_schedule(tmp_path):
+    recorder = ShadowRecorder(tmp_path)
+    recorder.start(NOW, {}, "", "0.1.0")
+    recorder.record(NOW, DATA, {}, None, MODES)
+    state = recorder.record(NOW + timedelta(seconds=14.2), DATA, {}, None, MODES)
+    assert state["samples"] == 2

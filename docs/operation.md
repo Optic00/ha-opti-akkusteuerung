@@ -339,8 +339,11 @@ seine Fehler bleiben in den Diagnoseanzeigen sichtbar.
 
 Ist **Strategie berechnen** aktiv und die Alleinsteuerung bestätigt, die
 Schreibfreigabe aber 15 Minuten lang aus, meldet Opti Akku, dass der Akku nicht
-gesteuert wird. Wer nur beobachten will, schaltet die Strategie in den Optionen
-ab. Verwirft ein Neustart eine zuvor aktive Schreibfreigabe, etwa wegen
+gesteuert wird. Bei einem absichtlich lesenden 24-Stunden-Vergleich ist das
+erwartet. Die Strategie muss für diesen Vergleich eingeschaltet bleiben.
+Außerhalb eines solchen Vergleichs die Schreibfreigabe prüfen. Wer dauerhaft
+nur beobachten will, schaltet die Strategie in den Optionen ab. Verwirft ein
+Neustart eine zuvor aktive Schreibfreigabe, etwa wegen
 geänderter Gerätebindung oder ungültiger gespeicherter Einstellungen, steht der
 Grund im letzten Fehler, im Log und in der Diagnose unter
 `write_restore_blocked`.

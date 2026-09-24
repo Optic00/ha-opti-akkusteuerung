@@ -16,8 +16,12 @@ MODE = "input_select.akkusteuerung_modus"
 PRICE = "sensor.opti_price_current_ct_kwh"
 PREVIEW = "sensor.opti_strategie_vorschau"
 MIN_BEFORE_PEAK = 36.72
-# Live quarter-hour sequence from the issue, then a clear exit and a re-test inside the band.
-ISSUE_PRICES = [37.98, 37.17, 37.02, 37.66, 37.12, 36.72, 37.45]
+# Full quarter-hour sequence supplied in the issue, including the tight 02:45
+# hold slot (38.14) and the exit at 05:15 (38.73).
+ISSUE_PRICES = [
+    37.98, 37.17, 37.02, 37.66, 37.12, 36.72, 37.45, 38.14,
+    37.38, 37.60, 37.62, 36.99, 36.99, 37.55, 37.58, 37.05, 36.78, 38.73,
+]
 
 PEAK_STATES = {
     **BASE,
@@ -68,11 +72,39 @@ def test_issue_sequence_holds_precharge_inside_band(engine):
         mode = result.mode
     # First slot is above the entry edge (36.72 + 0.5 = 37.22): reserve is held via L4.
     assert seen[0] == (37.98, "peak_l4")
-    # 37.17 enters the window; every later slot stays below the 38.22 hold edge.
+    # 37.17 enters; the tight 38.14 slot still holds below the 38.22 edge.
     assert seen[1] == (37.17, "peak_precharge")
-    assert [decision for _, decision in seen[2:]] == ["peak_precharge"] * 5
-    assert result.mode == "Akku Netzladen"
-    assert result.reason.startswith("Peak-Vorladen")
+    assert seen[7] == (38.14, "peak_precharge")
+    assert [decision for _, decision in seen[2:-1]] == ["peak_precharge"] * 15
+    assert seen[-1] == (38.73, "peak_l4")
+    assert result.mode == "Akku nur Laden"
+
+
+def test_rolling_minimum_preserves_hold_until_price_exits(engine):
+    # The minimum changes as earlier slots expire. The final minimum can come
+    # from a later forecast slot outside this issue's 18-slot replay.
+    mode = "Akku Dynamisch"
+    minimums = [36.72] * 6 + [36.78] * 11 + [36.99]
+    seen = []
+    for price, minimum in zip(ISSUE_PRICES, minimums, strict=True):
+        attrs = {"sensor.opti_peak_reserve_soc": {
+            **PEAK_ATTRS["sensor.opti_peak_reserve_soc"],
+            "min_preis_vor_peak_ct": minimum,
+        }}
+        result = run(engine, PEAK_STATES, attrs, mode, price)
+        seen.append(result.decision_id)
+        mode = result.mode
+    assert seen == ["peak_l4"] + ["peak_precharge"] * 16 + ["peak_l4"]
+
+
+def test_precharge_stops_at_reserve_and_does_not_immediately_reenter(engine):
+    reached = run(engine, {**PEAK_STATES, "sensor.opti_soc": "32.8"},
+                  PEAK_ATTRS, "Akku Netzladen", 37.45)
+    assert reached.decision_id == "peak_l4"
+    assert reached.mode == "Akku nur Laden"
+    held = run(engine, {**PEAK_STATES, "sensor.opti_soc": "32.7"},
+               PEAK_ATTRS, reached.mode, 37.17)
+    assert held.decision_id == "peak_l4"
 
 
 def test_price_above_hold_band_leaves_precharge(engine):

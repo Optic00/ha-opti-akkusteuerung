@@ -20,7 +20,7 @@ MESSAGES = {
     "block": ("Lade-/Entladesperre wird verletzt", "Charge/discharge restriction violated"),
     "write": ("Schreibvorgang fehlgeschlagen oder seit über 240 Sekunden nicht bestätigt", "Write failed or not confirmed for more than 240 seconds"),
     "sources": ("Benötigte Eingangsdaten fehlen oder sind ungültig. Am Opti-Akku-Gerät Quellenfehler prüfen, dann den betroffenen Sensor und seine Zuordnung unter Konfigurieren kontrollieren.", "Input data is missing or invalid. Check Source errors on the Opti Akku device, then the affected sensor and its mapping under Configure."),
-    "control": ("Strategie aktiv, aber Schreibfreigabe aus: Opti Akku steuert den Akku nicht. Schreibfreigabe einschalten oder die Strategie in den Optionen abschalten, wenn nur beobachtet werden soll.", "Strategy active but writes disabled: Opti Akku is not controlling the battery. Enable writes, or disable the strategy in the options if you only want to observe."),
+    "control": ("Strategie aktiv, aber Schreibfreigabe aus: Opti Akku steuert den Akku nicht. Bei einem absichtlich lesenden 24-Stunden-Vergleich ist das erwartet; die Strategie dafür eingeschaltet lassen. Andernfalls die Schreibfreigabe prüfen.", "Strategy active but writes disabled: Opti Akku is not controlling the battery. This is expected during an intentional read-only 24-hour comparison; keep the strategy enabled for that comparison. Otherwise, check write permission."),
     "prices": ("Tibber-Preisabruf fehlgeschlagen; Cache gilt nur bis zu seiner ursprünglichen Ablaufzeit", "Tibber price fetch failed; cached prices keep their original expiry"),
 }
 

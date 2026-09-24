@@ -2217,11 +2217,14 @@ async def test_running_standard_journal_failure_does_not_interrupt_control(coord
     coordinator.write_enabled = True
     coordinator._shadow_snapshot = {"status": "running", "reference_entity": ""}
     coordinator._shadow.state = dict(coordinator._shadow_snapshot)
+    coordinator.data = {"mode": "Akku Pause"}
     with patch.object(coordinator._shadow, "record", side_effect=OSError("disk full")):
         result = await coordinator._async_update_data()
+        await coordinator._async_journal_idle()
     coordinator.device.async_apply.assert_awaited_once()
-    assert result["shadow_status"] == "error"
-    assert result["shadow_summary"]["error"] == "journal_write_failed"
+    assert result["command_result_this_update"] == "confirmed"
+    assert coordinator.data["shadow_status"] == "error"
+    assert coordinator.data["shadow_summary"]["error"] == "journal_write_failed"
 
 
 async def test_standard_journal_records_during_unchanged_command_cycle(coordinator):
@@ -2234,11 +2237,13 @@ async def test_standard_journal_records_during_unchanged_command_cycle(coordinat
     coordinator.device.async_apply.reset_mock()
 
     result = await coordinator._async_update_data()
+    await coordinator._async_journal_idle()
 
     coordinator.device.async_apply.assert_awaited_once()
     assert result["shadow_status"] == "running"
-    assert result["shadow_summary"]["samples"] == 1
-    assert result["shadow_summary"]["deadline"] == coordinator._shadow_snapshot["deadline"]
+    assert coordinator.data["shadow_status"] == "running"
+    assert coordinator.data["shadow_summary"]["samples"] == 1
+    assert coordinator.data["shadow_summary"]["deadline"] == coordinator._shadow_snapshot["deadline"]
 
 
 async def test_standard_journal_restores_same_session_without_auto_start(coordinator, hass, entry):
@@ -2259,39 +2264,284 @@ async def test_standard_journal_restores_same_session_without_auto_start(coordin
     await restored.async_stop()
 
 
-async def test_journal_stop_and_restart_wait_for_inflight_sample(coordinator, hass):
-    coordinator._online = True
-    coordinator.data = {"shadow_status": "idle"}
-    coordinator._store.async_save = AsyncMock()
-    await coordinator.async_start_comparison()
-    first_session = coordinator._shadow_snapshot["session_id"]
-    original_append = coordinator._shadow._append
-    entered = Event()
-    release = Event()
-
-    def blocking_append(row, *, exclusive=False):
-        if row.get("type") == "sample":
-            entered.set()
-            assert release.wait(2)
-        return original_append(row, exclusive=exclusive)
-
-    sample = {
+def journal_sample():
+    return {
         "mode": "Akku Pause", "reason": "test", "online": True,
         "source_errors": {}, "device_errors": {}, "states": {},
         "write_enabled": False, "strategy_enabled": True, "price_status": "ready",
     }
-    with patch.object(coordinator._shadow, "_append", side_effect=blocking_append):
-        record = asyncio.create_task(coordinator._async_record_journal(sample, dt_util.utcnow()))
-        assert await hass.async_add_executor_job(entered.wait, 2)
-        stop = asyncio.create_task(coordinator.async_stop_comparison())
-        await asyncio.sleep(0)
-        assert not stop.done()
+
+
+def blocking_journal_append(recorder, row_type):
+    """Real (non-Mock) append that holds its executor thread for one row type."""
+    original = recorder._append
+    entered = Event()
+    release = Event()
+
+    def append(row, *, exclusive=False):
+        if row.get("type") == row_type:
+            entered.set()
+            assert release.wait(5)
+        return original(row, exclusive=exclusive)
+
+    return append, entered, release
+
+
+async def journal_rows(hass, coordinator, session_id):
+    path = coordinator._shadow.directory / f"{session_id}.jsonl"
+    text = await hass.async_add_executor_job(path.read_text)
+    return [json.loads(line) for line in text.splitlines()]
+
+
+async def start_standard_journal(coordinator):
+    coordinator._online = True
+    coordinator.data = {"shadow_status": "idle"}
+    coordinator._store.async_save = AsyncMock()
+    await coordinator.async_start_comparison()
+    return coordinator._shadow_snapshot["session_id"]
+
+
+async def test_journal_stop_and_restart_wait_for_inflight_sample(coordinator, hass):
+    first_session = await start_standard_journal(coordinator)
+    append, entered, release = blocking_journal_append(coordinator._shadow, "sample")
+    try:
+        with patch.object(coordinator._shadow, "_append", new=append):
+            assert coordinator._schedule_journal_record(journal_sample(), dt_util.utcnow())
+            assert await hass.async_add_executor_job(entered.wait, 2)
+            stop = asyncio.create_task(coordinator.async_stop_comparison())
+            await asyncio.sleep(0.05)
+            assert not stop.done()
+            release.set()
+            await asyncio.wait_for(stop, 5)
+    finally:
         release.set()
-        await record
-        await stop
 
     await coordinator.async_start_comparison()
     assert coordinator._shadow_snapshot["session_id"] != first_session
+    rows = await journal_rows(hass, coordinator, first_session)
+    assert [row["type"] for row in rows] == ["start", "sample", "end"]
+
+
+async def test_update_does_not_await_blocked_journal_disk(coordinator, hass):
+    """HA's async_refresh serializes updates; a stuck journal thread must not stall it."""
+    coordinator.write_enabled = True
+    await start_standard_journal(coordinator)
+    append, entered, release = blocking_journal_append(coordinator._shadow, "sample")
+    try:
+        with patch.object(coordinator._shadow, "_append", new=append):
+            await asyncio.wait_for(coordinator.async_refresh(), 5)
+            assert await hass.async_add_executor_job(entered.wait, 2)
+            reads = coordinator.device.async_read.await_count
+            applies = coordinator.device.async_apply.await_count
+            assert applies == 1
+            coordinator._last_apply = time.monotonic() - 121
+            await asyncio.wait_for(coordinator.async_refresh(), 5)
+            await asyncio.wait_for(coordinator.async_refresh(), 5)
+            assert coordinator.device.async_read.await_count == reads + 2
+            assert coordinator.device.async_apply.await_count == applies + 1
+            assert coordinator.last_update_success
+            # Busy writer: later samples are skipped, not queued.
+            assert len(coordinator._journal_jobs) == 1
+            assert coordinator.data["shadow_summary"]["samples"] == 0
+            release.set()
+            await asyncio.wait_for(coordinator._async_journal_idle(), 5)
+    finally:
+        release.set()
+    assert coordinator._shadow_snapshot["samples"] == 1
+    assert coordinator.data["shadow_status"] == "running"
+    assert coordinator.data["shadow_summary"]["samples"] == 1
+
+
+async def test_journal_samples_are_frozen_and_bounded(coordinator, hass):
+    session = await start_standard_journal(coordinator)
+    data = {
+        **journal_sample(),
+        "states": {"sensor.opti_soc": 50},
+        "demand_forecast": {"status": "ready", "forecast_slots": [{"load_w": 1}]},
+    }
+    now = dt_util.utcnow()
+    with pytest.raises(TypeError):
+        coordinator._journal_sample(data)["mode"] = "changed"
+    append, entered, release = blocking_journal_append(coordinator._shadow, "sample")
+    try:
+        with patch.object(coordinator._shadow, "_append", new=append):
+            first = coordinator._schedule_journal_record(data, now)
+            assert first is not None
+            # Mutating the live result after hand-off cannot change the row.
+            data["mode"] = "Akku nur Laden"
+            data["states"]["sensor.opti_soc"] = 99
+            data["source_errors"]["late"] = "invalid_value"
+            data["demand_forecast"]["status"] = "error"
+            assert await hass.async_add_executor_job(entered.wait, 2)
+            for seconds in range(15, 90, 15):
+                assert coordinator._schedule_journal_record(
+                    data, now + timedelta(seconds=seconds)) is None
+            assert coordinator._journal_jobs == {first}
+            assert len(coordinator._journal_owners) == 1
+            release.set()
+            await asyncio.wait_for(coordinator._async_journal_idle(), 5)
+    finally:
+        release.set()
+    samples = [row for row in await journal_rows(hass, coordinator, session)
+               if row["type"] == "sample"]
+    assert len(samples) == 1
+    assert samples[0]["time"] == now.isoformat()
+    assert samples[0]["mode"] == "Akku Pause"
+    assert samples[0]["measurements"]["soc"] == 50
+    assert samples[0]["source_errors"] == {}
+    assert samples[0]["demand_forecast"] == {"status": "ready"}
+    assert not coordinator._journal_jobs and not coordinator._journal_owners
+
+
+async def test_journal_deadline_saves_completion_with_real_gaps(coordinator, hass):
+    session = await start_standard_journal(coordinator)
+    coordinator._store.async_save.reset_mock()
+    start = datetime.fromisoformat(coordinator._shadow_snapshot["started_at"])
+    deadline = datetime.fromisoformat(coordinator._shadow_snapshot["deadline"])
+    for at in (start, start + timedelta(minutes=1), deadline):
+        assert coordinator._schedule_journal_record(journal_sample(), at) is not None
+        await coordinator._async_journal_idle()
+
+    coordinator._store.async_save.assert_awaited_once()
+    saved = coordinator._store.async_save.await_args.args[0]["shadow"]
+    assert saved["status"] == "completed"
+    assert saved["samples"] == 2
+    assert saved["gaps"] == 2
+    assert saved["max_gap_seconds"] == 86340
+    assert saved["deadline"] == deadline.isoformat()
+    assert coordinator.data["shadow_status"] == "completed"
+    rows = await journal_rows(hass, coordinator, session)
+    assert [row["type"] for row in rows] == ["start", "sample", "sample", "end"]
+
+
+@pytest.mark.parametrize("stopping", [False, True])
+async def test_journal_job_rechecks_state_before_starting_executor(coordinator, stopping):
+    await start_standard_journal(coordinator)
+    await coordinator._journal_lock.acquire()
+    try:
+        job = coordinator._schedule_journal_record(journal_sample(), dt_util.utcnow())
+        assert job is not None
+        await asyncio.sleep(0)
+        coordinator._stopping = stopping
+        coordinator._shadow.state["status"] = "stopped"
+        with patch.object(coordinator._shadow, "record") as record:
+            coordinator._journal_lock.release()
+            await coordinator._async_journal_idle()
+            record.assert_not_called()
+    finally:
+        coordinator._stopping = False
+        if coordinator._journal_lock.locked():
+            coordinator._journal_lock.release()
+
+
+async def test_cancelled_journal_callers_never_mix_session_files(coordinator, hass):
+    first_session = await start_standard_journal(coordinator)
+    append, entered, release = blocking_journal_append(coordinator._shadow, "sample")
+    try:
+        with patch.object(coordinator._shadow, "_append", new=append):
+            assert coordinator._schedule_journal_record(journal_sample(), dt_util.utcnow())
+            assert await hass.async_add_executor_job(entered.wait, 2)
+            # HA cancels background tasks on unload/stop; the running write keeps its lock.
+            owners = set(coordinator._journal_owners)
+            for _ in range(2):
+                for owner in owners:
+                    owner.cancel()
+                await asyncio.sleep(0.05)
+                assert not any(owner.done() for owner in owners)
+            assert coordinator._journal_lock.locked()
+            stop = asyncio.create_task(coordinator.async_stop_comparison())
+            await asyncio.sleep(0.05)
+            assert not stop.done()
+            stop.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await stop
+            # The accepted stop still owns the next turn; a duplicate is rejected, not queued.
+            with pytest.raises(HomeAssistantError, match="vorherige Aktion"):
+                await coordinator.async_stop_comparison()
+            assert coordinator._shadow_snapshot["status"] == "running"
+            release.set()
+            await asyncio.wait_for(coordinator._async_journal_idle(), 5)
+    finally:
+        release.set()
+
+    assert coordinator._shadow_snapshot["status"] == "stopped"
+    assert coordinator.data["shadow_status"] == "stopped"
+    await coordinator.async_start_comparison()
+    second_session = coordinator._shadow_snapshot["session_id"]
+    assert second_session != first_session
+    first_rows = await journal_rows(hass, coordinator, first_session)
+    assert [row["type"] for row in first_rows] == ["start", "sample", "end"]
+    second_rows = await journal_rows(hass, coordinator, second_session)
+    assert [row["type"] for row in second_rows] == ["start"]
+
+
+async def test_cancelled_journal_start_completes_once_without_blocking_control(coordinator, hass):
+    coordinator._online = True
+    coordinator.data = {"shadow_status": "idle"}
+    coordinator._store.async_save = AsyncMock()
+    append, entered, release = blocking_journal_append(coordinator._shadow, "start")
+    try:
+        with patch.object(coordinator._shadow, "_append", new=append):
+            start = asyncio.create_task(coordinator.async_start_comparison())
+            assert await hass.async_add_executor_job(entered.wait, 2)
+            start.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await start
+            assert coordinator._journal_lock.locked()
+            reads = coordinator.device.async_read.await_count
+            await asyncio.wait_for(coordinator.async_refresh(), 5)
+            assert coordinator.device.async_read.await_count == reads + 1
+            with pytest.raises(HomeAssistantError, match="vorherige Aktion"):
+                await coordinator.async_start_comparison()
+            release.set()
+            await asyncio.wait_for(coordinator._async_journal_idle(), 5)
+    finally:
+        release.set()
+    assert coordinator._shadow_snapshot["status"] == "running"
+    assert coordinator.data["shadow_status"] == "running"
+    coordinator._store.async_save.assert_awaited_once()
+    rows = await journal_rows(hass, coordinator, coordinator._shadow_snapshot["session_id"])
+    assert [row["type"] for row in rows] == ["start"]
+
+
+async def test_unload_pauses_first_and_rejects_queued_journal_requests(coordinator, hass):
+    coordinator.write_enabled = True
+    await coordinator._async_update_data()
+    session = await start_standard_journal(coordinator)
+    coordinator.device.async_apply.reset_mock()
+    coordinator._store.async_save.reset_mock()
+    append, entered, release = blocking_journal_append(coordinator._shadow, "sample")
+    try:
+        with patch.object(coordinator._shadow, "_append", new=append):
+            assert coordinator._schedule_journal_record(journal_sample(), dt_util.utcnow())
+            assert await hass.async_add_executor_job(entered.wait, 2)
+            user_stop = asyncio.create_task(coordinator.async_stop_comparison())
+            await asyncio.sleep(0)
+            unload = asyncio.create_task(coordinator.async_stop())
+            for _ in range(200):
+                if coordinator.device.async_apply.await_count:
+                    break
+                await asyncio.sleep(0.01)
+            # The shutdown pause does not wait for the blocked journal disk.
+            coordinator.device.async_apply.assert_awaited_once()
+            assert coordinator.device.async_apply.await_args.args[0] == "Akku Pause"
+            assert not unload.done()
+            coordinator._store.async_save.assert_not_awaited()
+            release.set()
+            with pytest.raises(HomeAssistantError, match="beendet"):
+                await asyncio.wait_for(user_stop, 5)
+            await asyncio.wait_for(unload, 5)
+    finally:
+        release.set()
+    coordinator._store.async_save.assert_awaited_once()
+    saved = coordinator._store.async_save.await_args.args[0]
+    assert saved["shadow"]["status"] == "running"
+    assert saved["shadow"]["samples"] == 1
+    rows = await journal_rows(hass, coordinator, session)
+    assert [row["type"] for row in rows] == ["start", "sample"]
+    assert coordinator._schedule_journal_record(journal_sample(), dt_util.utcnow()) is None
+    with pytest.raises(HomeAssistantError):
+        await coordinator._async_start_journal(refresh=False)
 
 
 @pytest.mark.parametrize("stale_data", [{}, {"mode": "Akku Pause", "states": {}}])
@@ -2302,7 +2552,8 @@ async def test_stopping_does_not_record_stale_or_empty_data(coordinator, stale_d
     coordinator._stopping = True
 
     with patch.object(coordinator._shadow, "record") as record:
-        await coordinator._async_record_journal(stale_data, dt_util.utcnow())
+        assert coordinator._schedule_journal_record(stale_data, dt_util.utcnow()) is None
+        await coordinator._async_journal_idle()
 
     record.assert_not_called()
     assert coordinator._shadow.snapshot() == before
@@ -2362,13 +2613,17 @@ async def test_shadow_journal_reference_and_blocked_attempt_summary(coordinator,
     coordinator.shadow_mode = True
     coordinator.device.blocked_write_attempts = "invalid"
     coordinator._shadow_snapshot = {"status": "running", "reference_entity": "sensor.mode"}
+    coordinator._shadow.state = dict(coordinator._shadow_snapshot)
+    coordinator.data = {"mode": "Akku Pause"}
     hass.states.async_set("sensor.mode", "Akku Pause")
     data = {"mode": "Akku Pause"}
     stopped = {"status": "stopped", "session_id": "a" * 32}
     with patch.object(coordinator._shadow, "record", return_value=stopped) as record:
-        await coordinator._async_record_journal(data, dt_util.utcnow())
+        assert coordinator._schedule_journal_record(data, dt_util.utcnow()) is not None
+        await coordinator._async_journal_idle()
     assert record.call_args.args[3] == "Akku Pause"
-    assert data["shadow_summary"]["blocked_write_attempts"] == 0
+    assert coordinator.data["shadow_status"] == "stopped"
+    assert coordinator.data["shadow_summary"]["blocked_write_attempts"] == 0
 
 
 async def test_internal_shadow_start_stop_refresh_paths(coordinator):
@@ -2383,36 +2638,20 @@ async def test_internal_shadow_start_stop_refresh_paths(coordinator):
 
 
 async def test_integration_stop_waits_for_journal_before_final_save(coordinator, hass):
-    coordinator._online = True
-    coordinator.data = {"shadow_status": "idle"}
-    coordinator._store.async_save = AsyncMock()
-    await coordinator.async_start_comparison()
+    await start_standard_journal(coordinator)
     coordinator._store.async_save.reset_mock()
-    original_append = coordinator._shadow._append
-    entered = Event()
-    release = Event()
-
-    def blocking_append(row, *, exclusive=False):
-        if row.get("type") == "sample":
-            entered.set()
-            assert release.wait(2)
-        return original_append(row, exclusive=exclusive)
-
-    sample = {
-        "mode": "Akku Pause", "reason": "test", "online": True,
-        "source_errors": {}, "device_errors": {}, "states": {},
-        "write_enabled": False, "strategy_enabled": True, "price_status": "ready",
-    }
-    with patch.object(coordinator._shadow, "_append", side_effect=blocking_append):
-        record = asyncio.create_task(
-            coordinator._async_record_journal(sample, dt_util.utcnow()))
-        assert await hass.async_add_executor_job(entered.wait, 2)
-        stop = asyncio.create_task(coordinator.async_stop())
-        await asyncio.sleep(0.05)
-        coordinator._store.async_save.assert_not_awaited()
+    append, entered, release = blocking_journal_append(coordinator._shadow, "sample")
+    try:
+        with patch.object(coordinator._shadow, "_append", new=append):
+            assert coordinator._schedule_journal_record(journal_sample(), dt_util.utcnow())
+            assert await hass.async_add_executor_job(entered.wait, 2)
+            stop = asyncio.create_task(coordinator.async_stop())
+            await asyncio.sleep(0.05)
+            coordinator._store.async_save.assert_not_awaited()
+            release.set()
+            await asyncio.wait_for(stop, 5)
+    finally:
         release.set()
-        await record
-        await stop
 
     saved = coordinator._store.async_save.await_args.args[0]
     assert saved["shadow"]["status"] == "running"

@@ -63,7 +63,7 @@ Die umfangreichen Prognoseattribute werden nicht bei jedem Takt in den HA-Record
 kopiert. Ein eingefrorener Prognosewert wird bis zum vorhergesagten PV-Beginn mit dem
 tatsächlichen Hausverbrauch verglichen. Fehlende Messzeit wird ausgewiesen; bei
 Lücken wird kein vollständiger Prognosefehler behauptet. Die letzten sieben
-abgeschlossenen Vergleiche bleiben während der Laufzeit sichtbar; ein laufender
+abgeschlossenen Vergleiche bleiben auch nach einem Neustart sichtbar. Ein laufender
 Vergleich überlebt Neustarts mit ausgewiesener Datenlücke. Das misst die
 Verbrauchsprognose, nicht hypothetisch vermiedenen Netzbezug.
 

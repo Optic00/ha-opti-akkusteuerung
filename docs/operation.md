@@ -61,6 +61,10 @@ nachgetragen. Start und Stopp warten auf einen noch laufenden Journalzugriff,
 bevor die Sitzung gewechselt wird.
 Solange ein Start oder Stopp läuft, wird eine weitere Aktion mit einem Hinweis
 abgewiesen.
+Bleibt die Festplatte dauerhaft hängen, können auch das Entladen und Neuladen
+der Integration auf laufende Speicherzugriffe warten. Bei freigegebenen
+Schreibzugriffen und erreichbarem, identifiziertem Gerät wird der Pause-Befehl
+zuvor versucht. Das Warten bestätigt keine physische Wirkung dieses Befehls.
 
 Zusätzlich zu Modus und Messwerten enthält jede Stichprobe ausgewählte
 Refill-Prognosen, die Profilreife sowie aktive Werte, beobachtende Kandidaten

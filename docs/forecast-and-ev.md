@@ -110,6 +110,10 @@ auch bei historischer Vorbelegung berücksichtigt.
 Der Import benötigt weder Recorder-Schreibzugriff noch einen Neustart als eigene
 Aktion und startet keinen zusätzlichen Batterie-Schreibzyklus. Er ersetzt keine
 Auswertung an späteren, beim Lernen unbenutzten Tagen.
+Nach dem Einlesen läuft ein angenommener Import auch dann zu Ende, wenn der
+aufrufende Dialog oder Dienstaufruf abgebrochen wird. Bis dahin bleibt das
+bisherige Profil aktiv und ein weiterer Import gesperrt. Ändern sich die
+Quellen oder wird der Eintrag beendet, wird das neue Profil nicht übernommen.
 
 ### Messquellenvergleich und Wiederanlauf (0.5.2b2)
 

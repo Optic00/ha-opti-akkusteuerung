@@ -174,6 +174,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._source_observation = SourceObservation()
         self._recovery = RecoveryState()
         self._history_import_running = False
+        self._pending_history = None
         self._load_source_fingerprint = json.dumps({
             "plant": plant_semantic_fingerprint(entry.options),
             "legacy_house": entry.options.get("sources", {}).get("house_consumption") if entry.options.get("plant_mode", "legacy") == "legacy" else None,
@@ -346,8 +347,16 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._serial_owner = None
 
     def _stored_data(self) -> dict:
+        demand = self._demand_forecast.snapshot()
+        pending = self._pending_history
+        if (pending is not None and not self._stopping
+                and pending.binding == self._demand_forecast.history_binding(
+                    self._load_source_fingerprint, self.entry.options, dt_util.DEFAULT_TIME_ZONE)):
+            # Store coalesces concurrent/delayed saves. Every snapshot must carry
+            # the staged import until its save finishes, without exposing it to control.
+            demand["history"] = pending.snapshot()
         return {"settings": dict(self.settings), "settings_revision": self._settings_revision,
-                "demand_forecast": self._demand_forecast.snapshot(),
+                "demand_forecast": demand,
                 "source_observation": self._source_observation.snapshot(),
                 "engine": self._engine_snapshot, "operating_report": self._operating_report.snapshot(), "load_profile": self._load_profile.snapshot(),
                 "load_source_fingerprint": self._load_source_fingerprint,
@@ -1188,7 +1197,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from datetime import datetime
         from functools import partial
         from homeassistant.components.recorder import get_instance
-        from .demand_history import HistoricalPrior, read_recorder
+        from .demand_history import read_recorder
         cfg = self.entry.options.get("demand_forecast", {})
         if self._history_import_running or self._stopping or cfg.get("enabled") is not True:
             raise HomeAssistantError("Enable observation; wait for any existing import")
@@ -1211,9 +1220,28 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         binding = self._demand_forecast.history_binding(self._load_source_fingerprint, self.entry.options, timezone)
         sources = {**cfg.get("sources", {}), "house": house}
         self._history_import_running = True
+        commit = None
         try:
             rows = await get_instance(self.hass).async_add_executor_job(
                 partial(read_recorder, self.hass, sources, start, end))
+            # Once accepted, the transaction outlives its caller. Reuse the
+            # owned persistence-job lifetime, without taking the journal lock.
+            commit = self._start_journal_job(
+                self._async_commit_demand_history(rows, binding, now), "Opti history import")
+            await asyncio.shield(commit)
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            raise HomeAssistantError("Historical import failed; no controller settings changed") from err
+        finally:
+            if commit is None:
+                self._history_import_running = False
+
+    async def _async_commit_demand_history(self, rows, binding, now) -> None:
+        """Own stage/save/publish until the real write ends, even if the caller leaves."""
+        from .demand_history import HistoricalPrior
+
+        try:
             async with self._update_lock:
                 # Entry unload/options changes while Recorder runs invalidate the result.
                 if self._stopping or binding != self._demand_forecast.history_binding(
@@ -1221,18 +1249,21 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     raise HomeAssistantError("Configuration changed during import")
                 candidate = HistoricalPrior()
                 candidate.replace(rows, binding, now)
-                previous = self._demand_forecast.history
+                self._pending_history = candidate
+            # Keep the previous profile active while the disk is busy. Neither
+            # the device lock nor a coordinator refresh waits for this save.
+            await self._store.async_save(self._stored_data())
+            async with self._update_lock:
+                if self._stopping or binding != self._demand_forecast.history_binding(
+                        self._load_source_fingerprint, self.entry.options, dt_util.DEFAULT_TIME_ZONE):
+                    raise HomeAssistantError("Configuration changed during import")
                 self._demand_forecast.history = candidate
-                try:
-                    await self._store.async_save(self._stored_data())
-                except Exception:
-                    self._demand_forecast.history = previous
-                    raise
-        except HomeAssistantError:
-            raise
-        except Exception as err:
-            raise HomeAssistantError("Historical import failed; no controller settings changed") from err
         finally:
+            if self._pending_history is not None:
+                self._pending_history = None
+                # Commit the current snapshot, or repair an invalidated import.
+                # Store may coalesce this with a scheduled delayed save.
+                self._store.async_delay_save(self._stored_data, 0)
             self._history_import_running = False
         # Publish diagnostics without scheduling an extra actuator update.
         if self.data is not None:
@@ -1345,7 +1376,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._validate_ev_enable({key: value})
             self.settings[key] = value
             self._revision += 1
-            await self._store.async_save(self._stored_data())
+        await self._store.async_save(self._stored_data())
         await self.async_refresh()
 
     async def async_apply_settings(self, settings: dict, revision: str) -> None:
@@ -1358,7 +1389,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.settings = validated
             self._settings_revision = revision
             self._revision += 1
-            await self._store.async_save(self._stored_data())
+        await self._store.async_save(self._stored_data())
         await self.async_refresh()
 
     @property
@@ -1436,7 +1467,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             self._pause_pending = False
             self._last_error = None
-        await self._store.async_save(self._stored_data())
+        # This can run inside HA's serialized refresh or the shutdown device
+        # lock. A stale saved debt only repeats a safety pause after restart;
+        # saving its clearance must never stall control. Store may coalesce it.
+        # Write activation and final shutdown still await their own saves
+        # outside the device lock.
+        self._store.async_delay_save(self._stored_data, 0)
 
     async def async_stop(self) -> None:
         async with self._stop_lock:

@@ -49,9 +49,9 @@ async def async_setup_entry(
     if getattr(coordinator.device, "supports_write_value_evidence", False) is True:
         async_add_entities([OptiAkkuReportSensor(entry, "last_write_values")])
     if coordinator.shadow_mode:
-        async_add_entities([OptiAkkuDiagnosticSensor(entry, "shadow_status")])
+        async_add_entities([OptiAkkuReportSensor(entry, "shadow_status")])
     else:
-        async_add_entities([OptiAkkuDiagnosticSensor(entry, "comparison_status")])
+        async_add_entities([OptiAkkuReportSensor(entry, "comparison_status")])
     entry.async_on_unload(coordinator.async_add_listener(add_new_entities))
 
 

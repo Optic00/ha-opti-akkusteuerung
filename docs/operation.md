@@ -54,12 +54,31 @@ Start und Stopp verändern weder Schreibfreigabe noch Strategie und lösen
 keine zusätzlichen Gerätebefehle aus. **Status des 24-Stunden-Vergleichs** zeigt den
 Aufzeichnungsstatus; **24-Stunden-Vergleich beenden** stoppt nur das Journal.
 
+Die Aufzeichnung schreibt im Hintergrund. Solange ein Schreibvorgang läuft,
+werden weitere Stichproben ausgelassen, damit die Steuerung weiter aktualisiert
+werden kann. Die Zeitstempel zeigen diese Lücken; fehlende Werte werden nicht
+nachgetragen. Start und Stopp warten auf einen noch laufenden Journalzugriff,
+bevor die Sitzung gewechselt wird.
+Solange ein Start oder Stopp läuft, wird eine weitere Aktion mit einem Hinweis
+abgewiesen.
+Bleibt die Festplatte dauerhaft hängen, können auch das Entladen und Neuladen
+der Integration auf laufende Speicherzugriffe warten. Bei freigegebenen
+Schreibzugriffen und erreichbarem, identifiziertem Gerät wird der Pause-Befehl
+zuvor versucht. Das Warten bestätigt keine physische Wirkung dieses Befehls.
+
 Zusätzlich zu Modus und Messwerten enthält jede Stichprobe ausgewählte
 Refill-Prognosen, die Profilreife sowie aktive Werte, beobachtende Kandidaten
 und ihre Differenzen. Die Kandidaten bleiben rein informativ. `read_only` und `observation_only`
 in einer Journalzeile beziehen sich auf die Aufzeichnung; `entry_shadow_mode`
 und `write_enabled` zeigen separat, ob der Eintrag steuern darf. Fehlende oder
 historisch ersetzte Profilwerte sind kein Beleg für eine belastbare Reserve.
+
+Der Vergleich ist nur aussagekräftig, wenn die Referenz-Entität weiterhin von
+einer laufenden Entscheidungslogik gesetzt wird. Ist die alte Automation
+abgeschaltet, bleibt der Helfer stehen und jede Abweichung ist bedeutungslos.
+Ändert sich die Referenz während der Sitzung nie, obwohl Opti Akku mindestens
+dreimal den Modus wechselt, zeigt der Status `reference_static: true`; die
+Diagnose übernimmt diesen Hinweis.
 
 Für diese Aufzeichnung gelten dasselbe private Verzeichnis, die feste
 24-Stunden-Frist und die Hinweise zu Datenlücken und Datenschutz wie beim
@@ -121,6 +140,14 @@ ausgeschaltet. **Reserveplanung mit Netzladen erlauben** aktiviert auch
 preisabhängiges Vorladen und Laden bei negativen Preisen; es ist keine reine
 Haltefunktion. Gespeicherte und ausdrücklich importierte Werte bleiben erhalten.
 
+Beide Netzladefälle laden nur im günstigsten Fenster vor der nächsten Spitze:
+Einstieg bis 0,5 ct/kWh über dem Horizont-Tief `min_preis_vor_peak_ct`. Läuft
+`Akku Netzladen` bereits, hält das Fenster bis 1,5 ct/kWh über dem Tief. Diese
+Hysterese verhindert, dass Viertelstundenpreise mit Schwankungen um bis zu
+1 ct/kWh den Modus im Viertelstundentakt zwischen Vorladen und Reserve halten
+umschalten. Ein teurer Slot beendet das Vorladen unabhängig davon, weil der
+Spread zur Spitze dann fehlt.
+
 Die eigentliche Steuerung hat drei getrennte Ebenen:
 
 1. Der Schalter **Strategie berechnen** ist die Hauptfreigabe für die Steuerung,
@@ -172,15 +199,21 @@ beim Neuladen erhalten. Nicht konfigurierte EV-Ladepunkte beteiligen sich
 nicht an der Entladesperre; fehlende Daten eines konfigurierten Ladepunkts
 halten eine bereits aktive Sperre weiterhin fest. Optional kann je Ladepunkt
 der evcc-Binärsensor `smart_cost_active` ausgewählt werden. Dann sperrt auch
-aktives Laden im Modus `pv` die Entladung, solange Smart Cost aktiv ist.
-Normales PV-Laden ohne aktives Smart Cost sperrt nicht. Fehlt der konfigurierte
-Smart-Cost-Wert während eines erkannten Ladevorgangs im Modus `pv` oder meldet
+aktives Laden im Modus `pv` (evcc vor 0.316) oder `smart` (ab 0.316) die
+Entladung, solange Smart Cost aktiv ist. Normales PV-Laden ohne aktives Smart
+Cost sperrt nicht. Fehlt der konfigurierte Smart-Cost-Wert während eines
+erkannten Ladevorgangs in einem dieser Modi oder meldet
 die Quellintegration ihn als unbekannt oder nicht verfügbar, gilt der Ladepunkt
 als unverfügbar. Die Automatik hält dann eine
 bereits aktive Sperre; in manueller Betriebsart wird die Entladung
 vorsorglich gesperrt.
-Die Modi `now` und `minpv` sperren bei aktivem Laden weiterhin unabhängig von
-der optionalen Smart-Cost-Quelle.
+Die Modi `now` und das ältere `minpv` sperren bei aktivem Laden weiterhin
+unabhängig von der optionalen Smart-Cost-Quelle. Die neue evcc-Option
+`alwaysCharge` innerhalb von `smart` wird ohne eigene HA-Quelle nicht erkannt:
+Sie sperrt die Hausakku-Entladung nur bei aktivem Smart Cost. Wer unabhängig
+davon eine Entladesperre braucht, verwendet `now`. Unbekannte Moduswerte gelten
+als unverfügbar und lösen keine neue automatische Sperre aus. In manuellen
+Betriebsarten wird die Entladung bei fehlendem Modus vorsorglich gesperrt.
 Modus, Ladestatus und Smart Cost bleiben gültig, solange die Quellintegration
 keinen ungültigen Zustand meldet. Deshalb muss die Integration oder MQTT-Bridge
 einen Verbindungsausfall an Home Assistant weitergeben: als `unavailable`, über
@@ -321,6 +354,17 @@ Vorfallserkennung. Ein weiterhin vorhandener Quellenfehler kann deshalb nach
 erneuten 60 Sekunden wieder melden. Häufige Neustarts können diese Meldungen
 wiederholen. Der Shadow-Eintrag verschickt keine solchen Störungsmeldungen;
 seine Fehler bleiben in den Diagnoseanzeigen sichtbar.
+
+Ist **Strategie berechnen** aktiv und die Alleinsteuerung bestätigt, die
+Schreibfreigabe aber 15 Minuten lang aus, meldet Opti Akku, dass der Akku nicht
+gesteuert wird. Bei einem absichtlich lesenden 24-Stunden-Vergleich ist das
+erwartet. Die Strategie muss für diesen Vergleich eingeschaltet bleiben.
+Außerhalb eines solchen Vergleichs die Schreibfreigabe prüfen. Wer dauerhaft
+nur beobachten will, schaltet die Strategie in den Optionen ab. Verwirft ein
+Neustart eine zuvor aktive Schreibfreigabe, etwa wegen
+geänderter Gerätebindung oder ungültiger gespeicherter Einstellungen, steht der
+Grund im letzten Fehler, im Log und in der Diagnose unter
+`write_restore_blocked`.
 
 Bei unveränderten, aber gültigen Messwerten die
 [Altersgrenze der Quelle](configuration.md#unveränderte-externe-messwerte-und-ausfälle)

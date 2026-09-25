@@ -140,6 +140,8 @@ async def async_get_config_entry_diagnostics(
             "command_confirmation": data.get("command_confirmation"),
             "command_evidence": _command_evidence_summary(data.get("command_evidence")),
             "pause_pending": bool(data.get("pause_pending", False)),
+            "control_inactive": data.get("control_inactive") is True,
+            "write_restore_blocked": data.get("write_restore_blocked"),
             "control_release": data.get("control_release"),
         },
         "device": _device_summary(data.get("identity")),
@@ -173,5 +175,11 @@ async def async_get_config_entry_diagnostics(
             )
             if shadow_mode and isinstance(data.get("shadow_summary"), Mapping)
             else 0,
+        },
+        "comparison": {
+            "status": "not_applicable" if shadow_mode else data.get("shadow_status", "idle"),
+            "reference_static": data.get("shadow_summary", {}).get("reference_static") is True
+            if not shadow_mode and isinstance(data.get("shadow_summary"), Mapping)
+            else False,
         },
     }

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Coroutine
+from copy import deepcopy
 from datetime import datetime, timedelta
 import logging
 import json
 from pathlib import Path
 import time
+from types import MappingProxyType
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -43,11 +46,16 @@ from .peak_load import peak_load_profile
 from .ev_preparation import EVPreparation, apply_preparation, command_signals
 from .observation import SourceObservation
 from .recovery import RecoveryState
-from .shadow import ShadowRecorder
+from .shadow import DEMAND_FIELDS, MEASUREMENTS, ShadowRecorder
 from .reporting import OperatingReport, reserve_plan
 from .tibber_prices import REFRESH_SECONDS, RETRY_SECONDS, TibberPriceError, TibberPriceSnapshot, async_fetch_prices
 
 _LOGGER = logging.getLogger(__name__)
+
+# Top-level fields ShadowRecorder.record reads from a coordinator result.
+_JOURNAL_SAMPLE_KEYS = ("mode", "reason", "online", "source_errors", "write_enabled",
+                        "strategy_enabled", "command_confirmation", "device_errors",
+                        "price_status")
 
 
 def _build_metadata(engine: Any) -> dict:
@@ -166,6 +174,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._source_observation = SourceObservation()
         self._recovery = RecoveryState()
         self._history_import_running = False
+        self._pending_history = None
         self._load_source_fingerprint = json.dumps({
             "plant": plant_semantic_fingerprint(entry.options),
             "legacy_house": entry.options.get("sources", {}).get("house_consumption") if entry.options.get("plant_mode", "legacy") == "legacy" else None,
@@ -180,6 +189,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                          {**NUMBER_DEFINITIONS, **SWITCH_DEFINITIONS}.items()}
         self.manual_mode: str | None = None
         self.write_enabled = False
+        self._write_restore_blocked: str | None = None
         self._revision = 0
         self._stopping = False
         self._probed = False
@@ -195,7 +205,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._violation_since: float | None = None
         self._violation_mode: str | None = None
         self._update_lock = asyncio.Lock()
+        # Held only by owned journal jobs, never by a cancellable caller: an
+        # executor thread still writing always keeps the journal serialized.
         self._journal_lock = asyncio.Lock()
+        self._journal_jobs: set[asyncio.Task] = set()
+        self._journal_owners: set[asyncio.Task] = set()
+        self._journal_lifecycle: asyncio.Task | None = None
         self._serial_owner: str | None = None
         self._stop_lock = asyncio.Lock()
         self._stopped = False
@@ -270,13 +285,23 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._load_profile.restore(stored.get("load_profile", {}), now=dt_util.utcnow(),
                                    fingerprint=json.dumps(plant_semantic_fingerprint(self.entry.options)))
         self._engine_snapshot = self.engine.snapshot()
-        self.write_enabled = bool(stored.get("write_enabled", False)
-                                  and self.entry.options.get("single_writer_confirmed", False)
-                                  and stored.get("writer_binding") == self._writer_binding
-                                  and stored.get("strategy_enabled", True) is self.strategy_enabled
-                                  and not invalid
-                                  and not self.shadow_mode
-                                  and self.strategy_enabled and bool(self.supported_modes))
+        restore_blockers = [code for code, blocked in (
+            ("single_writer_not_confirmed", not self.entry.options.get("single_writer_confirmed", False)),
+            ("writer_binding_changed", stored.get("writer_binding") != self._writer_binding),
+            ("strategy_setting_changed", stored.get("strategy_enabled", True) is not self.strategy_enabled),
+            ("invalid_settings", bool(invalid)),
+            ("shadow_mode", self.shadow_mode),
+            ("strategy_disabled", not self.strategy_enabled),
+            ("no_supported_modes", not self.supported_modes),
+        ) if blocked]
+        self.write_enabled = bool(stored.get("write_enabled", False)) and not restore_blockers
+        if stored.get("write_enabled") is True and restore_blockers:
+            # Never silently lose control across a restart: name the reason.
+            self._write_restore_blocked = restore_blockers[0]
+            message = "Schreibfreigabe nach Neustart nicht wiederhergestellt: " + ", ".join(restore_blockers)
+            _LOGGER.warning(message)
+            # Keep an earlier, more specific restore error (e.g. the reset setting).
+            self._last_error = f"{self._last_error}; {message}" if self._last_error else message
         if getattr(type(self.device), "PHASED", False) and stored.get("pause_pending"):
             self._pause_binding = stored.get("pause_binding", stored.get("writer_binding"))
             self._pause_pending = True
@@ -322,8 +347,16 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._serial_owner = None
 
     def _stored_data(self) -> dict:
+        demand = self._demand_forecast.snapshot()
+        pending = self._pending_history
+        if (pending is not None and not self._stopping
+                and pending.binding == self._demand_forecast.history_binding(
+                    self._load_source_fingerprint, self.entry.options, dt_util.DEFAULT_TIME_ZONE)):
+            # Store coalesces concurrent/delayed saves. Every snapshot must carry
+            # the staged import until its save finishes, without exposing it to control.
+            demand["history"] = pending.snapshot()
         return {"settings": dict(self.settings), "settings_revision": self._settings_revision,
-                "demand_forecast": self._demand_forecast.snapshot(),
+                "demand_forecast": demand,
                 "source_observation": self._source_observation.snapshot(),
                 "engine": self._engine_snapshot, "operating_report": self._operating_report.snapshot(), "load_profile": self._load_profile.snapshot(),
                 "load_source_fingerprint": self._load_source_fingerprint,
@@ -503,7 +536,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data = await self._async_update_locked()
         self.alerts.update(data)
         data["notification_error"] = self.alerts.delivery_error
-        await self._async_record_journal(data, dt_util.utcnow())
+        # Never await journal I/O here: HA serializes this whole method.
+        self._schedule_journal_record(data, dt_util.utcnow())
+        data.update(self._journal_status())
         return data
 
     @callback
@@ -950,7 +985,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "price_provider_error": self._price_provider_error,
                 "price_last_success": self._price_last_success,
                 "notification_error": self.alerts.delivery_error,
-                "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled}
+                "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled,
+                "control_inactive": bool(self.strategy_enabled and not self.shadow_mode and not self.write_enabled
+                                         and self.supported_modes
+                                         and self.entry.options.get("single_writer_confirmed", False)),
+                "write_restore_blocked": self._write_restore_blocked}
         self._update_operating_report(data, now, ev_report, safety_reason, write_failed)
         data["demand_forecast"] = demand_report
         if demand_comparison_enabled:
@@ -1060,44 +1099,105 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.debug("Source observation unavailable: %s", type(err).__name__)
             data["source_observation"] = {"status":"error", "controls_battery":False}
-        data["shadow_status"] = self._shadow_snapshot["status"]
-        data["shadow_summary"] = {key: value for key, value in self._shadow_snapshot.items()
-                                  if key not in ("settings", "reference_entity")}
+        data.update(self._journal_status())
+
+    def _journal_status(self) -> dict:
+        summary = {key: value for key, value in self._shadow_snapshot.items()
+                   if key not in ("settings", "reference_entity")}
         if self.shadow_mode:
             attempts = getattr(self.device, "blocked_write_attempts", 0)
-            data["shadow_summary"]["blocked_write_attempts"] = attempts if isinstance(attempts, int) else 0
+            summary["blocked_write_attempts"] = attempts if isinstance(attempts, int) else 0
+        return {"shadow_status": self._shadow_snapshot["status"], "shadow_summary": summary}
 
-    async def _async_record_journal(self, data, now):
+    def _journal_sample(self, data: dict) -> MappingProxyType:
+        """Freeze exactly what the recorder reads; later result changes cannot leak in."""
+        sample = {key: deepcopy(data[key]) for key in _JOURNAL_SAMPLE_KEYS if key in data}
+        states = data.get("states")
+        states = states if isinstance(states, dict) else {}
+        sample["states"] = {f"sensor.opti_{key}": deepcopy(states.get(f"sensor.opti_{key}"))
+                            for key in MEASUREMENTS}
+        report = data.get("demand_forecast")
+        if isinstance(report, dict):
+            sample["demand_forecast"] = {
+                key: deepcopy(report[key])
+                for key in (*DEMAND_FIELDS, "strategy_comparison") if key in report
+            }
+        sample["entry_shadow_mode"] = self.shadow_mode
+        return MappingProxyType(sample)
+
+    @callback
+    def _schedule_journal_record(self, data: dict, now: datetime) -> asyncio.Task | None:
+        """Hand one frozen sample to the single journal writer; skip it while that is busy.
+
+        A skipped sample is simply absent: the recorder derives gaps from real
+        sample times, so a slow disk shows up as a gap instead of queued rows.
+        """
+        if self._stopping or self._journal_jobs or self._shadow_snapshot.get("status") != "running":
+            return None
+        reference_id = self._shadow_snapshot.get("reference_entity", "")
+        reference = self.hass.states.get(reference_id) if reference_id else None
+        return self._start_journal_job(
+            self._async_journal_record_job(self._journal_sample(data), dict(self.settings),
+                                           reference.state if reference else None, now),
+            "Opti journal sample")
+
+    @callback
+    def _start_journal_job(self, coro: Coroutine[Any, Any, Any], name: str) -> asyncio.Task:
+        """Run journal work in a task nobody cancels, so its lock outlives any caller.
+
+        An HA background task owns it for unload/stop tracking; cancelling that
+        owner only defers until the executor work has really finished.
+        """
+        job = self.hass.loop.create_task(coro, name=name)
+        self._journal_jobs.add(job)
+        job.add_done_callback(self._journal_jobs.discard)
+        owner = self.entry.async_create_background_task(
+            self.hass, self._async_own_journal_job(job), name, eager_start=False)
+        self._journal_owners.add(owner)
+        owner.add_done_callback(self._journal_owners.discard)
+        return job
+
+    async def _async_own_journal_job(self, job: asyncio.Task) -> None:
+        while not job.done():
+            try:
+                await asyncio.shield(job)
+            except asyncio.CancelledError:
+                # Defer HA's cancellation: releasing now would abandon a writing thread.
+                if (task := asyncio.current_task()) is not None:
+                    task.uncancel()
+            except Exception:  # Reported to the awaiting caller; only mark it retrieved.
+                pass
+        if not job.cancelled():
+            job.exception()
+
+    async def _async_journal_idle(self) -> None:
+        """Wait until every owned journal job and its HA owner have finished."""
+        while pending := {*self._journal_jobs, *self._journal_owners}:
+            await asyncio.wait(pending)
+
+    async def _async_journal_record_job(self, sample, settings, reference, now) -> None:
         """Append passive diagnostics after the control result and price status are final."""
         async with self._journal_lock:
-            if self._stopping:
+            if self._stopping or self._shadow.state.get("status") != "running":
                 return
-            if self._shadow_snapshot.get("status") == "running":
-                reference_id = self._shadow_snapshot.get("reference_entity", "")
-                reference = self.hass.states.get(reference_id) if reference_id else None
-                settings = dict(self.settings)
-                try:
-                    journal_data = {**data, "entry_shadow_mode": self.shadow_mode}
-                    self._shadow_snapshot = await self.hass.async_add_executor_job(
-                        self._shadow.record, now, journal_data, settings,
-                        reference.state if reference else None, MODES)
-                except Exception:  # Journal diagnostics must not interrupt active control.
-                    self._shadow.state["status"] = "error"
-                    self._shadow.state["error"] = "journal_write_failed"
-                    self._shadow_snapshot = self._shadow.snapshot()
-        data["shadow_status"] = self._shadow_snapshot["status"]
-        data["shadow_summary"] = {key: value for key, value in self._shadow_snapshot.items()
-                                  if key not in ("settings", "reference_entity")}
-        if self.shadow_mode:
-            attempts = getattr(self.device, "blocked_write_attempts", 0)
-            data["shadow_summary"]["blocked_write_attempts"] = attempts if isinstance(attempts, int) else 0
+            try:
+                self._shadow_snapshot = await self.hass.async_add_executor_job(
+                    self._shadow.record, now, sample, settings, reference, MODES)
+                if self._shadow_snapshot.get("status") == "completed":
+                    # A crash within the delayed save would resume the run.
+                    await self._store.async_save(self._stored_data())
+            except Exception:  # Journal diagnostics must not interrupt active control.
+                self._shadow.state["status"] = "error"
+                self._shadow.state["error"] = "journal_write_failed"
+                self._shadow_snapshot = self._shadow.snapshot()
+        self._publish_journal_status()
 
     async def async_import_demand_history(self):
         """Manual import into observer only, never hold the writer lock over I/O."""
         from datetime import datetime
         from functools import partial
         from homeassistant.components.recorder import get_instance
-        from .demand_history import HistoricalPrior, read_recorder
+        from .demand_history import read_recorder
         cfg = self.entry.options.get("demand_forecast", {})
         if self._history_import_running or self._stopping or cfg.get("enabled") is not True:
             raise HomeAssistantError("Enable observation; wait for any existing import")
@@ -1120,9 +1220,28 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         binding = self._demand_forecast.history_binding(self._load_source_fingerprint, self.entry.options, timezone)
         sources = {**cfg.get("sources", {}), "house": house}
         self._history_import_running = True
+        commit = None
         try:
             rows = await get_instance(self.hass).async_add_executor_job(
                 partial(read_recorder, self.hass, sources, start, end))
+            # Once accepted, the transaction outlives its caller. Reuse the
+            # owned persistence-job lifetime, without taking the journal lock.
+            commit = self._start_journal_job(
+                self._async_commit_demand_history(rows, binding, now), "Opti history import")
+            await asyncio.shield(commit)
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            raise HomeAssistantError("Historical import failed; no controller settings changed") from err
+        finally:
+            if commit is None:
+                self._history_import_running = False
+
+    async def _async_commit_demand_history(self, rows, binding, now) -> None:
+        """Own stage/save/publish until the real write ends, even if the caller leaves."""
+        from .demand_history import HistoricalPrior
+
+        try:
             async with self._update_lock:
                 # Entry unload/options changes while Recorder runs invalidate the result.
                 if self._stopping or binding != self._demand_forecast.history_binding(
@@ -1130,18 +1249,21 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     raise HomeAssistantError("Configuration changed during import")
                 candidate = HistoricalPrior()
                 candidate.replace(rows, binding, now)
-                previous = self._demand_forecast.history
+                self._pending_history = candidate
+            # Keep the previous profile active while the disk is busy. Neither
+            # the device lock nor a coordinator refresh waits for this save.
+            await self._store.async_save(self._stored_data())
+            async with self._update_lock:
+                if self._stopping or binding != self._demand_forecast.history_binding(
+                        self._load_source_fingerprint, self.entry.options, dt_util.DEFAULT_TIME_ZONE):
+                    raise HomeAssistantError("Configuration changed during import")
                 self._demand_forecast.history = candidate
-                try:
-                    await self._store.async_save(self._stored_data())
-                except Exception:
-                    self._demand_forecast.history = previous
-                    raise
-        except HomeAssistantError:
-            raise
-        except Exception as err:
-            raise HomeAssistantError("Historical import failed; no controller settings changed") from err
         finally:
+            if self._pending_history is not None:
+                self._pending_history = None
+                # Commit the current snapshot, or repair an invalidated import.
+                # Store may coalesce this with a scheduled delayed save.
+                self._store.async_delay_save(self._stored_data, 0)
             self._history_import_running = False
         # Publish diagnostics without scheduling an extra actuator update.
         if self.data is not None:
@@ -1159,23 +1281,45 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("24-Stunden-Vergleich benötigt eine aktive Standard-Integration")
         await self._async_start_journal(refresh=False)
 
+    async def _async_run_journal_lifecycle(
+        self, job: Callable[[str], Coroutine[Any, Any, None]], label: str, name: str
+    ) -> None:
+        """Accept at most one start/stop at a time; once accepted it runs exactly once.
+
+        Neither the device lock nor the caller's task is involved: a cancelled
+        caller leaves the owned job to finish (or be rejected) on its own.
+        """
+        if self._stopping:
+            raise HomeAssistantError(f"{label}: Integration wird beendet")
+        if self._journal_lifecycle is not None and not self._journal_lifecycle.done():
+            raise HomeAssistantError(f"{label}: vorherige Aktion läuft noch; bitte erneut versuchen")
+        accepted = self._journal_lifecycle = self._start_journal_job(job(label), name)
+        await asyncio.shield(accepted)
+
     async def _async_start_journal(self, *, refresh: bool) -> None:
-        async with self._update_lock:
-            async with self._journal_lock:
-                now = dt_util.utcnow()
-                settings = dict(self.settings)
-                reference = self.entry.options.get("shadow_reference_mode", "")
-                def start():
-                    version = json.loads(Path(__file__).with_name("manifest.json").read_text())["version"]
-                    return self._shadow.start(now, settings, reference, version)
-                try:
-                    self._shadow_snapshot = await self.hass.async_add_executor_job(start)
-                except (ValueError, OSError) as err:
-                    raise HomeAssistantError("Shadow-Aufzeichnung läuft bereits oder kann nicht angelegt werden") from err
-                await self._store.async_save(self._stored_data())
-        self._publish_journal_status()
+        label = "Shadow-Aufzeichnung" if self.shadow_mode else "24-Stunden-Vergleich"
+        await self._async_run_journal_lifecycle(
+            self._async_journal_start_job, label, "Opti journal start")
         if refresh:
             await self.async_refresh()
+
+    async def _async_journal_start_job(self, label: str) -> None:
+        async with self._journal_lock:
+            if self._stopping:  # Also rejects requests queued before the unload.
+                raise HomeAssistantError(f"{label}: Integration wird beendet")
+            now = dt_util.utcnow()
+            settings = dict(self.settings)
+            reference = self.entry.options.get("shadow_reference_mode", "")
+            def start():
+                version = json.loads(Path(__file__).with_name("manifest.json").read_text())["version"]
+                return self._shadow.start(now, settings, reference, version)
+            try:
+                self._shadow_snapshot = await self.hass.async_add_executor_job(start)
+            except (ValueError, OSError) as err:
+                raise HomeAssistantError(
+                    label + " läuft bereits oder kann nicht angelegt werden") from err
+            await self._store.async_save(self._stored_data())
+        self._publish_journal_status()
 
     async def async_stop_shadow(self) -> None:
         if not self.shadow_mode or self._stopping:
@@ -1188,26 +1332,34 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_stop_journal(refresh=False)
 
     async def _async_stop_journal(self, *, refresh: bool) -> None:
-        async with self._update_lock:
-            async with self._journal_lock:
-                try:
-                    self._shadow_snapshot = await self.hass.async_add_executor_job(
-                        self._shadow.stop, dt_util.utcnow())
-                except OSError as err:
-                    raise HomeAssistantError("Shadow-Protokoll kann nicht abgeschlossen werden") from err
-                await self._store.async_save(self._stored_data())
-        self._publish_journal_status()
+        label = "Shadow-Protokoll" if self.shadow_mode else "Vergleichsprotokoll"
+        await self._async_run_journal_lifecycle(
+            self._async_journal_stop_job, label, "Opti journal stop")
         if refresh:
             await self.async_refresh()
+
+    async def _async_journal_stop_job(self, label: str) -> None:
+        async with self._journal_lock:
+            if self._stopping:  # Also rejects requests queued before the unload.
+                raise HomeAssistantError(f"{label}: Integration wird beendet")
+            try:
+                self._shadow_snapshot = await self.hass.async_add_executor_job(
+                    self._shadow.stop, dt_util.utcnow())
+            except OSError as err:
+                raise HomeAssistantError(label + " kann nicht abgeschlossen werden") from err
+            await self._store.async_save(self._stored_data())
+        self._publish_journal_status()
+
+    async def _async_journal_final_save_job(self) -> None:
+        # Queued behind every accepted journal job, so it saves their final state.
+        async with self._journal_lock:
+            await self._store.async_save(self._stored_data())
 
     @callback
     def _publish_journal_status(self) -> None:
         if self.data is None:
             return
-        summary = {key: value for key, value in self._shadow_snapshot.items()
-                   if key not in ("settings", "reference_entity")}
-        self.data = {**self.data, "shadow_status": self._shadow_snapshot["status"],
-                     "shadow_summary": summary}
+        self.data = {**self.data, **self._journal_status()}
         self.async_update_listeners()
 
     def _validate_ev_enable(self, settings: dict) -> None:
@@ -1224,7 +1376,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._validate_ev_enable({key: value})
             self.settings[key] = value
             self._revision += 1
-            await self._store.async_save(self._stored_data())
+        await self._store.async_save(self._stored_data())
         await self.async_refresh()
 
     async def async_apply_settings(self, settings: dict, revision: str) -> None:
@@ -1237,7 +1389,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.settings = validated
             self._settings_revision = revision
             self._revision += 1
-            await self._store.async_save(self._stored_data())
+        await self._store.async_save(self._stored_data())
         await self.async_refresh()
 
     @property
@@ -1278,6 +1430,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if enabled and not self._identity.get("serial_number"):
             raise HomeAssistantError("Ohne bestätigte Geräteidentität bleibt die Schreibfreigabe gesperrt")
         self._revision += 1
+        self._write_restore_blocked = None
         if not enabled:
             was_enabled = self.write_enabled
             self.write_enabled = False
@@ -1314,7 +1467,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             self._pause_pending = False
             self._last_error = None
-        await self._store.async_save(self._stored_data())
+        # This can run inside HA's serialized refresh or the shutdown device
+        # lock. A stale saved debt only repeats a safety pause after restart;
+        # saving its clearance must never stall control. Store may coalesce it.
+        # Write activation and final shutdown still await their own saves
+        # outside the device lock.
+        self._store.async_delay_save(self._stored_data, 0)
 
     async def async_stop(self) -> None:
         async with self._stop_lock:
@@ -1348,5 +1506,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 except Exception as err:
                     self._last_error = f"Pause beim Entladen der Integration nicht bestätigt: {type(err).__name__}"
             self._release_device()
-            async with self._journal_lock:
-                await self._store.async_save(self._stored_data())
+        # Only now wait for journal writes: a slow disk never delays the pause above.
+        await asyncio.shield(self._start_journal_job(
+            self._async_journal_final_save_job(), "Opti final save"))
+        await self._async_journal_idle()

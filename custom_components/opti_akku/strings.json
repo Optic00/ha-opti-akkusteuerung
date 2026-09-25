@@ -117,7 +117,7 @@
       },
       "ev": {
         "title": "EV charging: evcc connection (optional)",
-        "description": "For evcc loadpoints. Select both mode and charging status. Optionally select Smart Cost active. While charging in now or minpv mode, or in pv mode with Smart Cost active, home battery discharge can be blocked; normal pv charging does not block discharge. Battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
+        "description": "For evcc loadpoints. Select both mode and charging status. Optionally select Smart Cost active. While charging in now or legacy minpv mode, or in pv/smart mode with Smart Cost active, home battery discharge can be blocked; normal solar charging does not block discharge. The evcc alwaysCharge option in smart mode is not detected separately. Battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
         "data": {
           "ev1_mode": "EV 1 mode",
           "ev1_charging": "EV 1 charging",
@@ -421,7 +421,7 @@
       },
       "sources": {
         "title": "System and measurements",
-        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. With a positive age limit, this exception applies only to exactly 0 W or 0 kW; positive power still requires a recent report. With age limit 0, HA availability applies to external power sources, heat-pump power in the demand profile and resting cell spread instead.",
+        "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. With a positive age limit, this exception applies only to exactly 0 W or 0 kW; positive power still requires a recent report. With age limit 0, HA availability applies to external power sources, heat-pump power in the demand profile and resting cell spread instead. Changes remain a draft until you complete Review and save in the menu.",
         "data": {
           "house_consumption": "House consumption",
           "pv_generation": "PV generation DC (display only, optional)",
@@ -487,7 +487,7 @@
       },
       "ev": {
         "title": "EV charging: evcc connection (optional)",
-        "description": "For evcc loadpoints. Select both mode and charging status. Optionally select Smart Cost active. While charging in now or minpv mode, or in pv mode with Smart Cost active, home battery discharge can be blocked; normal pv charging does not block discharge. Battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
+        "description": "For evcc loadpoints. Select both mode and charging status. Optionally select Smart Cost active. While charging in now or legacy minpv mode, or in pv/smart mode with Smart Cost active, home battery discharge can be blocked; normal solar charging does not block discharge. The evcc alwaysCharge option in smart mode is not detected separately. Battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
         "data": {
           "ev1_mode": "EV 1 mode",
           "ev1_charging": "EV 1 charging",

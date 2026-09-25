@@ -30,6 +30,12 @@ DEMAND_FIELDS = (
 COMPARISON_FIELDS = ("status", "reason", "active_score", "candidate_score", "score_delta",
                      "active_target_soc", "candidate_target_soc", "target_delta")
 COMPARISON_BLOCKS = ("remaining_day", "tomorrow", "sunny_day", "target_soc")
+KNOWN_ERRORS = ("journal_write_failed", "invalid_saved_session")
+# Optional counters added after the first journal format; absent in old sessions.
+TRANSITION_COUNTERS = ("mode_changes", "reference_changes")
+# A reference that never moves while Opti changes mode this often is not a
+# live decision (e.g. the legacy automation that wrote it is switched off).
+STATIC_REFERENCE_MODE_CHANGES = 3
 
 
 def _scalar_fields(source: dict, fields: tuple[str, ...]) -> dict:
@@ -98,6 +104,9 @@ class ShadowRecorder:
             return
         if not state or state.get("status") == "idle":
             return
+        if state.get("status") == "error" and state.get("error") in KNOWN_ERRORS:
+            self.state = {"status": "error", "error": state["error"]}
+            return
         try:
             if state.get("status") not in ("running", "stopped", "completed"):
                 raise ValueError("Invalid status")
@@ -128,6 +137,12 @@ class ShadowRecorder:
                 or state["gaps"] > samples + 1
             ):
                 raise ValueError("Inconsistent counters")
+            if any(
+                name in state and (isinstance(state[name], bool) or not isinstance(state[name], int)
+                                   or state[name] < 0)
+                for name in TRANSITION_COUNTERS
+            ):
+                raise ValueError("Invalid transition counters")
             max_gap = state.get("max_gap_seconds")
             if (
                 isinstance(max_gap, bool)
@@ -166,7 +181,8 @@ class ShadowRecorder:
                       "samples": 0, "online_samples": 0, "source_error_samples": 0,
                       "comparisons": 0, "mismatches": 0, "reference_missing": 0,
                       "gaps": 0, "max_gap_seconds": 0, "settings_changes": 0,
-                      "last_sample": None, "settings": dict(settings), "reference_entity": reference_entity}
+                      "last_sample": None, "settings": dict(settings), "reference_entity": reference_entity,
+                      "mode_changes": 0, "reference_changes": 0, "reference_static": False}
         try:
             self._append({"type": "start", "version": version, **self.snapshot()}, exclusive=True)
         except OSError:
@@ -194,7 +210,9 @@ class ShadowRecorder:
             self._append({"type": "end", "time": now.isoformat(), "samples": self.state["samples"]})
             self.state["status"] = "completed"
             return self.snapshot()
-        if self.state["last_sample"] and (now - datetime.fromisoformat(self.state["last_sample"])).total_seconds() < 15:
+        if self.state["last_sample"] and (now - datetime.fromisoformat(self.state["last_sample"])).total_seconds() < 12:
+            # Below the 15 s update period: HA rounds schedule times, so a
+            # strict 15 s threshold would drop regular samples.
             return self.snapshot()
         reference = reference if reference in modes else None
         row = {"type": "sample", "time": now.isoformat(), "read_only": True,
@@ -225,6 +243,23 @@ class ShadowRecorder:
         if reference is not None:
             self.state["comparisons"] += 1
             self.state["mismatches"] += int(reference != data["mode"])
+        # Count only transitions between known values: a first sample, a
+        # restored older session or an unavailable reference is no change.
+        for name in TRANSITION_COUNTERS:
+            self.state.setdefault(name, 0)
+        if self.state.get("last_mode") is not None:
+            self.state["mode_changes"] = self.state.get("mode_changes", 0) + int(
+                data["mode"] != self.state["last_mode"])
+        self.state["last_mode"] = data["mode"]
+        if reference is not None:
+            if self.state.get("last_reference") is not None:
+                self.state["reference_changes"] = self.state.get("reference_changes", 0) + int(
+                    reference != self.state["last_reference"])
+            self.state["last_reference"] = reference
+        self.state["reference_static"] = bool(
+            self.state["comparisons"]
+            and self.state.get("reference_changes", 0) == 0
+            and self.state.get("mode_changes", 0) >= STATIC_REFERENCE_MODE_CHANGES)
         if "settings" in row:
             self.state["settings_changes"] += 1
             self.state["settings"] = dict(settings)

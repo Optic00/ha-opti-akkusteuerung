@@ -12,12 +12,15 @@ from homeassistant.util import dt as dt_util
 _LOGGER = logging.getLogger(__name__)
 PRICE_STARTUP_GRACE_SECONDS = 360
 PRICE_SOURCE_KEYS = {"price_current", "price_series"}
+# Long enough for a deliberate short toggle, short enough to catch a night.
+CONTROL_INACTIVE_SECONDS = 900
 MESSAGES = {
     "pause": ("Huawei-Pause nicht bestätigt. Geräteeinstellungen können weiterwirken; automatische Nachholung nur bei unveränderter Bindung und Freigabe.", "Huawei pause is unconfirmed. Device settings may remain active; automatic retry requires unchanged binding and permission."),
     "connection": ("Wechselrichter nicht erreichbar oder noch nicht betriebsbereit. Gerätebereitschaft und Verbindung prüfen: bei SMA die Modbus-Einstellungen, bei Huawei die Huawei-Solar-Integration.", "Inverter offline or not yet ready. Check device readiness and connection: Modbus settings for SMA, or the Huawei Solar integration for Huawei."),
     "block": ("Lade-/Entladesperre wird verletzt", "Charge/discharge restriction violated"),
     "write": ("Schreibvorgang fehlgeschlagen oder seit über 240 Sekunden nicht bestätigt", "Write failed or not confirmed for more than 240 seconds"),
     "sources": ("Benötigte Eingangsdaten fehlen oder sind ungültig. Am Opti-Akku-Gerät Quellenfehler prüfen, dann den betroffenen Sensor und seine Zuordnung unter Konfigurieren kontrollieren.", "Input data is missing or invalid. Check Source errors on the Opti Akku device, then the affected sensor and its mapping under Configure."),
+    "control": ("Strategie aktiv, aber Schreibfreigabe aus: Opti Akku steuert den Akku nicht. Bei einem absichtlich lesenden 24-Stunden-Vergleich ist das erwartet; die Strategie dafür eingeschaltet lassen. Andernfalls die Schreibfreigabe prüfen.", "Strategy active but writes disabled: Opti Akku is not controlling the battery. This is expected during an intentional read-only 24-hour comparison; keep the strategy enabled for that comparison. Otherwise, check write permission."),
     "prices": ("Tibber-Preisabruf fehlgeschlagen; Cache gilt nur bis zu seiner ursprünglichen Ablaufzeit", "Tibber price fetch failed; cached prices keep their original expiry"),
 }
 
@@ -81,6 +84,7 @@ class HealthAlerts:
             ),
             "sources": bool(data.get("source_errors")),
             "prices": bool(data.get("price_provider_error")),
+            "control": data.get("control_inactive") is True,
         }
         changed = False
         new = []
@@ -94,7 +98,7 @@ class HealthAlerts:
                     and set(data.get("source_errors", {})) <= PRICE_SOURCE_KEYS)
                 if startup_grace and price_only:
                     continue
-                delay = 0 if key in ("block", "write", "pause") else 60
+                delay = 0 if key in ("block", "write", "pause") else CONTROL_INACTIVE_SECONDS if key == "control" else 60
                 if key not in self._active and (now - self._since[key]).total_seconds() >= delay:
                     self._active.add(key)
                     new.append(key)

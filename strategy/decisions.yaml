@@ -166,11 +166,12 @@ strategy:
              and (states('sensor.opti_forecast_score') | float) < 3
              and (states('sensor.opti_soc') | float) < (states('input_number.maxsoc') | float(95) - stopband)
              and (states('sensor.opti_price_current_ct_kwh') | float) < (states('input_number.opti_einspeiseverguetung_ct') | float(0)) }}
-      - alias: 'Ladefenster: kein guenstigeres Fenster vor der naechsten Spitze'
+      - alias: 'Ladefenster: kein guenstigeres Fenster vor der naechsten Spitze (Hysterese: Einstieg +0.5 ct, Halten +1.5 ct)'
         condition: template
         value_template: '{% set cur = states(''sensor.opti_price_current_ct_kwh'') | float(0) %} {% set
-          minv = state_attr(''sensor.opti_peak_reserve_soc'', ''min_preis_vor_peak_ct'') %} {{ minv is
-          none or cur <= (minv | float(cur)) + 0.5 }}'
+          minv = state_attr(''sensor.opti_peak_reserve_soc'', ''min_preis_vor_peak_ct'') %} {% set
+          fenster_band = 1.5 if is_state(''input_select.akkusteuerung_modus'', ''Akku Netzladen'') else 0.5 %} {{ minv is
+          none or cur <= (minv | float(cur)) + fenster_band }}'
       sequence:
       - action: input_select.select_option
         decision_id: negative_price
@@ -188,10 +189,10 @@ strategy:
         state: 'on'
       - condition: template
         value_template: |-
-          {% set cur = states('sensor.opti_price_current_ct_kwh') | float(none) %} {% set soc = states('sensor.opti_soc') | float(none) %} {% set ges = states('sensor.opti_peak_reserve_soc') | float(none) %} {% set avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_avg_ct') | float(none) %} {% set spread_min = states('input_number.opti_netzlade_spread_ct') | float(10) %} {% set minv = state_attr('sensor.opti_peak_reserve_soc', 'min_preis_vor_peak_ct') %} {% set stopband = 0 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 3 %} {{ cur is not none and soc is not none and ges is not none and avg is not none
+          {% set cur = states('sensor.opti_price_current_ct_kwh') | float(none) %} {% set soc = states('sensor.opti_soc') | float(none) %} {% set ges = states('sensor.opti_peak_reserve_soc') | float(none) %} {% set avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_avg_ct') | float(none) %} {% set spread_min = states('input_number.opti_netzlade_spread_ct') | float(10) %} {% set minv = state_attr('sensor.opti_peak_reserve_soc', 'min_preis_vor_peak_ct') %} {% set stopband = 0 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 3 %} {# Ladefenster mit Hysterese (Issue #111): Einstieg bis minv+0.5 ct, im Modus 'Akku Netzladen' halten bis minv+1.5 ct, sonst flattert Netzladen<->L4 bei Viertelstundenpreisen. #} {% set fenster_band = 1.5 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 0.5 %} {{ cur is not none and soc is not none and ges is not none and avg is not none
              and soc < ges - stopband
              and (avg - cur) >= spread_min
-             and (minv is none or cur <= (minv | float(cur)) + 0.5) }}
+             and (minv is none or cur <= (minv | float(cur)) + fenster_band) }}
       sequence:
       - action: input_select.select_option
         decision_id: peak_precharge

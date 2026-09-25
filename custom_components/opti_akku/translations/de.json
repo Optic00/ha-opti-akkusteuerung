@@ -117,7 +117,7 @@
       },
       "ev": {
         "title": "Wallbox: evcc-Anbindung (optional)",
-        "description": "Nur für evcc-Ladepunkte. Modus und Ladestatus müssen zusammen ausgewählt werden. Optional kann Smart Cost aktiv ausgewählt werden. Bei aktivem Laden in now oder minpv sowie in pv mit aktivem Smart Cost kann die Entladung des Hausakkus gesperrt werden; normales PV-Laden sperrt die Entladung nicht. Laden des Hausakkus bleibt möglich. Ohne Wallbox alle Quellen leer und die Sperre ausgeschaltet lassen. Zum Entfernen alle Quellen leeren und die Sperre ausschalten.",
+        "description": "Nur für evcc-Ladepunkte. Modus und Ladestatus müssen zusammen ausgewählt werden. Optional kann Smart Cost aktiv ausgewählt werden. Bei aktivem Laden in now oder dem älteren minpv sowie in pv/smart mit aktivem Smart Cost kann die Entladung des Hausakkus gesperrt werden; normales PV-Laden sperrt die Entladung nicht. Die evcc-Option alwaysCharge in smart wird nicht gesondert erkannt. Laden des Hausakkus bleibt möglich. Ohne Wallbox alle Quellen leer und die Sperre ausgeschaltet lassen. Zum Entfernen alle Quellen leeren und die Sperre ausschalten.",
         "data": {
           "ev1_mode": "EV 1 Modus",
           "ev1_charging": "EV 1 lädt",
@@ -421,7 +421,7 @@
       },
       "sources": {
         "title": "Anlage und Messwerte",
-        "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig. Nur bereits oben ausgeschlossene Lasten auswählen, die unveränderte 0 W nicht regelmäßig melden und Verbindungsausfälle zuverlässig als nicht verfügbar kennzeichnen. Bei einer positiven Altersgrenze gilt diese Ausnahme nur für exakt 0 W bzw. 0 kW; positive Leistungen werden weiter auf Aktualität geprüft. Mit Altersgrenze 0 gilt stattdessen die HA-Verfügbarkeit für alle externen Leistungsquellen einschließlich der Wärmepumpen-Leistung im Bedarfsprofil sowie für die Ruhe-Zellspreizung.",
+        "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig. Nur bereits oben ausgeschlossene Lasten auswählen, die unveränderte 0 W nicht regelmäßig melden und Verbindungsausfälle zuverlässig als nicht verfügbar kennzeichnen. Bei einer positiven Altersgrenze gilt diese Ausnahme nur für exakt 0 W bzw. 0 kW; positive Leistungen werden weiter auf Aktualität geprüft. Mit Altersgrenze 0 gilt stattdessen die HA-Verfügbarkeit für alle externen Leistungsquellen einschließlich der Wärmepumpen-Leistung im Bedarfsprofil sowie für die Ruhe-Zellspreizung. Änderungen bleiben ein Entwurf, bis du im Menü Prüfen und speichern abschließt.",
         "data": {
           "house_consumption": "Hausverbrauch",
           "pv_generation": "PV-Erzeugung DC (nur Anzeige, optional)",
@@ -487,7 +487,7 @@
       },
       "ev": {
         "title": "Wallbox: evcc-Anbindung (optional)",
-        "description": "Nur für evcc-Ladepunkte. Modus und Ladestatus müssen zusammen ausgewählt werden. Optional kann Smart Cost aktiv ausgewählt werden. Bei aktivem Laden in now oder minpv sowie in pv mit aktivem Smart Cost kann die Entladung des Hausakkus gesperrt werden; normales PV-Laden sperrt die Entladung nicht. Laden des Hausakkus bleibt möglich. Ohne Wallbox alle Quellen leer und die Sperre ausgeschaltet lassen. Zum Entfernen alle Quellen leeren und die Sperre ausschalten.",
+        "description": "Nur für evcc-Ladepunkte. Modus und Ladestatus müssen zusammen ausgewählt werden. Optional kann Smart Cost aktiv ausgewählt werden. Bei aktivem Laden in now oder dem älteren minpv sowie in pv/smart mit aktivem Smart Cost kann die Entladung des Hausakkus gesperrt werden; normales PV-Laden sperrt die Entladung nicht. Die evcc-Option alwaysCharge in smart wird nicht gesondert erkannt. Laden des Hausakkus bleibt möglich. Ohne Wallbox alle Quellen leer und die Sperre ausgeschaltet lassen. Zum Entfernen alle Quellen leeren und die Sperre ausschalten.",
         "data": {
           "ev1_mode": "EV 1 Modus",
           "ev1_charging": "EV 1 lädt",

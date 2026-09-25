@@ -63,7 +63,7 @@ Die umfangreichen Prognoseattribute werden nicht bei jedem Takt in den HA-Record
 kopiert. Ein eingefrorener Prognosewert wird bis zum vorhergesagten PV-Beginn mit dem
 tatsächlichen Hausverbrauch verglichen. Fehlende Messzeit wird ausgewiesen; bei
 Lücken wird kein vollständiger Prognosefehler behauptet. Die letzten sieben
-abgeschlossenen Vergleiche bleiben während der Laufzeit sichtbar; ein laufender
+abgeschlossenen Vergleiche bleiben auch nach einem Neustart sichtbar. Ein laufender
 Vergleich überlebt Neustarts mit ausgewiesener Datenlücke. Das misst die
 Verbrauchsprognose, nicht hypothetisch vermiedenen Netzbezug.
 
@@ -110,6 +110,10 @@ auch bei historischer Vorbelegung berücksichtigt.
 Der Import benötigt weder Recorder-Schreibzugriff noch einen Neustart als eigene
 Aktion und startet keinen zusätzlichen Batterie-Schreibzyklus. Er ersetzt keine
 Auswertung an späteren, beim Lernen unbenutzten Tagen.
+Nach dem Einlesen läuft ein angenommener Import auch dann zu Ende, wenn der
+aufrufende Dialog oder Dienstaufruf abgebrochen wird. Bis dahin bleibt das
+bisherige Profil aktiv und ein weiterer Import gesperrt. Ändern sich die
+Quellen oder wird der Eintrag beendet, wird das neue Profil nicht übernommen.
 
 ### Messquellenvergleich und Wiederanlauf (0.5.2b2)
 

@@ -177,14 +177,15 @@ def test_smart_cost_uses_binary_sensor_selector():
 
 
 @pytest.mark.parametrize("include_smart_cost", [False, True])
-async def test_ev_pair_accepts_optional_smart_cost(hass, include_smart_cost):
+@pytest.mark.parametrize("mode", ["pv", "smart"])
+async def test_ev_pair_accepts_optional_smart_cost(hass, include_smart_cost, mode):
     entry = MockConfigEntry(
         domain=DOMAIN,
         data=CONNECTION,
         options={"sources": {}, "single_inverter": True},
     )
     entry.add_to_hass(hass)
-    hass.states.async_set("select.ev_mode", "pv")
+    hass.states.async_set("select.ev_mode", mode)
     hass.states.async_set("binary_sensor.ev_charging", "on")
     hass.states.async_set("binary_sensor.ev_smart_cost", "on")
     result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -2069,3 +2070,26 @@ def test_tibber_age_keeps_integer_conversion(value, expected):
     assert type(result) is int and result == expected
     with pytest.raises(vol.Invalid):
         validator(59)
+
+
+async def test_source_age_zero_survives_save_and_reopen(hass):
+    """Issue #103: 0 is a valid choice, not a missing value replaced by 900."""
+    entry = MockConfigEntry(domain=DOMAIN, data={**CONNECTION, "shadow_mode": True},
+                            options={"sources": {"pv_power": "sensor.pv"}, "single_inverter": True})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "sources"})
+    assert form_values(result)["source_max_age"] == 900
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"single_inverter": True, "source_max_age": 0})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "sources"})
+    assert form_values(result)["source_max_age"] == 0
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"single_inverter": True, "source_max_age": 0})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options["source_max_age"] == 0
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "sources"})
+    assert form_values(result)["source_max_age"] == 0

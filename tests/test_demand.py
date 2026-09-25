@@ -15,6 +15,7 @@ from custom_components.opti_akku.demand import (
     pv_intervals,
     source_value,
 )
+from custom_components.opti_akku.shadow import _demand_sample
 
 NOW = datetime(2026, 9, 14, 6, tzinfo=UTC)
 SETTINGS = {
@@ -258,6 +259,11 @@ def test_reserve_uses_deficit_until_pv_not_daily_total_or_confirmation_hour():
     assert out["required_battery_kwh"] == pytest.approx(1.556, abs=0.001)
     assert out["suggested_reserve_soc"] == 20.6
     assert out["current_strategy_reserve_soc"] == 45
+    journal = _demand_sample({"demand_forecast": out})
+    assert journal["suggested_reserve_soc"] == 20.6
+    assert journal["current_strategy_reserve_soc"] == 45
+    assert isinstance(out["comparison_note"], str)
+    assert journal["comparison_note"] == out["comparison_note"]
     assert out["observation_only"] and not out["controls_battery"]
     assert out["pv_cover_factor"] == 1.2
     assert out["pv_cover_min_minutes"] == 60

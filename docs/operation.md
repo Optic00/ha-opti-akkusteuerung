@@ -212,7 +212,8 @@ unabhängig von der optionalen Smart-Cost-Quelle. Die neue evcc-Option
 `alwaysCharge` innerhalb von `smart` wird ohne eigene HA-Quelle nicht erkannt:
 Sie sperrt die Hausakku-Entladung nur bei aktivem Smart Cost. Wer unabhängig
 davon eine Entladesperre braucht, verwendet `now`. Unbekannte Moduswerte gelten
-als unverfügbar und lösen keine neue automatische Sperre aus.
+als unverfügbar und lösen keine neue automatische Sperre aus. In manuellen
+Betriebsarten wird die Entladung bei fehlendem Modus vorsorglich gesperrt.
 Modus, Ladestatus und Smart Cost bleiben gültig, solange die Quellintegration
 keinen ungültigen Zustand meldet. Deshalb muss die Integration oder MQTT-Bridge
 einen Verbindungsausfall an Home Assistant weitergeben: als `unavailable`, über

@@ -15,6 +15,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.opti_akku.coordinator import OptiCoordinator, validate_setting
 from custom_components.opti_akku.engine import StrategyEngine
+from custom_components.opti_akku.shadow import ShadowRecorder
 
 
 def device():
@@ -1424,6 +1425,31 @@ async def test_offline_disable_persists_owed_huawei_pause_and_reconnect_finishes
     await c.async_stop()
 
 
+async def test_disabling_writes_waits_for_persisted_off_state(coordinator):
+    coordinator.write_enabled = True
+    coordinator._online = False
+    coordinator.device.async_probe.side_effect = RuntimeError("offline")
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    saved = []
+
+    async def save(snapshot):
+        saved.append(snapshot)
+        entered.set()
+        await release.wait()
+
+    coordinator._store.async_save = AsyncMock(side_effect=save)
+    task = asyncio.create_task(coordinator.async_set_write_enabled(False))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        assert not task.done()
+        assert saved[0]["write_enabled"] is False
+    finally:
+        release.set()
+    await asyncio.wait_for(task, 5)
+    assert coordinator.write_enabled is False
+
+
 async def test_owed_pause_is_not_redirected_to_a_new_binding(hass, entry):
     class Phased:
         PHASED = True
@@ -2391,6 +2417,35 @@ async def test_journal_samples_are_frozen_and_bounded(coordinator, hass):
     assert samples[0]["source_errors"] == {}
     assert samples[0]["demand_forecast"] == {"status": "ready"}
     assert not coordinator._journal_jobs and not coordinator._journal_owners
+
+
+async def test_bounded_journal_sample_preserves_recorded_fields(coordinator, tmp_path):
+    raw = {
+        **journal_sample(),
+        "device_errors": {"inverter": "unavailable"},
+        "command_confirmation": "idle_or_confirmed",
+        "states": {f"sensor.opti_{key}": index for index, key in enumerate(
+            ("soc", "battery_temp", "battery_power_w", "house_consumption_w",
+             "pv_generation_w", "pv_power_w", "grid_import_w", "grid_export_w",
+             "charge_power_w", "target_soc", "price_current_ct_kwh"))},
+        "demand_forecast": {
+            "status": "ready", "profile_ready": True, "refill_covered": False,
+            "strategy_comparison": {
+                "status": "ready", "reason": "test", "observation_only": True,
+                "blocks": {"remaining_day": {"status": "ready", "active_score": 1,
+                                             "candidate_score": 2, "score_delta": 1}},
+            },
+        },
+    }
+    now = dt_util.utcnow()
+    rows = []
+    for name, data in (("raw", raw), ("bounded", coordinator._journal_sample(raw))):
+        recorder = ShadowRecorder(tmp_path / name)
+        session = recorder.start(now, {}, "", "2026.9-beta10")
+        recorder.record(now, data, {}, None, ("Akku Pause",))
+        path = recorder.directory / f"{session['session_id']}.jsonl"
+        rows.append(json.loads(path.read_text().splitlines()[1]))
+    assert rows[0] == rows[1]
 
 
 async def test_journal_deadline_saves_completion_with_real_gaps(coordinator, hass):

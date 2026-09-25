@@ -104,6 +104,72 @@ async def test_source_incident_debounce_and_reload_lifecycle(hass, alerts):
         await fresh.async_stop()
 
 
+async def test_source_alert_names_entities_and_updates_without_extra_push(hass, alerts):
+    calls = []
+
+    async def push(call):
+        calls.append(call.data["message"])
+
+    hass.services.async_register("notify", "test_phone", push)
+    hass.config_entries.async_update_entry(alerts.entry, options={
+        **alerts.entry.options,
+        "sources": {"pv_power": "sensor.hybrid_ac"},
+    })
+    start = dt_util.utcnow()
+    first = health(source_errors={
+        "pv_power": "missing_or_stale",
+        "plant:sensor.wallbox": "missing_or_stale",
+    })
+    second = health(source_errors={"plant:sensor.other_wallbox": "invalid_value"})
+
+    with patch("custom_components.opti_akku.alerts.persistent_notification.async_create") as create:
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start):
+            alerts.update(first)
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=61)):
+            alerts.update(first)
+        initial_message = create.call_args.args[1]
+        assert "pv_power: sensor.hybrid_ac (missing_or_stale)" in initial_message
+        assert "sensor.wallbox (missing_or_stale)" in initial_message
+
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=62)):
+            alerts.update(second)
+        assert create.call_count == 1
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=122)):
+            alerts.update(second)
+        updated_message = create.call_args.args[1]
+        assert "sensor.other_wallbox (invalid_value)" in updated_message
+        assert "sensor.wallbox" not in updated_message
+        assert create.call_count == 2
+
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert len(calls) == 1
+    assert "sensor.hybrid_ac" in calls[0]
+    assert "sensor.wallbox" in calls[0]
+
+
+async def test_tibber_startup_grace_keeps_price_sources_out_of_other_alerts(hass, alerts):
+    hass.config_entries.async_update_entry(alerts.entry, options={
+        **alerts.entry.options,
+        "price_provider": "tibber",
+    })
+    start = dt_util.utcnow()
+    data = health(source_errors={
+        "plant:sensor.wallbox": "missing_or_stale",
+        "price_current": "missing_or_stale",
+        "price_series": "missing_or_stale",
+    }, price_provider_error="tibber_fetch_failed")
+    with patch("custom_components.opti_akku.alerts.persistent_notification.async_create") as create:
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start):
+            alerts.update(data)
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=61)):
+            alerts.update(data)
+    message = create.call_args.args[1]
+    assert "sensor.wallbox (missing_or_stale)" in message
+    assert "price_current" not in message
+    assert "price_series" not in message
+    assert alerts._active == {"sources"}
+
+
 async def test_write_alert_immediate_but_not_when_disarmed(hass, alerts):
     alerts.update(health(write_enabled=False, last_error="Schreibvorgang nicht bestätigt: OSError"))
     assert not alerts._active

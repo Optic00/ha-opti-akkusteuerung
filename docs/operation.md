@@ -187,15 +187,20 @@ beim Neuladen erhalten. Nicht konfigurierte EV-Ladepunkte beteiligen sich
 nicht an der Entladesperre; fehlende Daten eines konfigurierten Ladepunkts
 halten eine bereits aktive Sperre weiterhin fest. Optional kann je Ladepunkt
 der evcc-Binärsensor `smart_cost_active` ausgewählt werden. Dann sperrt auch
-aktives Laden im Modus `pv` die Entladung, solange Smart Cost aktiv ist.
-Normales PV-Laden ohne aktives Smart Cost sperrt nicht. Fehlt der konfigurierte
-Smart-Cost-Wert während eines erkannten Ladevorgangs im Modus `pv` oder meldet
+aktives Laden im Modus `pv` (evcc vor 0.316) oder `smart` (ab 0.316) die
+Entladung, solange Smart Cost aktiv ist. Normales PV-Laden ohne aktives Smart
+Cost sperrt nicht. Fehlt der konfigurierte Smart-Cost-Wert während eines
+erkannten Ladevorgangs in einem dieser Modi oder meldet
 die Quellintegration ihn als unbekannt oder nicht verfügbar, gilt der Ladepunkt
 als unverfügbar. Die Automatik hält dann eine
 bereits aktive Sperre; in manueller Betriebsart wird die Entladung
 vorsorglich gesperrt.
-Die Modi `now` und `minpv` sperren bei aktivem Laden weiterhin unabhängig von
-der optionalen Smart-Cost-Quelle.
+Die Modi `now` und das ältere `minpv` sperren bei aktivem Laden weiterhin
+unabhängig von der optionalen Smart-Cost-Quelle. Die neue evcc-Option
+`alwaysCharge` innerhalb von `smart` wird ohne eigene HA-Quelle nicht erkannt:
+Sie sperrt die Hausakku-Entladung nur bei aktivem Smart Cost. Wer unabhängig
+davon eine Entladesperre braucht, verwendet `now`. Unbekannte Moduswerte gelten
+als unverfügbar und lösen keine neue automatische Sperre aus.
 Modus, Ladestatus und Smart Cost bleiben gültig, solange die Quellintegration
 keinen ungültigen Zustand meldet. Deshalb muss die Integration oder MQTT-Bridge
 einen Verbindungsausfall an Home Assistant weitergeben: als `unavailable`, über

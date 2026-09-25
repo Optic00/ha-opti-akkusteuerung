@@ -177,14 +177,15 @@ def test_smart_cost_uses_binary_sensor_selector():
 
 
 @pytest.mark.parametrize("include_smart_cost", [False, True])
-async def test_ev_pair_accepts_optional_smart_cost(hass, include_smart_cost):
+@pytest.mark.parametrize("mode", ["pv", "smart"])
+async def test_ev_pair_accepts_optional_smart_cost(hass, include_smart_cost, mode):
     entry = MockConfigEntry(
         domain=DOMAIN,
         data=CONNECTION,
         options={"sources": {}, "single_inverter": True},
     )
     entry.add_to_hass(hass)
-    hass.states.async_set("select.ev_mode", "pv")
+    hass.states.async_set("select.ev_mode", mode)
     hass.states.async_set("binary_sensor.ev_charging", "on")
     hass.states.async_set("binary_sensor.ev_smart_cost", "on")
     result = await hass.config_entries.options.async_init(entry.entry_id)

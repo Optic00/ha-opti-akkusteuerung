@@ -117,7 +117,7 @@
       },
       "ev": {
         "title": "Wallbox: evcc-Anbindung (optional)",
-        "description": "Nur für evcc-Ladepunkte. Modus und Ladestatus müssen zusammen ausgewählt werden. Optional kann Smart Cost aktiv ausgewählt werden. Bei aktivem Laden in now oder minpv sowie in pv mit aktivem Smart Cost kann die Entladung des Hausakkus gesperrt werden; normales PV-Laden sperrt die Entladung nicht. Laden des Hausakkus bleibt möglich. Ohne Wallbox alle Quellen leer und die Sperre ausgeschaltet lassen. Zum Entfernen alle Quellen leeren und die Sperre ausschalten.",
+        "description": "Nur für evcc-Ladepunkte. Modus und Ladestatus müssen zusammen ausgewählt werden. Optional kann Smart Cost aktiv ausgewählt werden. Bei aktivem Laden in now oder dem älteren minpv sowie in pv/smart mit aktivem Smart Cost kann die Entladung des Hausakkus gesperrt werden; normales PV-Laden sperrt die Entladung nicht. Die evcc-Option alwaysCharge in smart wird nicht gesondert erkannt. Laden des Hausakkus bleibt möglich. Ohne Wallbox alle Quellen leer und die Sperre ausgeschaltet lassen. Zum Entfernen alle Quellen leeren und die Sperre ausschalten.",
         "data": {
           "ev1_mode": "EV 1 Modus",
           "ev1_charging": "EV 1 lädt",
@@ -487,7 +487,7 @@
       },
       "ev": {
         "title": "Wallbox: evcc-Anbindung (optional)",
-        "description": "Nur für evcc-Ladepunkte. Modus und Ladestatus müssen zusammen ausgewählt werden. Optional kann Smart Cost aktiv ausgewählt werden. Bei aktivem Laden in now oder minpv sowie in pv mit aktivem Smart Cost kann die Entladung des Hausakkus gesperrt werden; normales PV-Laden sperrt die Entladung nicht. Laden des Hausakkus bleibt möglich. Ohne Wallbox alle Quellen leer und die Sperre ausgeschaltet lassen. Zum Entfernen alle Quellen leeren und die Sperre ausschalten.",
+        "description": "Nur für evcc-Ladepunkte. Modus und Ladestatus müssen zusammen ausgewählt werden. Optional kann Smart Cost aktiv ausgewählt werden. Bei aktivem Laden in now oder dem älteren minpv sowie in pv/smart mit aktivem Smart Cost kann die Entladung des Hausakkus gesperrt werden; normales PV-Laden sperrt die Entladung nicht. Die evcc-Option alwaysCharge in smart wird nicht gesondert erkannt. Laden des Hausakkus bleibt möglich. Ohne Wallbox alle Quellen leer und die Sperre ausgeschaltet lassen. Zum Entfernen alle Quellen leeren und die Sperre ausschalten.",
         "data": {
           "ev1_mode": "EV 1 Modus",
           "ev1_charging": "EV 1 lädt",

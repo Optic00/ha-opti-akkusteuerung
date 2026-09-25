@@ -81,8 +81,10 @@ def test_configured_ev_missing_is_not_off(fields):
 @pytest.mark.parametrize("index", [1, 2])
 @pytest.mark.parametrize(
     ("mode", "smart_cost", "expected"),
-    [("pv", "on", "on"), ("pv", "off", "off"), ("now", "off", "on"),
-     ("minpv", "off", "on")],
+    [("pv", "on", "on"), ("pv", "off", "off"),
+     ("smart", "on", "on"), ("smart", "off", "off"),
+     ("now", "off", "on"), ("minpv", "off", "on"),
+     ("off", "on", "off")],
 )
 def test_ev_smart_cost_extends_only_pv_grid_charging(index, mode, smart_cost, expected):
     options = {"sources": {
@@ -101,23 +103,25 @@ def test_ev_smart_cost_extends_only_pv_grid_charging(index, mode, smart_cost, ex
     assert not errors
 
 
-def test_ev_pv_without_smart_cost_keeps_existing_behavior():
+@pytest.mark.parametrize("mode", ["pv", "smart"])
+def test_ev_pv_without_smart_cost_keeps_existing_behavior(mode):
     options = {"sources": {
         "ev1_mode": "select.ev", "ev1_charging": "binary_sensor.ev",
     }}
-    external = {"select.ev": state("pv"), "binary_sensor.ev": state("on")}
+    external = {"select.ev": state(mode), "binary_sensor.ev": state("on")}
     states, _, errors = build_inputs({}, options, external, NOW)
     assert states["binary_sensor.opti_ev_lp1_schnell"] == "off"
     assert not errors
 
 
+@pytest.mark.parametrize("mode", ["pv", "smart"])
 @pytest.mark.parametrize("smart_cost", [None, state("unknown"), state("unavailable")])
-def test_ev_pv_with_invalid_smart_cost_is_unavailable(smart_cost):
+def test_ev_pv_with_invalid_smart_cost_is_unavailable(mode, smart_cost):
     options = {"sources": {
         "ev1_mode": "select.ev", "ev1_charging": "binary_sensor.ev",
         "ev1_smart_cost": "binary_sensor.smart_cost",
     }}
-    external = {"select.ev": state("pv"), "binary_sensor.ev": state("on")}
+    external = {"select.ev": state(mode), "binary_sensor.ev": state("on")}
     if smart_cost is not None:
         external["binary_sensor.smart_cost"] = smart_cost
     states, attrs, errors = build_inputs({}, options, external, NOW)
@@ -128,13 +132,14 @@ def test_ev_pv_with_invalid_smart_cost_is_unavailable(smart_cost):
 
 
 @pytest.mark.parametrize("index", [1, 2])
-def test_ev_state_like_sources_do_not_expire(index):
+@pytest.mark.parametrize("mode", ["pv", "smart"])
+def test_ev_state_like_sources_do_not_expire(index, mode):
     options = {"source_max_age": 60, "sources": {
         f"ev{index}_mode": "select.ev", f"ev{index}_charging": "binary_sensor.ev",
         f"ev{index}_smart_cost": "binary_sensor.smart_cost",
     }}
     external = {
-        "select.ev": state("pv", age=30 * 24 * 60 * 60),
+        "select.ev": state(mode, age=30 * 24 * 60 * 60),
         "binary_sensor.ev": state("on", age=60 * 60),
         "binary_sensor.smart_cost": state("on", age=7 * 24 * 60 * 60),
     }
@@ -163,12 +168,29 @@ def test_ev_state_like_sources_reject_invalid_states(field, bad):
     assert errors[f"ev1_{field}"] == "missing_or_unavailable"
 
 
-def test_ev_now_lock_survives_missing_configured_smart_cost():
+@pytest.mark.parametrize("charging", ["on", "off"])
+def test_unrecognized_ev_mode_is_not_silently_treated_as_pv(charging):
     options = {"sources": {
         "ev1_mode": "select.ev", "ev1_charging": "binary_sensor.ev",
         "ev1_smart_cost": "binary_sensor.smart_cost",
     }}
-    external = {"select.ev": state("now"), "binary_sensor.ev": state("on")}
+    external = {"select.ev": state("future_mode"),
+                "binary_sensor.ev": state(charging),
+                "binary_sensor.smart_cost": state("on")}
+    states, attrs, errors = build_inputs({}, options, external, NOW)
+    key = "binary_sensor.opti_ev_lp1_schnell"
+    assert states[key] == "unavailable"
+    assert attrs[key]["valide"] is False
+    assert errors["ev1_mode"] == "missing_or_unavailable"
+
+
+@pytest.mark.parametrize("mode", ["now", "minpv"])
+def test_ev_now_lock_survives_missing_configured_smart_cost(mode):
+    options = {"sources": {
+        "ev1_mode": "select.ev", "ev1_charging": "binary_sensor.ev",
+        "ev1_smart_cost": "binary_sensor.smart_cost",
+    }}
+    external = {"select.ev": state(mode), "binary_sensor.ev": state("on")}
     states, attrs, errors = build_inputs({}, options, external, NOW)
     key = "binary_sensor.opti_ev_lp1_schnell"
     assert states[key] == "on"
@@ -176,13 +198,14 @@ def test_ev_now_lock_survives_missing_configured_smart_cost():
     assert not errors
 
 
+@pytest.mark.parametrize("mode", ["pv", "smart"])
 @pytest.mark.parametrize("smart_cost", [state("on"), None])
-def test_ev_not_charging_never_starts_lock(smart_cost):
+def test_ev_not_charging_never_starts_lock(mode, smart_cost):
     options = {"sources": {
         "ev1_mode": "select.ev", "ev1_charging": "binary_sensor.ev",
         "ev1_smart_cost": "binary_sensor.smart_cost",
     }}
-    external = {"select.ev": state("pv"), "binary_sensor.ev": state("off")}
+    external = {"select.ev": state(mode), "binary_sensor.ev": state("off")}
     if smart_cost is not None:
         external["binary_sensor.smart_cost"] = smart_cost
     states, attrs, errors = build_inputs({}, options, external, NOW)
@@ -192,7 +215,8 @@ def test_ev_not_charging_never_starts_lock(smart_cost):
     assert not errors
 
 
-def test_ev_smart_cost_unavailable_holds_and_then_releases_restored_latch():
+@pytest.mark.parametrize("mode", ["pv", "smart"])
+def test_ev_smart_cost_unavailable_holds_and_then_releases_restored_latch(mode):
     from tests.test_engine import StrategyEngine, measurements, solar_attrs
 
     engine = StrategyEngine()
@@ -203,7 +227,7 @@ def test_ev_smart_cost_unavailable_holds_and_then_releases_restored_latch():
 
     def evaluate(seconds, charging, smart_cost):
         now = NOW + timedelta(seconds=seconds)
-        external = {"select.ev": state("pv"), "binary_sensor.ev": state(charging)}
+        external = {"select.ev": state(mode), "binary_sensor.ev": state(charging)}
         if smart_cost is not None:
             external["binary_sensor.smart_cost"] = state(smart_cost)
         for value in external.values():
@@ -222,6 +246,27 @@ def test_ev_smart_cost_unavailable_holds_and_then_releases_restored_latch():
     assert evaluate(2, "off", None) == "on"
     assert evaluate(301, "off", None) == "on"
     assert evaluate(302, "off", None) == "off"
+
+
+def test_ev_mode_rename_keeps_existing_smart_cost_lock():
+    from tests.test_engine import StrategyEngine, measurements, solar_attrs
+
+    engine = StrategyEngine()
+    options = {"single_inverter": True, "sources": {
+        "ev1_mode": "select.ev", "ev1_charging": "binary_sensor.ev",
+        "ev1_smart_cost": "binary_sensor.smart_cost",
+    }}
+    for seconds, mode in ((0, "pv"), (1, "smart")):
+        now = NOW + timedelta(seconds=seconds)
+        external = {"select.ev": state(mode), "binary_sensor.ev": state("on"),
+                    "binary_sensor.smart_cost": state("on")}
+        native = measurements(**{"sensor.opti_house_balance_w": 400,
+                                 "input_boolean.opti_ev_akku_pause": "on"})
+        states, attrs, errors = build_inputs(native, options, external, now)
+        attrs.update(solar_attrs(now))
+        assert not errors
+        result = engine.evaluate(states, attrs, now)
+        assert result.states["binary_sensor.opti_ev_schnellladung"] == "on"
 
 
 @pytest.mark.parametrize("index", [1, 2])

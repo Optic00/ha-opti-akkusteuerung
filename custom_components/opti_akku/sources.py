@@ -213,13 +213,16 @@ def build_inputs(
             errors.update(price_current=error, price_series=error)
 
     # EV state is derived from the actual charging flag AND evcc mode. Smart
-    # Cost additionally marks grid charging in pv mode when explicitly mapped.
+    # Cost additionally marks grid charging in pv/smart mode when mapped.
     # These three inputs are persistent state or setting entities which
     # integrations may only report when their value changes. Their age
     # therefore says nothing about availability; unknown/unavailable values
     # remain invalid.
     # Unconfigured loadpoints do not participate in the latch; configured but
     # missing/invalid inputs must still hold its lock.
+    fast_modes = ("now", "minpv")  # minpv remains for evcc before 0.316.
+    pv_modes = ("pv", "smart")  # evcc 0.316 renamed pv to smart.
+    supported_modes = ("off", *fast_modes, *pv_modes)
     for index in (1, 2):
         mode = ha_states.get(sources.get(f"ev{index}_mode", ""))
         charging = ha_states.get(sources.get(f"ev{index}_charging", ""))
@@ -234,7 +237,7 @@ def build_inputs(
             attributes[key] = {"valide": True, "konfiguriert": False}
             continue
         base_valid = (mode is not None and charging is not None
-                      and mode.state in ("off", "now", "minpv", "pv")
+                      and mode.state in supported_modes
                       and charging.state in ("on", "off"))
         smart_cost_valid = (smart_cost is not None
                             and smart_cost.state in ("on", "off"))
@@ -243,14 +246,15 @@ def build_inputs(
             for field in (f"ev{index}_mode", f"ev{index}_charging"):
                 if sources.get(field):
                     errors[field] = "missing_or_unavailable"
-        elif charging.state == "on" and mode.state in ("now", "minpv"):
+        elif charging.state == "off":
+            states[key] = "off"
+        elif mode.state in fast_modes:
             states[key] = "on"
-        elif (charging.state == "on" and mode.state == "pv"
-              and smart_cost_configured and not smart_cost_valid):
+        elif mode.state in pv_modes and smart_cost_configured and not smart_cost_valid:
             states[key] = "unavailable"
             errors[smart_cost_key] = "missing_or_unavailable"
         else:
-            states[key] = ("on" if charging.state == "on" and mode.state == "pv"
+            states[key] = ("on" if mode.state in pv_modes
                            and smart_cost_configured and smart_cost.state == "on" else "off")
         watts = finite(power.state) if power is not None else None
         if watts is not None and power.attributes.get("unit_of_measurement") == "kW":

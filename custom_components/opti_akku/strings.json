@@ -117,7 +117,7 @@
       },
       "ev": {
         "title": "EV charging: evcc connection (optional)",
-        "description": "For evcc loadpoints. Select both mode and charging status. Optionally select Smart Cost active. While charging in now or minpv mode, or in pv mode with Smart Cost active, home battery discharge can be blocked; normal pv charging does not block discharge. Battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
+        "description": "For evcc loadpoints. Select both mode and charging status. Optionally select Smart Cost active. While charging in now or legacy minpv mode, or in pv/smart mode with Smart Cost active, home battery discharge can be blocked; normal solar charging does not block discharge. The evcc alwaysCharge option in smart mode is not detected separately. Battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
         "data": {
           "ev1_mode": "EV 1 mode",
           "ev1_charging": "EV 1 charging",
@@ -487,7 +487,7 @@
       },
       "ev": {
         "title": "EV charging: evcc connection (optional)",
-        "description": "For evcc loadpoints. Select both mode and charging status. Optionally select Smart Cost active. While charging in now or minpv mode, or in pv mode with Smart Cost active, home battery discharge can be blocked; normal pv charging does not block discharge. Battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
+        "description": "For evcc loadpoints. Select both mode and charging status. Optionally select Smart Cost active. While charging in now or legacy minpv mode, or in pv/smart mode with Smart Cost active, home battery discharge can be blocked; normal solar charging does not block discharge. The evcc alwaysCharge option in smart mode is not detected separately. Battery charging remains allowed. Without an EV charger, leave sources empty and the block off. To remove this feature, clear all sources and turn the block off.",
         "data": {
           "ev1_mode": "EV 1 mode",
           "ev1_charging": "EV 1 charging",

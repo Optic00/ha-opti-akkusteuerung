@@ -54,6 +54,18 @@ Start und Stopp verändern weder Schreibfreigabe noch Strategie und lösen
 keine zusätzlichen Gerätebefehle aus. **Status des 24-Stunden-Vergleichs** zeigt den
 Aufzeichnungsstatus; **24-Stunden-Vergleich beenden** stoppt nur das Journal.
 
+Die Aufzeichnung schreibt im Hintergrund. Solange ein Schreibvorgang läuft,
+werden weitere Stichproben ausgelassen, damit die Steuerung weiter aktualisiert
+werden kann. Die Zeitstempel zeigen diese Lücken; fehlende Werte werden nicht
+nachgetragen. Start und Stopp warten auf einen noch laufenden Journalzugriff,
+bevor die Sitzung gewechselt wird.
+Solange ein Start oder Stopp läuft, wird eine weitere Aktion mit einem Hinweis
+abgewiesen.
+Bleibt die Festplatte dauerhaft hängen, können auch das Entladen und Neuladen
+der Integration auf laufende Speicherzugriffe warten. Bei freigegebenen
+Schreibzugriffen und erreichbarem, identifiziertem Gerät wird der Pause-Befehl
+zuvor versucht. Das Warten bestätigt keine physische Wirkung dieses Befehls.
+
 Zusätzlich zu Modus und Messwerten enthält jede Stichprobe ausgewählte
 Refill-Prognosen, die Profilreife sowie aktive Werte, beobachtende Kandidaten
 und ihre Differenzen. Die Kandidaten bleiben rein informativ. `read_only` und `observation_only`

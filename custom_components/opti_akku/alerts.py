@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from datetime import timedelta
 
 from homeassistant.components import persistent_notification
@@ -14,6 +15,8 @@ PRICE_STARTUP_GRACE_SECONDS = 360
 PRICE_SOURCE_KEYS = {"price_current", "price_series"}
 # Long enough for a deliberate short toggle, short enough to catch a night.
 CONTROL_INACTIVE_SECONDS = 900
+STALE_SOURCE_ALERT_SECONDS = 180
+MAX_SOURCE_DETAILS = 5
 MESSAGES = {
     "pause": ("Huawei-Pause nicht bestätigt. Geräteeinstellungen können weiterwirken; automatische Nachholung nur bei unveränderter Bindung und Freigabe.", "Huawei pause is unconfirmed. Device settings may remain active; automatic retry requires unchanged binding and permission."),
     "connection": ("Wechselrichter nicht erreichbar oder noch nicht betriebsbereit. Gerätebereitschaft und Verbindung prüfen: bei SMA die Modbus-Einstellungen, bei Huawei die Huawei-Solar-Integration.", "Inverter offline or not yet ready. Check device readiness and connection: Modbus settings for SMA, or the Huawei Solar integration for Huawei."),
@@ -42,9 +45,41 @@ class HealthAlerts:
         self._started_at = None
         self._prices_ready = False
         self._service = entry.options.get("notification_service", "")
+        self._active_source_details = ""
+        self._source_details_updated_at = None
+        self._source_nonstale_since = None
 
     def _text(self, key):
         return MESSAGES[key][0 if self.hass.config.language == "de" else 1]
+
+    def _source_details(self, errors):
+        """Identify failing configured entities without adding measurements to alerts."""
+        if not isinstance(errors, Mapping):
+            return ""
+        sources = self.entry.options.get("sources", {})
+        if not isinstance(sources, Mapping):
+            sources = {}
+        details = []
+        for raw_key in sorted(key for key in errors if isinstance(key, str)):
+            key = raw_key.removeprefix("plant:")
+            entity_id = sources.get(key)
+            label = f"{key}: {entity_id}" if isinstance(entity_id, str) and entity_id else key
+            reason = errors[raw_key]
+            if isinstance(reason, str) and reason:
+                label += f" ({reason})"
+            details.append(label.replace("\n", " ").replace("\r", " "))
+        visible = ", ".join(details[:MAX_SOURCE_DETAILS])
+        remaining = len(details) - MAX_SOURCE_DETAILS
+        if remaining > 0:
+            visible += f" (+{remaining} {'weitere' if self.hass.config.language == 'de' else 'more'})"
+        return visible
+
+    def _message(self, key):
+        message = self._text(key)
+        if key == "sources" and self._active_source_details:
+            label = "Betroffen" if self.hass.config.language == "de" else "Affected"
+            message += f" {label}: {self._active_source_details}."
+        return message
 
     @callback
     def update(self, data):
@@ -59,11 +94,13 @@ class HealthAlerts:
             self._started_at = now
         if data.get("price_last_success") is not None:
             self._prices_ready = True
+        raw_source_errors = data.get("source_errors", {})
+        source_errors = raw_source_errors if isinstance(raw_source_errors, Mapping) else {}
         startup_grace = (self.entry.options.get("price_provider") == "tibber"
             and not self._prices_ready
             and (now - self._started_at).total_seconds() < PRICE_STARTUP_GRACE_SECONDS)
         data["price_status"] = ("loading" if startup_grace else "error") if (
-            data.get("price_provider_error") or PRICE_SOURCE_KEYS.intersection(data.get("source_errors", {}))
+            data.get("price_provider_error") or PRICE_SOURCE_KEYS.intersection(source_errors)
             or (self.entry.options.get("price_provider") == "tibber" and not self._prices_ready)
         ) else "ready"
         if data.get("strategy_enabled") is False:
@@ -82,7 +119,7 @@ class HealthAlerts:
                 or (str(data.get("last_error", "")).startswith("Schreibvorgang nicht bestätigt")
                     and not (recovering and "InverterNotReadyError" in str(data.get("last_error", "")) ))
             ),
-            "sources": bool(data.get("source_errors")),
+            "sources": bool(source_errors),
             "prices": bool(data.get("price_provider_error")),
             "control": data.get("control_inactive") is True,
         }
@@ -90,21 +127,49 @@ class HealthAlerts:
         new = []
         for key, problem in problems.items():
             if problem:
+                if (key == "sources" and key not in self._active
+                        and key in self._clear_since
+                        and (now - self._clear_since[key]).total_seconds() >= 60):
+                    self._since.pop(key, None)
+                    self._source_nonstale_since = None
                 self._clear_since.pop(key, None)
+                if key == "sources" and key not in self._active:
+                    if any(reason != "missing_or_stale" for reason in source_errors.values()):
+                        if self._source_nonstale_since is None:
+                            self._source_nonstale_since = now
+                    else:
+                        self._source_nonstale_since = None
                 self._since.setdefault(key, now)
                 # Keep the incident onset: at six minutes the existing 60s
                 # debounce is already satisfied, not started afresh.
                 price_only = key == "prices" or (key == "sources"
-                    and set(data.get("source_errors", {})) <= PRICE_SOURCE_KEYS)
+                    and set(source_errors) <= PRICE_SOURCE_KEYS)
                 if startup_grace and price_only:
                     continue
                 delay = 0 if key in ("block", "write", "pause") else CONTROL_INACTIVE_SECONDS if key == "control" else 60
-                if key not in self._active and (now - self._since[key]).total_seconds() >= delay:
+                # A rounded sensor may briefly exceed its age limit while
+                # upstream data is healthy. The source error sensor stays live.
+                if key == "sources":
+                    due = (now - self._since[key]).total_seconds() >= STALE_SOURCE_ALERT_SECONDS
+                    if self._source_nonstale_since is not None:
+                        due |= (now - self._source_nonstale_since).total_seconds() >= 60
+                else:
+                    due = (now - self._since[key]).total_seconds() >= delay
+                if key not in self._active and due:
                     self._active.add(key)
                     new.append(key)
                     changed = True
             else:
-                self._since.pop(key, None)
+                if key == "sources" and key not in self._active and key in self._since:
+                    self._clear_since.setdefault(key, now)
+                    if (now - self._clear_since[key]).total_seconds() >= 60:
+                        self._since.pop(key, None)
+                        self._source_nonstale_since = None
+                        self._clear_since.pop(key, None)
+                else:
+                    self._since.pop(key, None)
+                    if key == "sources":
+                        self._source_nonstale_since = None
                 if key in self._active:
                     self._clear_since.setdefault(key, now)
                     if (now - self._clear_since[key]).total_seconds() >= 60:
@@ -113,12 +178,28 @@ class HealthAlerts:
         if self._initial_sync and not any(problems.values()):
             changed = True
             self._initial_sync = False
+        if "sources" in self._active:
+            visible_errors = source_errors
+            if startup_grace and isinstance(visible_errors, Mapping):
+                visible_errors = {
+                    key: value for key, value in visible_errors.items() if key not in PRICE_SOURCE_KEYS
+                }
+            details = self._source_details(visible_errors)
+            if (details and details != self._active_source_details
+                    and (self._source_details_updated_at is None
+                         or (now - self._source_details_updated_at).total_seconds() >= 60)):
+                self._active_source_details = details
+                self._source_details_updated_at = now
+                changed = True
+        else:
+            self._active_source_details = ""
+            self._source_details_updated_at = None
         if not changed:
             return
         self._initial_sync = False
         notification_id = f"opti_akku_health_{self.entry.entry_id}"
         if self._active:
-            message = "\n".join(f"- {self._text(key)}" for key in sorted(self._active))
+            message = "\n".join(f"- {self._message(key)}" for key in sorted(self._active))
             persistent_notification.async_create(self.hass, message, title=self.entry.title,
                                                  notification_id=notification_id)
         else:
@@ -127,7 +208,7 @@ class HealthAlerts:
         if due:
             for key in due:
                 self._last_push[key] = now
-            self._queue("\n".join(self._text(key) for key in sorted(self._active)))
+            self._queue("\n".join(self._message(key) for key in sorted(self._active)))
 
     @callback
     def _queue(self, message):

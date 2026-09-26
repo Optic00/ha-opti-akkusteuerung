@@ -66,16 +66,26 @@ async def test_source_incident_debounce_and_reload_lifecycle(hass, alerts):
         alerts.update(missing)
     with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=59)):
         alerts.update(health(source_errors={}))
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=120)):
+        alerts.update(health(source_errors={}))
     assert not alerts._active
 
-    # A sustained outage emits once and repeated updates do not spam.
-    for seconds in (100, 161, 900):
+    # A sustained stale source emits once and repeated updates do not spam.
+    for seconds in (121, 200, 300):
         with patch(
             "custom_components.opti_akku.alerts.dt_util.utcnow",
             return_value=start + timedelta(seconds=seconds),
         ):
             alerts.update(missing)
         await hass.async_block_till_done(wait_background_tasks=True)
+    assert not alerts._active
+    assert not calls
+    with patch(
+        "custom_components.opti_akku.alerts.dt_util.utcnow",
+        return_value=start + timedelta(seconds=301),
+    ):
+        alerts.update(missing)
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert alerts._active == {"sources"}
     assert len(calls) == 1
 
@@ -94,7 +104,7 @@ async def test_source_incident_debounce_and_reload_lifecycle(hass, alerts):
 
         with patch(
             "custom_components.opti_akku.alerts.dt_util.utcnow",
-            return_value=start + timedelta(seconds=1061),
+            return_value=start + timedelta(seconds=1181),
         ):
             fresh.update(missing)
         await hass.async_block_till_done(wait_background_tasks=True)
@@ -102,6 +112,195 @@ async def test_source_incident_debounce_and_reload_lifecycle(hass, alerts):
         assert len(calls) == 2
     finally:
         await fresh.async_stop()
+
+
+async def test_two_short_stale_source_incidents_do_not_push(hass, alerts):
+    """Two separate short stale incidents do not push."""
+    calls = []
+
+    async def push(call):
+        calls.append(call.data)
+
+    hass.services.async_register("notify", "test_phone", push)
+    start = dt_util.utcnow()
+    missing = health(source_errors={"house_consumption": "missing_or_stale"})
+    for seconds, data in (
+        (0, missing), (119, missing), (120, health()),
+        (2100, missing), (2219, missing), (2220, health()),
+    ):
+        with patch(
+            "custom_components.opti_akku.alerts.dt_util.utcnow",
+            return_value=start + timedelta(seconds=seconds),
+        ):
+            alerts.update(data)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert not alerts._active
+    assert not calls
+
+
+async def test_nonstale_source_error_gets_its_own_debounce(hass, alerts):
+    calls = []
+
+    async def push(call):
+        calls.append(call.data)
+
+    hass.services.async_register("notify", "test_phone", push)
+    start = dt_util.utcnow()
+    stale = health(source_errors={"house_consumption": "missing_or_stale"})
+    invalid = health(source_errors={
+        "house_consumption": "missing_or_stale", "pv_power": "invalid_value",
+    })
+    for seconds, data in ((0, stale), (100, stale), (101, invalid), (160, invalid)):
+        with patch(
+            "custom_components.opti_akku.alerts.dt_util.utcnow",
+            return_value=start + timedelta(seconds=seconds),
+        ):
+            alerts.update(data)
+    assert not alerts._active
+    assert not calls
+    with patch(
+        "custom_components.opti_akku.alerts.dt_util.utcnow",
+        return_value=start + timedelta(seconds=161),
+    ):
+        alerts.update(invalid)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert alerts._active == {"sources"}
+    assert len(calls) == 1
+
+
+async def test_error_class_flapping_cannot_hide_persistent_stale_source(hass, alerts):
+    calls = []
+
+    async def push(call):
+        calls.append(call.data)
+
+    hass.services.async_register("notify", "test_phone", push)
+    start = dt_util.utcnow()
+    stale = health(source_errors={"house_consumption": "missing_or_stale"})
+    mixed = health(source_errors={
+        "house_consumption": "missing_or_stale", "pv_power": "invalid_value",
+    })
+    for seconds, data in ((0, stale), (100, mixed), (150, stale), (179, stale)):
+        with patch(
+            "custom_components.opti_akku.alerts.dt_util.utcnow",
+            return_value=start + timedelta(seconds=seconds),
+        ):
+            alerts.update(data)
+    assert not alerts._active
+    with patch(
+        "custom_components.opti_akku.alerts.dt_util.utcnow",
+        return_value=start + timedelta(seconds=180),
+    ):
+        alerts.update(stale)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert alerts._active == {"sources"}
+    assert len(calls) == 1
+
+
+async def test_short_healthy_blip_keeps_pending_source_incident(alerts):
+    start = dt_util.utcnow()
+    stale = health(source_errors={"house_consumption": "missing_or_stale"})
+    for seconds, data in ((0, stale), (170, stale), (171, health()), (179, stale)):
+        with patch(
+            "custom_components.opti_akku.alerts.dt_util.utcnow",
+            return_value=start + timedelta(seconds=seconds),
+        ):
+            alerts.update(data)
+    assert not alerts._active
+    with patch(
+        "custom_components.opti_akku.alerts.dt_util.utcnow",
+        return_value=start + timedelta(seconds=180),
+    ):
+        alerts.update(stale)
+    assert alerts._active == {"sources"}
+
+
+async def test_malformed_source_errors_do_not_mask_write_alert(alerts):
+    assert alerts._source_details(None) == ""
+    alerts.update(health(source_errors=None, last_error="Schreibvorgang nicht bestätigt: OSError"))
+    assert alerts._active == {"write"}
+
+
+async def test_source_details_are_bounded_and_sanitize_malformed_source_options(hass, alerts):
+    hass.config.language = "de"
+    hass.config_entries.async_update_entry(alerts.entry, options={
+        **alerts.entry.options,
+        "sources": "invalid legacy value",
+    })
+    details = alerts._source_details({
+        f"source_{index}": "missing_or_stale\nextra" for index in range(7)
+    })
+    assert "source_0 (missing_or_stale extra)" in details
+    assert "source_4" in details
+    assert "source_5" not in details
+    assert "(+2 weitere)" in details
+    assert "\n" not in details
+
+
+async def test_source_alert_names_entities_and_updates_without_extra_push(hass, alerts):
+    calls = []
+
+    async def push(call):
+        calls.append(call.data["message"])
+
+    hass.services.async_register("notify", "test_phone", push)
+    hass.config_entries.async_update_entry(alerts.entry, options={
+        **alerts.entry.options,
+        "sources": {"pv_power": "sensor.hybrid_ac"},
+    })
+    start = dt_util.utcnow()
+    first = health(source_errors={
+        "pv_power": "missing_or_stale",
+        "plant:sensor.wallbox": "missing_or_stale",
+    })
+    second = health(source_errors={"plant:sensor.other_wallbox": "invalid_value"})
+
+    with patch("custom_components.opti_akku.alerts.persistent_notification.async_create") as create:
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start):
+            alerts.update(first)
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=181)):
+            alerts.update(first)
+        initial_message = create.call_args.args[1]
+        assert "pv_power: sensor.hybrid_ac (missing_or_stale)" in initial_message
+        assert "sensor.wallbox (missing_or_stale)" in initial_message
+
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=182)):
+            alerts.update(second)
+        assert create.call_count == 1
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=242)):
+            alerts.update(second)
+        updated_message = create.call_args.args[1]
+        assert "sensor.other_wallbox (invalid_value)" in updated_message
+        assert "sensor.wallbox" not in updated_message
+        assert create.call_count == 2
+
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert len(calls) == 1
+    assert "sensor.hybrid_ac" in calls[0]
+    assert "sensor.wallbox" in calls[0]
+
+
+async def test_tibber_startup_grace_keeps_price_sources_out_of_other_alerts(hass, alerts):
+    hass.config_entries.async_update_entry(alerts.entry, options={
+        **alerts.entry.options,
+        "price_provider": "tibber",
+    })
+    start = dt_util.utcnow()
+    data = health(source_errors={
+        "plant:sensor.wallbox": "missing_or_stale",
+        "price_current": "missing_or_stale",
+        "price_series": "missing_or_stale",
+    }, price_provider_error="tibber_fetch_failed")
+    with patch("custom_components.opti_akku.alerts.persistent_notification.async_create") as create:
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start):
+            alerts.update(data)
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=181)):
+            alerts.update(data)
+    message = create.call_args.args[1]
+    assert "sensor.wallbox (missing_or_stale)" in message
+    assert "price_current" not in message
+    assert "price_series" not in message
+    assert alerts._active == {"sources"}
 
 
 async def test_write_alert_immediate_but_not_when_disarmed(hass, alerts):

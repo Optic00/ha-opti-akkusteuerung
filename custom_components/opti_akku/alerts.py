@@ -15,6 +15,7 @@ PRICE_STARTUP_GRACE_SECONDS = 360
 PRICE_SOURCE_KEYS = {"price_current", "price_series"}
 # Long enough for a deliberate short toggle, short enough to catch a night.
 CONTROL_INACTIVE_SECONDS = 900
+STALE_SOURCE_ALERT_SECONDS = 180
 MAX_SOURCE_DETAILS = 5
 MESSAGES = {
     "pause": ("Huawei-Pause nicht bestätigt. Geräteeinstellungen können weiterwirken; automatische Nachholung nur bei unveränderter Bindung und Freigabe.", "Huawei pause is unconfirmed. Device settings may remain active; automatic retry requires unchanged binding and permission."),
@@ -46,6 +47,7 @@ class HealthAlerts:
         self._service = entry.options.get("notification_service", "")
         self._active_source_details = ""
         self._source_details_updated_at = None
+        self._source_stale_only = None
 
     def _text(self, key):
         return MESSAGES[key][0 if self.hass.config.language == "de" else 1]
@@ -92,11 +94,13 @@ class HealthAlerts:
             self._started_at = now
         if data.get("price_last_success") is not None:
             self._prices_ready = True
+        raw_source_errors = data.get("source_errors", {})
+        source_errors = raw_source_errors if isinstance(raw_source_errors, Mapping) else {}
         startup_grace = (self.entry.options.get("price_provider") == "tibber"
             and not self._prices_ready
             and (now - self._started_at).total_seconds() < PRICE_STARTUP_GRACE_SECONDS)
         data["price_status"] = ("loading" if startup_grace else "error") if (
-            data.get("price_provider_error") or PRICE_SOURCE_KEYS.intersection(data.get("source_errors", {}))
+            data.get("price_provider_error") or PRICE_SOURCE_KEYS.intersection(source_errors)
             or (self.entry.options.get("price_provider") == "tibber" and not self._prices_ready)
         ) else "ready"
         if data.get("strategy_enabled") is False:
@@ -115,7 +119,7 @@ class HealthAlerts:
                 or (str(data.get("last_error", "")).startswith("Schreibvorgang nicht bestätigt")
                     and not (recovering and "InverterNotReadyError" in str(data.get("last_error", "")) ))
             ),
-            "sources": bool(data.get("source_errors")),
+            "sources": bool(source_errors),
             "prices": bool(data.get("price_provider_error")),
             "control": data.get("control_inactive") is True,
         }
@@ -124,20 +128,31 @@ class HealthAlerts:
         for key, problem in problems.items():
             if problem:
                 self._clear_since.pop(key, None)
+                if key == "sources" and key not in self._active:
+                    stale_only = all(reason == "missing_or_stale" for reason in source_errors.values())
+                    if stale_only != self._source_stale_only:
+                        self._since[key] = now
+                    self._source_stale_only = stale_only
                 self._since.setdefault(key, now)
                 # Keep the incident onset: at six minutes the existing 60s
                 # debounce is already satisfied, not started afresh.
                 price_only = key == "prices" or (key == "sources"
-                    and set(data.get("source_errors", {})) <= PRICE_SOURCE_KEYS)
+                    and set(source_errors) <= PRICE_SOURCE_KEYS)
                 if startup_grace and price_only:
                     continue
                 delay = 0 if key in ("block", "write", "pause") else CONTROL_INACTIVE_SECONDS if key == "control" else 60
+                # A rounded sensor may briefly exceed its age limit while
+                # upstream data is healthy. The source error sensor stays live.
+                if key == "sources" and self._source_stale_only:
+                    delay = STALE_SOURCE_ALERT_SECONDS
                 if key not in self._active and (now - self._since[key]).total_seconds() >= delay:
                     self._active.add(key)
                     new.append(key)
                     changed = True
             else:
                 self._since.pop(key, None)
+                if key == "sources":
+                    self._source_stale_only = None
                 if key in self._active:
                     self._clear_since.setdefault(key, now)
                     if (now - self._clear_since[key]).total_seconds() >= 60:
@@ -147,7 +162,7 @@ class HealthAlerts:
             changed = True
             self._initial_sync = False
         if "sources" in self._active:
-            visible_errors = data.get("source_errors", {})
+            visible_errors = source_errors
             if startup_grace and isinstance(visible_errors, Mapping):
                 visible_errors = {
                     key: value for key, value in visible_errors.items() if key not in PRICE_SOURCE_KEYS

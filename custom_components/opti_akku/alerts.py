@@ -47,7 +47,7 @@ class HealthAlerts:
         self._service = entry.options.get("notification_service", "")
         self._active_source_details = ""
         self._source_details_updated_at = None
-        self._source_stale_only = None
+        self._source_nonstale_since = None
 
     def _text(self, key):
         return MESSAGES[key][0 if self.hass.config.language == "de" else 1]
@@ -127,12 +127,18 @@ class HealthAlerts:
         new = []
         for key, problem in problems.items():
             if problem:
+                if (key == "sources" and key not in self._active
+                        and key in self._clear_since
+                        and (now - self._clear_since[key]).total_seconds() >= 60):
+                    self._since.pop(key, None)
+                    self._source_nonstale_since = None
                 self._clear_since.pop(key, None)
                 if key == "sources" and key not in self._active:
-                    stale_only = all(reason == "missing_or_stale" for reason in source_errors.values())
-                    if stale_only != self._source_stale_only:
-                        self._since[key] = now
-                    self._source_stale_only = stale_only
+                    if any(reason != "missing_or_stale" for reason in source_errors.values()):
+                        if self._source_nonstale_since is None:
+                            self._source_nonstale_since = now
+                    else:
+                        self._source_nonstale_since = None
                 self._since.setdefault(key, now)
                 # Keep the incident onset: at six minutes the existing 60s
                 # debounce is already satisfied, not started afresh.
@@ -143,16 +149,27 @@ class HealthAlerts:
                 delay = 0 if key in ("block", "write", "pause") else CONTROL_INACTIVE_SECONDS if key == "control" else 60
                 # A rounded sensor may briefly exceed its age limit while
                 # upstream data is healthy. The source error sensor stays live.
-                if key == "sources" and self._source_stale_only:
-                    delay = STALE_SOURCE_ALERT_SECONDS
-                if key not in self._active and (now - self._since[key]).total_seconds() >= delay:
+                if key == "sources":
+                    due = (now - self._since[key]).total_seconds() >= STALE_SOURCE_ALERT_SECONDS
+                    if self._source_nonstale_since is not None:
+                        due |= (now - self._source_nonstale_since).total_seconds() >= 60
+                else:
+                    due = (now - self._since[key]).total_seconds() >= delay
+                if key not in self._active and due:
                     self._active.add(key)
                     new.append(key)
                     changed = True
             else:
-                self._since.pop(key, None)
-                if key == "sources":
-                    self._source_stale_only = None
+                if key == "sources" and key not in self._active and key in self._since:
+                    self._clear_since.setdefault(key, now)
+                    if (now - self._clear_since[key]).total_seconds() >= 60:
+                        self._since.pop(key, None)
+                        self._source_nonstale_since = None
+                        self._clear_since.pop(key, None)
+                else:
+                    self._since.pop(key, None)
+                    if key == "sources":
+                        self._source_nonstale_since = None
                 if key in self._active:
                     self._clear_since.setdefault(key, now)
                     if (now - self._clear_since[key]).total_seconds() >= 60:

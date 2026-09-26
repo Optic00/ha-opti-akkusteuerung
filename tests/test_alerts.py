@@ -66,10 +66,12 @@ async def test_source_incident_debounce_and_reload_lifecycle(hass, alerts):
         alerts.update(missing)
     with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=59)):
         alerts.update(health(source_errors={}))
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=120)):
+        alerts.update(health(source_errors={}))
     assert not alerts._active
 
     # A sustained stale source emits once and repeated updates do not spam.
-    for seconds in (100, 161, 279):
+    for seconds in (121, 200, 300):
         with patch(
             "custom_components.opti_akku.alerts.dt_util.utcnow",
             return_value=start + timedelta(seconds=seconds),
@@ -80,7 +82,7 @@ async def test_source_incident_debounce_and_reload_lifecycle(hass, alerts):
     assert not calls
     with patch(
         "custom_components.opti_akku.alerts.dt_util.utcnow",
-        return_value=start + timedelta(seconds=280),
+        return_value=start + timedelta(seconds=301),
     ):
         alerts.update(missing)
     await hass.async_block_till_done(wait_background_tasks=True)
@@ -113,7 +115,7 @@ async def test_source_incident_debounce_and_reload_lifecycle(hass, alerts):
 
 
 async def test_two_short_stale_source_incidents_do_not_push(hass, alerts):
-    """Two short stale incidents should stay visible without noisy pushes."""
+    """Two separate short stale incidents do not push."""
     calls = []
 
     async def push(call):
@@ -164,6 +166,53 @@ async def test_nonstale_source_error_gets_its_own_debounce(hass, alerts):
     await hass.async_block_till_done(wait_background_tasks=True)
     assert alerts._active == {"sources"}
     assert len(calls) == 1
+
+
+async def test_error_class_flapping_cannot_hide_persistent_stale_source(hass, alerts):
+    calls = []
+
+    async def push(call):
+        calls.append(call.data)
+
+    hass.services.async_register("notify", "test_phone", push)
+    start = dt_util.utcnow()
+    stale = health(source_errors={"house_consumption": "missing_or_stale"})
+    mixed = health(source_errors={
+        "house_consumption": "missing_or_stale", "pv_power": "invalid_value",
+    })
+    for seconds, data in ((0, stale), (100, mixed), (150, stale), (179, stale)):
+        with patch(
+            "custom_components.opti_akku.alerts.dt_util.utcnow",
+            return_value=start + timedelta(seconds=seconds),
+        ):
+            alerts.update(data)
+    assert not alerts._active
+    with patch(
+        "custom_components.opti_akku.alerts.dt_util.utcnow",
+        return_value=start + timedelta(seconds=180),
+    ):
+        alerts.update(stale)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert alerts._active == {"sources"}
+    assert len(calls) == 1
+
+
+async def test_short_healthy_blip_keeps_pending_source_incident(alerts):
+    start = dt_util.utcnow()
+    stale = health(source_errors={"house_consumption": "missing_or_stale"})
+    for seconds, data in ((0, stale), (170, stale), (171, health()), (179, stale)):
+        with patch(
+            "custom_components.opti_akku.alerts.dt_util.utcnow",
+            return_value=start + timedelta(seconds=seconds),
+        ):
+            alerts.update(data)
+    assert not alerts._active
+    with patch(
+        "custom_components.opti_akku.alerts.dt_util.utcnow",
+        return_value=start + timedelta(seconds=180),
+    ):
+        alerts.update(stale)
+    assert alerts._active == {"sources"}
 
 
 async def test_malformed_source_errors_do_not_mask_write_alert(alerts):

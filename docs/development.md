@@ -39,7 +39,7 @@ geführt.
 ## Versionen und Releases
 
 Versionen folgen dem Veröffentlichungsmonat: `2026.9-beta1`, `2026.9-beta2`,
-`2026.9-beta3`, `2026.9-beta4`, `2026.9-beta5`, `2026.9-beta6`, `2026.9-beta7`, `2026.9-beta8`, `2026.9-beta9`, `2026.9-beta10`, danach `2026.9.0` stabil und `2026.9.1` für
+`2026.9-beta3`, `2026.9-beta4`, `2026.9-beta5`, `2026.9-beta6`, `2026.9-beta7`, `2026.9-beta8`, `2026.9-beta9`, `2026.9-beta10`, `2026.9-beta11`, danach `2026.9.0` stabil und `2026.9.1` für
 eine Fehlerkorrektur.
 Die Jahres- und Monatsangabe bezeichnet Opti Akku, nicht die erforderliche
 Home-Assistant-Version.

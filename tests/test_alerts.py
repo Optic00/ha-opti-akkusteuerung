@@ -303,6 +303,90 @@ async def test_tibber_startup_grace_keeps_price_sources_out_of_other_alerts(hass
     assert alerts._active == {"sources"}
 
 
+async def test_night_pv_generation_error_stays_visible_without_notification(hass, alerts):
+    calls = []
+    hass.services.async_register("notify", "test_phone", lambda call: calls.append(call.data))
+    data = health(source_errors={"pv_generation": "invalid_value"},
+                  states={"sun.sun": "below_horizon"})
+    start = dt_util.utcnow()
+    with patch("custom_components.opti_akku.alerts.persistent_notification.async_create") as create:
+        for seconds in (0, 61, 120):
+            with patch("custom_components.opti_akku.alerts.dt_util.utcnow",
+                       return_value=start + timedelta(seconds=seconds)):
+                alerts.update(data)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        create.assert_not_called()
+    assert data["source_errors"] == {"pv_generation": "invalid_value"}
+    assert not alerts._active
+    assert not calls
+
+
+@pytest.mark.parametrize("sun,errors", [
+    ("above_horizon", {"pv_generation": "invalid_value"}),
+    ("unavailable", {"pv_generation": "invalid_value"}),
+    (None, {"pv_generation": "invalid_value"}),
+    ("below_horizon", {"pv_generation": "invalid_value", "house_consumption": "missing"}),
+])
+async def test_actionable_source_errors_still_notify(hass, alerts, sun, errors):
+    calls = []
+    hass.services.async_register("notify", "test_phone", lambda call: calls.append(call.data))
+    data = health(source_errors=errors, states={"sun.sun": sun} if sun else {})
+    start = dt_util.utcnow()
+    for seconds in (0, 61):
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow",
+                   return_value=start + timedelta(seconds=seconds)):
+            alerts.update(data)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert alerts._active == {"sources"}
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("transition", ["sunrise", "second_source"])
+async def test_night_pv_error_becoming_actionable_starts_fresh_debounce(
+    hass, alerts, transition,
+):
+    calls = []
+    hass.services.async_register("notify", "test_phone", lambda call: calls.append(call.data))
+    night = health(source_errors={"pv_generation": "invalid_value"},
+                   states={"sun.sun": "below_horizon"})
+    actionable = health(
+        source_errors={"pv_generation": "invalid_value"} if transition == "sunrise" else
+            {"pv_generation": "invalid_value", "house_consumption": "missing"},
+        states={"sun.sun": "above_horizon" if transition == "sunrise" else "below_horizon"},
+    )
+    start = dt_util.utcnow()
+    for seconds, data in ((0, night), (90, night), (91, actionable),
+                          (150, actionable), (151, actionable)):
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow",
+                   return_value=start + timedelta(seconds=seconds)):
+            alerts.update(data)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert len(calls) == (1 if seconds == 151 else 0)
+    assert alerts._active == {"sources"}
+
+
+async def test_daytime_pv_incident_clears_after_sunset(hass, alerts):
+    calls = []
+    hass.services.async_register("notify", "test_phone", lambda call: calls.append(call.data))
+    day = health(source_errors={"pv_generation": "invalid_value"},
+                 states={"sun.sun": "above_horizon"})
+    night = health(source_errors={"pv_generation": "invalid_value"},
+                   states={"sun.sun": "below_horizon"})
+    start = dt_util.utcnow()
+    with patch("custom_components.opti_akku.alerts.persistent_notification.async_dismiss") as dismiss:
+        for seconds, data in ((0, day), (61, day), (62, night), (123, night)):
+            with patch("custom_components.opti_akku.alerts.dt_util.utcnow",
+                       return_value=start + timedelta(seconds=seconds)):
+                alerts.update(data)
+        dismiss.assert_called_once_with(
+            hass, f"opti_akku_health_{alerts.entry.entry_id}",
+        )
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert not alerts._active
+    assert night["source_errors"] == day["source_errors"]
+    assert len(calls) == 1
+
+
 async def test_write_alert_immediate_but_not_when_disarmed(hass, alerts):
     alerts.update(health(write_enabled=False, last_error="Schreibvorgang nicht bestätigt: OSError"))
     assert not alerts._active

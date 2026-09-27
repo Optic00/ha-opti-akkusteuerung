@@ -73,6 +73,12 @@ class HealthAlerts:
         states = data.get("states", {})
         writing = data.get("write_enabled", False)
         recovering = data.get("connection_status", {}).get("status") in ("offline", "recovering", "not_ready")
+        source_errors = data.get("source_errors") or {}
+        night_pv_only = (
+            isinstance(source_errors, dict)
+            and set(source_errors) == {"pv_generation"}
+            and states.get("sun.sun") == "below_horizon"
+        )
         problems = {
             "pause": data.get("pause_pending") is True,
             "connection": not data.get("online", False) or recovering,
@@ -82,7 +88,7 @@ class HealthAlerts:
                 or (str(data.get("last_error", "")).startswith("Schreibvorgang nicht bestätigt")
                     and not (recovering and "InverterNotReadyError" in str(data.get("last_error", "")) ))
             ),
-            "sources": bool(data.get("source_errors")),
+            "sources": bool(source_errors) and not night_pv_only,
             "prices": bool(data.get("price_provider_error")),
             "control": data.get("control_inactive") is True,
         }

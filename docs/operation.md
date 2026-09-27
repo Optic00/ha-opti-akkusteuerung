@@ -349,6 +349,12 @@ beendet. Schreibstillstand, Sperrverletzung und eine ausstehende Pause werden
 ohne diese Wartefrist gemeldet; für den ersten Tibber-Abruf gilt die gesonderte
 Startfrist.
 
+Ist ausschließlich die optionale PV-Erzeugungsquelle ungültig und steht
+`sun.sun` auf `below_horizon`, entfallen die HA-Störmeldung und der Push für
+Quellenfehler. Der Fehler bleibt in der Diagnose sichtbar. Bei Tageslicht,
+unbekanntem Sonnenstand oder weiteren Quellenfehlern gilt die Meldefrist von
+60 Sekunden weiterhin. Steuerung und andere Alarme ändern sich dadurch nicht.
+
 Ein Neuladen der Integration oder HA-Neustart beginnt eine neue
 Vorfallserkennung. Ein weiterhin vorhandener Quellenfehler kann deshalb nach
 erneuten 60 Sekunden wieder melden. Häufige Neustarts können diese Meldungen

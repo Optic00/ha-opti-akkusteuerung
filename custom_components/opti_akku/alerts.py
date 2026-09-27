@@ -114,6 +114,11 @@ class HealthAlerts:
             set(source_errors) == {"pv_generation"}
             and states.get("sun.sun") == "below_horizon"
         )
+        debounce_errors = {
+            key: reason for key, reason in source_errors.items()
+            if not (startup_grace and key in PRICE_SOURCE_KEYS)
+            and not (states.get("sun.sun") == "below_horizon" and key == "pv_generation")
+        }
         problems = {
             "pause": data.get("pause_pending") is True,
             "connection": not data.get("online", False) or recovering,
@@ -138,7 +143,7 @@ class HealthAlerts:
                     self._source_nonstale_since = None
                 self._clear_since.pop(key, None)
                 if key == "sources" and key not in self._active:
-                    if any(reason != "missing_or_stale" for reason in source_errors.values()):
+                    if any(reason != "missing_or_stale" for reason in debounce_errors.values()):
                         if self._source_nonstale_since is None:
                             self._source_nonstale_since = now
                     else:

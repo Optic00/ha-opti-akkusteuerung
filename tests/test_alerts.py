@@ -387,6 +387,37 @@ async def test_daytime_pv_incident_clears_after_sunset(hass, alerts):
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("case", ["night_pv", "tibber_startup"])
+async def test_suppressed_source_error_does_not_accelerate_stale_debounce(
+    hass, alerts, case,
+):
+    calls = []
+    hass.services.async_register("notify", "test_phone", lambda call: calls.append(call.data))
+    if case == "tibber_startup":
+        hass.config_entries.async_update_entry(alerts.entry, options={
+            **alerts.entry.options, "price_provider": "tibber",
+        })
+        errors = {"price_current": "invalid_value", "plant:sensor.wallbox": "missing_or_stale"}
+        states = {}
+    else:
+        errors = {"pv_generation": "invalid_value", "house_consumption": "missing_or_stale"}
+        states = {"sun.sun": "below_horizon"}
+    data = health(source_errors=errors, states=states)
+    start = dt_util.utcnow()
+    for seconds in (0, 61, 179):
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow",
+                   return_value=start + timedelta(seconds=seconds)):
+            alerts.update(data)
+        assert not alerts._active
+        assert not calls
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow",
+               return_value=start + timedelta(seconds=180)):
+        alerts.update(data)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert alerts._active == {"sources"}
+    assert len(calls) == 1
+
+
 async def test_write_alert_immediate_but_not_when_disarmed(hass, alerts):
     alerts.update(health(write_enabled=False, last_error="Schreibvorgang nicht bestätigt: OSError"))
     assert not alerts._active

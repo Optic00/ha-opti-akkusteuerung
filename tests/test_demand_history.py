@@ -326,6 +326,15 @@ def test_recorder_requires_valid_ev_statistics_metadata(hass):
             read_recorder(hass, sources, NOW, NOW + timedelta(hours=1))
 
 
+@pytest.mark.parametrize("sources", [
+    {"house": "sensor.house", "ev1": "sensor.house"},
+    {"house": "sensor.house", "ev1": "sensor.ev", "ev2": "sensor.ev"},
+])
+def test_recorder_rejects_duplicate_ev_source_scope(hass, sources):
+    with pytest.raises(ValueError, match="distinct sources"):
+        read_recorder(hass, sources, NOW, NOW + timedelta(hours=1))
+
+
 def test_imported_prior_keeps_sustained_extra_load():
     data, options, states = fixture(house=2000)
     options["demand_forecast"]["sources"].pop("heat_power")

@@ -10,6 +10,7 @@ import pytest
 
 from custom_components.opti_akku.demand import (
     DemandForecast,
+    ev_profile_sources,
     instant,
     number,
     pv_intervals,
@@ -245,6 +246,21 @@ def test_ev_power_is_not_subtracted_from_already_clean_profile_by_default():
     update(model, data, options, states)
     assert model.previous[1] == 500
     assert model.accuracy.previous[1] == 500
+    assert ev_profile_sources(options) == ()
+
+
+@pytest.mark.parametrize("plant_sources", [
+    {},
+    {"house_consumption": "sensor.house", "ev1_power": "sensor.house"},
+    {"ev1_power": "sensor.heat"},
+])
+def test_ev_scope_without_distinct_power_source_fails_closed(plant_sources):
+    data, options, states = fixture(house=500)
+    options["sources"] = plant_sources
+    options["demand_forecast"]["house_includes_ev"] = True
+    out = update(DemandForecast(), data, options, states)
+    assert out["status"] == "data_missing"
+    assert out["detail"] == "ev_power"
 
 
 def test_enabling_ev_scope_drops_incompatible_cells_prior_and_accuracy():

@@ -171,6 +171,8 @@ def test_refill_comparison_uses_strict_allowlist_and_preserves_scalars(tmp_path,
         "foreign_coordinator_key": "secret",
         "demand_forecast": {
             "status": "ready", "controls_battery": True, "observation_only": False,
+            "current_strategy_reserve_soc": 35, "suggested_reserve_soc": 21.6,
+            "comparison_note": "Different horizon: all demand until sustained PV, not only expensive slots",
             "refill_profile_ready": True, "refill_missing_kwh": 1.23456789,
             "refill_coverage_percent": 78.90123, "refill_target_kwh": {"bad": 1},
             "forecast_slots": ["private"],
@@ -199,6 +201,9 @@ def test_refill_comparison_uses_strict_allowlist_and_preserves_scalars(tmp_path,
     demand = sample["demand_forecast"]
     assert demand["controls_battery"] is True
     assert demand["observation_only"] is False
+    assert demand["current_strategy_reserve_soc"] == 35
+    assert demand["suggested_reserve_soc"] == 21.6
+    assert demand["comparison_note"].startswith("Different horizon")
     assert demand["refill_missing_kwh"] == 1.23456789
     assert demand["refill_coverage_percent"] == 78.90123
     assert demand["strategy_comparison"]["observation_only"] is True

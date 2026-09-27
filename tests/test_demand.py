@@ -189,6 +189,86 @@ def test_demand_forecast_propagates_source_max_age_to_heat_power():
     assert opted_in.previous[1] == 400
 
 
+def test_explicit_ev_scope_corrects_learning_and_accuracy_once():
+    data, options, states = fixture(house=7164)
+    options["sources"] = {"house_consumption": "sensor.house", "ev1_power": "sensor.ev"}
+    options["demand_forecast"]["house_includes_ev"] = True
+    states["sensor.ev"] = state(6.49, "kW")
+    model = DemandForecast()
+
+    update(model, data, options, states)
+    update(model, data, options, states, NOW + timedelta(seconds=30))
+
+    assert model.previous[1] == pytest.approx(674)
+    assert model.accuracy.previous[1] == pytest.approx(674)
+    assert next(iter(model.cells.values()))[0] == pytest.approx(674 * 30)
+    assert model.recent._samples[-1].value_w == pytest.approx(674)
+
+
+def test_ev_scope_handles_two_power_units_heat_and_duplicate_ids():
+    data, options, states = fixture(house=9839, heat=100)
+    options["sources"] = {"ev1_power": "sensor.ev1", "ev2_power": "sensor.ev2"}
+    options["demand_forecast"]["house_includes_ev"] = True
+    states["sensor.ev1"] = state(9, "kW")
+    states["sensor.ev2"] = state(510, "W")
+    model = DemandForecast()
+    update(model, data, options, states)
+    assert model.previous[1] == pytest.approx(229)
+    assert model.accuracy.previous[1] == pytest.approx(329)
+
+    options["sources"]["ev2_power"] = "sensor.ev1"
+    update(model, data, options, states, NOW + timedelta(seconds=30))
+    assert model.previous[1] == pytest.approx(739)
+
+
+@pytest.mark.parametrize("ev_state", [None, state(1, "Wh"), state(-1), state(2, "kW"),
+                                      state(100, "W", NOW - timedelta(hours=1))])
+def test_invalid_ev_power_never_becomes_zero_or_accuracy_coverage(ev_state):
+    data, options, states = fixture(house=500)
+    options["sources"] = {"ev1_power": "sensor.ev"}
+    options["demand_forecast"]["house_includes_ev"] = True
+    if ev_state is not None:
+        states["sensor.ev"] = ev_state
+    model = DemandForecast()
+    out = update(model, data, options, states)
+    assert out["status"] == "data_missing"
+    assert out["detail"] == "ev_power"
+    assert model.previous[1] is None
+    assert model.accuracy.previous[1] is None
+
+
+def test_ev_power_is_not_subtracted_from_already_clean_profile_by_default():
+    data, options, states = fixture(house=500)
+    options["sources"] = {"ev1_power": "sensor.ev"}
+    states["sensor.ev"] = state(200)
+    model = DemandForecast()
+    update(model, data, options, states)
+    assert model.previous[1] == 500
+    assert model.accuracy.previous[1] == 500
+
+
+def test_enabling_ev_scope_drops_incompatible_cells_prior_and_accuracy():
+    data, options, states = fixture(house=500)
+    model = DemandForecast()
+    update(model, data, options, states)
+    update(model, data, options, states, NOW + timedelta(seconds=30))
+    assert model.cells
+    model.history.rows = {NOW.isoformat(): {"house_w": 500}}
+    saved = model.snapshot()
+
+    restored = DemandForecast()
+    restored.restore(saved)
+    old_accuracy = restored.accuracy
+    options["sources"] = {"ev1_power": "sensor.ev"}
+    options["demand_forecast"]["house_includes_ev"] = True
+    states["sensor.ev"] = state(100)
+    update(restored, data, options, states, NOW + timedelta(seconds=60))
+    assert not restored.cells
+    assert not restored.history.rows
+    assert restored.accuracy is not old_accuracy
+    assert restored.previous[1] == 400
+
+
 def test_pv_intervals_fail_closed_on_invalid_or_conflicting_forecasts():
     invalid = state(1, "kWh", detailedForecast=[{"period_start": NOW}])
     assert pv_intervals({"sensor.pv": invalid}, {"pv_today": "sensor.pv"}, NOW) == []

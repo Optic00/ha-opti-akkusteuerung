@@ -82,6 +82,14 @@ Hausverbrauchssensor sowie Außen- und Warmwasser-Ist-/Solltemperatur auswählen
 Der historische Sensor muss denselben Verbrauchsumfang wie der aktuelle
 Hausverbrauch abbilden, beispielsweise ebenfalls ohne Wallbox. Bei bestehender
 Legacy-Quellenzuordnung wird deren Hausverbrauchssensor verwendet.
+Enthält der aktuelle und historische Hausverbrauch die Wallbox, kann im
+Bedarfsprofil „Hausverbrauch enthält Wallbox-Ladung“ aktiviert werden. Dann
+werden die konfigurierten EV-Leistungsquellen beim Live-Lernen, beim
+Genauigkeitsvergleich und beim Import abgezogen. Bereits bereinigte Hausquellen
+brauchen diese Option nicht. Fehlende oder ungültige EV-Leistung verhindert die
+betroffene Lernprobe; beim Import wird eine Stunde ohne EV-Statistik ausgelassen.
+Die Aktivierung setzt bisher gelernte Profilwerte und Genauigkeitsdaten zurück;
+eine frühere historische Vorbelegung muss neu importiert werden.
 Die Konfigurationsschaltfläche „Bedarfsprognose: Historie importieren“ liest einmalig
 bis zu 42 Tage aus dem lokalen HA-Recorder. Sie benötigt eine aktivierte Beobachtung.
 Bei einem separat konfigurierten Wärmepumpen-Leistungsmesser ist dieser Import

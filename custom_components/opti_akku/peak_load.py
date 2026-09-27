@@ -4,10 +4,8 @@ No PV/night reserve substitution and no mutation of observation or learned data.
 """
 
 from datetime import timedelta
-import json
 
-from .demand import instant, number, source_value
-from .demand_history import CONTEXT_KEYS
+from .demand import instant, number, profile_house_value, source_value
 
 
 def peak_load_profile(model, now, data, settings, options, states, timezone, fingerprint):
@@ -24,16 +22,12 @@ def peak_load_profile(model, now, data, settings, options, states, timezone, fin
     result["status"] = "fallback"
     now = instant(now)
     sources = cfg.get("sources", {})
-    expected_binding = json.dumps(
-        [fingerprint, {k: v for k, v in sources.items() if k not in CONTEXT_KEYS}, str(timezone)],
-        sort_keys=True,
-    )
-    house = number(data.get("states", {}).get("sensor.opti_house_consumption_w"))
+    expected_binding = model.profile_binding(fingerprint, options, timezone)
+    house, house_error = profile_house_value(data, options, states, now)
     fallback = number(settings.get("input_number.opti_peak_verbrauch_kw"))
     if (
-        not data.get("online")
-        or house is None
-        or not 0 <= house <= 50000
+        house is None
+        or house_error is not None
         or data.get("source_errors")
         or fallback is None
         or fallback <= 0

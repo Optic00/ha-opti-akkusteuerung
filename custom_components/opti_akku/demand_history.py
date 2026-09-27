@@ -57,10 +57,17 @@ def build_rows(statistics, flags, start, end):
             values[at] = value
         maps[key] = values
     result = {}
+    ev_keys = tuple(key for key in ("ev1", "ev2") if key in maps)
     for at, power in maps.get("house", {}).items():
         if power is None or not 0 <= power <= 50000:
             continue
-        row = {"house_w": power}
+        ev_values = [maps[key].get(at) for key in ev_keys]
+        if any(value is None or not 0 <= value <= 50000 for value in ev_values):
+            continue
+        ev_power = sum(ev_values)
+        if ev_power > power:
+            continue
+        row = {"house_w": power - ev_power}
         for key in CONTEXT_KEYS:
             value = maps.get(key, {}).get(at)
             row[key] = value if value is not None and -60 <= value <= 120 else None
@@ -197,18 +204,27 @@ def read_recorder(hass, sources, start, end):
     from homeassistant.components.recorder.statistics import get_metadata, statistics_during_period
     from homeassistant.components.recorder.history import get_significant_states
 
-    ids = {sources[k] for k in ("house", *CONTEXT_KEYS) if sources.get(k)}
+    ev_keys = tuple(key for key in ("ev1", "ev2") if sources.get(key))
+    ev_ids = tuple(sources[key] for key in ev_keys)
+    if len(ev_ids) != len(set(ev_ids)) or sources["house"] in ev_ids:
+        raise ValueError("EV statistics must use distinct sources outside house load")
+    ids = {sources[k] for k in ("house", *CONTEXT_KEYS, *ev_keys) if sources.get(k)}
     metadata = get_metadata(hass, statistic_ids=ids)
     house_meta = metadata.get(sources["house"])
     if not house_meta or house_meta[1].get("unit_of_measurement") not in ("W", "kW"):
         raise ValueError("House statistics require W or kW")
+    if any(
+        entity not in metadata or metadata[entity][1].get("unit_of_measurement") not in ("W", "kW")
+        for entity in ev_ids
+    ):
+        raise ValueError("EV statistics require W or kW")
     valid = {
         key: entity
         for key, entity in sources.items()
-        if key in ("house", *CONTEXT_KEYS)
+        if key in ("house", *CONTEXT_KEYS, *ev_keys)
         and entity in metadata
         and metadata[entity][1].get("unit_of_measurement")
-        in (("W", "kW") if key == "house" else ("°C",))
+        in (("W", "kW") if key == "house" or key in ev_keys else ("°C",))
     }
     statistics = statistics_during_period(
         hass, start, end, set(valid.values()), "hour", {"power": "W", "temperature": "°C"}, {"mean"}

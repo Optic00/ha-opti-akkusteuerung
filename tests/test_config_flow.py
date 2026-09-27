@@ -167,6 +167,32 @@ async def test_price_unit_mismatch_and_incomplete_ev(hass):
     assert result["errors"]["base"] == "ev_pair_required"
 
 
+async def test_ev_source_cannot_be_removed_while_demand_subtraction_is_enabled(hass):
+    sources = {
+        "ev1_mode": "select.ev_mode", "ev1_charging": "binary_sensor.ev_charging",
+        "ev1_power": "sensor.ev_power",
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, options={
+        "sources": sources, "single_inverter": True,
+        "demand_forecast": {"enabled": True, "house_includes_ev": True},
+    })
+    entry.add_to_hass(hass)
+    hass.states.async_set("select.ev_mode", "smart")
+    hass.states.async_set("binary_sensor.ev_charging", "off")
+    hass.states.async_set("sensor.ev_power", 0, {"unit_of_measurement": "W"})
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "features"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "ev"}
+    )
+    values = form_values(result)
+    values.pop("ev1_power")
+    result = await hass.config_entries.options.async_configure(result["flow_id"], values)
+    assert result["errors"]["base"] == "demand_ev_power"
+
+
 def test_smart_cost_uses_binary_sensor_selector():
     from custom_components.opti_akku.config_flow import _sources_schema
 
@@ -985,6 +1011,8 @@ async def test_demand_options_are_separate_and_default_off(hass):
     assert enabled.default() is False
     active_profile = next(k for k in schema if k.schema == 'use_for_peak_reserve')
     assert active_profile.default() is False
+    ev_scope = next(k for k in schema if k.schema == 'house_includes_ev')
+    assert ev_scope.default() is False
     before = dict(entry.options)
     result = await hass.config_entries.options.async_configure(result['flow_id'],
                                                               {'enabled': True, 'dhw_cycle_kwh': 0})
@@ -992,6 +1020,9 @@ async def test_demand_options_are_separate_and_default_off(hass):
     assert result['type'] == 'menu'
     assert dict(entry.options) == before
     result = await configure_options(hass, result['flow_id'], {'next_step_id': 'demand'})
+    result = await hass.config_entries.options.async_configure(result['flow_id'],
+        {'enabled': True, 'dhw_cycle_kwh': 0, 'house_includes_ev': True})
+    assert result['errors']['base'] == 'demand_ev_power'
     result = await hass.config_entries.options.async_configure(result['flow_id'],
         {'enabled': True, 'dhw_cycle_kwh': 0, 'water_temperature': 'sensor.missing'})
     assert result['errors']['water_temperature'] == 'missing_or_stale'

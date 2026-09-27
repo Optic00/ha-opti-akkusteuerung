@@ -393,6 +393,14 @@ class WizardSections:
                     errors["base"] = "ev_pair_required"
             if settings["input_boolean.opti_ev_akku_pause"] and not any(sources.get(f"ev{n}_mode") and sources.get(f"ev{n}_charging") for n in (1, 2)):
                 errors["base"] = "ev_pair_required"
+        if section in ("sources", "ev") and draft.get("demand_forecast", {}).get("house_includes_ev") is True:
+            ev_sources = {sources.get(key) for key in ("ev1_power", "ev2_power")} - {None}
+            heat_source = draft["demand_forecast"].get("sources", {}).get("heat_power")
+            if not ev_sources or any(
+                entity in ev_sources for entity in (sources.get("house_consumption"), heat_source)
+                if entity
+            ):
+                errors["base"] = "demand_ev_power"
         return errors
 
     async def _section(self, section: str, user_input: dict | None) -> ConfigFlowResult:
@@ -691,7 +699,7 @@ class WizardSections:
 
     async def async_step_demand(self, user_input=None):
         """Configure demand observation and optional profile-based peak reserve."""
-        from .demand import SOURCE_KEYS
+        from .demand import SOURCE_KEYS, EV_POWER_KEYS
         from homeassistant.helpers import entity_registry as er
         cfg = self._draft.get("demand_forecast", {})
         errors = {}
@@ -709,9 +717,19 @@ class WizardSections:
                 errors["base"] = "demand_water_pair"
             if sources.get("heat_power") == self._draft.get("sources", {}).get("house_consumption") and sources.get("heat_power"):
                 errors["heat_power"] = "demand_heat_meter"
+            if user_input.get("house_includes_ev"):
+                plant_sources = self._draft.get("sources", {})
+                ev_sources = {plant_sources.get(key) for key in EV_POWER_KEYS} - {None}
+                if not ev_sources or any(
+                    entity in ev_sources
+                    for entity in (plant_sources.get("house_consumption"), sources.get("heat_power"))
+                    if entity
+                ):
+                    errors["base"] = "demand_ev_power"
             if not errors:
                 self._draft["demand_forecast"] = {"enabled": user_input["enabled"],
                     "sources": sources, "dhw_cycle_kwh": user_input["dhw_cycle_kwh"],
+                    **({"house_includes_ev": True} if user_input.get("house_includes_ev") else {}),
                     **({"temperature_matching": True} if user_input.get("temperature_matching") else {}),
                     **({"use_for_peak_reserve": True} if user_input.get("use_for_peak_reserve") else {}),
                     **({"history_house": user_input["history_house"]} if user_input.get("history_house") else {})}
@@ -724,6 +742,7 @@ class WizardSections:
             marker = vol.Optional(key, description={"suggested_value": current}) if current else vol.Optional(key)
             schema[marker] = EntitySelector(EntitySelectorConfig(domain=domain))
         schema[vol.Required("use_for_peak_reserve", default=cfg.get("use_for_peak_reserve", False))] = BooleanSelector()
+        schema[vol.Required("house_includes_ev", default=cfg.get("house_includes_ev", False))] = BooleanSelector()
         schema[vol.Required("temperature_matching", default=cfg.get("temperature_matching", False))] = BooleanSelector()
         marker = vol.Optional("history_house", description={"suggested_value": cfg["history_house"]}) if cfg.get("history_house") else vol.Optional("history_house")
         schema[marker] = EntitySelector(EntitySelectorConfig(domain=["sensor"]))

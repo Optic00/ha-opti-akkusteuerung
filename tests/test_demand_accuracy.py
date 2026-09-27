@@ -131,7 +131,7 @@ def test_restored_completed_claims_are_recomputed_not_trusted():
     result = tracker.completed[0]
     assert result["coverage_percent"] == 50.0
     assert result["error_kwh"] is None
-    assert result["note"] == "House energy until predicted PV onset; not avoided grid import"
+    assert result["note"] == "Energy in configured demand profile scope until predicted PV onset; not avoided grid import"
 
 
 def test_version_one_snapshot_without_completed_keeps_pending():

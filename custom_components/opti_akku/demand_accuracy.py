@@ -11,7 +11,7 @@ MAX_WINDOW_SECONDS = 86400
 MAX_ENERGY_KWH = 1200
 # Covered plus missing time is a sum of float interval lengths.
 DURATION_TOLERANCE_SECONDS = 0.01
-NOTE = "House energy until predicted PV onset; not avoided grid import"
+NOTE = "Energy in configured demand profile scope until predicted PV onset; not avoided grid import"
 
 
 class PendingTrial(TypedDict):

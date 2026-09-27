@@ -1979,6 +1979,24 @@ async def test_history_import_is_observer_only_and_idempotent(coordinator, hass,
     ).astimezone(UTC)
 
 
+async def test_history_import_passes_explicit_ev_sources_to_recorder(coordinator, hass, entry):
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options,
+        "sources": {**entry.options.get("sources", {}), "ev1_power": "sensor.ev"},
+        "demand_forecast": {
+            "enabled": True, "history_house": "sensor.history", "house_includes_ev": True,
+        },
+    })
+    at = (dt_util.utcnow() - timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
+    recorder = Mock()
+    recorder.async_add_executor_job = AsyncMock(return_value={at.isoformat(): {"house_w": 400}})
+    with patch("homeassistant.components.recorder.get_instance", return_value=recorder):
+        await coordinator.async_import_demand_history()
+    sources = recorder.async_add_executor_job.call_args.args[0].args[1]
+    assert sources["house"] == "sensor.history"
+    assert sources["ev1"] == "sensor.ev"
+
+
 async def test_history_import_save_failure_rolls_back(coordinator, hass, entry):
     hass.config_entries.async_update_entry(
         entry,

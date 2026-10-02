@@ -40,7 +40,7 @@ from .definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
 from .sources import build_inputs, finite
 from .plant import plant_entity_ids, plant_semantic_fingerprint
 from .load_profile import LoadProfile
-from .demand import DemandForecast, ev_profile_sources
+from .demand import EV_SCOPE_VERSION, DemandForecast, ev_profile_sources
 from .demand_comparison import build_strategy_comparison, remaining_day_profile
 from .peak_load import peak_load_profile
 from .ev_preparation import EVPreparation, apply_preparation, command_signals
@@ -120,7 +120,7 @@ def _rebind_load_prefix(value: str | None, old: str, new: str, length: int) -> s
     compatible_length = (
         len(parts) == length
         or (len(parts) == length + 1 and isinstance(parts[-1], dict)
-            and parts[-1].get("ev_subtraction_version") == 1)
+            and parts[-1].get("ev_subtraction_version") == EV_SCOPE_VERSION)
     ) if isinstance(parts, list) else False
     if compatible_length and parts[0] == old:
         return json.dumps([new, *parts[1:]], sort_keys=True)

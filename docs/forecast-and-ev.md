@@ -92,8 +92,9 @@ wenn der Leistungswert seit dem letzten Laden unverändert oder nicht verfügbar
 ist. Bei „an“ muss die Leistung gültig sein und die eingestellte Altersprüfung
 bestehen. Fehlender oder ungültiger Ladestatus verhindert die Lernprobe.
 Beim Import wird eine Stunde ohne EV-Statistik ausgelassen.
-Die Aktivierung setzt bisher gelernte Profilwerte und Genauigkeitsdaten zurück;
-eine frühere historische Vorbelegung muss neu importiert werden.
+Die Aktivierung oder eine Änderung der EV-Quellenzuordnung setzt bisher gelernte
+Profilwerte und Genauigkeitsdaten zurück; eine frühere historische Vorbelegung
+muss neu importiert werden. Das gilt auch beim Wechsel des Ladestatus-Sensors.
 Die Konfigurationsschaltfläche „Bedarfsprognose: Historie importieren“ liest einmalig
 bis zu 42 Tage aus dem lokalen HA-Recorder. Sie benötigt eine aktivierte Beobachtung.
 Bei einem separat konfigurierten Wärmepumpen-Leistungsmesser ist dieser Import

@@ -397,6 +397,9 @@ class WizardSections:
             ev_sources = {sources.get(key) for key in ("ev1_power", "ev2_power")} - {None}
             heat_source = draft["demand_forecast"].get("sources", {}).get("heat_power")
             if not ev_sources or any(
+                sources.get(key) and not sources.get(key.replace("_power", "_charging"))
+                for key in ("ev1_power", "ev2_power")
+            ) or any(
                 entity in ev_sources for entity in (sources.get("house_consumption"), heat_source)
                 if entity
             ):
@@ -721,6 +724,9 @@ class WizardSections:
                 plant_sources = self._draft.get("sources", {})
                 ev_sources = {plant_sources.get(key) for key in EV_POWER_KEYS} - {None}
                 if not ev_sources or any(
+                    plant_sources.get(key) and not plant_sources.get(key.replace("_power", "_charging"))
+                    for key in EV_POWER_KEYS
+                ) or any(
                     entity in ev_sources
                     for entity in (plant_sources.get("house_consumption"), sources.get("heat_power"))
                     if entity

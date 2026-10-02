@@ -86,8 +86,12 @@ Enthält der aktuelle und historische Hausverbrauch die Wallbox, kann im
 Bedarfsprofil „Hausverbrauch enthält Wallbox-Ladung“ aktiviert werden. Dann
 werden die konfigurierten EV-Leistungsquellen beim Live-Lernen, beim
 Genauigkeitsvergleich und beim Import abgezogen. Bereits bereinigte Hausquellen
-brauchen diese Option nicht. Fehlende oder ungültige EV-Leistung verhindert die
-betroffene Lernprobe; beim Import wird eine Stunde ohne EV-Statistik ausgelassen.
+brauchen diese Option nicht. Jeder EV-Leistungsquelle muss ein Ladestatus
+zugeordnet sein. Bei gültigem Ladestatus „aus“ gilt die EV-Last als 0 W, auch
+wenn der Leistungswert seit dem letzten Laden unverändert oder nicht verfügbar
+ist. Bei „an“ muss die Leistung gültig sein und die eingestellte Altersprüfung
+bestehen. Fehlender oder ungültiger Ladestatus verhindert die Lernprobe.
+Beim Import wird eine Stunde ohne EV-Statistik ausgelassen.
 Die Aktivierung setzt bisher gelernte Profilwerte und Genauigkeitsdaten zurück;
 eine frühere historische Vorbelegung muss neu importiert werden.
 Die Konfigurationsschaltfläche „Bedarfsprognose: Historie importieren“ liest einmalig

@@ -89,6 +89,8 @@ def test_ev_cleaned_profile_can_drive_peak_reserve_without_gross_house_floor():
     model, data, options, states = setup_profile()
     prior_rows = deepcopy(model.history.rows)
     options["sources"] = {"ev1_power": "sensor.ev"}
+    options["sources"]["ev1_charging"] = "binary_sensor.ev"
+    states["binary_sensor.ev"] = state("on", None)
     options["demand_forecast"]["house_includes_ev"] = True
     states["sensor.ev"] = state(1, "kW")
     states["binary_sensor.heating"] = state("on", None)

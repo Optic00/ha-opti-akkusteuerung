@@ -997,6 +997,24 @@ async def test_huawei_control_mapping_rejects_duplicate_actuator(hass):
     assert calls == []
 
 
+@pytest.mark.parametrize("charging_source", [None, "binary_sensor.ev_charging"])
+async def test_demand_ev_scope_requires_configured_charging_source(hass, charging_source):
+    sources = {"ev1_power": "sensor.ev_power"}
+    if charging_source:
+        sources["ev1_charging"] = charging_source
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION,
+                            options={"single_inverter": True, "sources": sources})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "demand"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"],
+        {"enabled": True, "dhw_cycle_kwh": 0, "house_includes_ev": True})
+    if charging_source:
+        assert result["type"] == FlowResultType.MENU
+    else:
+        assert result["errors"]["base"] == "demand_ev_power"
+
+
 async def test_demand_options_are_separate_and_default_off(hass):
     entry = MockConfigEntry(domain='opti_akku', title='Test',
                             data={'host': '127.0.0.1', 'port': 502, 'unit_id': 3},

@@ -31,7 +31,7 @@ PV_COVER_MIN_SECONDS = 3600
 PV_COVER_MIN_NET_KWH = 0.5
 REFILL_CHARGE_EFFICIENCY = 0.9
 EV_POWER_KEYS = ("ev1_power", "ev2_power")
-EV_SCOPE_VERSION = 1
+EV_SCOPE_VERSION = 2
 
 
 def number(value):
@@ -95,7 +95,12 @@ def ev_profile_sources(options):
 def ev_profile_scope(options):
     if options.get("demand_forecast", {}).get("house_includes_ev") is not True:
         return None
-    return {"ev_subtraction_version": EV_SCOPE_VERSION, "sources": ev_profile_sources(options)}
+    sources = options.get("sources", {})
+    return {"ev_subtraction_version": EV_SCOPE_VERSION, "sources": ev_profile_sources(options),
+            "charging_sources": tuple(
+                (sources[key], sources.get(key.replace("_power", "_charging")))
+                for key in EV_POWER_KEYS if sources.get(key)
+            )}
 
 
 def profile_house_value(data, options, states, now):
@@ -121,8 +126,23 @@ def profile_house_value(data, options, states, now):
         if entity
     ):
         return None, "ev_power"
+    charging_states = {}
+    sources = options.get("sources", {})
+    for key in EV_POWER_KEYS:
+        if not (entity := sources.get(key)):
+            continue
+        charging = source_value(
+            states, sources.get(key.replace("_power", "_charging")), now, kind="flag"
+        )
+        if charging is None or (entity in charging_states and charging_states[entity] != charging):
+            return None, "ev_power"
+        charging_states[entity] = charging
     ev_power = 0.0
-    for entity in ev_sources:
+    for entity, charging in charging_states.items():
+        # A valid idle flag remains authoritative even when event-based power
+        # has not reported since the last charge. Active charging needs power.
+        if not charging:
+            continue
         value = source_value(
             states, entity, now, kind="power",
             source_max_age=options.get("source_max_age", 900),

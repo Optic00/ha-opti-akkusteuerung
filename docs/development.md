@@ -38,9 +38,10 @@ geführt.
 
 ## Versionen und Releases
 
-Versionen folgen dem Veröffentlichungsmonat: `2026.9-beta1`, `2026.9-beta2`,
-`2026.9-beta3`, `2026.9-beta4`, `2026.9-beta5`, `2026.9-beta6`, `2026.9-beta7`, `2026.9-beta8`, `2026.9-beta9`, `2026.9-beta10`, `2026.9-beta11`, danach `2026.9.0` stabil und `2026.9.1` für
-eine Fehlerkorrektur.
+Versionen folgen dem Veröffentlichungsmonat. Auf `2026.9-beta11` folgt im
+Oktober `2026.10-beta1`; eine stabile September-Version wurde nicht veröffentlicht.
+Weitere Oktober-Betas heißen beispielsweise `2026.10-beta2`. Eine spätere stabile
+Version erhält den Veröffentlichungsmonat mit `.0`, danach `.1` für eine Fehlerkorrektur.
 Die Jahres- und Monatsangabe bezeichnet Opti Akku, nicht die erforderliche
 Home-Assistant-Version.
 Manifest, `pyproject.toml` und Release-Tag müssen exakt übereinstimmen. Vorhandene

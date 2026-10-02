@@ -67,6 +67,7 @@ def test_release_version_order():
         "2026.9.0",
         "2026.9.1",
         "2026.10-beta1",
+        "2026.10-beta2",
     ]
     for before, after in zip(versions, versions[1:], strict=False):
         assert AwesomeVersion(before) < AwesomeVersion(after)

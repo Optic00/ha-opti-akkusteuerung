@@ -31,6 +31,43 @@ def test_window_boundary_retains_predecessor_and_expires_old_time():
     assert result.warming_up is False
 
 
+@pytest.mark.parametrize("step_microseconds", [15_000_001, 15_001_000])
+def test_complete_window_with_fractional_intervals_stays_ready(step_microseconds):
+    profile = LoadProfile(max_gap_seconds=90)
+    for index in range(270):
+        elapsed = timedelta(microseconds=index * step_microseconds)
+        result = profile.observe(800, START + elapsed, "plant-a")
+        if elapsed >= timedelta(hours=1):
+            assert result.coverage_seconds == 3600
+            assert result.warming_up is False
+
+
+def test_ready_profile_does_not_restart_warmup_when_sample_cadence_changes():
+    profile = LoadProfile(max_gap_seconds=90)
+    for seconds in range(0, 3601, 15):
+        result = observe(profile, seconds, 800)
+    assert result.warming_up is False
+
+    for index in range(1, 9):
+        at = START + timedelta(hours=1, microseconds=index * 15_000_001)
+        result = profile.observe(800, at, "plant-a")
+        assert result.coverage_seconds == 3600
+        assert result.warming_up is False
+
+
+@pytest.mark.parametrize("gap_microseconds", [1, 500_000, 30_000_000])
+def test_complete_window_with_real_gap_still_needs_warmup(gap_microseconds):
+    profile = LoadProfile(max_gap_seconds=90)
+    for seconds in range(0, 3601, 15):
+        observe(profile, seconds, 800)
+
+    # Leave an actual hole after the previous reading's 90-second validity.
+    at = START + timedelta(seconds=3690, microseconds=gap_microseconds)
+    result = profile.observe(800, at, "plant-a")
+    assert result.coverage_seconds < 3600
+    assert result.warming_up is True
+
+
 def test_gap_is_capped_and_latest_invalid_never_returns_stale_value():
     profile = LoadProfile(max_gap_seconds=60)
     observe(profile, 0, 600)

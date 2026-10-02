@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 from math import ceil, isfinite
 
 _SNAPSHOT_VERSION = 1
+# Below datetime's 1 us resolution, so real timestamp gaps remain uncovered.
+_COVERAGE_TOLERANCE_SECONDS = 1e-7
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +89,8 @@ class LoadProfile:
             return LoadProfileResult(None, None, 0.0, True)
 
         raw_mean, coverage = self._integrate(now)
+        if coverage > 0 and abs(coverage - self.window_seconds) <= _COVERAGE_TOLERANCE_SECONDS:
+            coverage = self.window_seconds
         raw_mean = raw_mean if raw_mean is not None else normalized
         forecast = max(raw_mean, float(min_load_w))
         return LoadProfileResult(raw_mean, forecast, coverage, coverage < self.window_seconds)

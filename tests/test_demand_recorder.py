@@ -30,11 +30,14 @@ async def test_real_recorder_database_statistics_units(recorder_mock, hass):
         "unit_class": "power",
     }
     async_import_statistics(hass, metadata, [{"start": NOW, "mean": 0.65, "min": 0.4, "max": 1.2}])
+    ev_metadata = {**metadata, "statistic_id": "sensor.historical_ev", "name": "Synthetic EV"}
+    async_import_statistics(hass, ev_metadata, [{"start": NOW, "mean": 0.2, "min": 0, "max": 0.4}])
     await async_wait_recording_done(hass)
     result = await recorder_mock.async_add_executor_job(
         partial(
-            read_recorder, hass, {"house": "sensor.historical_house", "summer_mode": "binary_sensor.summer"}, NOW, NOW + timedelta(hours=1)
+            read_recorder, hass, {"house": "sensor.historical_house", "ev1": "sensor.historical_ev",
+                                  "summer_mode": "binary_sensor.summer"}, NOW, NOW + timedelta(hours=1)
         )
     )
-    assert result[NOW.isoformat()]["house_w"] == 650
+    assert result[NOW.isoformat()]["house_w"] == 450
     assert result[NOW.isoformat()]["summer_mode"] is None

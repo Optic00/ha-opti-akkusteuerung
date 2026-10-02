@@ -116,3 +116,17 @@ def test_malformed_load_fingerprint_is_not_migrated(value):
 @pytest.mark.parametrize("value", [None, "broken", '"old"', '["old"]', '["other", {}, "UTC"]'])
 def test_migration_never_rebinds_unrelated_or_malformed_nested_history(value):
     assert _rebind_load_prefix(value, "old", "new", 3) == value
+
+
+@pytest.mark.parametrize("length", [3, 4])
+def test_migration_preserves_current_ev_scope_and_its_source_binding(length):
+    from custom_components.opti_akku.demand import EV_SCOPE_VERSION
+
+    scope = {"ev_subtraction_version": EV_SCOPE_VERSION, "sources": ["sensor.ev"],
+             "charging_sources": [["sensor.ev", "binary_sensor.ev"]]}
+    parts = ["old", *([{}] * (length - 2)), "UTC", scope]
+    value = json.dumps(parts)
+    assert json.loads(_rebind_load_prefix(value, "old", "new", length)) == ["new", *parts[1:]]
+    scope["ev_subtraction_version"] = EV_SCOPE_VERSION - 1
+    old_scope = json.dumps(parts)
+    assert _rebind_load_prefix(old_scope, "old", "new", length) == old_scope

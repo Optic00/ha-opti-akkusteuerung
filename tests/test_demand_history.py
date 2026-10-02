@@ -85,6 +85,23 @@ def test_missing_invalid_statistics_not_zero_or_filled():
     assert all("seconds" not in r for r in rows.values())
 
 
+def test_ev_statistics_subtract_each_matching_hour_and_skip_gaps():
+    hours = [NOW + timedelta(hours=i) for i in range(4)]
+    rows = build_rows(
+        {
+            "house": [{"start": at, "mean": value} for at, value in zip(
+                hours, (7164, 500, 600, 500), strict=True)],
+            "ev1": [{"start": at, "mean": value} for at, value in (
+                (hours[0], 6490), (hours[1], 0), (hours[2], 700), (hours[3], 0))],
+            "ev2": [{"start": hours[0], "mean": 0}, {"start": hours[1], "mean": 100},
+                    {"start": hours[2], "mean": 0}],
+        }, {}, NOW, NOW + timedelta(hours=4),
+    )
+    assert {key: row["house_w"] for key, row in rows.items()} == {
+        hours[0].isoformat(): 674, hours[1].isoformat(): 400,
+    }
+
+
 def test_duplicate_hour_rejected():
     row = {"start": NOW.timestamp(), "mean": 500}
     with pytest.raises(ValueError):
@@ -287,6 +304,35 @@ def test_recorder_reader_normalizes_and_rejects_wrong_metadata(hass):
         metadata["sensor.house"] = (1, {"unit_of_measurement": "kWh"})
         with pytest.raises(ValueError):
             read_recorder(hass, sources, NOW, NOW + timedelta(hours=1))
+
+
+def test_recorder_requires_valid_ev_statistics_metadata(hass):
+    metadata = {
+        "sensor.house": (1, {"unit_of_measurement": "W"}),
+        "sensor.ev": (2, {"unit_of_measurement": "kW"}),
+    }
+    sources = {"house": "sensor.house", "ev1": "sensor.ev"}
+    with (
+        patch("homeassistant.components.recorder.statistics.get_metadata", return_value=metadata),
+        patch("homeassistant.components.recorder.statistics.statistics_during_period",
+              return_value={"sensor.house": [{"start": NOW.timestamp(), "mean": 7164}],
+                            "sensor.ev": [{"start": NOW.timestamp(), "mean": 6490}]}) as query,
+    ):
+        rows = read_recorder(hass, sources, NOW, NOW + timedelta(hours=1))
+        assert rows[NOW.isoformat()]["house_w"] == 674
+        assert query.call_args.args[5]["power"] == "W"
+        metadata["sensor.ev"] = (2, {"unit_of_measurement": "kWh"})
+        with pytest.raises(ValueError, match="EV statistics"):
+            read_recorder(hass, sources, NOW, NOW + timedelta(hours=1))
+
+
+@pytest.mark.parametrize("sources", [
+    {"house": "sensor.house", "ev1": "sensor.house"},
+    {"house": "sensor.house", "ev1": "sensor.ev", "ev2": "sensor.ev"},
+])
+def test_recorder_rejects_duplicate_ev_source_scope(hass, sources):
+    with pytest.raises(ValueError, match="distinct sources"):
+        read_recorder(hass, sources, NOW, NOW + timedelta(hours=1))
 
 
 def test_imported_prior_keeps_sustained_extra_load():

@@ -85,6 +85,25 @@ def test_active_heating_not_counted_twice_but_current_demand_preserved():
     assert result["hours"][str(int((NOW + timedelta(hours=3)).timestamp()))] == 600
 
 
+def test_ev_cleaned_profile_can_drive_peak_reserve_without_gross_house_floor():
+    model, data, options, states = setup_profile()
+    prior_rows = deepcopy(model.history.rows)
+    options["sources"] = {"ev1_power": "sensor.ev"}
+    options["sources"]["ev1_charging"] = "binary_sensor.ev"
+    states["binary_sensor.ev"] = state("on", None)
+    options["demand_forecast"]["house_includes_ev"] = True
+    states["sensor.ev"] = state(1, "kW")
+    states["binary_sensor.heating"] = state("on", None)
+    data["states"]["sensor.opti_house_consumption_w"] = 2100
+    update(model, data, options, states)
+    model.history.replace(prior_rows, model.history_binding("fixture", options, UTC), NOW)
+
+    result = project(model, data, options, states)
+
+    assert result["status"] == "profile"
+    assert result["hours"][str(int(NOW.timestamp()))] == 1100
+
+
 def test_historical_expiry_and_missing_hour_use_fixed_load():
     m, d, o, s = setup_profile()
     m.history.rows = {

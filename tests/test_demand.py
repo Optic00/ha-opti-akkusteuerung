@@ -10,6 +10,7 @@ import pytest
 
 from custom_components.opti_akku.demand import (
     DemandForecast,
+    ev_profile_sources,
     instant,
     number,
     pv_intervals,
@@ -187,6 +188,188 @@ def test_demand_forecast_propagates_source_max_age_to_heat_power():
     result = update(opted_in, data, options, states)
     assert result["status"] == "learning"
     assert opted_in.previous[1] == 400
+
+
+def test_explicit_ev_scope_corrects_learning_and_accuracy_once():
+    data, options, states = fixture(house=7164)
+    options["sources"] = {"house_consumption": "sensor.house", "ev1_power": "sensor.ev"}
+    options["sources"]["ev1_charging"] = "binary_sensor.ev_charging"
+    states["binary_sensor.ev_charging"] = state("on", None)
+    options["demand_forecast"]["house_includes_ev"] = True
+    states["sensor.ev"] = state(6.49, "kW")
+    model = DemandForecast()
+
+    update(model, data, options, states)
+    update(model, data, options, states, NOW + timedelta(seconds=30))
+
+    assert model.previous[1] == pytest.approx(674)
+    assert model.accuracy.previous[1] == pytest.approx(674)
+    assert next(iter(model.cells.values()))[0] == pytest.approx(674 * 30)
+    assert model.recent._samples[-1].value_w == pytest.approx(674)
+
+
+def test_ev_scope_handles_two_power_units_heat_and_duplicate_ids():
+    data, options, states = fixture(house=9839, heat=100)
+    options["sources"] = {"ev1_power": "sensor.ev1", "ev2_power": "sensor.ev2"}
+    options["sources"].update({"ev1_charging": "binary_sensor.ev1", "ev2_charging": "binary_sensor.ev2"})
+    states.update({"binary_sensor.ev1": state("on", None), "binary_sensor.ev2": state("on", None)})
+    options["demand_forecast"]["house_includes_ev"] = True
+    states["sensor.ev1"] = state(9, "kW")
+    states["sensor.ev2"] = state(510, "W")
+    model = DemandForecast()
+    update(model, data, options, states)
+    assert model.previous[1] == pytest.approx(229)
+    assert model.accuracy.previous[1] == pytest.approx(329)
+
+    options["sources"]["ev2_power"] = "sensor.ev1"
+    update(model, data, options, states, NOW + timedelta(seconds=30))
+    assert model.previous[1] == pytest.approx(739)
+
+
+@pytest.mark.parametrize("ev_state", [None, state(1, "Wh"), state(-1), state(2, "kW"),
+                                      state(100, "W", NOW - timedelta(hours=1))])
+def test_invalid_ev_power_never_becomes_zero_or_accuracy_coverage(ev_state):
+    data, options, states = fixture(house=500)
+    options["sources"] = {"ev1_power": "sensor.ev"}
+    options["sources"]["ev1_charging"] = "binary_sensor.ev_charging"
+    states["binary_sensor.ev_charging"] = state("on", None)
+    options["demand_forecast"]["house_includes_ev"] = True
+    if ev_state is not None:
+        states["sensor.ev"] = ev_state
+    model = DemandForecast()
+    out = update(model, data, options, states)
+    assert out["status"] == "data_missing"
+    assert out["detail"] == "ev_power"
+    assert model.previous[1] is None
+    assert model.accuracy.previous[1] is None
+
+
+@pytest.mark.parametrize("power", [None, state(0, now=NOW - timedelta(days=7)),
+                                  state("unavailable"), state(2000, now=NOW - timedelta(hours=1))])
+def test_idle_ev_keeps_learning_and_accuracy_with_old_or_missing_power(power):
+    data, options, states = fixture(house=500)
+    options["sources"] = {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev"}
+    options["demand_forecast"]["house_includes_ev"] = True
+    states["binary_sensor.ev"] = state("off", None, NOW - timedelta(days=7))
+    if power is not None:
+        states["sensor.ev"] = power
+    model = DemandForecast()
+
+    update(model, data, options, states)
+    out = update(model, data, options, states, NOW + timedelta(seconds=30))
+
+    assert out["status"] == "learning"
+    assert model.previous[1] == 500
+    assert model.accuracy.previous[1] == 500
+    assert next(iter(model.cells.values()))[0] == 500 * 30
+    assert model.recent._samples[-1].value_w == 500
+
+
+@pytest.mark.parametrize("charging", [None, "unknown", "unavailable", "invalid"])
+def test_missing_ev_charging_state_skips_even_fresh_zero_power(charging):
+    data, options, states = fixture(house=500)
+    options["sources"] = {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev"}
+    options["demand_forecast"]["house_includes_ev"] = True
+    states["sensor.ev"] = state(0)
+    if charging is not None:
+        states["binary_sensor.ev"] = state(charging, None)
+    model = DemandForecast()
+
+    out = update(model, data, options, states)
+
+    assert out["status"] == "data_missing"
+    assert out["detail"] == "ev_power"
+    assert model.previous[1] is None
+    assert model.accuracy.previous[1] is None
+
+
+def test_ev_charging_transition_requires_power_and_resumes_after_stop():
+    data, options, states = fixture(house=500)
+    options["sources"] = {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev"}
+    options["demand_forecast"]["house_includes_ev"] = True
+    states["sensor.ev"] = state(0, now=NOW - timedelta(hours=1))
+    states["binary_sensor.ev"] = state("off", None)
+    model = DemandForecast()
+    update(model, data, options, states)
+    states["binary_sensor.ev"] = state("on", None)
+    assert update(model, data, options, states, NOW + timedelta(seconds=30))["status"] == "data_missing"
+    states["sensor.ev"] = state(200)
+    update(model, data, options, states, NOW + timedelta(seconds=60))
+    assert model.previous[1] == 300
+    states["binary_sensor.ev"] = state("off", None)
+    update(model, data, options, states, NOW + timedelta(seconds=90))
+    assert model.previous[1] == 500
+
+
+def test_two_evs_gate_independently_and_conflicting_duplicate_is_rejected():
+    data, options, states = fixture(house=1500)
+    options["sources"] = {"ev1_power": "sensor.ev1", "ev1_charging": "binary_sensor.ev1",
+                          "ev2_power": "sensor.ev2", "ev2_charging": "binary_sensor.ev2"}
+    options["demand_forecast"]["house_includes_ev"] = True
+    states.update({"sensor.ev1": state(1000), "sensor.ev2": state(0, now=NOW - timedelta(days=1)),
+                   "binary_sensor.ev1": state("on", None), "binary_sensor.ev2": state("off", None)})
+    model = DemandForecast()
+    update(model, data, options, states)
+    assert model.previous[1] == 500
+    options["sources"]["ev2_power"] = "sensor.ev1"
+    assert update(model, data, options, states)["status"] == "data_missing"
+
+
+def test_ev_power_is_not_subtracted_from_already_clean_profile_by_default():
+    data, options, states = fixture(house=500)
+    options["sources"] = {"ev1_power": "sensor.ev"}
+    states["sensor.ev"] = state(200)
+    model = DemandForecast()
+    update(model, data, options, states)
+    assert model.previous[1] == 500
+    assert model.accuracy.previous[1] == 500
+    assert ev_profile_sources(options) == ()
+
+
+@pytest.mark.parametrize("plant_sources", [
+    {},
+    {"house_consumption": "sensor.house", "ev1_power": "sensor.house"},
+    {"ev1_power": "sensor.heat"},
+])
+def test_ev_scope_without_distinct_power_source_fails_closed(plant_sources):
+    data, options, states = fixture(house=500)
+    options["sources"] = plant_sources
+    options["demand_forecast"]["house_includes_ev"] = True
+    out = update(DemandForecast(), data, options, states)
+    assert out["status"] == "data_missing"
+    assert out["detail"] == "ev_power"
+
+
+def test_enabling_ev_scope_drops_incompatible_cells_prior_and_accuracy():
+    data, options, states = fixture(house=500)
+    model = DemandForecast()
+    update(model, data, options, states)
+    update(model, data, options, states, NOW + timedelta(seconds=30))
+    assert model.cells
+    model.history.rows = {NOW.isoformat(): {"house_w": 500}}
+    saved = model.snapshot()
+
+    restored = DemandForecast()
+    restored.restore(saved)
+    old_accuracy = restored.accuracy
+    options["sources"] = {"ev1_power": "sensor.ev"}
+    options["demand_forecast"]["house_includes_ev"] = True
+    options["sources"]["ev1_charging"] = "binary_sensor.ev_charging"
+    states["binary_sensor.ev_charging"] = state("on", None)
+    states["sensor.ev"] = state(100)
+    update(restored, data, options, states, NOW + timedelta(seconds=60))
+    assert not restored.cells
+    assert not restored.history.rows
+    assert restored.accuracy is not old_accuracy
+    assert restored.previous[1] == 400
+
+    update(restored, data, options, states, NOW + timedelta(seconds=90))
+    assert restored.cells
+    options["sources"]["ev1_charging"] = "binary_sensor.other_ev"
+    states["binary_sensor.other_ev"] = state("off", None)
+    update(restored, data, options, states, NOW + timedelta(seconds=120))
+    assert not restored.cells
+    assert restored.previous[1] == 500
 
 
 def test_pv_intervals_fail_closed_on_invalid_or_conflicting_forecasts():

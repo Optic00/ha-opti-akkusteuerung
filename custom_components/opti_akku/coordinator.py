@@ -40,7 +40,7 @@ from .definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
 from .sources import build_inputs, finite
 from .plant import plant_entity_ids, plant_semantic_fingerprint
 from .load_profile import LoadProfile
-from .demand import DemandForecast
+from .demand import EV_SCOPE_VERSION, DemandForecast, ev_profile_sources
 from .demand_comparison import build_strategy_comparison, remaining_day_profile
 from .peak_load import peak_load_profile
 from .ev_preparation import EVPreparation, apply_preparation, command_signals
@@ -117,7 +117,12 @@ def _rebind_load_prefix(value: str | None, old: str, new: str, length: int) -> s
         parts = json.loads(value)
     except ValueError:
         return value
-    if isinstance(parts, list) and len(parts) == length and parts[0] == old:
+    compatible_length = (
+        len(parts) == length
+        or (len(parts) == length + 1 and isinstance(parts[-1], dict)
+            and parts[-1].get("ev_subtraction_version") == EV_SCOPE_VERSION)
+    ) if isinstance(parts, list) else False
+    if compatible_length and parts[0] == old:
         return json.dumps([new, *parts[1:]], sort_keys=True)
     return value
 
@@ -1219,6 +1224,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("No historical interval before online observations")
         binding = self._demand_forecast.history_binding(self._load_source_fingerprint, self.entry.options, timezone)
         sources = {**cfg.get("sources", {}), "house": house}
+        if cfg.get("house_includes_ev") is True:
+            ev_sources = ev_profile_sources(self.entry.options)
+            if not ev_sources or house in ev_sources or cfg.get("sources", {}).get("heat_power") in ev_sources:
+                raise HomeAssistantError("Select distinct EV power sources for the house profile")
+            sources.update({f"ev{index}": entity for index, entity in enumerate(ev_sources, 1)})
         self._history_import_running = True
         commit = None
         try:

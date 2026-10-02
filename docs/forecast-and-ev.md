@@ -82,6 +82,19 @@ Hausverbrauchssensor sowie Außen- und Warmwasser-Ist-/Solltemperatur auswählen
 Der historische Sensor muss denselben Verbrauchsumfang wie der aktuelle
 Hausverbrauch abbilden, beispielsweise ebenfalls ohne Wallbox. Bei bestehender
 Legacy-Quellenzuordnung wird deren Hausverbrauchssensor verwendet.
+Enthält der aktuelle und historische Hausverbrauch die Wallbox, kann im
+Bedarfsprofil „Hausverbrauch enthält Wallbox-Ladung“ aktiviert werden. Dann
+werden die konfigurierten EV-Leistungsquellen beim Live-Lernen, beim
+Genauigkeitsvergleich und beim Import abgezogen. Bereits bereinigte Hausquellen
+brauchen diese Option nicht. Jeder EV-Leistungsquelle muss ein Ladestatus
+zugeordnet sein. Bei gültigem Ladestatus „aus“ gilt die EV-Last als 0 W, auch
+wenn der Leistungswert seit dem letzten Laden unverändert oder nicht verfügbar
+ist. Bei „an“ muss die Leistung gültig sein und die eingestellte Altersprüfung
+bestehen. Fehlender oder ungültiger Ladestatus verhindert die Lernprobe.
+Beim Import wird eine Stunde ohne EV-Statistik ausgelassen.
+Die Aktivierung oder eine Änderung der EV-Quellenzuordnung setzt bisher gelernte
+Profilwerte und Genauigkeitsdaten zurück; eine frühere historische Vorbelegung
+muss neu importiert werden. Das gilt auch beim Wechsel des Ladestatus-Sensors.
 Die Konfigurationsschaltfläche „Bedarfsprognose: Historie importieren“ liest einmalig
 bis zu 42 Tage aus dem lokalen HA-Recorder. Sie benötigt eine aktivierte Beobachtung.
 Bei einem separat konfigurierten Wärmepumpen-Leistungsmesser ist dieser Import

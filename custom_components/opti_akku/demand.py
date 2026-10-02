@@ -30,6 +30,8 @@ PV_COVER_FACTOR = 1.2
 PV_COVER_MIN_SECONDS = 3600
 PV_COVER_MIN_NET_KWH = 0.5
 REFILL_CHARGE_EFFICIENCY = 0.9
+EV_POWER_KEYS = ("ev1_power", "ev2_power")
+EV_SCOPE_VERSION = 2
 
 
 def number(value):
@@ -80,6 +82,77 @@ def source_value(states, entity_id, now, *, kind, source_max_age=900):
     if v is None or factor is None:
         return None
     return v * factor
+
+
+def ev_profile_sources(options):
+    """Only explicitly selected profiles subtract EV power from house load."""
+    if options.get("demand_forecast", {}).get("house_includes_ev") is not True:
+        return ()
+    sources = options.get("sources", {})
+    return tuple(sorted({sources[key] for key in EV_POWER_KEYS if sources.get(key)}))
+
+
+def ev_profile_scope(options):
+    if options.get("demand_forecast", {}).get("house_includes_ev") is not True:
+        return None
+    sources = options.get("sources", {})
+    return {"ev_subtraction_version": EV_SCOPE_VERSION, "sources": ev_profile_sources(options),
+            "charging_sources": tuple(
+                (sources[key], sources.get(key.replace("_power", "_charging")))
+                for key in EV_POWER_KEYS if sources.get(key)
+            )}
+
+
+def profile_house_value(data, options, states, now):
+    """Return the measured load represented by the demand profile, or an error."""
+    house = number(data.get("states", {}).get("sensor.opti_house_consumption_w"))
+    if (
+        not data.get("online")
+        or house is None
+        or not 0 <= house <= 50000
+        or any(
+            key == "house_consumption" or key.startswith("plant:")
+            for key in data.get("source_errors", {})
+        )
+    ):
+        return None, "house_or_heat_power"
+    if options.get("demand_forecast", {}).get("house_includes_ev") is not True:
+        return house, None
+    ev_sources = ev_profile_sources(options)
+    selected = options.get("demand_forecast", {}).get("sources", {})
+    if not ev_sources or any(
+        entity in ev_sources
+        for entity in (options.get("sources", {}).get("house_consumption"), selected.get("heat_power"))
+        if entity
+    ):
+        return None, "ev_power"
+    charging_states = {}
+    sources = options.get("sources", {})
+    for key in EV_POWER_KEYS:
+        if not (entity := sources.get(key)):
+            continue
+        charging = source_value(
+            states, sources.get(key.replace("_power", "_charging")), now, kind="flag"
+        )
+        if charging is None or (entity in charging_states and charging_states[entity] != charging):
+            return None, "ev_power"
+        charging_states[entity] = charging
+    ev_power = 0.0
+    for entity, charging in charging_states.items():
+        # A valid idle flag remains authoritative even when event-based power
+        # has not reported since the last charge. Active charging needs power.
+        if not charging:
+            continue
+        value = source_value(
+            states, entity, now, kind="power",
+            source_max_age=options.get("source_max_age", 900),
+        )
+        if value is None or not 0 <= value <= 50000:
+            return None, "ev_power"
+        ev_power += value
+    if ev_power > house:
+        return None, "ev_power"
+    return house - ev_power, None
 
 
 def pv_intervals(states, sources, now):
@@ -174,10 +247,21 @@ class DemandForecast:
         self.history.restore(value.get("history"))
 
     @staticmethod
+    def profile_binding(load_fingerprint, options, timezone):
+        sources = options.get("demand_forecast", {}).get("sources", {})
+        parts = [load_fingerprint, {k: v for k, v in sources.items() if k not in CONTEXT_KEYS},
+                 str(timezone)]
+        if (scope := ev_profile_scope(options)) is not None:
+            parts.append(scope)
+        return json.dumps(parts, sort_keys=True)
+
+    @staticmethod
     def history_binding(load_fingerprint, options, timezone):
         cfg = options.get("demand_forecast", {})
-        return json.dumps([load_fingerprint, cfg.get("history_house"), cfg.get("sources", {}),
-                           str(timezone)], sort_keys=True)
+        parts = [load_fingerprint, cfg.get("history_house"), cfg.get("sources", {}), str(timezone)]
+        if (scope := ev_profile_scope(options)) is not None:
+            parts.append(scope)
+        return json.dumps(parts, sort_keys=True)
 
     def _learn(self, now, base, heat, dhw, context, timezone):
         if self.previous:
@@ -230,23 +314,16 @@ class DemandForecast:
         )
 
     def update(self, now, data, settings, options, states, timezone, fingerprint):
-        result = self._forecast(now, data, settings, options, states, timezone, fingerprint)
+        now = instant(now)
+        house, house_error = profile_house_value(data, options, states, now)
+        result = self._forecast(
+            now, data, settings, options, states, timezone, fingerprint, house, house_error
+        )
         if result["status"] != "disabled":
-            house = number(data.get("states", {}).get("sensor.opti_house_consumption_w"))
-            if (
-                not data.get("online")
-                or house is None
-                or not 0 <= house <= 50000
-                or any(
-                    key == "house_consumption" or key.startswith("plant:")
-                    for key in data.get("source_errors", {})
-                )
-            ):
-                house = None
-            result["accuracy"] = self.accuracy.observe(instant(now), house, result)
+            result["accuracy"] = self.accuracy.observe(now, house, result)
         return result
 
-    def _forecast(self, now, data, settings, options, states, timezone, fingerprint):
+    def _forecast(self, now, data, settings, options, states, timezone, fingerprint, house, house_error):
         cfg = options.get("demand_forecast", {})
         out = {"status": "disabled", "observation_only": True}
         if cfg.get("enabled") is not True:
@@ -254,7 +331,7 @@ class DemandForecast:
         now = instant(now)
         sources = cfg.get("sources", {})
         load_fingerprint = fingerprint
-        fingerprint = json.dumps([fingerprint, {k: v for k, v in sources.items() if k not in CONTEXT_KEYS}, str(timezone)], sort_keys=True)
+        fingerprint = self.profile_binding(fingerprint, options, timezone)
         if fingerprint != self.fingerprint:
             self.cells.clear()
             self.previous = None
@@ -279,12 +356,7 @@ class DemandForecast:
         )
         context = "unknown" if summer is None else "summer" if summer else "winter"
         heat = get("heat_power", "power") if sources.get("heat_power") else 0.0
-        house = number(data.get("states", {}).get("sensor.opti_house_consumption_w"))
-        valid = data.get("online") and house is not None and 0 <= house <= 50000
-        valid = valid and not any(
-            k == "house_consumption" or k.startswith("plant:")
-            for k in data.get("source_errors", {})
-        )
+        valid = house is not None
         valid = valid and heat is not None and 0 <= heat <= (house if house is not None else 0)
         context_valid = not any(
             sources.get(k) and get(k, "flag") is None
@@ -312,7 +384,7 @@ class DemandForecast:
             pv_method="Solcast P10 half-hour mean power",
         )
         if not valid:
-            return {**out, "status": "data_missing", "detail": "house_or_heat_power"}
+            return {**out, "status": "data_missing", "detail": house_error or "house_or_heat_power"}
         if not context_valid:
             return {**out, "status": "data_missing", "detail": "heat_context_unknown"}
         outdoor = get("outdoor_temperature", "temperature") if cfg.get("temperature_matching") is True else None

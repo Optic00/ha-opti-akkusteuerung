@@ -48,7 +48,7 @@ from .observation import SourceObservation
 from .recovery import RecoveryState
 from .shadow import DEMAND_FIELDS, MEASUREMENTS, ShadowRecorder
 from .reporting import OperatingReport, reserve_plan
-from .tibber_prices import REFRESH_SECONDS, RETRY_SECONDS, TibberPriceError, TibberPriceSnapshot, async_fetch_prices
+from .tibber_prices import READINESS_RETRY_SECONDS, REFRESH_SECONDS, RETRY_SECONDS, TibberPriceError, TibberPriceSnapshot, async_fetch_prices
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -590,7 +590,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise TibberPriceError("tibber_entry_mismatch")
         except TibberPriceError as err:
             self._price_provider_error = err.code
-            self._price_next_fetch = dt_util.utcnow() + timedelta(seconds=RETRY_SECONDS)
+            retry = READINESS_RETRY_SECONDS if err.code == "tibber_not_ready" else RETRY_SECONDS
+            self._price_next_fetch = dt_util.utcnow() + timedelta(seconds=retry)
             if err.code in ("tibber_home_mismatch", "tibber_home_count", "tibber_config_entries", "tibber_entry_mismatch"):
                 self._price_snapshot = None
                 self._revision += 1

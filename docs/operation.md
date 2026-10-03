@@ -349,6 +349,16 @@ beendet. Schreibstillstand, Sperrverletzung und eine ausstehende Pause werden
 ohne diese Wartefrist gemeldet; für den ersten Tibber-Abruf gilt die gesonderte
 Startfrist.
 
+Beim nativen Tibber-Preisbezug wartet Opti Akku, bis die Tibber-Integration
+vollständig geladen und ihr Preisdienst verfügbar ist. Die Bereitschaft wird
+im regulären 15-Sekunden-Takt erneut geprüft, ohne Tibber dabei aufzurufen.
+Auch wenn Tibber länger als fünf Minuten zum Starten braucht, beginnt der
+Preisabruf danach automatisch; Opti Akku muss nicht neu geladen werden.
+Nach einem tatsächlichen Abruffehler beträgt die Wartezeit weiterhin fünf
+Minuten. Ohne gültige Preise bleibt die preisabhängige Strategie in Pause.
+Für die Meldung fehlender Preise gilt beim Start weiterhin die sechsminütige
+Startfrist.
+
 Ist ausschließlich die optionale PV-Erzeugungsquelle ungültig und steht
 `sun.sun` auf `below_horizon`, entfallen die HA-Störmeldung und der Push für
 Quellenfehler. Der Fehler bleibt in der Diagnose sichtbar. Bei Tageslicht,

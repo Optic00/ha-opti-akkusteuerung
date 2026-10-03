@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import SupportsResponse
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -39,9 +40,11 @@ def native_day(day, *, minutes=60, price=.25):
 
 @pytest.fixture
 def tibber_entry(hass):
-    entry = MockConfigEntry(domain="tibber", title="Synthetic Tibber", entry_id="synthetic-tibber-entry")
+    entry = MockConfigEntry(domain="tibber", title="Synthetic Tibber", entry_id="synthetic-tibber-entry",
+                            state=ConfigEntryState.LOADED)
     entry.add_to_hass(hass)
-    return entry
+    yield entry
+    entry.mock_state(hass, ConfigEntryState.NOT_LOADED)
 
 
 @pytest.fixture
@@ -77,6 +80,18 @@ async def test_service_rejects_ambiguous_entry_selection_before_fetch(hass, entr
         MockConfigEntry(domain="tibber", title=f"Synthetic {index}").add_to_hass(hass)
     with patch.object(type(hass.services), "async_call", new=AsyncMock()) as call:
         with pytest.raises(TibberPriceError, match="tibber_config_entries"):
+            await async_fetch_prices(hass)
+        call.assert_not_called()
+
+
+@pytest.mark.parametrize("pending", ["not_loaded", "setup_in_progress", "setup_retry", "service_missing"])
+async def test_service_waits_for_tibber_readiness_without_calling_it(hass, service, tibber_entry, pending):
+    if pending == "service_missing":
+        hass.services.async_remove("tibber", "get_prices")
+    else:
+        tibber_entry.mock_state(hass, ConfigEntryState(pending))
+    with patch.object(type(hass.services), "async_call", new=AsyncMock()) as call:
+        with pytest.raises(TibberPriceError, match="^tibber_not_ready$"):
             await async_fetch_prices(hass)
         call.assert_not_called()
 
@@ -255,6 +270,47 @@ async def test_slow_fetch_does_not_block_device_refresh_or_shutdown(coordinator)
         assert next_data["mode"] == "Akku Pause"
         await coordinator.async_stop()
         assert cancelled.is_set() and coordinator._price_task.done()
+
+
+@pytest.mark.parametrize("pending", ["entry", "service"])
+async def test_tibber_ready_just_after_five_minutes_recovers_without_reload(
+    coordinator, hass, service, tibber_entry, clock, pending
+):
+    started = dt_util.utcnow()
+    if pending == "entry":
+        tibber_entry.mock_state(hass, ConfigEntryState.SETUP_RETRY)
+    else:
+        hass.services.async_remove("tibber", "get_prices")
+
+    for seconds in (0, 300):
+        clock.move_to(started + timedelta(seconds=seconds))
+        await coordinator._async_update_data()
+        await coordinator._price_task
+        assert coordinator._price_snapshot is None
+        assert coordinator.data["price_status"] == "loading"
+        assert coordinator.data["mode"] == "Akku Pause"
+    assert service[1] == []
+
+    clock.move_to(started + timedelta(seconds=301))
+    if pending == "entry":
+        tibber_entry.mock_state(hass, ConfigEntryState.LOADED)
+    else:
+        async def ready(call):
+            service[1].append(call.data)
+            return deepcopy(service[0])
+
+        hass.services.async_register("tibber", "get_prices", ready, supports_response=SupportsResponse.ONLY)
+
+    clock.move_to(started + timedelta(seconds=315))
+    await coordinator._async_update_data()
+    await coordinator._price_task
+    assert coordinator._price_snapshot is not None
+    assert coordinator._price_last_success == dt_util.utcnow()
+    assert coordinator._price_provider_error is None
+    assert coordinator.data["price_status"] == "ready"
+    assert coordinator.data["source_errors"] == {}
+    assert coordinator.data["states"]["sensor.opti_price_current_ct_kwh"] == "25.0"
+    assert len(service[1]) == 1
 
 
 async def test_cached_fetch_schedule_retry_and_original_ttl(coordinator, clock, service):

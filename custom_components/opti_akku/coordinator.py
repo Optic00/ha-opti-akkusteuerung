@@ -592,6 +592,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._price_provider_error = err.code
             retry = READINESS_RETRY_SECONDS if err.code == "tibber_not_ready" else RETRY_SECONDS
             self._price_next_fetch = dt_util.utcnow() + timedelta(seconds=retry)
+            if err.code == "tibber_not_ready":
+                # The regular tick checks readiness; do not double device polling.
+                return
             if err.code in ("tibber_home_mismatch", "tibber_home_count", "tibber_config_entries", "tibber_entry_mismatch"):
                 self._price_snapshot = None
                 self._revision += 1

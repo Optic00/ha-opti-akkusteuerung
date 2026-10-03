@@ -284,7 +284,7 @@ async def test_tibber_ready_just_after_five_minutes_recovers_without_reload(
 
     for seconds in (0, 300):
         clock.move_to(started + timedelta(seconds=seconds))
-        await coordinator._async_update_data()
+        await coordinator.async_refresh()
         await coordinator._price_task
         assert coordinator._price_snapshot is None
         assert coordinator.data["price_status"] == "loading"
@@ -311,6 +311,58 @@ async def test_tibber_ready_just_after_five_minutes_recovers_without_reload(
     assert coordinator.data["source_errors"] == {}
     assert coordinator.data["states"]["sensor.opti_price_current_ct_kwh"] == "25.0"
     assert len(service[1]) == 1
+
+
+async def test_pending_tibber_keeps_regular_device_polling_and_reports_error_after_grace(
+    coordinator, hass, service, tibber_entry, clock
+):
+    tibber_entry.mock_state(hass, ConfigEntryState.SETUP_ERROR)
+    started = dt_util.utcnow()
+    for seconds in (0, 15, 300, 360, 420):
+        clock.move_to(started + timedelta(seconds=seconds))
+        reads = coordinator.device.async_read.await_count
+        await coordinator.async_refresh()
+        await coordinator._price_task
+        assert coordinator.device.async_read.await_count == reads + 1
+        assert service[1] == []
+        assert coordinator._price_last_success is None
+        assert coordinator._price_provider_error == "tibber_not_ready"
+        assert coordinator.data["price_status"] == ("loading" if seconds < 360 else "error")
+        assert coordinator.data["mode"] == "Akku Pause"
+
+
+async def test_tibber_reload_retains_cache_only_within_original_ttl(
+    coordinator, hass, service, tibber_entry, clock
+):
+    await coordinator.async_refresh()
+    await coordinator._price_task
+    snapshot = coordinator._price_snapshot
+    started = dt_util.utcnow()
+    tibber_entry.mock_state(hass, ConfigEntryState.SETUP_IN_PROGRESS)
+    for seconds in (1800, 7201):
+        clock.move_to(started + timedelta(seconds=seconds))
+        await coordinator.async_refresh()
+        await coordinator._price_task
+        assert coordinator._price_snapshot is snapshot
+        assert coordinator._price_last_success == started
+        assert len(service[1]) == 1
+        if seconds == 1800:
+            assert coordinator.data["states"]["sensor.opti_price_current_ct_kwh"] == "25.0"
+            assert coordinator.data["source_errors"] == {}
+        else:
+            assert coordinator.data["price_status"] == "error"
+            assert coordinator.data["source_errors"]["price_current"] == "missing_or_stale"
+            assert coordinator.data["mode"] == "Akku Pause"
+
+    tibber_entry.mock_state(hass, ConfigEntryState.LOADED)
+    clock.tick(timedelta(seconds=15))
+    await coordinator.async_refresh()
+    await coordinator._price_task
+    assert coordinator._price_snapshot is not snapshot
+    assert coordinator._price_last_success == dt_util.utcnow()
+    assert coordinator.data["price_status"] == "ready"
+    assert coordinator.data["source_errors"] == {}
+    assert len(service[1]) == 2
 
 
 async def test_cached_fetch_schedule_retry_and_original_ttl(coordinator, clock, service):

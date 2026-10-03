@@ -642,7 +642,8 @@ async def test_score_ev_opt_in_uses_cleaned_load_without_changing_real_house(coo
     hass.states.async_set("sensor.ev", "unavailable", {"unit_of_measurement": "W"})
     invalid = await coordinator._async_update_data()
     assert invalid["states"]["sensor.opti_forecast_house_60min_w"] == "unavailable"
-    assert coordinator.engine.snapshot()["samples"]["sensor.opti_forecast_house_60min_w"] == []
+    assert len(coordinator.engine.snapshot()["samples"]["sensor.opti_forecast_house_60min_w"]) == 1
+    assert invalid["reserve_plan"]["score_load_error"] == "ev_power"
 
 
 async def test_nonlegacy_score_subtracts_only_ev_not_already_excluded(coordinator, hass):

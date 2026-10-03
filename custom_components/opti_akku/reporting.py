@@ -69,6 +69,7 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> 
         "sun_day_score": sun_day_score if sun_day_score is not None and 0 <= sun_day_score <= 10 else None,
         "long_horizon": horizon_state == "on" if horizon_state in ("on", "off") else None,
         "horizon_reason": horizon_branch if isinstance(horizon_branch, str) and horizon_branch.strip() else None,
+        "score_load_error": data.get("score_load_error"),
         "planned_reserve_soc": total if valid else None,
         "priority_reserve_soc": priority if valid else None,
         "horizon_end": attrs.get("horizont_ende") if valid else None,

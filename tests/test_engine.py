@@ -302,6 +302,104 @@ def test_persistent_extra_base_load_is_included_by_profile_input():
     assert result.attributes["sensor.opti_forecast_score"]["pv_surplus_kwh"] == 3
 
 
+@pytest.mark.parametrize("profile_kwh,expected_load,expected_source", [
+    ("unavailable", 2.1, "ev_adjusted_60min_extrapolation"),
+    (3, 3, "online_profile"),
+])
+def test_day_score_and_surplus_attributes_use_ev_adjusted_load(profile_kwh, expected_load, expected_source):
+    states = measurements(**{
+        SOC: 50, "sensor.opti_forecast_remaining_today_kwh": 10,
+        "sensor.opti_house_consumption_w": 2200,
+        "sensor.opti_house_consumption_60min_w": 2200,
+        "sensor.opti_forecast_house_60min_w": 350,
+        "input_boolean.opti_score_house_includes_ev": "on",
+        "sensor.opti_forecast_remaining_load_profile_kwh": profile_kwh,
+    })
+    result = evaluate(states=states)
+    attrs = result.attributes["sensor.opti_forecast_score"]
+    assert result.states["sensor.opti_forecast_score"] == "10"
+    assert attrs["projected_load_kwh"] == expected_load
+    assert attrs["pv_surplus_kwh"] == pytest.approx(10 - expected_load)
+    assert attrs["ueberschuss_ueber_voll_kwh"] == pytest.approx(5 - expected_load)
+    assert attrs["load_source"] == expected_source
+
+
+def test_invalid_ev_score_source_uses_raw_house_even_with_stale_profile():
+    states = measurements(**{
+        SOC: 50, "sensor.opti_forecast_remaining_today_kwh": 10,
+        "sensor.opti_house_consumption_w": 2200,
+        "sensor.opti_house_consumption_60min_w": 1800,
+        "sensor.opti_forecast_house_60min_w": "unavailable",
+        "input_boolean.opti_score_house_includes_ev": "on",
+        "sensor.opti_forecast_remaining_load_profile_kwh": 3,
+    })
+    result = evaluate(states=states)
+    attrs = result.attributes["sensor.opti_forecast_score"]
+    assert result.states["sensor.opti_forecast_score"] == "0"
+    assert attrs["projected_load_kwh"] == pytest.approx(10.8)
+    assert attrs["pv_surplus_kwh"] == 0
+    assert attrs["ueberschuss_ueber_voll_kwh"] == 0
+    assert attrs["load_source"] == "raw_60min_ev_fallback"
+    states["sensor.opti_forecast_tomorrow_kwh"] = 5
+    low_pv = evaluate(states=states)
+    assert low_pv.states["sensor.opti_forecast_score_tomorrow"] == "1"
+    assert low_pv.states["sensor.opti_forecast_score_sonnentag"] == "1"
+
+    states["sensor.opti_house_consumption_60min_w"] = "unavailable"
+    current = evaluate(states=states)
+    assert current.attributes["sensor.opti_forecast_score"]["projected_load_kwh"] == pytest.approx(13.2)
+    assert current.attributes["sensor.opti_forecast_score"]["load_source"] == "current_house_ev_fallback"
+    states["sensor.opti_house_consumption_w"] = "unavailable"
+    missing = evaluate(states=states)
+    for entity in ("sensor.opti_forecast_score", "sensor.opti_forecast_score_tomorrow",
+                   "sensor.opti_forecast_score_sonnentag"):
+        assert missing.states[entity] == "unavailable"
+
+
+def test_day_score_opt_out_keeps_raw_load_and_existing_profile_priority():
+    states = measurements(**{
+        SOC: 50, "sensor.opti_forecast_remaining_today_kwh": 10,
+        "sensor.opti_house_consumption_w": 2200,
+        "sensor.opti_house_consumption_60min_w": 1800,
+        "sensor.opti_forecast_house_60min_w": 350,
+        "input_boolean.opti_score_house_includes_ev": "off",
+        "sensor.opti_forecast_remaining_load_profile_kwh": "unavailable",
+    })
+    raw = evaluate(states=states)
+    assert raw.attributes["sensor.opti_forecast_score"]["projected_load_kwh"] == pytest.approx(10.8)
+    assert raw.attributes["sensor.opti_forecast_score"]["load_source"] == "legacy_60min_extrapolation"
+    states["sensor.opti_forecast_remaining_load_profile_kwh"] = 3
+    profiled = evaluate(states=states)
+    assert profiled.attributes["sensor.opti_forecast_score"]["projected_load_kwh"] == 3
+
+
+def test_winter_soc15_keeps_forecast_reserve_after_ev_power_becomes_invalid():
+    states = measurements(**{
+        SOC: 15, "input_number.minsoc": 5,
+        "input_boolean.opti_prognose_netzladen": "on",
+        "binary_sensor.opti_winter_charging_allowed": "on",
+        "sensor.opti_price_current_ct_kwh": 20,
+        "sensor.opti_forecast_today_kwh": 1,
+        "sensor.opti_forecast_tomorrow_kwh": 1,
+        "sensor.opti_forecast_remaining_today_kwh": 1,
+        "sensor.opti_house_consumption_w": 2200,
+        "sensor.opti_house_consumption_60min_w": 2200,
+        "sensor.opti_forecast_house_60min_w": 350,
+        "input_boolean.opti_score_house_includes_ev": "on",
+    })
+    attrs = solar_attrs()
+    attrs["sensor.opti_price_series"] = {"today": [20] * 24, "tomorrow": [20] * 24}
+    valid = evaluate(states=states, attributes=attrs)
+    assert valid.decision_id == "reserve_low"
+    states["sensor.opti_forecast_house_60min_w"] = "unavailable"
+    invalid = evaluate(states=states, attributes=attrs)
+    assert invalid.states["sensor.opti_forecast_score"] == "0"
+    assert invalid.states["sensor.opti_forecast_score_tomorrow"] == "0"
+    assert invalid.states["sensor.opti_forecast_score_sonnentag"] == "0"
+    assert invalid.decision_id == "reserve_low"
+    assert invalid.mode == "Akku nur Laden"
+
+
 def test_maxsoc_latch_requires_real_entry_and_preserves_sensor_gap():
     engine = StrategyEngine()
     for minute, (soc, expected) in enumerate([(93, "off"), (95, "on"), (94, "on"), (92, "on"), ("unavailable", "on"), (91.9, "off"), (93, "off")]):
@@ -730,7 +828,7 @@ def test_fresh_peak_horizon_score_two_starts_short_but_missing_score_starts_long
     assert evaluate(StrategyEngine(), states, attrs, now).states["binary_sensor.opti_peak_horizont_lang"] == "on"
 
 
-def test_ev_score_statistic_is_separate_and_invalid_sample_clears_history():
+def test_ev_score_statistic_is_separate_and_invalid_sample_hides_history():
     engine = StrategyEngine()
     states = measurements(**{"sensor.opti_house_consumption_w": 2200,
                              "sensor.opti_forecast_house_instant_w": 350,
@@ -743,12 +841,12 @@ def test_ev_score_statistic_is_separate_and_invalid_sample_clears_history():
     states["sensor.opti_forecast_house_instant_w"] = "unavailable"
     invalid = evaluate(engine, states, now=NOW + dt.timedelta(minutes=1))
     assert invalid.states["sensor.opti_forecast_house_60min_w"] == "unavailable"
-    assert invalid.states["sensor.opti_forecast_score_tomorrow"] == "unavailable"
-    assert invalid.states["sensor.opti_forecast_score_sonnentag"] == "unavailable"
-    assert engine.snapshot()["samples"]["sensor.opti_forecast_house_60min_w"] == []
+    assert invalid.states["sensor.opti_forecast_score_tomorrow"] == "4"
+    assert invalid.states["sensor.opti_forecast_score_sonnentag"] == "4"
+    assert len(engine.snapshot()["samples"]["sensor.opti_forecast_house_60min_w"]) == 1
     states["sensor.opti_forecast_house_instant_w"] = 500
     recovered = evaluate(engine, states, now=NOW + dt.timedelta(minutes=2))
-    assert float(recovered.states["sensor.opti_forecast_house_60min_w"]) == 500
+    assert float(recovered.states["sensor.opti_forecast_house_60min_w"]) == 425
     engine.reset_score_statistics()
     assert "sensor.opti_forecast_house_60min_w" not in engine.snapshot()["samples"]
     assert "sensor.opti_house_consumption_60min_w" in engine.snapshot()["samples"]

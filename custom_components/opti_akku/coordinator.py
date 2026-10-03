@@ -678,6 +678,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         states, attributes, source_errors = build_inputs(self._measurements, input_options, self.hass.states, now,
                                                          price_snapshot=self._current_price_snapshot())
         score_opt_in = captured_options.get("demand_forecast", {}).get("house_includes_ev") is True
+        score_load_error = None
         states["input_boolean.opti_score_house_includes_ev"] = "on" if score_opt_in else "off"
         if score_opt_in:
             nonlegacy = captured_options.get("plant_mode", "legacy") != "legacy"
@@ -685,7 +686,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 min(5000, max(0, finite(attributes.get("sensor.opti_house_raw_w", {}).get("forecast_min_load_w")) or 0))
                 if nonlegacy else 0
             )
-            value, _ = profile_house_value(
+            value, score_load_error = profile_house_value(
                 {"online": self._online, "states": states, "source_errors": source_errors},
                 captured_options, self.hass.states, now,
                 house_key="sensor.opti_base_load_raw_w" if nonlegacy else "sensor.opti_house_consumption_w",
@@ -1030,6 +1031,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "connection_status": connection,
                 "online": self._online, "last_write": getattr(self.device, "last_write", None),
                 "last_error": self._last_error, "source_errors": source_errors,
+                "score_load_error": score_load_error,
                 "device_errors": dict(read_errors) if isinstance(read_errors, dict) else {}, "load_profile": self._load_profile_status,
                 "price_provider_error": self._price_provider_error,
                 "price_last_success": self._price_last_success,

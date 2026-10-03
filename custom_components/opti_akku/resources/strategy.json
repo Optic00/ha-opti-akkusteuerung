@@ -521,9 +521,9 @@
           "unique_id": "opti_peak_horizont_lang",
           "name": "Opti Peak Horizont Lang",
           "icon": "mdi:timer-sand",
-          "state": "{% set war_aus = this is defined and this.state == 'off' %} {% set score = states('sensor.opti_forecast_score_sonnentag') | float(none) %} {% if score is none %}\n  {{ true }}\n{% else %}\n  {{ score <= 1 or (score < 3 and not war_aus) }}\n{% endif %}\n",
+          "state": "{% set war_an = this is defined and this.state == 'on' %} {% set score = states('sensor.opti_forecast_score_sonnentag') | float(none) %} {% if score is none %}\n  {{ true }}\n{% else %}\n  {{ score <= 1 or (score < 3 and war_an) }}\n{% endif %}\n",
           "attributes": {
-            "branch": "{% set war_aus = this is defined and this.state == 'off' %} {% set roh = states('sensor.opti_forecast_score_sonnentag') %} {% set score = roh | float(none) %} {% if score is none %}\n  Score={{ roh }} fehlt -> an (36 h)\n{% elif score <= 1 %}\n  Score={{ roh }} -> an (36 h, ein <= 1)\n{% elif score >= 3 %}\n  Score={{ roh }} -> aus (Sonnenaufgang + Puffer, aus >= 3)\n{% else %}\n  Score={{ roh }} -> Vorzustand gehalten: {{ 'aus' if war_aus else 'an' }} (war_aus={{ war_aus }})\n{% endif %}\n"
+            "branch": "{% set war_an = this is defined and this.state == 'on' %} {% set roh = states('sensor.opti_forecast_score_sonnentag') %} {% set score = roh | float(none) %} {% if score is none %}\n  Score={{ roh }} fehlt -> an (36 h)\n{% elif score <= 1 %}\n  Score={{ roh }} -> an (36 h, ein <= 1)\n{% elif score >= 3 %}\n  Score={{ roh }} -> aus (Sonnenaufgang + Puffer, aus >= 3)\n{% else %}\n  Score={{ roh }} -> {{ 'Vorzustand an gehalten' if war_an else 'aus ohne vorheriges an' }} (war_an={{ war_an }})\n{% endif %}\n"
           }
         }
       ]
@@ -552,8 +552,8 @@
           "unique_id": "opti_forecast_score_tomorrow",
           "name": "Opti Forecast Score Tomorrow",
           "state_class": "measurement",
-          "availability": "{{ has_value('sensor.opti_forecast_tomorrow_kwh') and has_value('sensor.opti_house_consumption_w') }}\n",
-          "state": "{% set hausverbrauch = states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %} {% set verbrauch_w = [hausverbrauch, 1]|max %} {% set denom_kwh = verbrauch_w * 24 / 1000 %} {% set median_t = states('sensor.opti_forecast_tomorrow_kwh')|float(0) %} {% set p10_raw_t = state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(median_t) %} {% set p10_t = p10_raw_t if p10_raw_t > 0 else median_t %} {# Forecast-Optimismus (Feature #30) jetzt auch fuer den Morgen-Score:\n   gleicher alpha-Blend wie opti_forecast_effective_remaining_kwh, damit\n   EIN Regler konsistent Tag- UND Nacht-Pfad steuert. alpha=0 ->\n   min(median, P10), bit-identisch zum alten Verhalten. Wichtig, weil der\n   Peak-Reserve-Horizont abends an score_tomorrow haengt - sonst hielt die\n   Reserve nachts bei pessimistischem Solcast-P10 unnoetig Ladung (-> Netzbezug). #}\n{% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus')|float(0)]|min]|max) / 100 %} {% set blended_t = alpha * median_t + (1 - alpha) * p10_t %} {% set tomorrow = [median_t, blended_t]|min %} {{ (([ [tomorrow / denom_kwh, 1]|min, 0]|max) * 10)|round(0)|int }}\n",
+          "availability": "{{ has_value('sensor.opti_forecast_tomorrow_kwh') and has_value('sensor.opti_house_consumption_w')\n   and (not is_state('input_boolean.opti_score_house_includes_ev', 'on')\n        or has_value('sensor.opti_forecast_house_60min_w')) }}\n",
+          "state": "{% set hausverbrauch = states('sensor.opti_forecast_house_60min_w')|float(none) if is_state('input_boolean.opti_score_house_includes_ev', 'on') else states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %} {% set verbrauch_w = [hausverbrauch, 1]|max %} {% set denom_kwh = verbrauch_w * 24 / 1000 %} {% set median_t = states('sensor.opti_forecast_tomorrow_kwh')|float(0) %} {% set p10_raw_t = state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(median_t) %} {% set p10_t = p10_raw_t if p10_raw_t > 0 else median_t %} {# Forecast-Optimismus (Feature #30) jetzt auch fuer den Morgen-Score:\n   gleicher alpha-Blend wie opti_forecast_effective_remaining_kwh, damit\n   EIN Regler konsistent Tag- UND Nacht-Pfad steuert. alpha=0 ->\n   min(median, P10), bit-identisch zum alten Verhalten. Wichtig, weil der\n   Peak-Reserve-Horizont abends an score_tomorrow haengt - sonst hielt die\n   Reserve nachts bei pessimistischem Solcast-P10 unnoetig Ladung (-> Netzbezug). #}\n{% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus')|float(0)]|min]|max) / 100 %} {% set blended_t = alpha * median_t + (1 - alpha) * p10_t %} {% set tomorrow = [median_t, blended_t]|min %} {{ (([ [tomorrow / denom_kwh, 1]|min, 0]|max) * 10)|round(0)|int }}\n",
           "attributes": {
             "alpha": "{{ ([0, [100, states('input_number.opti_forecast_optimismus')|float(0)]|min]|max) / 100 }}",
             "median_kwh": "{{ states('sensor.opti_forecast_tomorrow_kwh')|float(0)|round(2) }}",
@@ -564,8 +564,8 @@
           "unique_id": "opti_forecast_score_sonnentag",
           "name": "Opti Forecast Score Sonnentag",
           "state_class": "measurement",
-          "availability": "{% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {% set quelle = 'sensor.opti_forecast_today_kwh'\n                if rise is not none and rise.date() == now().date()\n                else 'sensor.opti_forecast_tomorrow_kwh' %}\n{{ rise is not none and has_value(quelle)\n   and has_value('sensor.opti_house_consumption_w') }}\n",
-          "state": "{% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {% set quelle = 'sensor.opti_forecast_today_kwh'\n                if rise is not none and rise.date() == now().date()\n                else 'sensor.opti_forecast_tomorrow_kwh' %}\n{% set hausverbrauch = states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %} {% set verbrauch_w = [hausverbrauch, 1]|max %} {% set denom_kwh = verbrauch_w * 24 / 1000 %} {% set median = states(quelle)|float(0) %} {% set p10_raw = state_attr(quelle, 'estimate10')|float(median) %} {% set p10 = p10_raw if p10_raw > 0 else median %} {% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus')|float(0)]|min]|max) / 100 %} {% set blended = alpha * median + (1 - alpha) * p10 %} {% set prognose = [median, blended]|min %} {{ (([ [prognose / denom_kwh, 1]|min, 0]|max) * 10)|round(0)|int }}\n",
+          "availability": "{% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {% set quelle = 'sensor.opti_forecast_today_kwh'\n                if rise is not none and rise.date() == now().date()\n                else 'sensor.opti_forecast_tomorrow_kwh' %}\n{{ rise is not none and has_value(quelle)\n   and has_value('sensor.opti_house_consumption_w')\n   and (not is_state('input_boolean.opti_score_house_includes_ev', 'on')\n        or has_value('sensor.opti_forecast_house_60min_w')) }}\n",
+          "state": "{% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {% set quelle = 'sensor.opti_forecast_today_kwh'\n                if rise is not none and rise.date() == now().date()\n                else 'sensor.opti_forecast_tomorrow_kwh' %}\n{% set hausverbrauch = states('sensor.opti_forecast_house_60min_w')|float(none) if is_state('input_boolean.opti_score_house_includes_ev', 'on') else states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %} {% set verbrauch_w = [hausverbrauch, 1]|max %} {% set denom_kwh = verbrauch_w * 24 / 1000 %} {% set median = states(quelle)|float(0) %} {% set p10_raw = state_attr(quelle, 'estimate10')|float(median) %} {% set p10 = p10_raw if p10_raw > 0 else median %} {% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus')|float(0)]|min]|max) / 100 %} {% set blended = alpha * median + (1 - alpha) * p10 %} {% set prognose = [median, blended]|min %} {{ (([ [prognose / denom_kwh, 1]|min, 0]|max) * 10)|round(0)|int }}\n",
           "attributes": {
             "quelle": "{% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {{ 'sensor.opti_forecast_today_kwh'\n   if rise is not none and rise.date() == now().date()\n   else 'sensor.opti_forecast_tomorrow_kwh' }}\n"
           }
@@ -833,6 +833,18 @@
       "name": "Opti House Consumption 60min W",
       "unique_id": "opti_house_consumption_60min_w",
       "entity_id": "sensor.opti_house_consumption_w",
+      "state_characteristic": "mean",
+      "max_age": {
+        "minutes": 60
+      },
+      "sampling_size": 1500,
+      "precision": 0
+    },
+    {
+      "platform": "statistics",
+      "name": "Opti Forecast House 60min W",
+      "unique_id": "opti_forecast_house_60min_w",
+      "entity_id": "sensor.opti_forecast_house_instant_w",
       "state_characteristic": "mean",
       "max_age": {
         "minutes": 60

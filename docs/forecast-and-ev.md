@@ -183,7 +183,12 @@ Eine tatsächlich länger erhöhte Grundlast bleibt über den gemessenen
 Profilaufschlag berücksichtigt. Solange das Profil lernt, historische oder feste
 Ersatzwerte benötigt, Warmwasser zeitlich nicht zugeordnet werden kann oder ein
 Eingang fehlt, bleibt automatisch die bisherige 60-Minuten-Hochrechnung aktiv.
-Morgen- und Sonnentag-Score verwenden vorerst weiter ihre bisherigen Formeln.
+Morgen- und Sonnentag-Score behalten ihre Formel. Bei aktivierter Option
+„Hausverbrauch enthält Wallbox-Ladung“ verwenden sie darin einen gesonderten,
+um gültige EV-Leistung bereinigten 60-Minuten-Wert. Fehlt während des Ladens
+ein gültiger EV-Wert, ist der Score nicht verfügbar; der Peak-Horizont bleibt
+dann vorsorglich lang. Ohne diese Option gilt weiterhin die bisherige Hauslast.
+`reserve_plan` zeigt den Sonnentag-Score und den Grund der Horizontwahl.
 
 Für bereits als Peak klassifizierte Zeitfenster über 60 ct/kWh kommt ein
 zusätzlicher Extrempreispuffer hinzu. Er beträgt

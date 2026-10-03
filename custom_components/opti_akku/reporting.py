@@ -61,8 +61,14 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> 
     hold_floor = extreme if extreme_hold else priority if "Peak-Leiter L3" in reason else total
     extreme_buffer_kwh = number(attrs.get("extreme_buffer_kwh"))
     extreme_buffer_soc = number(attrs.get("extreme_buffer_soc"))
+    sun_day_score = number(states.get("sensor.opti_forecast_score_sonnentag"))
+    horizon_state = states.get("binary_sensor.opti_peak_horizont_lang")
+    horizon_branch = data.get("attributes", {}).get("binary_sensor.opti_peak_horizont_lang", {}).get("branch")
     return {
         "status": status,
+        "sun_day_score": sun_day_score if sun_day_score is not None and 0 <= sun_day_score <= 10 else None,
+        "long_horizon": horizon_state == "on" if horizon_state in ("on", "off") else None,
+        "horizon_reason": horizon_branch if isinstance(horizon_branch, str) and horizon_branch.strip() else None,
         "planned_reserve_soc": total if valid else None,
         "priority_reserve_soc": priority if valid else None,
         "horizon_end": attrs.get("horizont_ende") if valid else None,

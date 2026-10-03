@@ -11,6 +11,7 @@ import pytest
 from custom_components.opti_akku.demand import (
     DemandForecast,
     ev_profile_sources,
+    profile_house_value,
     instant,
     number,
     pv_intervals,
@@ -324,6 +325,37 @@ def test_ev_power_is_not_subtracted_from_already_clean_profile_by_default():
     assert model.previous[1] == 500
     assert model.accuracy.previous[1] == 500
     assert ev_profile_sources(options) == ()
+
+
+def test_score_profile_avoids_partial_nonlegacy_double_ev_subtraction():
+    data, options, states = fixture(house=2400)
+    data["states"]["sensor.opti_base_load_raw_w"] = 1700  # EV1 500 + other excluded 200
+    options["demand_forecast"]["house_includes_ev"] = True
+    options["sources"] = {"ev1_power": "sensor.ev1", "ev1_charging": "binary_sensor.ev1",
+                          "ev2_power": "sensor.ev2", "ev2_charging": "binary_sensor.ev2"}
+    states.update({"sensor.ev1": state(500), "sensor.ev2": state(600),
+                   "binary_sensor.ev1": state("on", None), "binary_sensor.ev2": state("on", None)})
+    value, error = profile_house_value(
+        data, options, states, NOW, house_key="sensor.opti_base_load_raw_w",
+        excluded_ev_sources=("sensor.ev1", "sensor.other"),
+    )
+    assert (value, error) == (1100, None)
+    options["sources"]["ev2_power"] = "sensor.ev1"
+    assert profile_house_value(
+        data, options, states, NOW, house_key="sensor.opti_base_load_raw_w",
+        excluded_ev_sources=("sensor.ev1",),
+    ) == (1700, None)
+
+
+def test_score_profile_rejects_stale_active_ev_even_when_plant_excludes_it():
+    data, options, states = fixture(house=1000)
+    data["states"]["sensor.opti_base_load_raw_w"] = 500
+    options["demand_forecast"]["house_includes_ev"] = True
+    options["sources"] = {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev"}
+    states["binary_sensor.ev"] = state("on", None)
+    states["sensor.ev"] = state(500, now=NOW - timedelta(hours=1))
+    assert profile_house_value(data, options, states, NOW, house_key="sensor.opti_base_load_raw_w",
+                               excluded_ev_sources=("sensor.ev",)) == (None, "ev_power")
 
 
 @pytest.mark.parametrize("plant_sources", [

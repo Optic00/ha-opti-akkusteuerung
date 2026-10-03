@@ -712,6 +712,55 @@ def test_peak_horizon_score_two_keeps_previous_short_horizon():
     assert long.states["binary_sensor.opti_peak_horizont_lang"] == "on"
     states["sensor.opti_forecast_today_kwh"] = 4.8
     assert evaluate(engine, states, attrs, now + dt.timedelta(minutes=3)).states["binary_sensor.opti_peak_horizont_lang"] == "on"
+    restored = StrategyEngine()
+    restored.restore(engine.snapshot())
+    assert evaluate(restored, states, attrs, now + dt.timedelta(minutes=4)).states["binary_sensor.opti_peak_horizont_lang"] == "on"
+
+
+def test_fresh_peak_horizon_score_two_starts_short_but_missing_score_starts_long():
+    now = dt.datetime(2026, 7, 27, 0, 5, tzinfo=TZ)
+    states = measurements(**{"sun.sun": "below_horizon", "sensor.opti_house_consumption_w": 1000,
+                             "sensor.opti_forecast_today_kwh": 4.8})
+    attrs = {"sun.sun": {"next_rising": "2026-07-27T05:45:00+02:00",
+                          "next_setting": "2026-07-27T21:00:00+02:00"}}
+    fresh = evaluate(StrategyEngine(), states, attrs, now)
+    assert fresh.states["sensor.opti_forecast_score_sonnentag"] == "2"
+    assert fresh.states["binary_sensor.opti_peak_horizont_lang"] == "off"
+    states["sensor.opti_forecast_today_kwh"] = "unavailable"
+    assert evaluate(StrategyEngine(), states, attrs, now).states["binary_sensor.opti_peak_horizont_lang"] == "on"
+
+
+def test_ev_score_statistic_is_separate_and_invalid_sample_clears_history():
+    engine = StrategyEngine()
+    states = measurements(**{"sensor.opti_house_consumption_w": 2200,
+                             "sensor.opti_forecast_house_instant_w": 350,
+                             "input_boolean.opti_score_house_includes_ev": "on"})
+    first = evaluate(engine, states)
+    assert float(first.states["sensor.opti_forecast_house_60min_w"]) == 350
+    assert float(first.states["sensor.opti_house_consumption_60min_w"]) == 2200
+    assert first.states["sensor.opti_forecast_score_tomorrow"] == "10"
+    assert first.states["sensor.opti_forecast_score_sonnentag"] == "10"
+    states["sensor.opti_forecast_house_instant_w"] = "unavailable"
+    invalid = evaluate(engine, states, now=NOW + dt.timedelta(minutes=1))
+    assert invalid.states["sensor.opti_forecast_house_60min_w"] == "unavailable"
+    assert invalid.states["sensor.opti_forecast_score_tomorrow"] == "unavailable"
+    assert invalid.states["sensor.opti_forecast_score_sonnentag"] == "unavailable"
+    assert engine.snapshot()["samples"]["sensor.opti_forecast_house_60min_w"] == []
+    states["sensor.opti_forecast_house_instant_w"] = 500
+    recovered = evaluate(engine, states, now=NOW + dt.timedelta(minutes=2))
+    assert float(recovered.states["sensor.opti_forecast_house_60min_w"]) == 500
+    engine.reset_score_statistics()
+    assert "sensor.opti_forecast_house_60min_w" not in engine.snapshot()["samples"]
+    assert "sensor.opti_house_consumption_60min_w" in engine.snapshot()["samples"]
+
+
+def test_ev_score_opt_out_keeps_existing_raw_house_denominator():
+    states = measurements(**{"sensor.opti_house_consumption_w": 2200,
+                             "sensor.opti_forecast_house_instant_w": 350,
+                             "input_boolean.opti_score_house_includes_ev": "off"})
+    result = evaluate(StrategyEngine(), states)
+    assert result.states["sensor.opti_forecast_score_tomorrow"] == "4"
+    assert result.states["sensor.opti_forecast_score_sonnentag"] == "4"
 
 
 def test_balancing_does_not_taper_when_higher_priority_peak_wins():

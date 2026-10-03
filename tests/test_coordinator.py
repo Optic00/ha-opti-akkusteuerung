@@ -628,6 +628,101 @@ async def test_plant_balance_feeds_one_profile_and_keeps_inverter_ac(coordinator
     assert data["source_errors"]["plant:sensor.second_ac"] == "invalid_value"
 
 
+async def test_score_ev_opt_in_uses_cleaned_load_without_changing_real_house(coordinator, hass):
+    options = {**coordinator.entry.options,
+               "sources": {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev"},
+               "demand_forecast": {"house_includes_ev": True}}
+    hass.config_entries.async_update_entry(coordinator.entry, options=options)
+    hass.states.async_set("sensor.ev", "500", {"unit_of_measurement": "W"})
+    hass.states.async_set("binary_sensor.ev", "on")
+    data = await coordinator._async_update_data()
+    assert float(data["states"]["sensor.opti_house_consumption_w"]) == 800
+    assert float(data["states"]["sensor.opti_house_consumption_60min_w"]) == 800
+    assert float(data["states"]["sensor.opti_forecast_house_60min_w"]) == 300
+    hass.states.async_set("sensor.ev", "unavailable", {"unit_of_measurement": "W"})
+    invalid = await coordinator._async_update_data()
+    assert invalid["states"]["sensor.opti_forecast_house_60min_w"] == "unavailable"
+    assert coordinator.engine.snapshot()["samples"]["sensor.opti_forecast_house_60min_w"] == []
+
+
+async def test_nonlegacy_score_subtracts_only_ev_not_already_excluded(coordinator, hass):
+    options = {**coordinator.entry.options, "plant_mode": "balance", "plant_meter_confirmed": True,
+               "additional_ac_sources": ["sensor.second_ac"],
+               "excluded_load_sources": ["sensor.ev1", "sensor.other"],
+               "forecast_min_load_w": 1600,
+               "sources": {"ev1_power": "sensor.ev1", "ev1_charging": "binary_sensor.ev1",
+                           "ev2_power": "sensor.ev2", "ev2_charging": "binary_sensor.ev2"},
+               "demand_forecast": {"house_includes_ev": True}}
+    hass.config_entries.async_update_entry(coordinator.entry, options=options)
+    for entity, value in (("sensor.second_ac", 2000), ("sensor.ev1", 500),
+                          ("sensor.ev2", 600), ("sensor.other", 200)):
+        hass.states.async_set(entity, str(value), {"unit_of_measurement": "W"})
+    for entity in ("binary_sensor.ev1", "binary_sensor.ev2"):
+        hass.states.async_set(entity, "on")
+    data = await coordinator._async_update_data()
+    assert float(data["states"]["sensor.opti_house_consumption_w"]) == 2800
+    assert float(data["states"]["sensor.opti_base_load_raw_w"]) == 2100
+    assert float(data["states"]["sensor.opti_forecast_house_instant_w"]) == 1500
+    assert float(data["states"]["sensor.opti_forecast_house_60min_w"]) == 1600
+    assert float(data["states"]["sensor.opti_house_consumption_60min_w"]) == 2100
+    changed = {**options, "sources": {**options["sources"],
+                                      "ev2_charging": "binary_sensor.ev2_new"}}
+    hass.config_entries.async_update_entry(coordinator.entry, options=changed)
+    hass.states.async_set("binary_sensor.ev2_new", "on")
+    await coordinator._async_update_data()
+    assert len(coordinator._score_load_profile.snapshot()["samples"]) == 1
+    hass.states.async_set("sensor.ev2", "unavailable", {"unit_of_measurement": "W"})
+    invalid = await coordinator._async_update_data()
+    assert invalid["states"]["sensor.opti_forecast_house_60min_w"] == "unavailable"
+    assert invalid["states"]["sensor.opti_house_consumption_60min_w"] != "unavailable"
+
+
+async def test_score_history_is_dropped_after_ev_binding_change(coordinator, hass):
+    options = {**coordinator.entry.options,
+               "sources": {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev"},
+               "demand_forecast": {"house_includes_ev": True}}
+    hass.config_entries.async_update_entry(coordinator.entry, options=options)
+    hass.states.async_set("sensor.ev", "500", {"unit_of_measurement": "W"})
+    hass.states.async_set("binary_sensor.ev", "on")
+    await coordinator._async_update_data()
+    saved = coordinator._stored_data()
+    assert saved["engine"]["samples"]["sensor.opti_forecast_house_60min_w"]
+    changed = {**options, "sources": {**options["sources"],
+                                      "ev1_charging": "binary_sensor.changed_ev"}}
+    hass.config_entries.async_update_entry(coordinator.entry, options=changed)
+    restored = OptiCoordinator(hass, coordinator.entry, device(),
+                               await hass.async_add_executor_job(StrategyEngine))
+    try:
+        restored._store.async_load = AsyncMock(return_value=saved)
+        await restored.async_restore()
+        samples = restored.engine.snapshot()["samples"]
+        assert "sensor.opti_forecast_house_60min_w" not in samples
+        assert samples["sensor.opti_house_consumption_60min_w"]
+    finally:
+        await restored.async_stop()
+
+
+async def test_nonlegacy_ev_score_is_weighted_across_irregular_updates(coordinator, hass):
+    options = {**coordinator.entry.options, "plant_mode": "balance", "plant_meter_confirmed": True,
+               "additional_ac_sources": ["sensor.second_ac"],
+               "forecast_min_load_w": 0,
+               "sources": {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev"},
+               "demand_forecast": {"house_includes_ev": True}}
+    hass.config_entries.async_update_entry(coordinator.entry, options=options)
+    start = dt_util.utcnow()
+    for offset in (0, 60, 61, 62, 63, 64):
+        with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+                   return_value=start + timedelta(seconds=offset)):
+            hass.states.async_set("binary_sensor.ev", "off")
+            hass.states.async_set("sensor.second_ac", "3200" if offset >= 61 else "0",
+                                  {"unit_of_measurement": "W"})
+            data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_forecast_house_instant_w"] != "unavailable", data["source_errors"]
+    assert float(data["states"]["sensor.opti_forecast_house_instant_w"]) == 4000
+    assert 950 <= float(data["states"]["sensor.opti_forecast_house_60min_w"]) <= 1050
+    assert len(coordinator._score_load_profile.snapshot()["samples"]) == 6
+
+
 async def test_plant_source_invalidated_during_write_cancels_guard(coordinator, hass):
     hass.config_entries.async_update_entry(coordinator.entry, options={**coordinator.entry.options,
         "plant_mode": "balance", "plant_meter_confirmed": True, "forecast_min_load_w": 0,

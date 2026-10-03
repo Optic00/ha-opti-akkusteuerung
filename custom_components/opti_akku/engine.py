@@ -260,6 +260,15 @@ class StrategyEngine:
             self._states.pop(key, None)
             self._attributes.pop(key, None)
 
+    def reset_score_statistics(self) -> None:
+        """Discard EV-adjusted score samples after their source binding changes."""
+        key = "sensor.opti_forecast_house_60min_w"
+        self._samples.pop(key, None)
+        self._states.pop(key, None)
+        self._attributes.pop(key, None)
+        self._derived_states.pop(key, None)
+        self._derived_attrs.pop(key, None)
+
     def snapshot(self) -> dict:
         """Return a JSON-serializable snapshot suitable for HA's local Store."""
         return copy.deepcopy({
@@ -567,13 +576,15 @@ class StrategyEngine:
             rows = self._samples.get(entity, [])
             rows = [row for row in rows if timestamp - max_age <= row[0] <= timestamp]
             value = self._get_state(source)
+            invalid_score_load = entity == "sensor.opti_forecast_house_60min_w" and not _finite(value)
             if _finite(value) and (not rows or rows[-1][0] != timestamp):
                 rows.append([timestamp, float(value)])
             rows = rows[-definition.get("sampling_size", 1500):]
             self._samples[entity] = rows
+            mean = statistics.mean(row[1] for row in rows) if rows and not invalid_score_load else None
             self._states[entity] = (
-                _state(round(statistics.mean(row[1] for row in rows), definition.get("precision", 0)))
-                if rows else "unavailable"
+                _state(round(mean, definition.get("precision", 0)))
+                if mean is not None else "unavailable"
             )
             self._attributes[entity] = {"sample_count": len(rows), "max_age_seconds": max_age}
 

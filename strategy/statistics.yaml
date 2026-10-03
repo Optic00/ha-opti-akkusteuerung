@@ -26,3 +26,12 @@ statistics:
     minutes: 60
   sampling_size: 1500
   precision: 0
+- platform: statistics
+  name: Opti Forecast House 60min W
+  unique_id: opti_forecast_house_60min_w
+  entity_id: sensor.opti_forecast_house_instant_w
+  state_characteristic: mean
+  max_age:
+    minutes: 60
+  sampling_size: 1500
+  precision: 0

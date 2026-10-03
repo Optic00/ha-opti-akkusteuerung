@@ -37,6 +37,7 @@ Dies ist ein benutzerdefiniertes HACS-Repository, keine behauptete Aufnahme in d
 - Native Tibber-Preise über die vorhandene HA-Integration oder zugeordnete Preisentitäten.
 - Optionaler Wirtschaftlichkeitsvergleich und Energierestwert mit ausdrücklich eingetragenen Kosten- und Effizienzannahmen; ein darauf beruhender automatischer Entladeschutz für SMA ist separat zuschaltbar und standardmäßig aus.
 - Optionales Stundenverbrauchsprofil mit Recorder-Import und gesonderter Aktivierung für die Peak-Reserve.
+- „Hausverbrauch enthält Wallbox-Ladung“ bereinigt auch die Forecast-Scores. Bei ungültigen EV-Daten dient die gültige unbereinigte Hauslast als Ersatz. `reserve_plan` zeigt Sonnentag-Score, Horizontgrund und Fehler der EV-Bereinigung.
 - Optionale EV-Entladesperre und frühere PV-Ladung des Hausakkus bei Fahrzeug-Ladebedarf.
 - Geführtes Einstellungsmenü, Diagnoseentitäten und passive 24-Stunden-Aufzeichnung für Shadow und laufende Steuerung.
 

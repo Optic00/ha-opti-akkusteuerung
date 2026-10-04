@@ -60,6 +60,23 @@ def test_expired_plan_cannot_look_current():
     assert reserve_plan(sample(), SETTINGS, NOW+timedelta(days=1), shadow=False)['status'] == 'no_valid_plan'
 
 
+def test_reserve_plan_exposes_current_sun_day_score_and_horizon_reason():
+    data = sample()
+    data['score_load_error'] = 'ev_power'
+    data['states'].update({'sensor.opti_forecast_score_sonnentag': '2',
+                           'binary_sensor.opti_peak_horizont_lang': 'off'})
+    data['attributes']['binary_sensor.opti_peak_horizont_lang'] = {
+        'branch': 'Score=2 -> aus ohne vorheriges an (war_an=False)'
+    }
+    result = reserve_plan(data, SETTINGS, NOW, shadow=False)
+    assert result['sun_day_score'] == 2
+    assert result['long_horizon'] is False
+    assert result['horizon_reason'].startswith('Score=2')
+    assert result['score_load_error'] == 'ev_power'
+    data['states']['sensor.opti_forecast_score_sonnentag'] = 'unavailable'
+    assert reserve_plan(data, SETTINGS, NOW, shadow=False)['sun_day_score'] is None
+
+
 def test_extreme_buffer_is_diagnostic_only_for_a_valid_plan():
     result = reserve_plan(sample(), SETTINGS, NOW, shadow=False)
     assert result['extreme_buffer_kwh'] == pytest.approx(0.64)

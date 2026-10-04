@@ -103,9 +103,10 @@ def ev_profile_scope(options):
             )}
 
 
-def profile_house_value(data, options, states, now):
+def profile_house_value(data, options, states, now, *, house_key="sensor.opti_house_consumption_w",
+                        excluded_ev_sources=()):
     """Return the measured load represented by the demand profile, or an error."""
-    house = number(data.get("states", {}).get("sensor.opti_house_consumption_w"))
+    house = number(data.get("states", {}).get(house_key))
     if (
         not data.get("online")
         or house is None
@@ -149,7 +150,8 @@ def profile_house_value(data, options, states, now):
         )
         if value is None or not 0 <= value <= 50000:
             return None, "ev_power"
-        ev_power += value
+        if entity not in excluded_ev_sources:
+            ev_power += value
     if ev_power > house:
         return None, "ev_power"
     return house - ev_power, None

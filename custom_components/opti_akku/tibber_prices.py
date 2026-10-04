@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
@@ -14,6 +15,7 @@ from .sources import _price_slots, _price_timestamp, finite
 FETCH_TIMEOUT_SECONDS = 15
 REFRESH_SECONDS = 1800
 RETRY_SECONDS = 300
+READINESS_RETRY_SECONDS = 15
 
 
 class TibberPriceError(ValueError):
@@ -122,6 +124,9 @@ async def async_fetch_prices(hass: HomeAssistant) -> dict[str, TibberPriceSnapsh
     entries = hass.config_entries.async_entries("tibber")
     if len(entries) != 1:
         raise TibberPriceError("tibber_config_entries")
+    # HA registers the service before Tibber finishes setting up its runtime.
+    if entries[0].state is not ConfigEntryState.LOADED or not hass.services.has_service("tibber", "get_prices"):
+        raise TibberPriceError("tibber_not_ready")
     entry_id = entries[0].entry_id
     start = dt_util.start_of_local_day()
     try:

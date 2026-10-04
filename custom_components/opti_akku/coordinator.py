@@ -40,7 +40,7 @@ from .definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
 from .sources import build_inputs, finite
 from .plant import plant_entity_ids, plant_semantic_fingerprint
 from .load_profile import LoadProfile
-from .demand import EV_SCOPE_VERSION, DemandForecast, ev_profile_sources
+from .demand import EV_SCOPE_VERSION, DemandForecast, ev_profile_sources, ev_profile_scope, profile_house_value
 from .demand_comparison import build_strategy_comparison, remaining_day_profile
 from .peak_load import peak_load_profile
 from .ev_preparation import EVPreparation, apply_preparation, command_signals
@@ -48,7 +48,7 @@ from .observation import SourceObservation
 from .recovery import RecoveryState
 from .shadow import DEMAND_FIELDS, MEASUREMENTS, ShadowRecorder
 from .reporting import OperatingReport, reserve_plan
-from .tibber_prices import REFRESH_SECONDS, RETRY_SECONDS, TibberPriceError, TibberPriceSnapshot, async_fetch_prices
+from .tibber_prices import READINESS_RETRY_SECONDS, REFRESH_SECONDS, RETRY_SECONDS, TibberPriceError, TibberPriceSnapshot, async_fetch_prices
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -107,6 +107,14 @@ def _canonical_load_fingerprint(value: object) -> str | None:
         return json.dumps(fields, sort_keys=True, allow_nan=False)
     except ValueError:
         return None
+
+
+def _score_load_binding(load_fingerprint: str, options: dict) -> str:
+    return json.dumps([
+        load_fingerprint, plant_semantic_fingerprint(options),
+        options.get("sources", {}).get("house_consumption"),
+        options.get("single_inverter", False), ev_profile_scope(options),
+    ], sort_keys=True)
 
 
 def _rebind_load_prefix(value: str | None, old: str, new: str, length: int) -> str | None:
@@ -173,6 +181,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.engine = engine
         self._metadata = _build_metadata(engine)
         self._load_profile = LoadProfile()
+        self._score_load_profile = LoadProfile()
         self._operating_report = OperatingReport()
         self._demand_forecast = DemandForecast()
         self._ev_preparation = EVPreparation()
@@ -186,6 +195,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "single_inverter": entry.options.get("single_inverter", False),
             "device": _load_device_identity(self.connection_config),
         }, sort_keys=True)
+        self._score_load_fingerprint = _score_load_binding(self._load_source_fingerprint, entry.options)
         self._load_profile_status: dict = {}
         self.shadow_mode = entry.data.get("shadow_mode", entry.data.get("backend") == "huawei_solar") is True
         self._shadow = ShadowRecorder(Path(hass.config.path("opti_akku_shadow")))
@@ -287,8 +297,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if ((previous_load_source is not None and not same_load_source)
                 or (previous_load_source is None and self.entry.options.get("plant_mode", "legacy") != "legacy")):
             self.engine.reset_load_statistics()
+        if stored.get("score_load_fingerprint") != self._score_load_fingerprint:
+            self.engine.reset_score_statistics()
         self._load_profile.restore(stored.get("load_profile", {}), now=dt_util.utcnow(),
                                    fingerprint=json.dumps(plant_semantic_fingerprint(self.entry.options)))
+        self._score_load_profile.restore(stored.get("score_load_profile", {}), now=dt_util.utcnow(),
+                                         fingerprint=self._score_load_fingerprint)
         self._engine_snapshot = self.engine.snapshot()
         restore_blockers = [code for code, blocked in (
             ("single_writer_not_confirmed", not self.entry.options.get("single_writer_confirmed", False)),
@@ -364,7 +378,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "demand_forecast": demand,
                 "source_observation": self._source_observation.snapshot(),
                 "engine": self._engine_snapshot, "operating_report": self._operating_report.snapshot(), "load_profile": self._load_profile.snapshot(),
+                "score_load_profile": self._score_load_profile.snapshot(),
                 "load_source_fingerprint": self._load_source_fingerprint,
+                "score_load_fingerprint": self._score_load_fingerprint,
                 "write_enabled": self.write_enabled,
                 "writer_binding": self._writer_binding,
                 "pause_pending": self._pause_pending,
@@ -574,7 +590,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise TibberPriceError("tibber_entry_mismatch")
         except TibberPriceError as err:
             self._price_provider_error = err.code
-            self._price_next_fetch = dt_util.utcnow() + timedelta(seconds=RETRY_SECONDS)
+            retry = READINESS_RETRY_SECONDS if err.code == "tibber_not_ready" else RETRY_SECONDS
+            self._price_next_fetch = dt_util.utcnow() + timedelta(seconds=retry)
+            if err.code == "tibber_not_ready":
+                # The regular tick checks readiness; do not double device polling.
+                return
             if err.code in ("tibber_home_mismatch", "tibber_home_count", "tibber_config_entries", "tibber_entry_mismatch"):
                 self._price_snapshot = None
                 self._revision += 1
@@ -649,6 +669,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 finite(self._measurements.get("sensor.opti_inverter_status")), monotonic_now, allowed)
         self._write_monitor_since = (self._write_monitor_since or monotonic_now) if self.write_enabled and not self.shadow_mode else None
         captured_options = dict(self.entry.options)
+        score_binding = _score_load_binding(self._load_source_fingerprint, captured_options)
+        if score_binding != self._score_load_fingerprint:
+            self.engine.reset_score_statistics()
+            self._score_load_profile = LoadProfile()
+            self._score_load_fingerprint = score_binding
         input_options = dict(captured_options)
         if not self.strategy_enabled:
             input_options["price_provider"] = "entities"
@@ -656,6 +681,22 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                         if not k.startswith(("price_", "forecast_"))}
         states, attributes, source_errors = build_inputs(self._measurements, input_options, self.hass.states, now,
                                                          price_snapshot=self._current_price_snapshot())
+        score_opt_in = captured_options.get("demand_forecast", {}).get("house_includes_ev") is True
+        score_load_error = None
+        states["input_boolean.opti_score_house_includes_ev"] = "on" if score_opt_in else "off"
+        if score_opt_in:
+            nonlegacy = captured_options.get("plant_mode", "legacy") != "legacy"
+            states["sensor.opti_forecast_house_min_load_w"] = (
+                min(5000, max(0, finite(attributes.get("sensor.opti_house_raw_w", {}).get("forecast_min_load_w")) or 0))
+                if nonlegacy else 0
+            )
+            value, score_load_error = profile_house_value(
+                {"online": self._online, "states": states, "source_errors": source_errors},
+                captured_options, self.hass.states, now,
+                house_key="sensor.opti_base_load_raw_w" if nonlegacy else "sensor.opti_house_consumption_w",
+                excluded_ev_sources=captured_options.get("excluded_load_sources", ()) if nonlegacy else (),
+            )
+            states["sensor.opti_forecast_house_instant_w"] = value if value is not None else "unavailable"
         if input_options.get("plant_mode", "legacy") != "legacy":
             profile = self._load_profile.observe(finite(states.get("sensor.opti_base_load_raw_w")), now,
                 json.dumps(plant_semantic_fingerprint(input_options)),
@@ -665,6 +706,14 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 states[key] = profile.forecast_w if profile.forecast_w is not None else "unavailable"
                 attributes[key] = dict(self._load_profile_status)
             states["sensor.opti_load_profile_mean_w"] = profile.raw_mean_w if profile.raw_mean_w is not None else "unavailable"
+            if score_opt_in:
+                score_profile = self._score_load_profile.observe(
+                    value, now, self._score_load_fingerprint,
+                    min_load_w=states["sensor.opti_forecast_house_min_load_w"],
+                )
+                states["sensor.opti_forecast_house_60min_w"] = (
+                    score_profile.forecast_w if score_profile.forecast_w is not None else "unavailable"
+                )
         self._add_sun(states, attributes, now)
         states.update({key: ("on" if val else "off") if isinstance(val, bool) else val for key, val in self.settings.items()})
         previous_data = self.data if isinstance(self.data, dict) else {}
@@ -986,6 +1035,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "connection_status": connection,
                 "online": self._online, "last_write": getattr(self.device, "last_write", None),
                 "last_error": self._last_error, "source_errors": source_errors,
+                "score_load_error": score_load_error,
                 "device_errors": dict(read_errors) if isinstance(read_errors, dict) else {}, "load_profile": self._load_profile_status,
                 "price_provider_error": self._price_provider_error,
                 "price_last_success": self._price_last_success,

@@ -351,7 +351,8 @@ Startfrist.
 
 Beim nativen Tibber-Preisbezug wartet Opti Akku, bis die Tibber-Integration
 vollständig geladen und ihr Preisdienst verfügbar ist. Die Bereitschaft wird
-im regulären 15-Sekunden-Takt erneut geprüft, ohne Tibber dabei aufzurufen.
+bei regulären Aktualisierungen nach frühestens 15 Sekunden erneut geprüft,
+ohne Tibber dabei aufzurufen. Je nach Terminierung kann ein weiterer Takt vergehen.
 Auch wenn Tibber länger als fünf Minuten zum Starten braucht, beginnt der
 Preisabruf danach automatisch; Opti Akku muss nicht neu geladen werden.
 Nach einem tatsächlichen Abruffehler beträgt die Wartezeit weiterhin fünf

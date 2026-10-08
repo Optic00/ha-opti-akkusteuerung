@@ -177,7 +177,7 @@ def test_minsoc_protection_releases_when_soc_recovers_above_floor():
     engine = StrategyEngine()
     states = measurements(**{SOC: 5, "input_number.minsoc": 5})
     assert evaluate(engine, states=states).mode == "Akku nur Laden"
-    states[SOC] = 6
+    states[SOC] = 8
     result = evaluate(engine, states=states, now=NOW + dt.timedelta(seconds=30))
     assert result.mode == "Akku Dynamisch"
     assert result.reason == "dyn bis Ziel (tag)"

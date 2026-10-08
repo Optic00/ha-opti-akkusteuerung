@@ -283,6 +283,8 @@ def test_every_original_branch_executes_through_engine(
 def test_all_original_branches_have_explicit_golden_case():
     choose = load_resources()["strategy"]["actions"][0]["choose"]
     actual = [branch["sequence"][0]["decision_id"] for branch in choose]
+    assert actual.pop(3) == "balancing_grid"  # Netz-Balancing im MinSOC-Halteband.
+    assert actual.pop(3) == "minimum_soc"  # Eigenständiges MinSOC-Halteband.
     assert actual.pop(17) == "extreme_peak_hold"
     assert actual == ORIGINAL_DECISION_IDS
     assert len(actual) == len(BRANCHES) - 1

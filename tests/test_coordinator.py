@@ -175,6 +175,43 @@ async def test_min_soc_applies_to_manual_mode(coordinator):
     assert data["mode"] == "Akku Pause"
 
 
+async def test_automatic_minsoc_latch_survives_coordinator_restore(hass, entry):
+    before = OptiCoordinator(hass, entry, device(), StrategyEngine())
+    await before.async_restore()
+    try:
+        before.settings["input_boolean.akku_opti_automatik"] = True
+        before.settings["input_number.minsoc"] = 10
+        before.device.async_read.return_value["sensor.opti_soc"] = 9
+        data = await before._async_update_data()
+        assert data["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "on"
+        await before._store.async_save(before._stored_data())
+    finally:
+        await before.async_stop()
+    inverter = device()
+    inverter.async_read.return_value["sensor.opti_soc"] = 11
+    after = OptiCoordinator(hass, entry, inverter, StrategyEngine())
+    await after.async_restore()
+    try:
+        assert after.data is None
+        assert after.manual_mode is None
+        data = await after._async_update_data()
+        assert data["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "on"
+        assert data["engine_requested_mode"] == "Akku nur Laden"
+        assert data["decision_id"] == "minimum_soc"
+    finally:
+        await after.async_stop()
+
+    fresh = OptiCoordinator(hass, entry, inverter, StrategyEngine())
+    try:
+        fresh.settings["input_boolean.akku_opti_automatik"] = True
+        fresh.settings["input_number.minsoc"] = 10
+        data = await fresh._async_update_data()
+        assert data["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "off"
+        assert data["decision_id"] != "minimum_soc"
+    finally:
+        await fresh.async_stop()
+
+
 async def test_master_off_also_blocks_manual_mode(coordinator):
     coordinator.manual_mode = "Akku schnell Laden"
     coordinator.write_enabled = True

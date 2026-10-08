@@ -31,6 +31,10 @@ strategy:
     id: Ladedeckel geändert
   - trigger: state
     entity_id:
+    - binary_sensor.opti_minsoc_schutz_aktiv
+    id: MinSOC-Schutz geändert
+  - trigger: state
+    entity_id:
     - sensor.opti_soc
     id: SoC Änderung
   - trigger: state
@@ -198,6 +202,35 @@ strategy:
         decision_id: peak_precharge
         data:
           option: Akku Netzladen
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'Netz-Balancing im MinSOC-Halteband: Laden statt Peak-Entladung'
+      conditions:
+      - condition: state
+        entity_id: binary_sensor.opti_minsoc_schutz_aktiv
+        state: 'on'
+      - condition: state
+        entity_id: sensor.opti_balancing_watchdog
+        state: netz
+      sequence:
+      - action: input_select.select_option
+        decision_id: balancing_grid
+        data:
+          option: Akku Netzladen
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    - alias: 'MinSOC-Schutz halten: Netzladen bleibt im Austrittsband möglich'
+      conditions:
+      - condition: state
+        entity_id: binary_sensor.opti_minsoc_schutz_aktiv
+        state: 'on'
+      - condition: template
+        value_template: "{{ not is_state('sensor.opti_balancing_watchdog', 'netz') }}"
+      sequence:
+      - action: input_select.select_option
+        decision_id: minimum_soc
+        data:
+          option: Akku nur Laden
         target:
           entity_id: input_select.akkusteuerung_modus
     - alias: 'Peak-Leiter L1 ''nur Entladen'': Preisspitze VERY_EXPENSIVE'

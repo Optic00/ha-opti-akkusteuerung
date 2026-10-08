@@ -152,9 +152,24 @@ Die eigentliche Steuerung hat drei getrennte Ebenen:
 
 1. Der Schalter **Strategie berechnen** ist die Hauptfreigabe für die Steuerung,
    einschließlich der manuellen Modi. Ist er aus, gilt immer Pause.
+
 2. In den Integrationsoptionen muss bestätigt werden, dass keine zweite
    Steuerung parallel auf den Wechselrichter schreibt.
 3. Erst der Schalter **Schreibzugriffe freigeben** erlaubt Modbus-Schreibzugriffe.
+
+Die automatische MinSOC-Regel sperrt Entladung bei oder unter dem eingestellten
+Minimum. Nach diesem Eintritt hält sie den Schutz bis drei Prozentpunkte darüber;
+bei engem Abstand zum Maximum wird das Band auf den halben Abstand begrenzt.
+Bei MinSOC 10 % gibt sie also ab 13 % wieder frei. Der eigene Schutzzustand bleibt
+über Neustarts und ungültige SoC-Messungen erhalten. Änderungen der Min-/Max-Grenzen
+setzen den Haltezustand zurück; liegt der SoC über dem neuen Minimum, wird
+der Schutz freigegeben. Andere Gründe für „Akku nur Laden“ aktivieren ihn nicht.
+Innerhalb des Haltebandes bleiben zulässiges Peak-Vorladen, Negativpreis-Netzladen
+und Netz-Balancing möglich. Bei oder unter MinSOC behält die bestehende
+Entladesperre Vorrang. Die Schutzregeln der manuellen Modi gelten separat weiter.
+Der Schutz im Halteband hat wie die harte MinSOC-Regel Vorrang vor der
+PV-Vorbereitung fürs Auto. Dadurch kann der Hausakku während einer Autoladung
+Solarüberschuss aufnehmen, bis die Freigabegrenze erreicht ist.
 
 Die Bestätigung während der Einrichtung aktiviert keine Schreibzugriffe. Bei
 einem neuen Setup ist die Schreibfreigabe aus. Eine gespeicherte Freigabe wird

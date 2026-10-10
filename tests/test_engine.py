@@ -236,6 +236,48 @@ def test_manual_charge_limit_off_matches_original_default():
     assert float(default.states[POWER]) == float(explicitly_off.states[POWER]) == 2000
 
 
+def charge_power_branch_end(result):
+    branch = result.attributes[POWER]["branch"]
+    return float(branch.rsplit("→ Ergebnis", 1)[1].removesuffix("W").strip())
+
+
+@pytest.mark.parametrize("soc", [10, 50, 80, 92, 96, 98])
+@pytest.mark.parametrize("temperature", [-5, 0, 25, 45])
+@pytest.mark.parametrize("forecast", [0, 5, 80])
+@pytest.mark.parametrize("limit,manual", [(3000, "off"), (700, "off"), (4000, "on")])
+@pytest.mark.parametrize("balancing", [False, True])
+def test_charge_power_branch_ends_with_the_state(soc, temperature, forecast, limit, manual, balancing):
+    overrides = {
+        SOC: soc, TEMP: temperature,
+        "sensor.opti_forecast_remaining_today_kwh": forecast,
+        "input_number.akkusteuerung_max_ladestaerke": limit,
+        "input_boolean.opti_manuelle_ladegrenze": manual,
+    }
+    if balancing:
+        overrides.update({DAYS: 20, "input_number.opti_balancing_intervall_tage": 14,
+                          "input_boolean.opti_prognose_netzladen": "off"})
+    result = evaluate(states=measurements(**overrides))
+    assert charge_power_branch_end(result) == float(result.states[POWER])
+
+
+def test_charge_power_branch_names_the_binding_steps():
+    paced = evaluate(states=measurements(**{SOC: 80, TEMP: 45}))
+    assert "SoC 80 %" in paced.attributes[POWER]["branch"]
+    assert "Akkutemperatur 45" in paced.attributes[POWER]["branch"]
+
+    capped = evaluate(states=measurements(**{"input_number.akkusteuerung_max_ladestaerke": 700}))
+    assert "Obergrenze Max. Ladeleistung 700 W" in capped.attributes[POWER]["branch"]
+
+    balancing = evaluate(states=measurements(**{
+        SOC: 97, DAYS: 20, "input_number.opti_balancing_intervall_tage": 14,
+        "input_boolean.opti_prognose_netzladen": "off",
+    }))
+    assert "Balancing ab 96 % SoC" in balancing.attributes[POWER]["branch"]
+
+    cold = evaluate(states=measurements(**{TEMP: -6}))
+    assert cold.attributes[POWER]["branch"].startswith("Akkutemperatur -6")
+
+
 def test_target_hysteresis_persists_and_attributes_use_same_old_snapshot():
     engine = StrategyEngine()
     states = measurements(**{"sensor.opti_house_consumption_w": 0})

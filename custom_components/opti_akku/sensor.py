@@ -181,6 +181,8 @@ class OptiAkkuDiagnosticSensor(OptiAkkuEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any] | None:
         if self._data_key == "shadow_status":
             return coordinator_data(self).get("shadow_summary", {})
+        if self._data_key == "reason":
+            return coordinator_data(self).get("reason_details")
         value = coordinator_data(self).get(self._data_key)
         if self._data_key == "last_write_values" and isinstance(value, dict):
             return {key: item for key, item in value.items() if key != "summary"}

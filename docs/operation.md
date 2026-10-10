@@ -404,6 +404,30 @@ prüfen. Die Einstellung 0 vertraut ihrer HA-Verfügbarkeit. Tatsächlich
 fehlende oder nicht verfügbare Werte bleiben Fehler; ihre Zeitstempel müssen
 nicht künstlich erneuert werden.
 
+## Entscheidungen nachvollziehen
+
+Warum die Strategie eine Betriebsart, einen Ziel-Ladestand oder eine
+Ladeleistung gewählt hat, zeigen diese Entitäten. Ihr Verlauf steht in der
+Home-Assistant-Historie.
+
+- **Entscheidungsgrund**: der Grund als Text. Die Attribute nennen die interne
+  Regel (`decision_id`), die von der Strategie gewünschte Betriebsart
+  (`engine_mode`) und Begrenzungen der Ladeleistung nach der Strategie
+  (`charge_power_limits`), etwa durch die Auto-Vorbereitung. Weicht der aktive
+  Modus von `engine_mode` ab, hat eine Schutzregel oder die manuelle Auswahl
+  übernommen.
+- **Ziel-Ladestand**: Das Attribut `branch` zeigt das Verhältnis aus erwartetem
+  PV-Überschuss bis Sonnenuntergang und Akkukapazität, die gewählte Stufe und
+  ob die Hysterese die vorige Stufe hält.
+- **Geplante Ladeleistung**: Das Attribut `branch` zeigt Prognose-Score,
+  SoC-Stufe, manuelle Ladegrenze, Temperaturdrosselung, die Obergrenze
+  **Max. Ladeleistung** und die Balancing-Begrenzung, jeweils nur wenn sie
+  greifen. Der Wert nach „Ergebnis“ ist die geplante Ladeleistung.
+- **Opti Strategie Vorschau** (standardmäßig deaktiviert): Grund, Ziel-SoC,
+  Scores und Preisniveau der Strategieauswertung in einem Zustand.
+
+Ein eigenes Entscheidungsprotokoll gibt es nicht.
+
 ## Diagnose herunterladen
 
 Unter **Einstellungen -> Geräte & Dienste -> Opti Akku -> Drei-Punkte-Menü ->

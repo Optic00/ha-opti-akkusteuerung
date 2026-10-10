@@ -898,6 +898,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             mode, safety_reason = self._safe_mode(requested, result.states)
         reason = safety_reason or ("Manuelle Auswahl" if self.manual_mode else result.reason)
         params = self._parameters(result.states)
+        # Text only, no wattage: values here change every update and would
+        # flood the Recorder via the reason sensor's attributes (issue #129).
+        charge_power_limits = []
+        temperature = finite(result.states.get("sensor.opti_battery_temp"))
+        if self.manual_mode and temperature is not None and temperature >= 45:
+            charge_power_limits.append("Akkutemperatur ab 45 °C: Ladeleistung im manuellen Modus begrenzt")
         if arbitrage_hold.get("hold_controls_battery"):
             params["min_charge_w"] = 0
             params["min_discharge_w"] = 0
@@ -908,6 +914,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if ev_report.get("status") == "preparing" and safety_reason is None:
                 params["min_charge_w"] = 0
                 params["charge_power_w"] = min(params["charge_power_w"], ev_report.get("surplus_before_battery_w", 0))
+                charge_power_limits.append("Auto-Vorbereitung: nur PV-Überschuss vor dem Akku")
         signature = (mode, *sorted(params.items()))
         battery = finite(result.states.get("sensor.opti_battery_power_w"))
         violation = (not self.shadow_mode and self.write_enabled and battery is not None and self._last_apply is not None
@@ -1024,6 +1031,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         data = {"states": result.states, "attributes": result.attributes, "metadata": metadata,
                 "mode": mode, "reason": reason, "decision_id": result.decision_id,
+                "reason_details": {"decision_id": result.decision_id,
+                                   "engine_mode": result.mode,
+                                   "charge_power_limits": charge_power_limits},
                 "engine_requested_mode": result.mode,
                 "engine_base_mode": engine_base_mode,
                 "command_result_this_update": command_result, "write_enabled": self.write_enabled and not self.shadow_mode,

@@ -450,6 +450,67 @@ template_blocks:
 
         {{ ladeleistung | round(0) }}
       {% endif %}
+    attributes:
+      # Same steps as the state, as readable text (issue #129). The parity test
+      # in tests/test_engine.py keeps the final value equal to the state.
+      branch: |
+        {% set soc       = states('sensor.opti_soc') | float(50) %} {% set temp      = states('sensor.opti_battery_temp') | float(25) %} {% set cap       = states('sensor.opti_battery_capacity_kwh') | float(12.8) * 1000 %} {% set max_helper = states('input_number.akkusteuerung_max_ladestaerke') | float(3000) %} {% set score     = states('sensor.opti_forecast_score') | int(10) %} {% set strategie_grund = state_attr('sensor.opti_strategie_vorschau', 'grund') | default('', true) %} {% set balancing = states('sensor.opti_balancing_watchdog') in ['pv', 'netz']
+                           and strategie_grund[0:18] == 'Balancing-Watchdog' %}
+        {% if temp >= 50 or temp <= -5 %}
+          Akkutemperatur {{ temp | round(1) }} °C außerhalb -5 bis 50 °C → Ergebnis 0 W
+        {% else %}
+          {% if   temp >= 45 %} {% set temp_faktor = 0.5 %}
+          {% elif temp <=  0 %} {% set temp_faktor = 0.25 %}
+          {% else %}            {% set temp_faktor = 1.0 %}
+          {% endif %}
+          {% if score <= 1 %}
+            {% set tag = 'schlechter Tag' %}
+            {% if   soc < 40 %} {% set f = 0.40 %}
+            {% elif soc < 70 %} {% set f = 0.30 %}
+            {% elif soc < 90 %} {% set f = 0.20 %}
+            {% elif soc < 97 %} {% set f = 0.10 %}
+            {% else %}          {% set f = 0.05 %}
+            {% endif %}
+          {% elif score <= 4 %}
+            {% set tag = 'mittlerer Tag' %}
+            {% if   soc < 35 %} {% set f = 0.35 %}
+            {% elif soc < 65 %} {% set f = 0.25 %}
+            {% elif soc < 87 %} {% set f = 0.15 %}
+            {% elif soc < 97 %} {% set f = 0.08 %}
+            {% else %}          {% set f = 0.05 %}
+            {% endif %}
+          {% else %}
+            {% set tag = 'guter Tag, schonend' %}
+            {% if   soc < 30 %} {% set f = 0.30 %}
+            {% elif soc < 60 %} {% set f = 0.20 %}
+            {% elif soc < 85 %} {% set f = 0.15 %}
+            {% elif soc < 97 %} {% set f = 0.08 %}
+            {% else %}          {% set f = 0.05 %}
+            {% endif %}
+          {% endif %}
+          {% set c = cap * f %}
+          {% set schritte = ['Score ' ~ score ~ ' (' ~ tag ~ '), SoC ' ~ (soc | round(0) | int) ~ ' % → ' ~ ((f * 100) | round(0) | int) ~ ' % von ' ~ ((cap / 1000) | round(1)) ~ ' kWh = ' ~ (c | round(0) | int) ~ ' W'] %}
+          {% if is_state('input_boolean.opti_manuelle_ladegrenze', 'on') %}
+            {% set max_helper = [[max_helper, 0] | max, 10000] | min %}
+            {% set c = [max_helper, c] | min if soc >= 97 else max_helper %}
+            {% set schritte = schritte + ['manuelle Ladegrenze ' ~ (max_helper | round(0) | int) ~ ' W' ~ (' (ab 97 % SoC nur als Deckel)' if soc >= 97 else ' ersetzt die Stufe')] %}
+          {% endif %}
+          {% if temp_faktor < 1 %}
+            {% set schritte = schritte + ['Akkutemperatur ' ~ (temp | round(1)) ~ ' °C → ×' ~ temp_faktor] %}
+          {% endif %}
+          {% set ladeleistung = [c * temp_faktor, max_helper] | min %}
+          {% if c * temp_faktor > max_helper %}
+            {% set schritte = schritte + ['Obergrenze Max. Ladeleistung ' ~ (max_helper | round(0) | int) ~ ' W'] %}
+          {% endif %}
+          {% if balancing and soc >= 96 and ladeleistung > cap * 0.02 %}
+            {% set ladeleistung = cap * 0.02 %}
+            {% set schritte = schritte + ['Balancing ab 96 % SoC: 2 % der Kapazität'] %}
+          {% elif balancing and soc >= 92 and soc < 96 and ladeleistung > cap * 0.05 %}
+            {% set ladeleistung = cap * 0.05 %}
+            {% set schritte = schritte + ['Balancing ab 92 % SoC: 5 % der Kapazität'] %}
+          {% endif %}
+          {{ schritte | join('; ') }} → Ergebnis {{ ladeleistung | round(0) | int }} W
+        {% endif %}
   - unique_id: opti_price_level
     name: Opti Price Level
     icon: mdi:cash-clock

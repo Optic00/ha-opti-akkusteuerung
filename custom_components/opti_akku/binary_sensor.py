@@ -28,6 +28,9 @@ async def async_setup_entry(
 
 
 class OptiAkkuStateBinarySensor(OptiAkkuEntity, BinarySensorEntity):
+    # Explanation text only; keep it out of Recorder like the sensors.
+    _unrecorded_attributes = frozenset({"branch"})
+
     def __init__(self, entry: ConfigEntry, key: str) -> None:
         super().__init__(entry, key)
         meta = (entry.runtime_data.data or {}).get("metadata", {}).get(key, {})

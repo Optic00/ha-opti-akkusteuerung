@@ -56,6 +56,9 @@ async def async_setup_entry(
 
 
 class OptiAkkuStateSensor(OptiAkkuEntity, SensorEntity):
+    # Explanation text changes with every SoC percent; keep it out of Recorder.
+    _unrecorded_attributes = frozenset({"branch"})
+
     def __init__(self, entry: ConfigEntry, key: str) -> None:
         super().__init__(entry, key)
         core_key = key.removeprefix("sensor.opti_")
@@ -181,6 +184,8 @@ class OptiAkkuDiagnosticSensor(OptiAkkuEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any] | None:
         if self._data_key == "shadow_status":
             return coordinator_data(self).get("shadow_summary", {})
+        if self._data_key == "reason":
+            return coordinator_data(self).get("reason_details")
         value = coordinator_data(self).get(self._data_key)
         if self._data_key == "last_write_values" and isinstance(value, dict):
             return {key: item for key, item in value.items() if key != "summary"}

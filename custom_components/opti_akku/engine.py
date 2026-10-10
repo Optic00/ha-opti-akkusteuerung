@@ -39,6 +39,9 @@ _DAYS = "counter.tage_seit_akku100"
 _DONE_VALID = "input_boolean.opti_balancing_abschluss_gueltig"
 _DONE_AT = "input_datetime.opti_balancing_letzter_abschluss"
 _PREVIEW = "sensor.opti_strategie_vorschau"
+# Explanation-only attributes (issue #129). A failure here must never disable
+# the controlled state or change the decision id; it is reported separately.
+_DISPLAY_ATTRIBUTES = frozenset({"branch"})
 _MISSING = object()
 
 
@@ -95,6 +98,10 @@ def _state(value: Any) -> str:
     }:
         return "unavailable"
     return str(value)
+
+
+def _without_display(attributes: dict) -> dict:
+    return {key: value for key, value in attributes.items() if key not in _DISPLAY_ATTRIBUTES}
 
 
 def _truth(value: Any) -> bool:
@@ -301,6 +308,7 @@ class StrategyEngine:
         }
         self._updates = {}
         self._errors = {}
+        self._display_errors: dict[str, str] = {}
         self._update_statistics(incoming)
         self._update_balancing()
         variables: dict[int, dict] = {}
@@ -339,6 +347,8 @@ class StrategyEngine:
 
         if self._errors:
             self._attributes.setdefault("sensor.opti_engine_diagnostics", {})["template_errors"] = dict(self._errors)
+        if self._display_errors:
+            self._attributes.setdefault("sensor.opti_engine_diagnostics", {})["display_errors"] = dict(self._display_errors)
         self._states["sensor.opti_engine_diagnostics"] = "error" if self._errors else "ok"
         self._attributes.setdefault("sensor.opti_engine_diagnostics", {}).update({
             "reason": reason,
@@ -422,11 +432,17 @@ class StrategyEngine:
                 return
             if not _truth(self._render(definition.get("availability", True), context)):
                 self._states[entity] = "unavailable"
-                self._attributes[entity] = old_attrs
+                self._attributes[entity] = _without_display(old_attrs)
                 self._delays.pop(entity, None)
                 return
             value = self._render(definition["state"], context)
-            new_attrs = self._render(definition.get("attributes", {}), context)
+            attribute_templates = definition.get("attributes", {})
+            new_attrs = self._render(_without_display(attribute_templates), context)
+            for key in _DISPLAY_ATTRIBUTES & attribute_templates.keys():
+                try:
+                    new_attrs[key] = self._render(attribute_templates[key], context)
+                except (jinja2.TemplateError, TypeError, ValueError, KeyError, ArithmeticError) as err:
+                    self._display_errors[f"{entity}:{key}"] = type(err).__name__
             if spec["binary"]:
                 value = self._debounce(entity, _truth(value), old_state, definition)
             self._states[entity] = _state(value)
@@ -434,7 +450,7 @@ class StrategyEngine:
         except (jinja2.TemplateError, TypeError, ValueError, KeyError, ArithmeticError) as err:
             # A failed derived input cannot silently masquerade as a valid zero.
             self._states[entity] = "unavailable"
-            self._attributes[entity] = {**old_attrs, "template_error": type(err).__name__}
+            self._attributes[entity] = {**_without_display(old_attrs), "template_error": type(err).__name__}
             self._delays.pop(entity, None)
             self._errors[entity] = type(err).__name__
 

@@ -236,6 +236,54 @@ def test_manual_charge_limit_off_matches_original_default():
     assert float(default.states[POWER]) == float(explicitly_off.states[POWER]) == 2000
 
 
+def charge_power_branch_end(result):
+    branch = result.attributes[POWER]["branch"]
+    return float(branch.rsplit("→ Ergebnis", 1)[1].removesuffix("W").strip())
+
+
+@pytest.mark.parametrize("soc", [10, 50, 80, 92, 96, 98])
+@pytest.mark.parametrize("temperature", [-5, 0, 25, 45, 50, None])
+@pytest.mark.parametrize("forecast", [0, 5, 80])
+@pytest.mark.parametrize("limit,manual", [(3000, "off"), (700, "off"), (4000, "on")])
+@pytest.mark.parametrize("balancing", [False, True])
+def test_charge_power_branch_ends_with_the_state(soc, temperature, forecast, limit, manual, balancing):
+    overrides = {
+        SOC: soc, TEMP: temperature,
+        "sensor.opti_forecast_remaining_today_kwh": forecast,
+        "input_number.akkusteuerung_max_ladestaerke": limit,
+        "input_boolean.opti_manuelle_ladegrenze": manual,
+    }
+    if temperature is None:
+        overrides[TEMP] = "unavailable"
+    if balancing:
+        overrides.update({DAYS: 20, "input_number.opti_balancing_intervall_tage": 14,
+                          "input_boolean.opti_prognose_netzladen": "off"})
+    result = evaluate(states=measurements(**overrides))
+    if temperature is None:
+        assert result.states[POWER] == "unavailable"
+        assert "branch" not in result.attributes[POWER]
+        return
+    assert charge_power_branch_end(result) == float(result.states[POWER])
+
+
+def test_charge_power_branch_names_the_binding_steps():
+    paced = evaluate(states=measurements(**{SOC: 80, TEMP: 45}))
+    assert "SoC 80 %" in paced.attributes[POWER]["branch"]
+    assert "Akkutemperatur 45" in paced.attributes[POWER]["branch"]
+
+    capped = evaluate(states=measurements(**{"input_number.akkusteuerung_max_ladestaerke": 700}))
+    assert "Obergrenze Max. Ladeleistung 700 W" in capped.attributes[POWER]["branch"]
+
+    balancing = evaluate(states=measurements(**{
+        SOC: 97, DAYS: 20, "input_number.opti_balancing_intervall_tage": 14,
+        "input_boolean.opti_prognose_netzladen": "off",
+    }))
+    assert "Balancing ab 96 % SoC" in balancing.attributes[POWER]["branch"]
+
+    cold = evaluate(states=measurements(**{TEMP: -6}))
+    assert cold.attributes[POWER]["branch"].startswith("Akkutemperatur -6")
+
+
 def test_target_hysteresis_persists_and_attributes_use_same_old_snapshot():
     engine = StrategyEngine()
     states = measurements(**{"sensor.opti_house_consumption_w": 0})
@@ -735,6 +783,41 @@ def test_render_failure_reports_entity_and_blocks_invalid_derived_value():
     result = evaluate(StrategyEngine(resources))
     assert result.states[TARGET] == "unavailable"
     assert result.attributes["sensor.opti_engine_diagnostics"]["template_errors"][TARGET] == "ZeroDivisionError"
+
+
+def test_display_attribute_failure_keeps_controlled_value_and_decision():
+    reference = evaluate()
+    resources = load_resources()
+    for block in resources["template_blocks"]:
+        for definition in block.get("sensor", []):
+            if definition["unique_id"] == "opti_charge_power_w":
+                definition["attributes"]["branch"] = "{{ 1 / 0 }}"
+    result = evaluate(StrategyEngine(resources))
+    assert result.states[POWER] == reference.states[POWER]
+    assert "branch" not in result.attributes[POWER]
+    assert result.decision_id == reference.decision_id != "unknown"
+    diagnostics = result.attributes["sensor.opti_engine_diagnostics"]
+    assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+    assert "template_errors" not in diagnostics
+    assert diagnostics["display_errors"] == {f"{POWER}:branch": "ZeroDivisionError"}
+
+
+def test_unavailable_value_drops_stale_explanation_but_keeps_hysteresis_memory():
+    engine = StrategyEngine()
+    assert "branch" in evaluate(engine).attributes[POWER]
+    missing = measurements()
+    del missing[TEMP]
+    result = evaluate(engine, states=missing)
+    assert result.states[POWER] == "unavailable"
+    assert "branch" not in result.attributes[POWER]
+
+    engine = StrategyEngine()
+    level = evaluate(engine).attributes[TARGET]["level"]
+    engine._entities[TARGET]["definition"]["state"] = "{{ 1 / 0 }}"
+    failed = evaluate(engine)
+    assert failed.states[TARGET] == "unavailable"
+    assert failed.attributes[TARGET]["level"] == level
+    assert "branch" not in failed.attributes[TARGET]
 
 
 def test_naive_clock_is_rejected_instead_of_silent_wrong_solar_day():

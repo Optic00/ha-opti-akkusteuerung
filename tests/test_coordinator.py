@@ -902,6 +902,19 @@ async def test_manual_write_permission_is_not_restored_as_strategy_permission(ha
         await new.async_stop()
 
 
+async def test_reason_sensor_exposes_decision_id_without_wattage(coordinator, entry):
+    from custom_components.opti_akku.sensor import OptiAkkuDiagnosticSensor
+    coordinator.async_set_updated_data(await coordinator._async_update_data())
+    entry.runtime_data = coordinator
+    sensor = OptiAkkuDiagnosticSensor(entry, "reason")
+    assert sensor.native_value == coordinator.data["reason"]
+    assert sensor.extra_state_attributes == {
+        "decision_id": coordinator.data["decision_id"],
+        "engine_mode": coordinator.data["engine_requested_mode"],
+        "charge_power_limits": [],
+    }
+
+
 async def test_unproven_control_release_is_visible(coordinator, entry):
     from custom_components.opti_akku.sensor import OptiAkkuDiagnosticSensor
     coordinator.device.supports_control_release = False
@@ -2233,6 +2246,8 @@ async def test_ev_preparation_caps_pv_charge_and_never_sets_force_minima(coordin
     assert params['charge_power_w']==700
     assert params['min_charge_w']==0
     assert params['min_discharge_w']==0
+    assert data['reason_details']=={'decision_id':'ev_preparation','engine_mode':'Akku nur Laden',
+                                    'charge_power_limits':['Auto-Vorbereitung: nur PV-Überschuss vor dem Akku']}
 
 
 @pytest.mark.parametrize("soc,charging,expected", [(21, "off", True), (40, "off", False), (45, "off", False), ("unavailable", "off", False), (21, "on", False), (21, "unavailable", False)])

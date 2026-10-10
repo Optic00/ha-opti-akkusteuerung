@@ -407,26 +407,33 @@ nicht künstlich erneuert werden.
 ## Entscheidungen nachvollziehen
 
 Warum die Strategie eine Betriebsart, einen Ziel-Ladestand oder eine
-Ladeleistung gewählt hat, zeigen diese Entitäten. Ihr Verlauf steht in der
-Home-Assistant-Historie.
+Ladeleistung gewählt hat, zeigen diese Entitäten.
 
-- **Entscheidungsgrund**: der Grund als Text. Die Attribute nennen die interne
-  Regel (`decision_id`), die von der Strategie gewünschte Betriebsart
-  (`engine_mode`) und Begrenzungen der Ladeleistung nach der Strategie
-  (`charge_power_limits`), etwa durch die Auto-Vorbereitung. Weicht der aktive
-  Modus von `engine_mode` ab, hat eine Schutzregel oder die manuelle Auswahl
-  übernommen.
+- **Aktiver Modus**: Der Verlauf zeigt, wann die Betriebsart gewechselt hat.
+- **Entscheidungsgrund**: der Grund als Text, ebenfalls mit Verlauf. Die
+  Attribute nennen die interne Regel (`decision_id`), die Betriebsart nach
+  Strategie und Auto-Vorbereitung (`engine_mode`) und Begrenzungen der
+  Ladeleistung danach (`charge_power_limits`), etwa durch die
+  Auto-Vorbereitung. Weicht der aktive Modus von `engine_mode` ab, hat eine
+  Schutzregel oder die manuelle Auswahl übernommen. Bei ausgeschalteter
+  Strategie steht dort `Beobachtung` und `decision_id` ist `unknown`.
 - **Ziel-Ladestand**: Das Attribut `branch` zeigt das Verhältnis aus erwartetem
-  PV-Überschuss bis Sonnenuntergang und Akkukapazität, die gewählte Stufe und
-  ob die Hysterese die vorige Stufe hält.
+  PV-Überschuss bis Sonnenuntergang und Akkukapazität und die gewählte Stufe.
+  `(gehalten)` bedeutet, dass die Hysterese die vorige Stufe hält, obwohl die
+  aktuelle Rechnung eine andere ergäbe.
 - **Geplante Ladeleistung**: Das Attribut `branch` zeigt Prognose-Score,
   SoC-Stufe, manuelle Ladegrenze, Temperaturdrosselung, die Obergrenze
   **Max. Ladeleistung** und die Balancing-Begrenzung, jeweils nur wenn sie
-  greifen. Der Wert nach „Ergebnis“ ist die geplante Ladeleistung.
-- **Opti Strategie Vorschau** (standardmäßig deaktiviert): Grund, Ziel-SoC,
-  Scores und Preisniveau der Strategieauswertung in einem Zustand.
+  greifen. Der Wert nach „Ergebnis“ ist die geplante Ladeleistung der
+  Strategie, nicht die gemessene.
+- **Opti Strategie Vorschau** (standardmäßig deaktiviert): Der Zustand ist der
+  Modus, den die Strategie wählen würde. Die Attribute enthalten Grund,
+  Ziel-SoC, Scores und Preisniveau.
 
-Ein eigenes Entscheidungsprotokoll gibt es nicht.
+Die `branch`-Attribute zeigen nur den aktuellen Stand unter
+**Entwicklerwerkzeuge → Zustände**. Sie werden nicht aufgezeichnet, weil sich
+der Text mit jedem Prozentpunkt SoC ändert. Ein eigenes Entscheidungsprotokoll
+gibt es nicht.
 
 ## Diagnose herunterladen
 

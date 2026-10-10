@@ -242,7 +242,7 @@ def charge_power_branch_end(result):
 
 
 @pytest.mark.parametrize("soc", [10, 50, 80, 92, 96, 98])
-@pytest.mark.parametrize("temperature", [-5, 0, 25, 45])
+@pytest.mark.parametrize("temperature", [-5, 0, 25, 45, 50, None])
 @pytest.mark.parametrize("forecast", [0, 5, 80])
 @pytest.mark.parametrize("limit,manual", [(3000, "off"), (700, "off"), (4000, "on")])
 @pytest.mark.parametrize("balancing", [False, True])
@@ -253,10 +253,16 @@ def test_charge_power_branch_ends_with_the_state(soc, temperature, forecast, lim
         "input_number.akkusteuerung_max_ladestaerke": limit,
         "input_boolean.opti_manuelle_ladegrenze": manual,
     }
+    if temperature is None:
+        overrides[TEMP] = "unavailable"
     if balancing:
         overrides.update({DAYS: 20, "input_number.opti_balancing_intervall_tage": 14,
                           "input_boolean.opti_prognose_netzladen": "off"})
     result = evaluate(states=measurements(**overrides))
+    if temperature is None:
+        assert result.states[POWER] == "unavailable"
+        assert "branch" not in result.attributes[POWER]
+        return
     assert charge_power_branch_end(result) == float(result.states[POWER])
 
 
@@ -777,6 +783,41 @@ def test_render_failure_reports_entity_and_blocks_invalid_derived_value():
     result = evaluate(StrategyEngine(resources))
     assert result.states[TARGET] == "unavailable"
     assert result.attributes["sensor.opti_engine_diagnostics"]["template_errors"][TARGET] == "ZeroDivisionError"
+
+
+def test_display_attribute_failure_keeps_controlled_value_and_decision():
+    reference = evaluate()
+    resources = load_resources()
+    for block in resources["template_blocks"]:
+        for definition in block.get("sensor", []):
+            if definition["unique_id"] == "opti_charge_power_w":
+                definition["attributes"]["branch"] = "{{ 1 / 0 }}"
+    result = evaluate(StrategyEngine(resources))
+    assert result.states[POWER] == reference.states[POWER]
+    assert "branch" not in result.attributes[POWER]
+    assert result.decision_id == reference.decision_id != "unknown"
+    diagnostics = result.attributes["sensor.opti_engine_diagnostics"]
+    assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+    assert "template_errors" not in diagnostics
+    assert diagnostics["display_errors"] == {f"{POWER}:branch": "ZeroDivisionError"}
+
+
+def test_unavailable_value_drops_stale_explanation_but_keeps_hysteresis_memory():
+    engine = StrategyEngine()
+    assert "branch" in evaluate(engine).attributes[POWER]
+    missing = measurements()
+    del missing[TEMP]
+    result = evaluate(engine, states=missing)
+    assert result.states[POWER] == "unavailable"
+    assert "branch" not in result.attributes[POWER]
+
+    engine = StrategyEngine()
+    level = evaluate(engine).attributes[TARGET]["level"]
+    engine._entities[TARGET]["definition"]["state"] = "{{ 1 / 0 }}"
+    failed = evaluate(engine)
+    assert failed.states[TARGET] == "unavailable"
+    assert failed.attributes[TARGET]["level"] == level
+    assert "branch" not in failed.attributes[TARGET]
 
 
 def test_naive_clock_is_rejected_instead_of_silent_wrong_solar_day():

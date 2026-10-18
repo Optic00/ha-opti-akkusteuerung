@@ -699,12 +699,44 @@ async def test_status_age_cannot_hold_gate_open(device):
     clock.on_sleep = age_status
     with pytest.raises(sma.InverterNotReadyError):
         await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
-    assert raw_writes(unit)[-1] == (40151, 802)
+    # The stale gate refuses the setpoint; cleanup re-reads and pauses safely.
     assert not any(address == 40149 for address, _ in unit.writes)
-    assert adapter.last_mode is None and "Cleanup failed" in adapter.last_error
-    assert adapter.last_write_values["summary"].endswith("40151=802")
+    assert raw_writes(unit)[-1] == (41259, 303)
+    assert adapter.last_mode == sma.PAUSE
     assert "40149=" not in adapter.last_write_values["summary"]
-    assert adapter.last_write_values["status"] == "failed"
+    assert adapter.last_write_values["status"] == "failed_safe_pause"
+
+
+async def test_cleanup_status_expiring_midway_still_completes_pause(device):
+    adapter, unit, clock = device
+    adapter.last_mode = sma.FAST_DISCHARGE
+
+    async def slow_then_fail(address, values):
+        if address == 40151 and sma.decode_s32(values) == 802:
+            clock.now += 28
+            raise ModbusError("injected slow write failure")
+
+    unit.on_write = slow_then_fail
+    with pytest.raises(ModbusError):
+        await adapter.async_apply(sma.FAST_DISCHARGE, PARAMETERS, lambda: True)
+    assert raw_writes(unit)[-1] == (41259, 303)
+    assert adapter.last_mode == sma.PAUSE
+
+
+async def test_cleanup_refuses_when_fresh_status_is_not_permitted(device):
+    adapter, unit, clock = device
+    adapter.last_mode = sma.FAST_DISCHARGE
+
+    async def leave_operation(address, values):
+        if address == 40151 and sma.decode_s32(values) == 802:
+            unit.values[33003] = 1392  # fault, not an allowed operating status
+            raise ModbusError("injected write failure")
+
+    unit.on_write = leave_operation
+    with pytest.raises(ModbusError):
+        await adapter.async_apply(sma.FAST_DISCHARGE, PARAMETERS, lambda: True)
+    assert raw_writes(unit) == [(40151, 802)]
+    assert adapter.last_mode is None and "Cleanup failed" in adapter.last_error
 
 
 async def test_longest_write_summary_fits_home_assistant_state_limit(device):

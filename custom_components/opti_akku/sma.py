@@ -386,8 +386,11 @@ class SmaDevice:
 
     async def _cleanup(self) -> None:
         """Best-effort conservative pause; status gate still applies to cleanup."""
-        self._ensure_status()
         async with asyncio.timeout(12):
+            # The failed transaction may have aged the cached status past its
+            # limit; judge cleanup by a fresh read, not by that leftover.
+            await self._read_status()
+            self._ensure_status()
             await self._write(40151, 803)
             await self._sleep(REGISTER_GAP_SECONDS)
             await self._bms((0, 0, 0, 0), 303, self._ensure_status)

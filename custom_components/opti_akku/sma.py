@@ -152,6 +152,8 @@ class SmaDevice:
         # A positive 40149 (fast discharge) survives 803 and would discharge for
         # the 2 s after a later 802 until the new setpoint lands.
         self._discharge_setpoint_armed = False
+        # True only after an acknowledged 802 with no 803 attempted since.
+        self._rail_confirmed = False
         self.last_write: datetime | None = None
         self.last_write_values: dict[str, Any] | None = None
         self.last_mode: str | None = None
@@ -361,7 +363,11 @@ class SmaDevice:
         if self._read_only:
             self.blocked_write_attempts += 1
             raise PermissionError("Shadow device cannot write Modbus registers")
+        if address == 40151:
+            self._rail_confirmed = False
         await self.unit.write_registers(address, encode_s32(value))
+        if address == 40151 and value == 802:
+            self._rail_confirmed = True
         if self._write_trace is not None:
             self._write_trace.append((address, value))
             self._last_acknowledged_write_at = datetime.now(UTC)
@@ -396,7 +402,7 @@ class SmaDevice:
             # limit; judge cleanup by a fresh read, not by that leftover.
             await self._read_status()
             self._ensure_status()
-            if self._discharge_setpoint_armed:
+            if self._discharge_setpoint_armed and self._rail_confirmed:
                 try:
                     async with asyncio.timeout(DISARM_TIMEOUT_SECONDS):
                         await self._disarm_discharge_setpoint()
@@ -474,11 +480,11 @@ class SmaDevice:
                 else:
                     self._dynamic_since = None
 
-                # Only clear while 802 is known active; 40149 under 803 is unverified.
+                # Only clear under a confirmed 802; 40149 under 803 is unverified.
                 if (
                     self._discharge_setpoint_armed
                     and mode != FAST_DISCHARGE
-                    and self.last_mode in RAIL_MODES
+                    and self._rail_confirmed
                 ):
                     guard()
                     touched = True

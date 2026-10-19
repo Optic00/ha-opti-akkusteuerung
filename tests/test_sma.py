@@ -889,3 +889,37 @@ async def test_setpoint_is_never_cleared_under_803(device):
     assert (40149, 0) not in raw_writes(unit)
     # The charge setpoint itself replaced the stale value.
     assert not adapter._discharge_setpoint_armed
+
+
+async def test_setpoint_clear_follows_the_written_rail_not_the_mode(device):
+    adapter, unit, _ = device
+    await adapter.async_apply(sma.AUTO, {}, lambda: True)  # ends with 803
+    adapter._discharge_setpoint_armed = True
+    unit.writes.clear()
+
+    async def fail_rail(address, values):
+        if address == 40151 and sma.decode_s32(values) == 802:
+            raise ModbusError("injected failure, 802 not confirmed")
+
+    unit.on_write = fail_rail
+    with pytest.raises(ModbusError):
+        await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
+    assert (40149, 0) not in raw_writes(unit)
+    assert adapter._discharge_setpoint_armed
+
+
+async def test_cleanup_does_not_clear_setpoint_under_803(device):
+    adapter, unit, _ = device
+    await adapter.async_apply(sma.ONLY_CHARGE, PARAMETERS, lambda: True)
+    adapter._discharge_setpoint_armed = True
+    unit.writes.clear()
+
+    async def fail_bms(address, values):
+        if address == 40795:
+            raise ModbusError("injected BMS failure before 802")
+
+    unit.on_write = fail_bms
+    with pytest.raises(ModbusError):
+        await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
+    assert (40149, 0) not in raw_writes(unit)
+    assert adapter._discharge_setpoint_armed

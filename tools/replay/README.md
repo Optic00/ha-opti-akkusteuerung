@@ -51,12 +51,22 @@ Jeder Schritt erfüllt `pv + import + discharge = load + export + charge`.
 
 ## Annahmen (bewusst einfach, im Bericht sichtbar)
 
-- **Stundenauflösung**: Jede Stunde wird gleichmäßig auf vier Viertelstunden verteilt.
+- **Stundenauflösung**: Jede Stunde wird gleichmäßig auf vier Viertelstunden verteilt
+  (Teilschritte auf der UTC-Achse, DST-Tage behalten 23/25 Stunden).
   Reale Spitzen innerhalb der Stunde werden geglättet; die Simulation unterschätzt
   deshalb Einspeisung und Netzbezug gegenüber `actual`. Policies untereinander
   vergleichen, nicht Simulation gegen Messung.
 - **Hausverbrauch** aus der Bilanz `load = pv + import − export − charge + discharge`;
-  der Import-Summary meldet die Abweichung zum Hauszähler.
+  der Import-Summary meldet die Abweichung zum Hauszähler. Fehlt ein Summand
+  (z. B. ein PV-Zähler ohne Zeile), ist die Stunde unvollständig und wird übersprungen.
+  Einzige Ausnahme (`pv_kwh_night_zero`): die Sonne steht die ganze Stunde unter dem
+  Horizont und alle vorhandenen PV-Zähler melden 0 – ein schlafender Wechselrichter
+  nachts liefert sicher nichts.
+- **Messblöcke**: Lücken > 6 h trennen Blöcke. Jeder weitere Block startet mit dem
+  gemessenen mittleren SoC seiner ersten Stunde und einer frischen Engine-Instanz
+  (Kaltstart); die ersten 24 h sind als `warmup` markiert und aus allen Kennzahlen
+  ausgenommen (`warmup_steps`). Kurze Lücken innerhalb eines Blocks tragen SoC und
+  Engine-Zustand weiter.
 - **Forecast-Rekonstruktion**: Die Solcast-Tagesprognosen liegen nur als
   stündliche `change`-Werte vor (state_class `total`). Der Pegel ist
   `Anker + kumulierte Änderung`; der Anker ist der Median der Abweichung gegen den
@@ -65,13 +75,19 @@ Jeder Schritt erfüllt `pv + import + discharge = load + export + charge`.
   im Import-Summary; Werte werden auf ≥ 0 geklemmt und als `forecast_reconstructed`
   markiert. Der Wert am Stundenende gilt für die ganze Stunde (≤ 1 h Vorgriff auf
   Prognose-Aktualisierungen).
-- **Restprognose** = Tagesprognose × Anteil des noch ausstehenden tatsächlichen
-  PV-Ertrags des Tages (bei 0 kWh Tagesertrag: Tagesprognose bis 16 Uhr, danach 0).
+- **Restprognose** (`--forecast-mode`):
+  `calibrated` = Tagesprognose × Anteil des noch ausstehenden *tatsächlichen*
+  PV-Ertrags des Tages (bei 0 kWh Tagesertrag: Tagesprognose bis 16 Uhr, danach 0) –
+  enthält Zukunftswissen über den Tagesverlauf.
+  `naive` = Tagesprognose × klimatologischer Stundenanteil aus dem Vormonat
+  (Mittel des tatsächlichen PV-Profils; fehlt der Vormonat, der laufende Monat) ohne
+  Blick auf den Ist-Verlauf. Beide Modi nutzen dieselben rekonstruierten Tagespegel,
+  deren Anker gegen spätere Ist-Erträge geschätzt sind (ebenfalls Zukunftswissen).
   `estimate10` wird nicht geliefert; die Engine fällt auf den Median zurück.
-- **Preise**: Stundenmittel; heute vollständig bekannt, morgen ab 13 Uhr. Tage mit
-  fehlenden Stunden bekommen keine Preisreihe (Engine läuft ohne Preisniveau).
-  Lücken ≤ 3 h werden linear interpoliert und als `interpolated` markiert, längere
-  bleiben `missing`; Kosten zählen nur Schritte mit Preis.
+- **Preise**: Stundenmittel; heute vollständig bekannt, morgen ab 13 Uhr. Der aktuelle
+  Preis wird immer geliefert; Tage mit fehlenden Stunden bekommen keine Preisreihe
+  (Engine läuft ohne Preisniveau). Lücken ≤ 3 h werden linear interpoliert und als
+  `interpolated` markiert, längere bleiben `missing`; Kosten zählen nur Schritte mit Preis.
 - **Live-Messwerte** für die Engine (PV, Hausverbrauch, Netz, Akku) sind die
   Leistungen des vorherigen Simulationsschritts; der SoC ist der simulierte.
   Batterietemperatur fest 25 °C, keine EV-, Zellspreizungs- oder Lastprofil-Eingänge.

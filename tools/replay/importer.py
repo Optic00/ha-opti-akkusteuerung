@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .sun import SunModel
 from .timeseries import (
     PRICE_FALLBACK,
     PRICE_INTERPOLATED,
@@ -53,7 +54,7 @@ def _value(raw: dict, entity: str, start: int, key: str) -> float | None:
 
 
 def _sum_change(raw: dict, entities: list[str], start: int) -> tuple[float | None, list[str]]:
-    """Sum meter changes; a missing meter row is a gap unless the others read zero."""
+    """Sum meter changes; any missing summand makes the hour a gap, never a zero."""
     total, missing = 0.0, []
     for entity in entities:
         value = _value(raw, entity, start, "change")
@@ -61,9 +62,15 @@ def _sum_change(raw: dict, entities: list[str], start: int) -> tuple[float | Non
             missing.append(entity)
         else:
             total += value
-    if missing and (len(missing) == len(entities) or total > 0):
+    if missing:
         return None, missing
     return total, missing
+
+
+def _night(hour: Hour, sun: SunModel) -> bool:
+    """True when the sun is below the horizon for the whole hour."""
+    end = hour.ts_local + dt.timedelta(hours=1)
+    return sun.state(hour.ts_local)[0] == "below_horizon" and sun.state(end)[0] == "below_horizon"
 
 
 def _blocks(hours: list[Hour]) -> list[list[int]]:
@@ -175,9 +182,14 @@ def _reconstruct_forecasts(hours: list[Hour], raw: dict, mapping: dict) -> dict[
 
 
 def import_series(
-    raw_paths: list[Path], mapping: dict, *, tz: str = "Europe/Berlin", price_gap_max_hours: int = 3
+    raw_paths: list[Path], mapping: dict, *, tz: str = "Europe/Berlin", price_gap_max_hours: int = 3,
+    sun: SunModel | None = None,
 ) -> tuple[list[Hour], dict[str, Any]]:
-    """Build the hourly series and a summary of gaps, anchors and balance checks."""
+    """Build the hourly series and a summary of gaps, anchors and balance checks.
+
+    ``sun`` enables the night-time zero for a missing PV summand; without it every
+    missing summand stays a gap.
+    """
     zone = ZoneInfo(tz)
     raw = load_raw(raw_paths)
     starts: set[int] = set()
@@ -189,11 +201,17 @@ def import_series(
         hour = Hour(ts_local=dt.datetime.fromtimestamp(start / 1000, tz=zone))
         for key, attribute in CHANGE_KEYS.items():
             value, missing = _sum_change(raw, mapping[key]["entities"], start)
+            if (value is None and key == "pv_kwh" and len(missing) < len(mapping[key]["entities"])
+                    and sun is not None and _night(hour, sun)
+                    and all(_value(raw, entity, start, "change") == 0 for entity in mapping[key]["entities"]
+                            if entity not in missing)):
+                # A sleeping inverter at night: the other PV meters read zero and the
+                # sun is down for the whole hour, so zero is physically certain.
+                value = 0.0
+                hour.gaps.append("pv_kwh_night_zero")
             setattr(hour, attribute, value)
             if value is None:
-                hour.gaps.append(attribute)
-            elif missing:
-                hour.gaps.append(f"{attribute}_partial_zero")
+                hour.gaps.append(attribute if len(missing) == len(mapping[key]["entities"]) else f"{attribute}_partial")
         for key, attribute in (("soc_mean", "soc"), ("soc_min", "soc_min"), ("soc_max", "soc_max")):
             setattr(hour, attribute, _value(raw, mapping[key]["entities"][0], start, mapping[key]["stat"]))
         if hour.soc is None:
@@ -243,6 +261,7 @@ def import_series(
             for src in (PRICE_MEASURED, PRICE_FALLBACK, PRICE_INTERPOLATED, PRICE_MISSING)
         },
         "price_interpolated_hours": interpolated,
+        "pv_night_zero_hours": sum(1 for h in hours if "pv_kwh_night_zero" in h.gaps),
         "load_balance_vs_meter": balance,
         "forecast": forecast_summary,
     }

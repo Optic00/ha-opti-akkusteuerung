@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tools.replay.importer import import_series
+from tools.replay.sun import SunModel
 from tools.replay.timeseries import PRICE_INTERPOLATED, PRICE_MISSING, read_csv, write_csv
 
 TZ = ZoneInfo("Europe/Berlin")
@@ -130,7 +131,7 @@ def test_load_follows_the_energy_balance_and_meter_check_is_reported(tmp_path):
 
 def test_gaps_are_marked_not_invented(tmp_path):
     hours = local_hours(dt.date(2025, 11, 1), 3)
-    night = hours[2]  # pv_b missing at night: the other meter reads zero -> 0 with flag
+    night = hours[2]  # pv_b missing at night: a missing summand is a gap, never zero
     noon = hours[12]  # pv_b missing at noon: the hour's PV is unknown
     no_charge = hours[30]
     short_gap = {hours[40], hours[41]}  # 2 h price gap -> interpolated
@@ -141,13 +142,19 @@ def test_gaps_are_marked_not_invented(tmp_path):
     })
     series, summary = import_raw(tmp_path, raw)
     by_ts = {h.ts_local: h for h in series}
-    assert by_ts[night].pv_kwh == 0 and "pv_kwh_partial_zero" in by_ts[night].gaps
+    assert by_ts[night].pv_kwh is None and "pv_kwh_partial" in by_ts[night].gaps
     assert by_ts[noon].pv_kwh is None and not by_ts[noon].complete
+    # With a sun model the night-time gap of a sleeping inverter becomes a certain zero.
+    series_sun, summary_sun = import_raw(tmp_path, raw, sun=SunModel())
+    by_ts_sun = {h.ts_local: h for h in series_sun}
+    assert by_ts_sun[night].pv_kwh == 0 and "pv_kwh_night_zero" in by_ts_sun[night].gaps
+    assert by_ts_sun[noon].pv_kwh is None
+    assert summary_sun["pv_night_zero_hours"] == 1 and summary_sun["incomplete_hours"] == 2
     assert by_ts[no_charge].charge_kwh is None and by_ts[no_charge].load_kwh is None
     assert by_ts[hours[40]].price_src == PRICE_INTERPOLATED
     assert by_ts[hours[40]].price_ct == pytest.approx((by_ts[hours[39]].price_ct * 2 + by_ts[hours[42]].price_ct) / 3)
     assert by_ts[hours[52]].price_src == PRICE_MISSING and by_ts[hours[52]].price_ct is None
-    assert summary["incomplete_hours"] == 2
+    assert summary["incomplete_hours"] == 3
     assert summary["price_hours"] == {"measured": 72 - 10, "fallback": 0, "interpolated": 2, "missing": 8}
 
 

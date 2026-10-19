@@ -4,6 +4,11 @@ Assumption: each recorded hour is spread evenly over its steps (default four
 quarter hours). This smooths real intra-hour peaks, so surplus and deficit
 magnitudes are hourly means. The engine sees the previous step's powers as its
 "live" measurements and the simulated SoC as the battery state.
+
+Sub-steps advance on the UTC axis so DST days keep their 23/25 local hours
+without duplicated or backwards timestamps. Measurement blocks separated by
+more than ``BLOCK_GAP`` restart the simulation: SoC from the first measured
+hour, a fresh policy state, and ``WARMUP_HOURS`` of records flagged as warm-up.
 """
 from __future__ import annotations
 
@@ -18,6 +23,9 @@ from .policies import Decision, PowerSnapshot, StepContext
 from .timeseries import Hour
 
 TOMORROW_KNOWN_FROM_HOUR = 13
+BLOCK_GAP = dt.timedelta(hours=6)
+WARMUP_HOURS = 24
+FORECAST_MODES = ("calibrated", "naive")
 
 
 @dataclass
@@ -39,6 +47,7 @@ class StepRecord:
     charge_limit_w: float | None
     target_soc: float | None
     engine_ok: bool
+    warmup: bool = False
 
 
 @dataclass
@@ -68,14 +77,54 @@ def day_tables(hours: list[Hour]) -> dict[dt.date, DayTable]:
     return tables
 
 
-def _remaining_forecast(hour: Hour, table: DayTable, index: int, fraction: float) -> float | None:
-    """Today's forecast scaled by the share of the day's actual PV still ahead."""
+def climatology(hours: list[Hour]) -> dict[tuple[int, int], list[float]]:
+    """Share of the month's PV per local hour of day, keyed by (year, month)."""
+    sums: dict[tuple[int, int], list[float]] = {}
+    for hour in hours:
+        if hour.pv_kwh is None:
+            continue
+        key = (hour.ts_local.year, hour.ts_local.month)
+        sums.setdefault(key, [0.0] * 24)[hour.ts_local.hour] += hour.pv_kwh
+    return {key: [v / total if (total := sum(values)) > 0 else 0.0 for v in values] for key, values in sums.items()}
+
+
+def previous_month(key: tuple[int, int]) -> tuple[int, int]:
+    year, month = key
+    return (year - 1, 12) if month == 1 else (year, month - 1)
+
+
+def _remaining_calibrated(hour: Hour, table: DayTable, index: int, fraction: float) -> float | None:
+    """Today's forecast scaled by the share of the day's actual PV still ahead.
+
+    Uses the actual later PV profile of the same day (future knowledge).
+    """
     if hour.forecast_today_kwh is None:
         return None
     if table.pv_total <= 0:
         return hour.forecast_today_kwh if hour.ts_local.hour < 16 else 0.0
     produced = table.pv_before[index] + (hour.pv_kwh or 0.0) * fraction
     return hour.forecast_today_kwh * max(0.0, 1 - produced / table.pv_total)
+
+
+def _remaining_naive(hour: Hour, profile: list[float], fraction: float) -> float | None:
+    """Today's forecast times the climatological share of the day still ahead."""
+    if hour.forecast_today_kwh is None:
+        return None
+    ahead = sum(profile[hour.ts_local.hour + 1:]) + profile[hour.ts_local.hour] * (1 - fraction)
+    return hour.forecast_today_kwh * ahead
+
+
+def _blocks(hours: list[Hour]) -> list[list[int]]:
+    """Indices of complete hours grouped into measurement blocks."""
+    blocks: list[list[int]] = []
+    for index, hour in enumerate(hours):
+        if not hour.complete:
+            continue
+        if blocks and hour.ts_local - hours[blocks[-1][-1]].ts_local <= BLOCK_GAP:
+            blocks[-1].append(index)
+        else:
+            blocks.append([index])
+    return blocks
 
 
 def run(
@@ -85,56 +134,75 @@ def run(
     *,
     steps_per_hour: int = 4,
     start_soc: float | None = None,
+    forecast_mode: str = "calibrated",
 ) -> list[StepRecord]:
+    if forecast_mode not in FORECAST_MODES:
+        raise ValueError(f"Unknown forecast mode: {forecast_mode}")
     tables = day_tables(hours)
+    profiles = climatology(hours) if forecast_mode == "naive" else {}
     index_in_day: dict[int, int] = {}
     counter: dict[dt.date, int] = {}
     for position, hour in enumerate(hours):
         index_in_day[position] = counter.get(hour.day, 0)
         counter[hour.day] = index_in_day[position] + 1
-    soc = start_soc if start_soc is not None else next((h.soc for h in hours if h.soc is not None), 50.0)
-    soc = min(params.maxsoc, max(params.minsoc, soc))
     step_h = 1 / steps_per_hour
-    previous = PowerSnapshot()
     records: list[StepRecord] = []
-    for position, hour in enumerate(hours):
-        if not hour.complete:
-            previous = PowerSnapshot()
-            continue
-        table = tables[hour.day]
-        tomorrow = tables.get(hour.day + dt.timedelta(days=1))
-        pv_kwh, load_kwh = hour.pv_kwh / steps_per_hour, hour.load_kwh / steps_per_hour
-        for sub in range(steps_per_hour):
-            now = hour.ts_local + dt.timedelta(minutes=60 * sub / steps_per_hour)
-            context = StepContext(
-                now=now, soc=soc, previous=previous, price_ct=hour.price_ct,
-                price_today=table.prices,
-                price_tomorrow=(tomorrow.prices or []) if tomorrow and now.hour >= TOMORROW_KNOWN_FROM_HOUR else [],
-                forecast_today_kwh=hour.forecast_today_kwh,
-                forecast_tomorrow_kwh=hour.forecast_tomorrow_kwh,
-                forecast_remaining_kwh=_remaining_forecast(hour, table, index_in_day[position], sub / steps_per_hour),
-            )
-            decision: Decision = policy.decide(context)
-            flows = battery.step(decision.mode, soc, pv_kwh, load_kwh, step_h, params, decision.charge_limit_w)
-            records.append(StepRecord(
-                now, policy.name, decision.mode, decision.decision_id, decision.reason,
-                pv_kwh, load_kwh, flows.charge_kwh, flows.discharge_kwh, flows.export_kwh, flows.import_kwh,
-                soc, flows.soc_after, hour.price_ct, decision.charge_limit_w, decision.target_soc, decision.ok,
-            ))
-            soc = flows.soc_after
-            factor = 1000 / step_h
-            previous = PowerSnapshot(
-                pv_kwh * factor, load_kwh * factor, flows.export_kwh * factor, flows.import_kwh * factor,
-                (flows.charge_kwh - flows.discharge_kwh) * factor,
-            )
+    for block_number, block in enumerate(_blocks(hours)):
+        first = hours[block[0]]
+        if block_number > 0 or start_soc is None:
+            soc = first.soc if first.soc is not None else 50.0
+        else:
+            soc = start_soc
+        soc = min(params.maxsoc, max(params.minsoc, soc))
+        if block_number > 0:
+            policy.reset()
+        warmup_until = first.ts_local + dt.timedelta(hours=WARMUP_HOURS)
+        previous = PowerSnapshot()
+        for position in block:
+            hour = hours[position]
+            table = tables[hour.day]
+            tomorrow = tables.get(hour.day + dt.timedelta(days=1))
+            pv_kwh, load_kwh = hour.pv_kwh / steps_per_hour, hour.load_kwh / steps_per_hour
+            start_utc = hour.ts_local.astimezone(dt.UTC)
+            month_key = (hour.ts_local.year, hour.ts_local.month)
+            profile = profiles.get(previous_month(month_key)) or profiles.get(month_key) or [0.0] * 24
+            for sub in range(steps_per_hour):
+                fraction = sub / steps_per_hour
+                now = (start_utc + dt.timedelta(hours=fraction)).astimezone(hour.ts_local.tzinfo)
+                remaining = (
+                    _remaining_naive(hour, profile, fraction) if forecast_mode == "naive"
+                    else _remaining_calibrated(hour, table, index_in_day[position], fraction)
+                )
+                context = StepContext(
+                    now=now, soc=soc, previous=previous, price_ct=hour.price_ct,
+                    price_today=table.prices,
+                    price_tomorrow=(tomorrow.prices or []) if tomorrow and now.hour >= TOMORROW_KNOWN_FROM_HOUR else [],
+                    forecast_today_kwh=hour.forecast_today_kwh,
+                    forecast_tomorrow_kwh=hour.forecast_tomorrow_kwh,
+                    forecast_remaining_kwh=remaining,
+                )
+                decision: Decision = policy.decide(context)
+                flows = battery.step(decision.mode, soc, pv_kwh, load_kwh, step_h, params, decision.charge_limit_w)
+                records.append(StepRecord(
+                    now, policy.name, decision.mode, decision.decision_id, decision.reason,
+                    pv_kwh, load_kwh, flows.charge_kwh, flows.discharge_kwh, flows.export_kwh, flows.import_kwh,
+                    soc, flows.soc_after, hour.price_ct, decision.charge_limit_w, decision.target_soc, decision.ok,
+                    warmup=block_number > 0 and now < warmup_until,
+                ))
+                soc = flows.soc_after
+                factor = 1000 / step_h
+                previous = PowerSnapshot(
+                    pv_kwh * factor, load_kwh * factor, flows.export_kwh * factor, flows.import_kwh * factor,
+                    (flows.charge_kwh - flows.discharge_kwh) * factor,
+                )
     return records
 
 
 def run_actual(hours: list[Hour], steps_per_hour: int = 4) -> list[StepRecord]:
     """Replay the recorded flows unchanged as the reference policy ``actual``.
 
-    The hourly maximum SoC stands in for the per-step SoC, so "avoidable export"
-    is only counted when the battery stayed below the cap for the whole hour.
+    The hourly maximum SoC stands in for the per-step SoC, so export with a
+    free battery is only counted when it stayed below the cap for the whole hour.
     """
     records = []
     for hour in hours:
@@ -142,8 +210,9 @@ def run_actual(hours: list[Hour], steps_per_hour: int = 4) -> list[StepRecord]:
         if any(value is None for value in values):
             continue
         soc = hour.soc_max if hour.soc_max is not None else (hour.soc if hour.soc is not None else 50.0)
+        start_utc = hour.ts_local.astimezone(dt.UTC)
         for sub in range(steps_per_hour):
-            now = hour.ts_local + dt.timedelta(minutes=60 * sub / steps_per_hour)
+            now = (start_utc + dt.timedelta(hours=sub / steps_per_hour)).astimezone(hour.ts_local.tzinfo)
             records.append(StepRecord(
                 now, "actual", "actual", "actual", "Messung",
                 *(value / steps_per_hour for value in values),

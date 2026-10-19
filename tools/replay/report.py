@@ -4,15 +4,16 @@ from __future__ import annotations
 from typing import Any
 
 TABLE_COLUMNS = [
-    ("export_kwh", "Einspeisung kWh"),
-    ("avoidable_export_kwh", "davon vermeidbar kWh"),
-    ("import_kwh", "Netzbezug kWh"),
-    ("import_cost_eur", "Bezugskosten EUR"),
-    ("feed_in_revenue_eur", "Einspeiseerlös EUR"),
     ("net_cost_eur", "Nettokosten EUR"),
-    ("self_consumption_pct", "EV-Quote %"),
-    ("cycles", "Zyklen"),
+    ("import_kwh", "Netzbezug kWh"),
+    ("export_kwh", "Einspeisung kWh"),
+    ("pv_potential_end_of_day_kwh", "PV-Potenzial Tagesende kWh"),
+    ("replaceable_import_kwh", "ersetzbarer Netzbezug kWh"),
+    ("replaceable_import_eur", "ersetzbarer Netzbezug EUR"),
+    ("export_free_battery_raw_kwh", "Export bei freiem Akku (roh) kWh"),
     ("grid_charge_kwh", "Netzladung kWh"),
+    ("cycles", "Zyklen"),
+    ("hours_soc_above_85", "h SoC > 85 %"),
     ("mode_changes", "Moduswechsel"),
     ("engine_error_steps", "Engine-Fehler"),
 ]
@@ -39,18 +40,23 @@ def _table(period: str, metrics: dict[str, dict[str, dict]]) -> list[str]:
 
 
 def _patterns(policy: str, period: str, row: dict) -> list[str]:
-    lines = [f"#### {policy} – {period}: vermeidbare Einspeisung {row['avoidable_export_kwh']} kWh", ""]
-    for key, label in (("avoidable_by_decision", "nach decision_id"), ("avoidable_by_mode", "nach Modus"),
-                       ("avoidable_by_soc_band", "nach SoC-Band"), ("avoidable_by_hour", "nach Stunde")):
+    lines = [f"#### {policy} – {period}: PV-Potenzial am Tagesende {row['pv_potential_end_of_day_kwh']} kWh, "
+             f"Export bei freiem Akku (roh) {row['export_free_battery_raw_kwh']} kWh", ""]
+    for key, label in (("raw_by_decision", "roh nach decision_id"), ("raw_by_mode", "roh nach Modus"),
+                       ("raw_by_soc_band", "roh nach SoC-Band"), ("raw_by_hour", "roh nach Stunde")):
         items = row.get(key, {})
         if items:
             lines.append(f"- {label}: " + ", ".join(f"{k} {v}" for k, v in list(items.items())[:12]))
-    if row.get("top_days"):
-        lines += ["", "| Tag | vermeidbar kWh | decision_ids (kWh) | Modi (kWh) |", "|---|---|---|---|"]
-        for day in row["top_days"]:
+    if row.get("top_days_potential"):
+        lines += ["", "| Tag | Potenzial kWh | ersetzbar kWh | ersetzbar EUR |", "|---|---|---|---|"]
+        for day in row["top_days_potential"]:
+            lines.append(f"| {day['day']} | {day['potential_kwh']} | {day['replaced_import_kwh']} | {day['replaced_import_eur']} |")
+    if row.get("top_days_raw"):
+        lines += ["", "| Tag | roh kWh | decision_ids (kWh) | Modi (kWh) |", "|---|---|---|---|"]
+        for day in row["top_days_raw"]:
             decisions = ", ".join(f"{k} {v}" for k, v in day["decisions"].items())
             modes = ", ".join(f"{k} {v}" for k, v in day["modes"].items())
-            lines.append(f"| {day['day']} | {day['avoidable_export_kwh']} | {decisions} | {modes} |")
+            lines.append(f"| {day['day']} | {day['export_free_battery_raw_kwh']} | {decisions} | {modes} |")
     return lines + [""]
 
 
@@ -63,10 +69,21 @@ def render(metrics: dict[str, dict[str, dict]], meta: dict[str, Any]) -> str:
     months = sorted(key for key in periods if key not in SEASON_ORDER)
     lines = ["# Replay-Vergleich", ""]
     for key, value in meta.items():
-        lines.append(f"- {key}: {value}")
+        if isinstance(value, dict):
+            lines.append(f"- {key}:")
+            lines.extend(f"  - {inner}: {item}" for inner, item in value.items())
+        else:
+            lines.append(f"- {key}: {value}")
     lines += ["", "Kosten und Erlöse zählen nur Schritte mit bekanntem Preis (priced_import_kwh in den JSON-Dateien).",
-              "Vermeidbare Einspeisung: Export bei SoC < maxsoc − 1 % zu Schrittbeginn, begrenzt auf die im Schritt",
-              "ungenutzte maximale Ladeleistung der Anlage.", "", "## Zeiträume", ""]
+              "PV-Potenzial am Tagesende: Export, den ein virtueller Zusatzspeicher je Tag noch hätte aufnehmen können",
+              "(begrenzt durch freie Ladeleistung, freie Kapazität neben dem realen Verlauf und Ladewirkungsgrad;",
+              "spätere reguläre Ladung verdrängt ihn, nur der Rest nach dem letzten PV-Schritt zählt).",
+              "Ersetzbarer Netzbezug: Anteil dieses Potenzials, der bis zur nächsten PV-Produktion Netzbezug ersetzt",
+              "hätte (Entladewirkungsgrad und -leistung, bewertet zum Preis des Schritts).",
+              "Export bei freiem Akku (roh): Export bei SoC < maxsoc − 1 % und ungenutzter Ladeleistung je Schritt,",
+              "ohne Rücksicht auf spätere Vollladung – nur als Mustersuche brauchbar, nicht als Verlust.",
+              "Anlaufstunden nach einem Messblock-Neustart sind aus allen Zeiträumen ausgenommen (warmup_steps).",
+              "", "## Zeiträume", ""]
     for period in seasons + months:
         lines += _table(period, metrics)
     lines += ["## Muster vermeidbarer Einspeisung", ""]

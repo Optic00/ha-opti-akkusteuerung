@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .battery import DYNAMIC, MODES
-from .resources import load_engine_module, load_strategy
+from .resources import describe_engine, describe_strategy, load_engine_module, load_strategy
 from .sun import SunModel
 
 CAPACITY = "sensor.opti_battery_capacity_kwh"
@@ -66,6 +66,9 @@ class SelfConsumptionPolicy:
     def decide(self, context: StepContext) -> Decision:
         return Decision(DYNAMIC, "self_consumption", "Eigenverbrauch")
 
+    def reset(self) -> None:
+        """No state to discard at a measurement block boundary."""
+
     def summary(self) -> dict[str, Any]:
         return {}
 
@@ -82,12 +85,15 @@ class StrategyPolicy:
     resources: dict | None = None  # overrides strategy_ref (tests, patched variants)
 
     def __post_init__(self) -> None:
-        engine_module = load_engine_module()
+        self._engine_module = load_engine_module()
+        self._injected = self.resources is not None
         if self.resources is None:
             self.resources = load_strategy(self.strategy_ref)
-        self.engine = engine_module.StrategyEngine(self.resources)
+        self.engine = self._engine_module.StrategyEngine(self.resources)
         self.steps = 0
         self.error_steps = 0
+        self.charge_limit_unknown_steps = 0
+        self.resets = 0
         self.error_types: dict[str, int] = {}
         self.settings: dict[str, Any] = {"input_boolean.akku_opti_automatik": "on"}
         for key, entity in PLANT_SETTINGS.items():
@@ -119,12 +125,15 @@ class StrategyPolicy:
             states["sensor.opti_forecast_remaining_today_kwh"] = round(context.forecast_remaining_kwh or 0.0, 3)
             for key in ("today", "tomorrow", "remaining_today"):
                 attributes[f"sensor.opti_forecast_{key}_kwh"] = {"estimate10": None}
-        if context.price_ct is not None and context.price_today:
+        if context.price_ct is not None:
+            # The current price is known even when the day's series has gaps;
+            # only the series itself (and with it the price level) is withheld.
             states["sensor.opti_price_current_ct_kwh"] = round(context.price_ct, 3)
-            states["sensor.opti_price_series"] = round(context.price_ct, 3)
-            attributes["sensor.opti_price_series"] = {
-                "today": list(context.price_today), "tomorrow": list(context.price_tomorrow),
-            }
+            if context.price_today:
+                states["sensor.opti_price_series"] = round(context.price_ct, 3)
+                attributes["sensor.opti_price_series"] = {
+                    "today": list(context.price_today), "tomorrow": list(context.price_tomorrow),
+                }
         result = self.engine.evaluate(states, attributes, context.now)
         self.steps += 1
         ok = result.states.get("sensor.opti_engine_diagnostics") == "ok"
@@ -134,19 +143,34 @@ class StrategyPolicy:
                 self.error_types[name] = self.error_types.get(name, 0) + 1
         mode = result.mode if result.mode in MODES else "Akku Pause"
         limit = _number(result.states.get("sensor.opti_charge_power_w"))
+        if limit is None:
+            # The coordinator enforces 0 W when the derived limit is unavailable.
+            limit = 0.0
+            self.charge_limit_unknown_steps += 1
         return Decision(
             mode, result.decision_id, result.reason, limit, ok,
             _number(result.states.get("sensor.opti_target_soc")),
         )
 
+    def reset(self) -> None:
+        """Fresh engine state at a measurement block boundary (like a cold start)."""
+        self.engine = self._engine_module.StrategyEngine(self.resources)
+        self.resets += 1
+
     def summary(self) -> dict[str, Any]:
         return {
             "strategy_ref": self.strategy_ref or "worktree",
+            **({"strategy_origin": "injected resources", "strategy_sha256": describe_strategy(None, self.resources)["strategy_sha256"]}
+               if self._injected else describe_strategy(self.strategy_ref, self.resources)),
+            **describe_engine(),
             "source_revision": self.resources.get("source_revision"),
             "engine_steps": self.steps,
             "engine_error_steps": self.error_steps,
             "engine_error_types": dict(self.error_types),
+            "charge_limit_unknown_steps": self.charge_limit_unknown_steps,
+            "block_restarts": self.resets,
             "sun_source": self.sun.source,
+            "battery_temp_c": self.battery_temp_c,
         }
 
 

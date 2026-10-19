@@ -1,10 +1,12 @@
 """PV peaks release the forecast/SoC charge throttle while surplus would be exported."""
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 
 import pytest
 
+from custom_components.opti_akku.coordinator import pv_peak_release_applies
 from tests.test_engine import (
     MODE,
     NOW,
@@ -86,14 +88,84 @@ def test_release_needs_a_pv_charging_preview():
     assert power(result) == 1500 and not released(result)
 
 
-def test_release_drops_when_surplus_disappears():
+def at(seconds):
+    return NOW + dt.timedelta(seconds=seconds)
+
+
+def test_release_drops_only_after_60_seconds_without_surplus():
     engine = StrategyEngine()
     assert power(evaluate(engine, surplus())) == MAX_W
-    gone = evaluate(engine, surplus(export=0, **{IMPORT: 100}), now=NOW + dt.timedelta(seconds=30))
-    assert power(gone) == THROTTLED_W and not released(gone)
+    gone = surplus(export=0, **{IMPORT: 100})
+    # 30-second cadence: a dip is held, the timer starts at the first dip.
+    first = evaluate(engine, gone, now=at(30))
+    assert power(first) == MAX_W and released(first)
+    assert first.attributes[POWER]["kein_ueberschuss_seit"] == at(30).isoformat()
+    assert "ohne Überschuss seit 0 s" in first.attributes[POWER]["branch"]
+    second = evaluate(engine, gone, now=at(60))
+    assert power(second) == MAX_W and released(second)
+    assert second.attributes[POWER]["kein_ueberschuss_seit"] == at(30).isoformat()
+    # 60 s continuously without surplus: back to the throttle.
+    third = evaluate(engine, gone, now=at(90))
+    assert power(third) == THROTTLED_W and not released(third)
+    assert third.attributes[POWER]["kein_ueberschuss_seit"] == ""
     # Re-entry needs the full threshold again.
-    weak = evaluate(engine, surplus(export=100), now=NOW + dt.timedelta(seconds=60))
+    weak = evaluate(engine, surplus(export=100), now=at(120))
     assert power(weak) == THROTTLED_W
+
+
+def test_short_dip_keeps_the_release_and_resets_the_timer():
+    engine = StrategyEngine()
+    assert power(evaluate(engine, surplus())) == MAX_W
+    dip = evaluate(engine, surplus(export=0), now=at(30))
+    assert power(dip) == MAX_W and released(dip)
+    back = evaluate(engine, surplus(export=50), now=at(60))
+    assert power(back) == MAX_W and released(back)
+    assert back.attributes[POWER]["kein_ueberschuss_seit"] == ""
+    assert "(gehalten)" in back.attributes[POWER]["branch"]
+    again = evaluate(engine, surplus(export=0), now=at(90))
+    assert again.attributes[POWER]["kein_ueberschuss_seit"] == at(90).isoformat()
+    assert power(again) == MAX_W
+
+
+@pytest.mark.parametrize("states, expected", [
+    ({TEMP: 45}, 1000), ({SOC: 87}, 800), ({PV_CHARGING: "off"}, THROTTLED_W),
+    ({MODE: "Akku Netzladen"}, THROTTLED_W), ({"input_boolean.opti_manuelle_ladegrenze": "on", "input_number.akkusteuerung_max_ladestaerke": 2500}, 2500),
+], ids=["temperature", "soc_87", "pv_charging_off", "grid_charge", "manual_limit"])
+def test_blocking_conditions_end_the_release_immediately(states, expected):
+    engine = StrategyEngine()
+    assert power(evaluate(engine, surplus())) == MAX_W
+    result = evaluate(engine, surplus(export=0, **states), now=at(30))
+    assert power(result) == expected and not released(result)
+
+
+def test_latch_needs_an_immediately_preceding_valid_evaluation():
+    engine = StrategyEngine()
+    assert power(evaluate(engine, surplus())) == MAX_W
+    # Temperature missing: the sensor is unavailable, the latch template is skipped.
+    outage = surplus(export=0)
+    outage.pop(TEMP)
+    for seconds in (30, 60, 90):
+        result = evaluate(engine, outage, now=at(seconds))
+        assert result.states[POWER] == "unavailable"
+    # Back after 120 s with SoC 86 % and 50 W: no re-entry, the old release is stale.
+    back = evaluate(engine, surplus(export=50, **{SOC: 86}), now=at(120))
+    assert power(back) == 800 and not released(back)
+
+
+def test_backward_clock_discards_the_latch():
+    engine = StrategyEngine()
+    assert power(evaluate(engine, surplus())) == MAX_W
+    result = evaluate(engine, surplus(export=50, **{SOC: 86}), now=at(-30))
+    assert power(result) == 800 and not released(result)
+
+
+def test_restored_latch_expires_after_90_seconds():
+    engine = StrategyEngine()
+    assert power(evaluate(engine, surplus())) == MAX_W
+    restored = StrategyEngine()
+    restored.restore(engine.snapshot())
+    stale = evaluate(restored, surplus(export=50, **{SOC: 86}), now=at(120))
+    assert power(stale) == 800 and not released(stale)
 
 
 @pytest.mark.parametrize("missing", [EXPORT, IMPORT, BATTERY])
@@ -151,3 +223,24 @@ def test_grid_charging_is_not_boosted_by_export():
     assert power(active) == THROTTLED_W and not released(active)
     # The same inputs without an active grid charge do release.
     assert power(evaluate(states=surplus(**limit))) == 5000
+
+
+def test_downstream_pv_charge_modes_use_the_mode_independent_latch():
+    # SoC 80 % above the target: preview 'nur Entladen', so the engine keeps the
+    # throttle although the PV peak condition (pv_spitze) is met.
+    result = evaluate(states=surplus(export=1600, **{SOC: 80}))
+    assert result.states["sensor.opti_strategie_vorschau"] == "Akku nur Entladen"
+    assert power(result) == 1500 and not released(result)
+    assert result.attributes[POWER]["pv_spitze"] is True
+    override = dataclasses.replace(result, mode="Akku nur Laden", decision_id="ev_preparation")
+    assert pv_peak_release_applies(override, "Akku nur Laden", None, True)
+    assert pv_peak_release_applies(dataclasses.replace(override, decision_id="arbitrage_hold"), "Akku Dynamisch", None, True)
+    # Never for grid charging, manual modes, disabled strategy or other decisions.
+    assert not pv_peak_release_applies(override, "Akku Netzladen", None, True)
+    assert not pv_peak_release_applies(override, "Akku nur Laden", "Akku nur Laden", True)
+    assert not pv_peak_release_applies(override, "Akku nur Laden", None, False)
+    assert not pv_peak_release_applies(dataclasses.replace(override, decision_id="above_target"), "Akku nur Laden", None, True)
+    # Without the PV peak condition (e.g. SoC 87 %) nothing is lifted downstream.
+    blocked = evaluate(states=surplus(export=1600, **{SOC: 87}))
+    assert blocked.attributes[POWER]["pv_spitze"] is False
+    assert not pv_peak_release_applies(dataclasses.replace(blocked, decision_id="ev_preparation"), "Akku nur Laden", None, True)

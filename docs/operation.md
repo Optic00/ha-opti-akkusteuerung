@@ -159,12 +159,19 @@ wird bei PV-Spitzen gelöst: Ist **PV-Überschussladen erlauben** eingeschaltet,
 steht die Strategie auf „Akku Dynamisch“ oder „Akku nur Laden“ und gingen mehr
 als 200 W Überschuss vor dem Akku ins Netz (Einspeisung − Netzbezug +
 Akkuleistung), lädt der Akku unter 85 % SoC mit **Max. Ladeleistung**. Die
-Freigabe hält, solange der Überschuss positiv bleibt und der SoC unter 87 %
-liegt (Attribut `drossel_frei` der geplanten Ladeleistung). Temperaturgrenzen,
-Balancing-Taper und die manuelle Ladegrenze bleiben davon unberührt; fehlen
-Einspeise-, Bezugs- oder Akkuleistung, bleibt die Drossel aktiv. Im Modus
-„Akku Netzladen“ gilt die Freigabe nie, damit Netzladen nicht mit
-Maximalleistung aus dem Netz zieht.
+Freigabe hält, solange der SoC unter 87 % liegt; verschwindet der Überschuss,
+endet sie erst nach 60 Sekunden durchgehend ohne Überschuss, damit kurze
+Wolkeneinbrüche keine Schreibsequenzen am Wechselrichter auslösen (Attribute
+`drossel_frei`, `pv_spitze` und `kein_ueberschuss_seit` der geplanten
+Ladeleistung). Temperaturgrenzen, Balancing-Taper und die manuelle Ladegrenze
+bleiben davon unberührt und sperren sofort; fehlen Einspeise-, Bezugs- oder
+Akkuleistung, bleibt die Drossel aktiv. Nach einer Lücke von mehr als
+90 Sekunden (fehlende Werte, Neustart, Zeitrücksprung) braucht die Freigabe
+einen neuen vollen Einstieg. Im Modus „Akku Netzladen“ gilt die Freigabe nie,
+damit Netzladen nicht mit Maximalleistung aus dem Netz zieht. Schalten
+Arbitrage-Halten oder die Auto-Vorbereitung nachträglich auf „Akku nur Laden“
+oder „Akku Dynamisch“, hebt die Steuerung die Drossel unter denselben
+Bedingungen ebenfalls auf (Hinweis `PV-Spitze` in `charge_power_limits`).
 
 Die eigentliche Steuerung hat drei getrennte Ebenen:
 

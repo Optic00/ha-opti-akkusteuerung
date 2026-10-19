@@ -410,7 +410,9 @@ und `opti_prognose_netzladen` eingeschaltet ist, der erste spätere Slot, in dem
 die Strategie aus dem Netz laden würde: Peak-Vorladen mit
 `opti_netzlade_spread_ct` Abstand zum Durchschnitt der folgenden Peak-Slots im
 Ladefenster oder ein Preis unter der Einspeisevergütung bei Prognose-Score
-unter 3. Diese Grenze setzt voraus, dass Netzladen auch an oder unter dem
+unter 3. Wie im Template gilt dabei die Sicht ab Beginn der vollen Stunde
+dieses Slots; ein Nachladen nach dem letzten Peak-Slot zählt nicht. Die
+Peak-Einstufung selbst stammt aus der aktuellen Sicht. Diese Grenze setzt voraus, dass Netzladen auch an oder unter dem
 Mindest-SoC Vorrang hat (#154). Wie viel dabei nachgeladen wird, bildet der
 Vergleich nicht ab.
 

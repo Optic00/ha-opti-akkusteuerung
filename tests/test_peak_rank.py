@@ -99,11 +99,42 @@ def test_refill_needs_the_full_spread_to_the_peak_average():
 
 
 def test_night_peak_slots_lower_the_spread_average():
-    # At 42 ct the night counts as peak itself. Only at 07:15 the average of the
-    # remaining peaks (42, 4 x 51, 53 = 49.8 ct) is 7.8 ct above the price.
+    # At 42 ct the night counts as peak itself. Like the template, the average
+    # starts at the full hour: from 07:00 it is (2 x 42, 4 x 51, 53) / 7 = 48.71 ct.
     assert check(spread_ct=10)["refill_kind"] == "pv_horizon"
-    result = check(spread_ct=7)
-    assert (result["refill_kind"], result["refill_at"]) == ("grid_precharge", local(19, 7, 15).isoformat())
+    assert check(spread_ct=7)["refill_kind"] == "pv_horizon"
+    result = check(spread_ct=6.5)
+    assert (result["refill_kind"], result["refill_at"]) == ("grid_precharge", local(19, 7, 0).isoformat())
+
+
+def test_refill_window_opens_when_the_hour_starts_with_a_peak():
+    # 17:00 is a peak, so from 17:15 the template sees no lower price before it.
+    prices = series()
+    prices["today"][69] = 5.0  # 17:15
+    prices["today"][70] = 3.0  # 17:30
+    result = check(price_series=prices, spread_ct=100)
+    assert (result["refill_kind"], result["refill_at"]) == ("grid_below_feed_in", local(18, 17, 15).isoformat())
+
+
+def test_later_slot_counts_only_up_to_the_horizon():
+    # The 18:00 peak lasts one minute before the horizon: 0.0133 kWh, so most
+    # of the 0.15 kWh still serves the current slot.
+    result = check(soc=6.3, horizon_end=local(18, 18, 1).isoformat(), load_hours={})
+    assert result["usable_kwh"] == 0.15
+    assert result["verdict"] == "discharge"
+
+
+def test_window_starts_at_the_local_full_hour():
+    kolkata = ZoneInfo("Asia/Kolkata")
+    now = datetime(2026, 10, 18, 17, 45, tzinfo=kolkata).astimezone(UTC)
+    today = day_prices(44.0, ((17, 0), (17, 30), 30.0), ((17, 45), (18, 0), 44.0),
+                       ((18, 0), (18, 15), 46.0))
+    result = check(now=now, timezone=kolkata, price_series={"today": today, "tomorrow": []},
+                   horizon_end=datetime(2026, 10, 18, 19, 0, tzinfo=kolkata).isoformat(),
+                   load_hours={}, soc=6.3, grid_charging=False)
+    # Window low 30 ct from 17:00 keeps the 46 ct slot a peak, which outranks now.
+    assert result["peak_slots"] > 1
+    assert result["verdict"] == "hold"
 
 
 def test_price_below_feed_in_with_weak_forecast_is_a_refill():

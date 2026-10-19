@@ -23,7 +23,7 @@ branch for #154; the charged amount itself is not modelled.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime, tzinfo
 from math import isfinite
 from typing import Any
 
@@ -73,30 +73,42 @@ def _load_kw(hours: Any, start: datetime, fallback_kw: float) -> float:
     return fallback_kw
 
 
-def _refill(slots: Sequence[Slot], peaks: set[int], first: int, end: datetime, *, grid: bool,
-            spread: float | None, feed_in: float | None, score: float | None) -> tuple[int, str] | None:
+def _hour_start(at: datetime, timezone: tzinfo) -> datetime:
+    """Full local hour, as ``now().replace(minute=0, ...)`` in the template."""
+    return at.astimezone(timezone).replace(minute=0, second=0, microsecond=0)
+
+
+def _refill(slots: Sequence[Slot], peaks: set[int], first: int, end: datetime, timezone: tzinfo, *,
+            grid: bool, spread: float | None, feed_in: float | None,
+            score: float | None) -> tuple[int, str] | None:
     """First later slot before the PV horizon in which the strategy would charge from the grid.
 
-    Mirrors the grid branches of decisions.yaml as seen from that slot: the
-    peak average includes the slot itself if it is a peak, and outside a peak
-    the price must lie in the charging window (lowest price before the next
-    peak plus the entry band).
+    Mirrors the grid branches of decisions.yaml as seen from that slot. Like
+    the peak reserve template, it looks from the start of that slot's full
+    hour: the peak average includes earlier peaks of the same hour, and the
+    charging window is the lowest price before the first peak from there
+    (none if that hour starts with a peak) plus the entry band. A charge
+    after the last peak protects nothing and does not count.
     """
     if not grid:
         return None
     limit = next((i for i in range(first, len(slots)) if slots[i][0] >= end), len(slots))
     for index in range(first, limit):
+        if not any(index < i < limit for i in peaks):
+            break
         price = slots[index][2]
-        if index in peaks:
-            in_window = True
-        else:
-            valley_end = min((i for i in peaks if i > index), default=limit)
-            in_window = price <= min(slot[2] for slot in slots[index:valley_end]) + WINDOW_BAND_CT
-        if not in_window:
+        hour = _hour_start(slots[index][0], timezone)
+        view = [i for i in range(limit) if slots[i][0] >= hour]
+        before_peak: list[float] = []
+        for i in view:
+            if i in peaks:
+                break
+            before_peak.append(slots[i][2])
+        if before_peak and price > min(before_peak) + WINDOW_BAND_CT:
             continue
         if feed_in is not None and score is not None and score < WEAK_SCORE and price < feed_in:
             return index, "grid_below_feed_in"
-        ahead = [slots[i][2] for i in peaks if i >= index]
+        ahead = [slots[i][2] for i in view if i in peaks]
         if ahead and spread is not None and sum(ahead) / len(ahead) - price >= spread:
             return index, "grid_precharge"
     return None
@@ -143,21 +155,20 @@ def peak_rank_check(
         return {**out, "status": "not_applicable", "detail": "no_horizon"}
 
     prices = [slot[2] for slot in periods]
-    window_start = now.replace(minute=0, second=0, microsecond=0)
+    window_start = _hour_start(now, timezone)
     window = [i for i, slot in enumerate(periods) if window_start <= slot[0] < end]
     window_min = min(periods[i][2] for i in window) if window else None
     peaks = {
         i for i in window
-        if i >= current
-        and _percentile(prices, periods[i][2]) >= PEAK_PERCENTILE
+        if _percentile(prices, periods[i][2]) >= PEAK_PERCENTILE
         and (window_min is None or periods[i][2] >= window_min + values["surcharge"])
     }
-    refill = _refill(periods, peaks, current + 1, end, grid=grid_charging, spread=_number(spread_ct),
+    refill = _refill(periods, peaks, current + 1, end, timezone, grid=grid_charging, spread=_number(spread_ct),
                      feed_in=_number(feed_in_ct), score=_number(score))
     boundary, boundary_kind = (periods[refill[0]][0], refill[1]) if refill else (end, "pv_horizon")
 
     candidates = sorted(
-        {current, *(i for i in peaks if periods[i][0] < boundary)},
+        {current, *(i for i in peaks if current < i and periods[i][0] < boundary)},
         key=lambda i: (-periods[i][2], periods[i][0]),
     )
     usable = values["capacity"] * max(0.0, values["soc"] - values["minsoc"]) / 100 * DISCHARGE_EFFICIENCY
@@ -166,7 +177,7 @@ def peak_rank_check(
     served: list[int] = []
     for index in candidates:
         start, stop, _price = periods[index]
-        hours = (stop - max(start, now)).total_seconds() / 3600
+        hours = (min(stop, boundary) - max(start, now)).total_seconds() / 3600
         energy = _load_kw(load_hours, start, values["load"]) * hours
         demand += energy
         if remaining > 1e-9:

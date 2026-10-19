@@ -49,7 +49,7 @@ def test_state_sensor_explanation_stays_out_of_recorder():
 
     assert sensor._unrecorded_attributes == frozenset({"branch"})
     from custom_components.opti_akku.binary_sensor import OptiAkkuStateBinarySensor
-    assert OptiAkkuStateBinarySensor._unrecorded_attributes == frozenset({"branch"})
+    assert OptiAkkuStateBinarySensor._unrecorded_attributes == frozenset({"branch", "stand"})
 
 
 def test_forecast_tomorrow_rejects_missing_or_unavailable_values():

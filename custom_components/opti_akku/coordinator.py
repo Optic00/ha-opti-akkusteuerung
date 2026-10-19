@@ -177,7 +177,7 @@ def pv_peak_release_applies(result, mode: str, manual_mode, strategy_enabled: bo
 
     The engine only lifts the throttle when its own preview is a PV charge
     mode. Arbitrage hold and EV preparation may turn 'nur Entladen' into 'nur
-    Laden' afterwards; the engine's ``pv_spitze`` attribute (mode-independent
+    Laden' afterwards; ``binary_sensor.opti_pv_spitze`` (mode-independent
     latch, incl. temperature, valid measurements and SoC < 87 %) decides. Grid
     charging and manual modes never qualify.
     """
@@ -186,7 +186,7 @@ def pv_peak_release_applies(result, mode: str, manual_mode, strategy_enabled: bo
     if result.decision_id not in PV_PEAK_DOWNSTREAM_DECISIONS:
         return False
     attributes = result.attributes.get("sensor.opti_charge_power_w", {})
-    return attributes.get("pv_spitze") is True and attributes.get("drossel_frei") is not True
+    return result.states.get("binary_sensor.opti_pv_spitze") == "on" and attributes.get("drossel_frei") is not True
 
 
 class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):

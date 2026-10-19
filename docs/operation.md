@@ -161,13 +161,16 @@ als 200 W Überschuss vor dem Akku ins Netz (Einspeisung − Netzbezug +
 Akkuleistung), lädt der Akku unter 85 % SoC mit **Max. Ladeleistung**. Die
 Freigabe hält, solange der SoC unter 87 % liegt; verschwindet der Überschuss,
 endet sie erst nach 60 Sekunden durchgehend ohne Überschuss, damit kurze
-Wolkeneinbrüche keine Schreibsequenzen am Wechselrichter auslösen (Attribute
-`drossel_frei`, `pv_spitze` und `kein_ueberschuss_seit` der geplanten
-Ladeleistung). Temperaturgrenzen, Balancing-Taper und die manuelle Ladegrenze
-bleiben davon unberührt und sperren sofort; fehlen Einspeise-, Bezugs- oder
-Akkuleistung, bleibt die Drossel aktiv. Nach einer Lücke von mehr als
-90 Sekunden (fehlende Werte, Neustart, Zeitrücksprung) braucht die Freigabe
-einen neuen vollen Einstieg. Im Modus „Akku Netzladen“ gilt die Freigabe nie,
+Wolkeneinbrüche keine Schreibsequenzen am Wechselrichter auslösen. Den
+Halte-Zustand führt der Binärsensor **Opti PV Spitze** (Attribut
+`kein_ueberschuss_seit`); die geplante Ladeleistung zeigt im Attribut
+`drossel_frei`, ob die Freigabe gerade wirkt. Temperaturgrenzen, Balancing-Taper
+und die manuelle Ladegrenze bleiben davon unberührt und sperren sofort; fehlen
+Einspeise-, Bezugs- oder Akkuleistung, Temperatur oder SoC, fällt der
+Binärsensor sofort auf `off` und verwirft den Timer. Nach einem Neustart oder
+einer Wiederherstellung älter als 90 Sekunden braucht die Freigabe einen neuen
+vollen Einstieg; innerhalb dieser 90 Sekunden kann ein wiederhergestellter
+Halte-Zustand kurz weiterwirken. Im Modus „Akku Netzladen“ gilt die Freigabe nie,
 damit Netzladen nicht mit Maximalleistung aus dem Netz zieht. Schalten
 Arbitrage-Halten oder die Auto-Vorbereitung nachträglich auf „Akku nur Laden“
 oder „Akku Dynamisch“, hebt die Steuerung die Drossel unter denselben

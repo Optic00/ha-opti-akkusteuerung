@@ -169,8 +169,8 @@ und die manuelle Ladegrenze bleiben davon unberührt und sperren sofort; fehlen
 Einspeise-, Bezugs- oder Akkuleistung, Temperatur oder SoC, fällt der
 Binärsensor sofort auf `off` und verwirft den Timer. Nach einem Neustart oder
 einer Wiederherstellung älter als 90 Sekunden braucht die Freigabe einen neuen
-vollen Einstieg; innerhalb dieser 90 Sekunden kann ein wiederhergestellter
-Halte-Zustand kurz weiterwirken. Im Modus „Akku Netzladen“ gilt die Freigabe nie,
+vollen Einstieg. Ist er jünger, gilt ein wiederhergestellter Halte-Zustand
+weiter, bis die reguläre Rücknahmebedingung erfüllt ist. Im Modus „Akku Netzladen“ gilt die Freigabe nie,
 damit Netzladen nicht mit Maximalleistung aus dem Netz zieht. Schalten
 Arbitrage-Halten oder die Auto-Vorbereitung nachträglich auf „Akku nur Laden“
 oder „Akku Dynamisch“, hebt die Steuerung die Drossel unter denselben

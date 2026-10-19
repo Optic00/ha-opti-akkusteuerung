@@ -860,3 +860,32 @@ async def test_cleanup_after_fast_discharge_clears_setpoint_before_pause(device)
     writes = raw_writes(unit)
     assert writes.index((40149, 0)) < len(writes) - 1 - writes[::-1].index((40151, 803))
     assert adapter.last_mode == sma.PAUSE
+
+
+async def test_stalled_setpoint_clear_keeps_the_full_cleanup_pause(device, monkeypatch):
+    adapter, unit, _ = device
+    monkeypatch.setattr(sma, "DISARM_TIMEOUT_SECONDS", 0.02)
+
+    async def fail_then_stall(address, values):
+        value = sma.decode_s32(values)
+        if address == 40149 and value > 0:
+            raise ModbusError("injected timeout after the setpoint reached the device")
+        if address == 40149 and value == 0:
+            await asyncio.sleep(0.05)
+
+    unit.on_write = fail_then_stall
+    with pytest.raises(ModbusError):
+        await adapter.async_apply(sma.FAST_DISCHARGE, PARAMETERS, lambda: True)
+    assert raw_writes(unit)[-1] == (41259, 303)
+    assert adapter.last_mode == sma.PAUSE
+    assert adapter._discharge_setpoint_armed
+
+
+async def test_setpoint_is_never_cleared_under_803(device):
+    adapter, unit, _ = device
+    adapter._discharge_setpoint_armed = True
+    adapter.last_mode = sma.PAUSE
+    await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
+    assert (40149, 0) not in raw_writes(unit)
+    # The charge setpoint itself replaced the stale value.
+    assert not adapter._discharge_setpoint_armed

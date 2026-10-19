@@ -68,6 +68,7 @@ SETTLING_SECONDS = 330
 SETTLING_CHARGE_W = 500
 REGISTER_GAP_SECONDS = 0.5
 COMMAND_DELAY_SECONDS = 2.0
+DISARM_TIMEOUT_SECONDS = 3.0
 BMS_TRANSACTION_SECONDS = 9.0
 STATUS_MAX_AGE_SECONDS = 30.0
 
@@ -389,14 +390,16 @@ class SmaDevice:
 
     async def _cleanup(self) -> None:
         """Best-effort conservative pause; status gate still applies to cleanup."""
-        async with asyncio.timeout(12):
+        # The optional setpoint clear gets its own slice so the pause keeps 12 s.
+        async with asyncio.timeout(12 + DISARM_TIMEOUT_SECONDS):
             # The failed transaction may have aged the cached status past its
             # limit; judge cleanup by a fresh read, not by that leftover.
             await self._read_status()
             self._ensure_status()
             if self._discharge_setpoint_armed:
                 try:
-                    await self._disarm_discharge_setpoint()
+                    async with asyncio.timeout(DISARM_TIMEOUT_SECONDS):
+                        await self._disarm_discharge_setpoint()
                 except Exception:  # noqa: BLE001 - the pause below matters more
                     pass
             await self._write(40151, 803)
@@ -471,7 +474,12 @@ class SmaDevice:
                 else:
                     self._dynamic_since = None
 
-                if self._discharge_setpoint_armed and mode != FAST_DISCHARGE:
+                # Only clear while 802 is known active; 40149 under 803 is unverified.
+                if (
+                    self._discharge_setpoint_armed
+                    and mode != FAST_DISCHARGE
+                    and self.last_mode in RAIL_MODES
+                ):
                     guard()
                     touched = True
                     await self._disarm_discharge_setpoint()
@@ -505,6 +513,8 @@ class SmaDevice:
                         if power > 0:
                             self._discharge_setpoint_armed = True
                         await self._write(40149, power)
+                        if power <= 0:
+                            self._discharge_setpoint_armed = False
                     guard()
                 else:
                     target = p["charge_power_w"]

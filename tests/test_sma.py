@@ -876,15 +876,21 @@ async def test_stalled_setpoint_clear_keeps_the_full_cleanup_pause(device, monke
     unit.on_write = fail_then_stall
     with pytest.raises(ModbusError):
         await adapter.async_apply(sma.FAST_DISCHARGE, PARAMETERS, lambda: True)
-    assert raw_writes(unit)[-1] == (41259, 303)
+    writes = raw_writes(unit)
+    # The clear was attempted, stalled past its slice, and the pause still finished.
+    assert writes.index((40149, 0)) < writes.index((41259, 303))
+    assert writes[-1] == (41259, 303)
     assert adapter.last_mode == sma.PAUSE
     assert adapter._discharge_setpoint_armed
 
 
 async def test_setpoint_is_never_cleared_under_803(device):
     adapter, unit, _ = device
+    await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+    assert raw_writes(unit)[0] == (40151, 803)
+    assert not adapter._rail_confirmed
     adapter._discharge_setpoint_armed = True
-    adapter.last_mode = sma.PAUSE
+    unit.writes.clear()
     await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
     assert (40149, 0) not in raw_writes(unit)
     # The charge setpoint itself replaced the stale value.

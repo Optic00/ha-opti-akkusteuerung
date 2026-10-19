@@ -119,8 +119,21 @@ def test_refill_window_opens_when_the_hour_starts_with_a_peak():
 def test_later_slot_counts_only_up_to_the_horizon():
     # The 18:00 peak lasts one minute before the horizon: 0.0133 kWh, so most
     # of the 0.15 kWh still serves the current slot.
-    result = check(soc=6.3, horizon_end=local(18, 18, 1).isoformat(), load_hours={})
+    result = check(soc=6.3, horizon_end=local(18, 18, 1).isoformat(), load_hours={}, surcharge_ct=0)
     assert result["usable_kwh"] == 0.15
+    # 17:00 to 17:45 at 44 ct plus one minute of the 44.7 ct slot.
+    assert result["peak_slots"] == 5
+    assert result["demand_kwh"] == pytest.approx(4 * 0.2 + 0.8 / 60, abs=1e-3)
+    assert result["verdict"] == "discharge"
+
+
+def test_refill_in_the_last_peak_slot_still_counts():
+    today = day_prices(30.0, ((17, 0), (17, 15), 100.0), ((17, 30), (17, 45), 44.0),
+                       ((17, 45), (18, 0), 50.0))
+    result = check(now=local(18, 17, 30), price_series={"today": today, "tomorrow": []},
+                   horizon_end=local(18, 18, 0).isoformat(), load_hours={}, soc=6.3)
+    # From 17:00 the peak average is 64.67 ct, 14.67 ct above the 50 ct slot.
+    assert (result["refill_kind"], result["refill_at"]) == ("grid_precharge", local(18, 17, 45).isoformat())
     assert result["verdict"] == "discharge"
 
 

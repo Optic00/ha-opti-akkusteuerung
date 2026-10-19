@@ -94,7 +94,7 @@ def _refill(slots: Sequence[Slot], peaks: set[int], first: int, end: datetime, t
         return None
     limit = next((i for i in range(first, len(slots)) if slots[i][0] >= end), len(slots))
     for index in range(first, limit):
-        if not any(index < i < limit for i in peaks):
+        if not any(index <= i < limit for i in peaks):
             break
         price = slots[index][2]
         hour = _hour_start(slots[index][0], timezone)

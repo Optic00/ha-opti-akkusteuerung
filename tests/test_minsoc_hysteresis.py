@@ -137,9 +137,19 @@ def test_held_band_does_not_block_authorized_grid_charging(charging):
     assert result.states[PREVIEW] == result.mode
     if charging == "balancing_grid":
         assert result.reason == "Balancing-Watchdog (Netz-Vollladung)"
-    # The hard floor keeps its existing priority over these charge requests.
-    result = engine.evaluate(inputs(10, **overrides), attributes, NOW)
-    assert result.decision_id == "minimum_soc"
+    # Issue #154: at or below the floor, price-driven grid charging still wins
+    # because it never discharges. Grid balancing keeps the floor's priority.
+    for soc in (10, 0):
+        result = engine.evaluate(inputs(soc, **overrides), attributes, NOW)
+        assert result.states[PREVIEW] == result.mode
+        if charging == "balancing_grid":
+            assert result.decision_id == "minimum_soc"
+            assert result.mode == "Akku nur Laden"
+            assert result.reason == "MinSOC-Schutz (SoC<=10.0)"
+        else:
+            assert result.decision_id == charging
+            assert result.mode == "Akku Netzladen"
+            assert not result.reason.startswith("MinSOC")
 
 
 def test_master_off_still_pauses_with_active_protection():
@@ -157,3 +167,21 @@ def test_all_modes_at_or_below_floor_remain_discharge_locked(minimum):
                 "input_number.minsoc": minimum, "input_select.akkusteuerung_modus": previous})
             assert result.mode == "Akku nur Laden"
             assert result.decision_id == "minimum_soc"
+
+
+@pytest.mark.parametrize("price,expected,mode", [
+    (37.31, "peak_precharge", "Akku Netzladen"),
+    (37.85, "minimum_soc", "Akku nur Laden"),  # outside the charge window
+])
+def test_empty_battery_precharges_before_morning_peak(price, expected, mode):
+    """Issue #154: empty battery overnight, cheap window before a morning peak."""
+    states = {"input_number.minsoc": 5, "input_select.akkusteuerung_modus": "Akku nur Laden",
+              "input_boolean.opti_prognose_netzladen": "on",
+              "sensor.opti_price_level": "NORMAL", "sensor.opti_forecast_score": 10,
+              "sensor.opti_peak_reserve_soc": 39.7, "sensor.opti_price_current_ct_kwh": price}
+    attributes = {"sensor.opti_peak_reserve_soc": {
+        "reserve_ve_soc": 36.2, "min_preis_vor_peak_ct": 37.31, "peak_preis_avg_ct": 47.44}}
+    for soc in (5, 4):
+        result = decision_engine().evaluate(inputs(soc, **states), attributes, NOW)
+        assert result.decision_id == expected
+        assert result.mode == result.states[PREVIEW] == mode

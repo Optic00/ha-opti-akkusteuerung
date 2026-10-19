@@ -1,0 +1,202 @@
+"""Shadow price-rank allocation for the peak ladder (L1/L2)."""
+
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import pytest
+
+from custom_components.opti_akku.peak_rank import PeakRankShadow, peak_rank_check
+
+TZ = ZoneInfo("Europe/Berlin")
+
+
+def local(day, hour, minute=0):
+    return datetime(2026, 10, day, hour, minute, tzinfo=TZ).astimezone(UTC)
+
+
+def day_prices(default, *ranges):
+    """96 quarter-hour prices; ranges are ((h, m), (h, m), price), end exclusive."""
+    values = [default] * 96
+    for (h1, m1), (h2, m2), price in ranges:
+        for index in range((h1 * 60 + m1) // 15, (h2 * 60 + m2) // 15):
+            values[index] = price
+    return values
+
+
+def series(night=42.0):
+    """Evening peak 16:45-19:00 at 44 ct (18:00 at 44.7), morning peak 07:30-08:45 at 51-53 ct."""
+    today = day_prices(30.0, ((16, 45), (19, 0), 44.0), ((18, 0), (18, 15), 44.7),
+                       ((19, 0), (24, 0), night))
+    tomorrow = day_prices(30.0, ((0, 0), (7, 30), night), ((7, 30), (8, 45), 51.0),
+                          ((7, 45), (8, 0), 53.0))
+    return {"today": today, "tomorrow": tomorrow}
+
+
+# Learned morning load including the 20 % profile margin.
+MORNING_LOAD = {str(int(local(19, hour).timestamp())): 1600.0 for hour in (7, 8)}
+
+
+def check(**overrides):
+    args = dict(now=local(18, 17, 0), timezone=TZ, price_series=series(),
+                horizon_end=local(19, 11, 1).isoformat(), load_hours=MORNING_LOAD,
+                fallback_load_kw=0.8, surcharge_ct=5, soc=23, capacity_kwh=12.8, minsoc=5,
+                decision_id="peak_l1", peak_reserve_active=True, grid_charging=True,
+                spread_ct=10, feed_in_ct=7, score=1)
+    args.update(overrides)
+    return peak_rank_check(**args)
+
+
+def test_evening_peak_holds_for_more_expensive_morning_peak():
+    result = check()
+    assert result["status"] == "ready"
+    assert result["verdict"] == "hold"
+    assert result["rank_discharges"] is False
+    # 2.07 kWh usable: 2.0 kWh morning peak, the rest serves the 44.7 ct slot.
+    assert result["usable_kwh"] == 2.074
+    assert result["threshold_price_ct"] == 44.7
+    assert result["current_price_ct"] == 44.0
+    assert result["refill_kind"] == "pv_horizon"
+    assert result["refill_at"] == local(19, 11, 1).isoformat()
+    assert result["covers_all"] is False
+    assert result["reason"].startswith("Halten:")
+    assert result["observation_only"] is True and result["controls_battery"] is False
+
+
+def test_highest_evening_slot_is_still_served():
+    result = check(now=local(18, 18, 0))
+    assert result["verdict"] == "discharge"
+    assert result["current_price_ct"] == 44.7
+
+
+def test_enough_energy_for_both_peaks_discharges():
+    # Night at 33 ct stays below the 35 ct peak filter; without grid charging
+    # only the evening and the morning peak draw on the battery.
+    result = check(soc=60, price_series=series(night=33.0), grid_charging=False)
+    assert result["verdict"] == "discharge"
+    assert result["covers_all"] is True
+    assert result["reason"].startswith("Entladen:")
+
+
+def test_cheap_refill_between_peaks_discharges():
+    result = check(price_series=series(night=30.0))
+    assert result["verdict"] == "discharge"
+    assert result["refill_kind"] == "grid_precharge"
+    assert result["refill_at"] == local(18, 19, 0).isoformat()
+    # Only the evening slots up to the refill compete for the energy.
+    assert result["peak_slots"] == 8
+
+
+def test_cheap_night_without_grid_charging_is_no_refill():
+    result = check(price_series=series(night=30.0), grid_charging=False)
+    assert result["verdict"] == "hold"
+    assert result["refill_kind"] == "pv_horizon"
+
+
+def test_refill_needs_the_full_spread_to_the_peak_average():
+    # From 19:00 the peak average is 51.4 ct (4 x 51, 1 x 53), the night 30 ct.
+    assert check(price_series=series(night=30.0), spread_ct=21)["refill_kind"] == "grid_precharge"
+    assert check(price_series=series(night=30.0), spread_ct=22)["refill_kind"] == "pv_horizon"
+
+
+def test_night_peak_slots_lower_the_spread_average():
+    # At 42 ct the night counts as peak itself. Only at 07:15 the average of the
+    # remaining peaks (42, 4 x 51, 53 = 49.8 ct) is 7.8 ct above the price.
+    assert check(spread_ct=10)["refill_kind"] == "pv_horizon"
+    result = check(spread_ct=7)
+    assert (result["refill_kind"], result["refill_at"]) == ("grid_precharge", local(19, 7, 15).isoformat())
+
+
+def test_price_below_feed_in_with_weak_forecast_is_a_refill():
+    result = check(price_series=series(night=5.0), spread_ct=100)
+    assert result["refill_kind"] == "grid_below_feed_in"
+    assert check(price_series=series(night=5.0), spread_ct=100, score=4)["refill_kind"] == "pv_horizon"
+
+
+def test_other_decision_reports_rank_without_peak_verdict():
+    result = check(decision_id="reserve_low")
+    assert result["verdict"] == "not_peak"
+    assert result["strategy_decision"] is None
+    assert result["rank_discharges"] is False
+
+
+def test_l2_is_judged_like_l1():
+    assert check(decision_id="peak_l2")["verdict"] == "hold"
+
+
+def test_no_usable_energy_holds():
+    result = check(soc=5)
+    assert result["verdict"] == "hold"
+    assert result["threshold_price_ct"] is None
+
+
+@pytest.mark.parametrize("overrides,status,detail", [
+    ({"peak_reserve_active": False}, "not_applicable", "peak_reserve_inactive"),
+    ({"price_series": {"today": [], "tomorrow": []}}, "data_missing", "price_series"),
+    ({"horizon_end": None}, "data_missing", "horizon"),
+    ({"horizon_end": "2026-10-18T17:00:00"}, "data_missing", "horizon"),
+    ({"soc": None}, "data_missing", "soc"),
+    ({"soc": 101}, "data_missing", "battery"),
+    ({"capacity_kwh": 0}, "data_missing", "battery"),
+    ({"fallback_load_kw": 0}, "data_missing", "battery"),
+    ({"horizon_end": local(18, 16).isoformat()}, "not_applicable", "no_horizon"),
+])
+def test_unusable_inputs(overrides, status, detail):
+    result = check(**overrides)
+    assert (result["status"], result["detail"]) == (status, detail)
+    assert result["controls_battery"] is False
+
+
+def test_invalid_profile_values_fall_back_to_fixed_load():
+    bad = {key: -5 for key in MORNING_LOAD}
+    # 0.8 kW for the morning peak needs only 1.0 kWh, the evening is served.
+    assert check(load_hours=bad)["verdict"] == "discharge"
+
+
+ASSUMPTIONS = [5, 10, 5, 7, True]
+
+
+def test_shadow_counts_hold_time_and_discharged_energy():
+    shadow = PeakRankShadow()
+    start = local(18, 17, 0)
+    hold = check()
+    agree = check(soc=60)
+    shadow.observe(start, hold, ASSUMPTIONS, -2000)
+    shadow.observe(start + timedelta(seconds=60), agree, ASSUMPTIONS, -1000)
+    totals = shadow.observe(start + timedelta(seconds=120), {"status": "ready", "verdict": "not_peak"},
+                            ASSUMPTIONS, 0)
+    assert totals["peak_seconds"] == 120
+    assert totals["hold_seconds"] == 60
+    assert totals["agree_seconds"] == 60
+    assert totals["discharged_while_hold_kwh"] == pytest.approx(2000 * 60 / 3600 / 1000, abs=1e-3)
+    assert totals["discharged_while_agree_kwh"] == pytest.approx(1000 * 60 / 3600 / 1000, abs=1e-3)
+    assert totals["hold_percent"] == 50
+    totals = shadow.observe(start + timedelta(seconds=180), hold, ASSUMPTIONS, 0)
+    assert totals["ready_seconds"] == 180 and totals["peak_seconds"] == 120
+
+
+def test_shadow_skips_gaps_and_restarts_on_new_assumptions():
+    shadow = PeakRankShadow()
+    start = local(18, 17, 0)
+    shadow.observe(start, check(), ASSUMPTIONS, -2000)
+    totals = shadow.observe(start + timedelta(seconds=200), check(), ASSUMPTIONS, -2000)
+    assert totals["ready_seconds"] == 0
+    shadow.observe(start + timedelta(seconds=260), check(), ASSUMPTIONS, -2000)
+    assert shadow.data["hold_seconds"] == 60
+    totals = shadow.observe(start + timedelta(seconds=320), check(), [5, 12, 5, 7, True], -2000)
+    assert totals["ready_seconds"] == 0 and totals["started_at"] == (start + timedelta(seconds=320)).isoformat()
+
+
+def test_shadow_restore_round_trip_and_rejects_inconsistent_data():
+    shadow = PeakRankShadow()
+    start = local(18, 17, 0)
+    shadow.observe(start, check(), ASSUMPTIONS, -2000)
+    shadow.observe(start + timedelta(seconds=60), check(), ASSUMPTIONS, -2000)
+    saved = shadow.snapshot()
+    restored = PeakRankShadow()
+    restored.restore(saved)
+    assert restored.data == saved
+    for broken in ({**saved, "hold_seconds": -1}, {**saved, "peak_seconds": 999},
+                   {**saved, "version": 2}, {**saved, "assumptions": [1, 2]},
+                   {**saved, "started_at": "2026-10-18T17:00:00"}, None):
+        restored.restore(broken)
+        assert restored.data["ready_seconds"] == 0

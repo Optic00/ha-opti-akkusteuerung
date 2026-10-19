@@ -3216,6 +3216,45 @@ async def test_negative_price_hold_falls_back_to_demand_solcast_intervals(coordi
     assert data["states"]["sensor.opti_negative_price_hold"] == "no_window"
 
 
+
+async def test_peak_rank_is_published_as_observation(coordinator):
+    data = await coordinator._async_update_data()
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert data["states"]["sensor.opti_peak_rank"] == "unavailable"
+    assert attrs["status"] in ("not_applicable", "data_missing")
+    assert attrs["controls_battery"] is False
+    assert "totals" in attrs
+    assert coordinator._stored_data()["peak_rank"]["version"] == 1
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+async def test_peak_rank_receives_decision_and_settings(coordinator):
+    captured = {}
+
+    def fake_check(**kwargs):
+        captured.update(kwargs)
+        return {"status": "ready", "verdict": "hold", "observation_only": True,
+                "controls_battery": False}
+
+    with patch("custom_components.opti_akku.coordinator.peak_rank_check", side_effect=fake_check):
+        data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_peak_rank"] == "hold"
+    assert captured["decision_id"] == data["decision_id"]
+    assert captured["minsoc"] == coordinator.settings["input_number.minsoc"]
+    assert captured["spread_ct"] == coordinator.settings["input_number.opti_netzlade_spread_ct"]
+    assert captured["grid_charging"] is (
+        coordinator.settings["input_boolean.opti_prognose_netzladen"] is True)
+
+
+async def test_peak_rank_error_never_stops_the_update(coordinator):
+    with patch("custom_components.opti_akku.coordinator.peak_rank_check",
+               side_effect=RuntimeError("boom")):
+        data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_peak_rank"] == "unavailable"
+    assert data["attributes"]["sensor.opti_peak_rank"]["status"] == "error"
+    assert data["mode"] == "Akku Pause"
+
+
 REFILL_DEMAND = {
     "status": "ready", "suggested_reserve_soc": 40.0, "refill_profile_ready": True,
     "refill_covered": True, "refill_coverage_percent": 95.0, "pv_cover_from": "x",

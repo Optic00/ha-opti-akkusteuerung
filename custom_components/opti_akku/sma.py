@@ -148,6 +148,9 @@ class SmaDevice:
         self._status: int | None = None
         self._status_at: float | None = None
         self._dynamic_since: float | None = None
+        # A positive 40149 (fast discharge) survives 803 and would discharge for
+        # the 2 s after a later 802 until the new setpoint lands.
+        self._discharge_setpoint_armed = False
         self.last_write: datetime | None = None
         self.last_write_values: dict[str, Any] | None = None
         self.last_mode: str | None = None
@@ -391,12 +394,23 @@ class SmaDevice:
             # limit; judge cleanup by a fresh read, not by that leftover.
             await self._read_status()
             self._ensure_status()
+            if self._discharge_setpoint_armed:
+                try:
+                    await self._disarm_discharge_setpoint()
+                except Exception:  # noqa: BLE001 - the pause below matters more
+                    pass
             await self._write(40151, 803)
             await self._sleep(REGISTER_GAP_SECONDS)
             await self._bms((0, 0, 0, 0), 303, self._ensure_status)
         self.last_mode = PAUSE
         self.last_write = datetime.now(UTC)
         self._dynamic_since = None
+
+    async def _disarm_discharge_setpoint(self) -> None:
+        # Reference sequence 802 -> 40149 -> 803: clear it while 802 is active.
+        await self._write(40149, 0)
+        await self._sleep(REGISTER_GAP_SECONDS)
+        self._discharge_setpoint_armed = False
 
     async def _protected_cleanup(self) -> str | None:
         # Keep the serialization lock until cleanup has actually ended, even if
@@ -457,6 +471,11 @@ class SmaDevice:
                 else:
                     self._dynamic_since = None
 
+                if self._discharge_setpoint_armed and mode != FAST_DISCHARGE:
+                    guard()
+                    touched = True
+                    await self._disarm_discharge_setpoint()
+                    guard()
                 # Unknown start state may still have an old 802 rail active.
                 # CmpBMS writes during 802 are discarded: deactivate it FIRST.
                 # AUTO has no explicit power setpoint: its current limits must
@@ -483,6 +502,8 @@ class SmaDevice:
                             GRID_CHARGE: -p["charge_power_w"],
                             CHARGE_02C: -p["power_02c_w"],
                         }[mode]
+                        if power > 0:
+                            self._discharge_setpoint_armed = True
                         await self._write(40149, power)
                     guard()
                 else:

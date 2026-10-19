@@ -829,3 +829,34 @@ def test_ac_surplus_suggestion_covers_model_table():
 @pytest.mark.parametrize("model", [None, 0, 19047, True, "19051"])
 def test_ac_surplus_suggestion_requires_verified_model(model):
     assert sma.ac_surplus_suggestion_w(model) is None
+
+
+@pytest.mark.parametrize("follow_up", [sma.GRID_CHARGE, sma.ONLY_CHARGE, sma.AUTO])
+async def test_leaving_fast_discharge_clears_positive_setpoint_first(device, follow_up):
+    """Issue #154 review: a stale +W in 40149 must not be active under a later 802."""
+    adapter, unit, _ = device
+    await adapter.async_apply(sma.FAST_DISCHARGE, PARAMETERS, lambda: True)
+    unit.writes.clear()
+    await adapter.async_apply(follow_up, PARAMETERS, lambda: True)
+    writes = raw_writes(unit)
+    assert writes[0] == (40149, 0)
+    assert all(not (address == 40149 and value > 0) for address, value in writes)
+    unit.writes.clear()
+    await adapter.async_apply(follow_up, PARAMETERS, lambda: True)
+    assert (40149, 0) not in raw_writes(unit)
+
+
+async def test_cleanup_after_fast_discharge_clears_setpoint_before_pause(device):
+    adapter, unit, _ = device
+
+    async def fail_after_setpoint(address, values):
+        if address == 40149 and sma.decode_s32(values) > 0:
+            unit.on_write = None
+            raise ModbusError("injected timeout after the setpoint reached the device")
+
+    unit.on_write = fail_after_setpoint
+    with pytest.raises(ModbusError):
+        await adapter.async_apply(sma.FAST_DISCHARGE, PARAMETERS, lambda: True)
+    writes = raw_writes(unit)
+    assert writes.index((40149, 0)) < len(writes) - 1 - writes[::-1].index((40151, 803))
+    assert adapter.last_mode == sma.PAUSE

@@ -171,7 +171,7 @@ def test_all_modes_at_or_below_floor_remain_discharge_locked(minimum):
 
 @pytest.mark.parametrize("price,expected,mode", [
     (37.31, "peak_precharge", "Akku Netzladen"),
-    (37.85, "minimum_soc", "Akku nur Laden"),  # outside the charge window
+    (37.85, "minimum_soc", "Akku nur Laden"),  # spread met, outside the window
 ])
 def test_empty_battery_precharges_before_morning_peak(price, expected, mode):
     """Issue #154: empty battery overnight, cheap window before a morning peak."""
@@ -180,7 +180,7 @@ def test_empty_battery_precharges_before_morning_peak(price, expected, mode):
               "sensor.opti_price_level": "NORMAL", "sensor.opti_forecast_score": 10,
               "sensor.opti_peak_reserve_soc": 39.7, "sensor.opti_price_current_ct_kwh": price}
     attributes = {"sensor.opti_peak_reserve_soc": {
-        "reserve_ve_soc": 36.2, "min_preis_vor_peak_ct": 37.31, "peak_preis_avg_ct": 47.44}}
+        "reserve_ve_soc": 36.2, "min_preis_vor_peak_ct": 37.31, "peak_preis_avg_ct": 48.0}}
     for soc in (5, 4):
         result = decision_engine().evaluate(inputs(soc, **states), attributes, NOW)
         assert result.decision_id == expected

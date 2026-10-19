@@ -3349,6 +3349,7 @@ async def test_refill_comparison_survives_stored_data_restore(coordinator, entry
 @pytest.mark.parametrize("decision_id, mode, expected", [
     ("peak_l1", "Akku Dynamisch", 0),
     ("peak_l2", "Akku Dynamisch", 0),
+    ("unknown", "Akku Dynamisch", 0),
     ("below_target", "Akku Dynamisch", 500),
 ])
 async def test_daytime_peak_dynamic_never_forces_grid_charging(

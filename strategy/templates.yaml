@@ -440,6 +440,20 @@ template_blocks:
           {% set c = [max_helper, c] | min if soc >= 97 else max_helper %}
         {% endif %}
         {% set ladeleistung = [c * temp_faktor, max_helper] | min %}
+        {# PV-Spitzen (Harness-Variante A): die prognose-/SoC-abhaengige Drossel
+           loesen, solange echter Netto-Ueberschuss vor dem Akku ins Netz ginge.
+           Nur fuer PV-Lademodi (Vorschau Dynamisch/nur Laden) und nie im aktiven
+           Netzladen, damit Netzladen nicht mit Maximalleistung aus dem Netz zieht.
+           Einstieg: SoC < 85 % und Netto-Ueberschuss > 200 W; Halten (Attribut
+           drossel_frei) bis SoC < 87 % und Ueberschuss > 0 W. Fail-closed: fehlende
+           Messwerte lassen die Drossel aktiv. Temperatur-, Balancing- und
+           Max.-Ladeleistungs-Grenzen bleiben unberuehrt. #}
+        {% set messwerte_ok = has_value('sensor.opti_grid_export_w') and has_value('sensor.opti_grid_import_w') and has_value('sensor.opti_battery_power_w') %}
+        {% set netto = states('sensor.opti_grid_export_w')|float(0) - states('sensor.opti_grid_import_w')|float(0) + states('sensor.opti_battery_power_w')|float(0) %}
+        {% set pv_modus = states('sensor.opti_strategie_vorschau') in ['Akku Dynamisch', 'Akku nur Laden'] and not is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') %}
+        {% set war_frei = this is defined and (this.attributes.get('drossel_frei') | string | lower) == 'true' %}
+        {% set drossel_frei = is_state('input_boolean.opti_pv_ueberschuss_ladung', 'on') and messwerte_ok and pv_modus and temp > 0 and temp < 45 and not is_state('input_boolean.opti_manuelle_ladegrenze', 'on') and ((soc < 85 and netto > 200) or (war_frei and soc < 87 and netto > 0)) %}
+        {% if drossel_frei %}{% set ladeleistung = max_helper %}{% endif %}
         {# Balancing-spezifischer Vollladungs-Taper: nur zusaetzlich deckeln,
            niemals den regulaeren SoC-/Temperatur-Taper erhoehen. #}
         {% if balancing and soc >= 96 %}
@@ -451,6 +465,9 @@ template_blocks:
         {{ ladeleistung | round(0) }}
       {% endif %}
     attributes:
+      # Latch of the PV peak release; same inputs and rule as the state.
+      drossel_frei: |
+        {% set soc = states('sensor.opti_soc') | float(50) %} {% set temp = states('sensor.opti_battery_temp') | float(25) %} {% set messwerte_ok = has_value('sensor.opti_grid_export_w') and has_value('sensor.opti_grid_import_w') and has_value('sensor.opti_battery_power_w') %} {% set netto = states('sensor.opti_grid_export_w')|float(0) - states('sensor.opti_grid_import_w')|float(0) + states('sensor.opti_battery_power_w')|float(0) %} {% set pv_modus = states('sensor.opti_strategie_vorschau') in ['Akku Dynamisch', 'Akku nur Laden'] and not is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') %} {% set war_frei = this is defined and (this.attributes.get('drossel_frei') | string | lower) == 'true' %} {{ is_state('input_boolean.opti_pv_ueberschuss_ladung', 'on') and messwerte_ok and pv_modus and temp > 0 and temp < 45 and not is_state('input_boolean.opti_manuelle_ladegrenze', 'on') and ((soc < 85 and netto > 200) or (war_frei and soc < 87 and netto > 0)) }}
       # Same steps as the state, as readable text (issue #129). The parity test
       # in tests/test_engine.py keeps the final value equal to the state.
       branch: |
@@ -501,6 +518,15 @@ template_blocks:
           {% set ladeleistung = [c * temp_faktor, max_helper] | min %}
           {% if c * temp_faktor > max_helper %}
             {% set schritte = schritte + ['Obergrenze Max. Ladeleistung ' ~ (max_helper | round(0) | int) ~ ' W'] %}
+          {% endif %}
+          {% set messwerte_ok = has_value('sensor.opti_grid_export_w') and has_value('sensor.opti_grid_import_w') and has_value('sensor.opti_battery_power_w') %}
+          {% set netto = states('sensor.opti_grid_export_w')|float(0) - states('sensor.opti_grid_import_w')|float(0) + states('sensor.opti_battery_power_w')|float(0) %}
+          {% set pv_modus = states('sensor.opti_strategie_vorschau') in ['Akku Dynamisch', 'Akku nur Laden'] and not is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') %}
+          {% set war_frei = this is defined and (this.attributes.get('drossel_frei') | string | lower) == 'true' %}
+          {% set drossel_frei = is_state('input_boolean.opti_pv_ueberschuss_ladung', 'on') and messwerte_ok and pv_modus and temp > 0 and temp < 45 and not is_state('input_boolean.opti_manuelle_ladegrenze', 'on') and ((soc < 85 and netto > 200) or (war_frei and soc < 87 and netto > 0)) %}
+          {% if drossel_frei %}
+            {% set ladeleistung = max_helper %}
+            {% set schritte = schritte + ['PV-Spitze: Netto-Überschuss ' ~ (netto | round(0) | int) ~ ' W' ~ (' (gehalten)' if war_frei and not (soc < 85 and netto > 200) else '') ~ ' → Drossel gelöst, Max. Ladeleistung ' ~ (max_helper | round(0) | int) ~ ' W'] %}
           {% endif %}
           {% if balancing and soc >= 96 and ladeleistung > cap * 0.02 %}
             {% set ladeleistung = cap * 0.02 %}

@@ -154,6 +154,18 @@ setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, s
 erreicht ist. So geht Solarüberschuss während einer Abendspitze in den Akku
 statt ins Netz. Nachts bleibt es bei „Akku nur Entladen“.
 
+Die prognose- und SoC-abhängige Ladedrossel (schonendes Laden an guten Tagen)
+wird bei PV-Spitzen gelöst: Ist **PV-Überschussladen erlauben** eingeschaltet,
+steht die Strategie auf „Akku Dynamisch“ oder „Akku nur Laden“ und gingen mehr
+als 200 W Überschuss vor dem Akku ins Netz (Einspeisung − Netzbezug +
+Akkuleistung), lädt der Akku unter 85 % SoC mit **Max. Ladeleistung**. Die
+Freigabe hält, solange der Überschuss positiv bleibt und der SoC unter 87 %
+liegt (Attribut `drossel_frei` der geplanten Ladeleistung). Temperaturgrenzen,
+Balancing-Taper und die manuelle Ladegrenze bleiben davon unberührt; fehlen
+Einspeise-, Bezugs- oder Akkuleistung, bleibt die Drossel aktiv. Im Modus
+„Akku Netzladen“ gilt die Freigabe nie, damit Netzladen nicht mit
+Maximalleistung aus dem Netz zieht.
+
 Die eigentliche Steuerung hat drei getrennte Ebenen:
 
 1. Der Schalter **Strategie berechnen** ist die Hauptfreigabe für die Steuerung,
@@ -449,9 +461,9 @@ Ladeleistung gewählt hat, zeigen diese Entitäten.
   aktuelle Rechnung eine andere ergäbe.
 - **Geplante Ladeleistung**: Das Attribut `branch` zeigt Prognose-Score,
   SoC-Stufe, manuelle Ladegrenze, Temperaturdrosselung, die Obergrenze
-  **Max. Ladeleistung** und die Balancing-Begrenzung, jeweils nur wenn sie
-  greifen. Der Wert nach „Ergebnis“ ist die geplante Ladeleistung der
-  Strategie, nicht die gemessene.
+  **Max. Ladeleistung**, die PV-Spitzen-Freigabe und die Balancing-Begrenzung,
+  jeweils nur wenn sie greifen. Der Wert nach „Ergebnis“ ist die geplante
+  Ladeleistung der Strategie, nicht die gemessene.
 - **Opti Strategie Vorschau** (standardmäßig deaktiviert): Der Zustand ist der
   Modus, den die Strategie wählen würde. Die Attribute enthalten Grund,
   Ziel-SoC, Scores und Preisniveau.

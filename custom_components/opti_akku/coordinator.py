@@ -959,6 +959,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if arbitrage_hold.get("hold_controls_battery"):
             params["min_charge_w"] = 0
             params["min_discharge_w"] = 0
+        if (self.manual_mode is None and mode == "Akku Dynamisch"
+                and result.decision_id in ("peak_l1", "peak_l2", "unknown")):
+            # Peak discharge only opens charging for PV surplus; a minimum
+            # charge power would pull expensive grid power instead. A template
+            # error hides the branch ("unknown"), so treat it the same way.
+            params["min_charge_w"] = 0
+            charge_power_limits.append("Preisspitze: Laden nur aus PV-Überschuss")
         if ev_cfg.get("enabled") is True and self.strategy_enabled and self.manual_mode is None:
             # This feature never imposes minimum export/discharge or minimum
             # charging that could pull power from the grid.

@@ -3344,3 +3344,29 @@ async def test_refill_comparison_survives_stored_data_restore(coordinator, entry
     assert other._refill_comparison.data["ready_seconds"] == 0
     await restored.async_stop()
     await other.async_stop()
+
+
+@pytest.mark.parametrize("decision_id, mode, expected", [
+    ("peak_l1", "Akku Dynamisch", 0),
+    ("peak_l2", "Akku Dynamisch", 0),
+    ("unknown", "Akku Dynamisch", 0),
+    ("below_target", "Akku Dynamisch", 500),
+])
+async def test_daytime_peak_dynamic_never_forces_grid_charging(
+    coordinator, hass, decision_id, mode, expected
+):
+    from custom_components.opti_akku.engine import Evaluation
+
+    hass.config_entries.async_update_entry(
+        coordinator.entry, data={**coordinator.entry.data, "backend": "sma_modbus"})
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.akkusteuerung_min_ladestaerke"] = 500
+    coordinator.write_enabled = True
+    evaluation = Evaluation(
+        {**active_hold_evaluation().states, "sensor.opti_soc": 53},
+        {}, mode, "Peak-Leiter", {}, decision_id=decision_id)
+    with patch.object(coordinator.engine, "evaluate", return_value=evaluation):
+        data = await coordinator._async_update_data()
+    assert data["mode"] == mode
+    params = coordinator.device.async_apply.await_args.args[1]
+    assert params["min_charge_w"] == expected

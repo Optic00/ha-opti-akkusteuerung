@@ -148,6 +148,12 @@ Hysterese verhindert, dass Viertelstundenpreise mit Schwankungen um bis zu
 umschalten. Ein teurer Slot beendet das Vorladen unabhängig davon, weil der
 Spread zur Spitze dann fehlt.
 
+In teuren und sehr teuren Preisphasen entlädt der Akku bei Hausbedarf. Tagsüber
+setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, solange
+**PV-Überschussladen erlauben** eingeschaltet ist und der Ladedeckel nicht
+erreicht ist. So geht Solarüberschuss während einer Abendspitze in den Akku
+statt ins Netz. Nachts bleibt es bei „Akku nur Entladen“.
+
 Die eigentliche Steuerung hat drei getrennte Ebenen:
 
 1. Der Schalter **Strategie berechnen** ist die Hauptfreigabe für die Steuerung,

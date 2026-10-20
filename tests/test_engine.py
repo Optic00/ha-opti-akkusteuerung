@@ -144,13 +144,15 @@ def test_omitted_source_does_not_reuse_persisted_value_and_recovers():
     assert evaluate(engine, now=NOW + dt.timedelta(seconds=60)).mode == "Akku Dynamisch"
 
 
-def test_minsoc_precedes_price_and_forecast_rules():
-    result = evaluate(states=measurements(**{
-        SOC: 5, "sensor.opti_price_current_ct_kwh": -10,
-        "sensor.opti_forecast_remaining_today_kwh": 0,
-    }))
+def test_minsoc_precedes_forecast_rules_but_not_grid_charging():
+    states = {SOC: 5, "sensor.opti_forecast_remaining_today_kwh": 0}
+    result = evaluate(states=measurements(**states))
     assert result.mode == "Akku nur Laden"
     assert result.reason.startswith("MinSOC")
+    # Issue #154: grid charging never discharges, so it may run at the floor.
+    result = evaluate(states=measurements(**states, **{"sensor.opti_price_current_ct_kwh": -10}))
+    assert result.mode == "Akku Netzladen"
+    assert result.decision_id == "negative_price"
 
 
 @pytest.mark.parametrize("minimum", [0, 5, 10])

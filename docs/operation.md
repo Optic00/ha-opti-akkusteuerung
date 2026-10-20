@@ -164,9 +164,11 @@ Bei MinSOC 10 % gibt sie also ab 13 % wieder frei. Der eigene Schutzzustand blei
 über Neustarts und ungültige SoC-Messungen erhalten. Änderungen der Min-/Max-Grenzen
 setzen den Haltezustand zurück; liegt der SoC über dem neuen Minimum, wird
 der Schutz freigegeben. Andere Gründe für „Akku nur Laden“ aktivieren ihn nicht.
-Innerhalb des Haltebandes bleiben zulässiges Peak-Vorladen, Negativpreis-Netzladen
-und Netz-Balancing möglich. Bei oder unter MinSOC behält die bestehende
-Entladesperre Vorrang. Die Schutzregeln der manuellen Modi gelten separat weiter.
+Zulässiges Peak-Vorladen und Netzladen unter der Einspeisevergütung haben auch
+bei oder unter MinSOC Vorrang, denn „Akku Netzladen“ entlädt nicht. Ein leerer
+Akku kann so vor einer Preisspitze günstig nachladen. Netz-Balancing ist nur
+innerhalb des Haltebandes möglich; bei oder unter MinSOC behält die
+Entladesperre dort Vorrang. Die Schutzregeln der manuellen Modi gelten separat weiter.
 Der Schutz im Halteband hat wie die harte MinSOC-Regel Vorrang vor der
 PV-Vorbereitung fürs Auto. Dadurch kann der Hausakku während einer Autoladung
 Solarüberschuss aufnehmen, bis die Freigabegrenze erreicht ist.

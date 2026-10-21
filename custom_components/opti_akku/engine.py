@@ -626,8 +626,11 @@ class StrategyEngine:
                 bucket[1] = max(bucket[1], timestamp)
                 bucket[2] += value
                 bucket[3] += 1
+        # Keep sub-second timestamps: rounding the last sample earlier would make
+        # the next raster sample due too early after a restore (one extra sample
+        # can flip the coverage gate at the edge).
         return [
-            [round(row[0]), round(row[1]), round(row[2], 1), int(row[3]), round(row[4])]
+            [round(row[0], 3), round(row[1], 3), round(row[2], 3), int(row[3]), round(row[4], 3)]
             for _, row in sorted(buckets.items())
         ][-_MAX_BUCKETS:]
 
@@ -674,7 +677,10 @@ class StrategyEngine:
             value = self._get_state(source)
             invalid_score_load = source == "sensor.opti_forecast_house_instant_w" and not _finite(value)
             last = rows[-1][0] if rows else (buckets[-1][1] if buckets else None)
-            due = last is None or (last != timestamp and timestamp - last >= sample_interval)
+            # Tolerate float noise in the cadence (replay steps of 3600/n s) without
+            # letting a 15 s live cycle sample early on a 60 s raster.
+            tolerance = min(1.0, sample_interval / 10) if sample_interval > 0 else 0.0
+            due = last is None or (last != timestamp and timestamp - last >= sample_interval - tolerance)
             if _finite(value) and due:
                 rows.append([timestamp, float(value)])
             rows = rows[-definition.get("sampling_size", 1500):]

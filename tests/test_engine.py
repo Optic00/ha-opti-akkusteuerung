@@ -1656,3 +1656,45 @@ def test_restore_never_reports_more_coverage_than_the_live_engine():
     assert after.attributes[DAILY]["coverage_ok"] is False
     assert after.attributes[DAILY]["sample_coverage_ratio"] <= live.attributes[DAILY]["sample_coverage_ratio"]
     assert after.attributes[DAILY]["sample_count"] <= live.attributes[DAILY]["sample_count"]
+
+
+def test_restore_keeps_sub_second_timestamps_so_no_extra_sample_becomes_due():
+    """719 samples at hh:mm:00.4, evaluated 59.8 s after the last one: live and restored agree."""
+    resource = load_resources()
+    resource["template_blocks"] = []
+    resource["balancing_automations"] = []
+    engine = StrategyEngine(resource)
+    start = NOW - dt.timedelta(hours=12) + dt.timedelta(milliseconds=400)
+    last = start
+    for minute in range(719):
+        last = start + dt.timedelta(minutes=minute)
+        engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), last)
+    snapshot = engine.snapshot()
+    probe = last + dt.timedelta(seconds=59.8)
+    live = engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), probe)
+    restored = StrategyEngine(resource)
+    restored.restore(snapshot)
+    after = restored.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), probe)
+    assert live.attributes[DAILY]["sample_count"] == 719
+    assert after.attributes[DAILY]["sample_count"] == live.attributes[DAILY]["sample_count"]
+    assert after.attributes[DAILY]["coverage_ok"] is live.attributes[DAILY]["coverage_ok"] is False
+    assert after.states[DAILY] == live.states[DAILY]
+
+
+@pytest.mark.parametrize("steps_per_hour", [7, 11])
+def test_fractional_raster_steps_do_not_lose_samples(steps_per_hour):
+    """Replay cadences of 3600/n s carry float noise; the raster must not skip samples."""
+    resource = load_resources()
+    resource["template_blocks"] = []
+    resource["balancing_automations"] = []
+    for definition in resource["statistics"]:
+        if "sample_interval" in definition:
+            definition["sample_interval"] = {"seconds": 3600 / steps_per_hour}
+    engine = StrategyEngine(resource)
+    start = NOW - dt.timedelta(hours=48)
+    steps = 48 * steps_per_hour
+    for index in range(steps + 1):
+        result = engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(),
+                                 start + dt.timedelta(seconds=index * 3600 / steps_per_hour))
+    assert result.attributes[DAILY]["sample_coverage_ratio"] >= 0.99
+    assert result.attributes[DAILY]["coverage_ok"] is True

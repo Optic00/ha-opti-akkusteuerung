@@ -1588,6 +1588,9 @@ async def test_backward_clock_keeps_coordinator_safety_evaluation(coordinator, h
     hass.config_entries.async_update_entry(coordinator.entry, options={**coordinator.entry.options,
         "plant_mode": "balance", "plant_meter_confirmed": True, "forecast_min_load_w": 0})
     coordinator.write_enabled = True
+    # Without export the PV peak release stays off, so the planned charge power
+    # follows the SoC step and the command signature changes with the SoC below.
+    coordinator.device.async_read.return_value["sensor.opti_grid_export_w"] = 0
     await coordinator._async_update_data()
     coordinator.device.async_apply.reset_mock()
     coordinator.device.async_read.return_value["sensor.opti_soc"] = 1

@@ -29,7 +29,9 @@ async def async_setup_entry(
 
 class OptiAkkuStateBinarySensor(OptiAkkuEntity, BinarySensorEntity):
     # Explanation text only; keep it out of Recorder like the sensors.
-    _unrecorded_attributes = frozenset({"branch"})
+    # "stand" is the PV peak latch's evaluation timestamp: it changes every
+    # evaluation and would create a new Recorder attribute set each time.
+    _unrecorded_attributes = frozenset({"branch", "stand"})
 
     def __init__(self, entry: ConfigEntry, key: str) -> None:
         super().__init__(entry, key)

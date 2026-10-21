@@ -50,6 +50,25 @@ template_blocks:
                + states('sensor.opti_battery_power_w')|float(0)] | max | round(0) }}
       grenze_ein_w: '{{ states(''input_number.akkusteuerung_wr_ac_ueberschuss_grenze'') }}'
       hysterese_w: 300
+  - unique_id: opti_pv_spitze
+    name: Opti PV Spitze
+    icon: mdi:weather-sunny-alert
+    # Mode-independent latch of the PV peak release for opti_charge_power_w and the
+    # coordinator. No availability gate: every evaluation recomputes it, and
+    # invalid core data (export/import/battery power, temperature, SoC) or a
+    # disabled PV surplus charging switch turn it off at once and drop the timer.
+    # Entry: SoC < 85 % and net surplus before the battery > 200 W. Hold until
+    # SoC >= 87 %; without surplus it drops only after 60 s continuously without
+    # surplus (kein_ueberschuss_seit), so short dips cause no write sequences.
+    # The latch counts only when computed in an immediately preceding evaluation
+    # (stand <= 90 s, no backward clock): after restore/restart it needs a fresh entry.
+    state: |
+      {% set soc = states('sensor.opti_soc') | float(none) %} {% set temp = states('sensor.opti_battery_temp') | float(none) %} {% set messwerte_ok = has_value('sensor.opti_grid_export_w') and has_value('sensor.opti_grid_import_w') and has_value('sensor.opti_battery_power_w') and soc is not none and temp is not none %} {% set netto = states('sensor.opti_grid_export_w')|float(0) - states('sensor.opti_grid_import_w')|float(0) + states('sensor.opti_battery_power_w')|float(0) %} {% set alt = this.attributes if this is defined else {} %} {% set stand = alt.get('stand') | as_datetime %} {% set frisch = stand is not none and stand <= now() and (now() - stand).total_seconds() <= 90 %} {% set war_frei = frisch and this is defined and this.state == 'on' %} {% set seit = (alt.get('kein_ueberschuss_seit') | as_datetime) if frisch else none %} {% set seit = seit if seit is not none and seit <= now() else none %} {% set kein_seit = none if netto > 0 else (seit if seit is not none else now()) %} {% set grund_ok = messwerte_ok and is_state('input_boolean.opti_pv_ueberschuss_ladung', 'on') and temp > 0 and temp < 45 and not is_state('input_boolean.opti_manuelle_ladegrenze', 'on') and soc < 87 %} {% set einstieg = grund_ok and soc < 85 and netto > 200 %} {% set halten = grund_ok and war_frei and (netto > 0 or (now() - kein_seit).total_seconds() < 60) %} {% set pv_spitze = einstieg or halten %} {{ pv_spitze }}
+    attributes:
+      kein_ueberschuss_seit: |
+        {% set soc = states('sensor.opti_soc') | float(none) %} {% set temp = states('sensor.opti_battery_temp') | float(none) %} {% set messwerte_ok = has_value('sensor.opti_grid_export_w') and has_value('sensor.opti_grid_import_w') and has_value('sensor.opti_battery_power_w') and soc is not none and temp is not none %} {% set netto = states('sensor.opti_grid_export_w')|float(0) - states('sensor.opti_grid_import_w')|float(0) + states('sensor.opti_battery_power_w')|float(0) %} {% set alt = this.attributes if this is defined else {} %} {% set stand = alt.get('stand') | as_datetime %} {% set frisch = stand is not none and stand <= now() and (now() - stand).total_seconds() <= 90 %} {% set war_frei = frisch and this is defined and this.state == 'on' %} {% set seit = (alt.get('kein_ueberschuss_seit') | as_datetime) if frisch else none %} {% set seit = seit if seit is not none and seit <= now() else none %} {% set kein_seit = none if netto > 0 else (seit if seit is not none else now()) %} {% set grund_ok = messwerte_ok and is_state('input_boolean.opti_pv_ueberschuss_ladung', 'on') and temp > 0 and temp < 45 and not is_state('input_boolean.opti_manuelle_ladegrenze', 'on') and soc < 87 %} {% set einstieg = grund_ok and soc < 85 and netto > 200 %} {% set halten = grund_ok and war_frei and (netto > 0 or (now() - kein_seit).total_seconds() < 60) %} {% set pv_spitze = einstieg or halten %} {{ kein_seit.isoformat() if (pv_spitze and kein_seit is not none) else '' }}
+      # Timestamp of this computation; excluded from the Recorder (binary_sensor.py).
+      stand: "{{ now().isoformat() }}"
   - unique_id: opti_ueberschuss_veto_aktiv
     name: Opti Ueberschuss Veto Aktiv
     icon: mdi:battery-plus-variant
@@ -440,6 +459,16 @@ template_blocks:
           {% set c = [max_helper, c] | min if soc >= 97 else max_helper %}
         {% endif %}
         {% set ladeleistung = [c * temp_faktor, max_helper] | min %}
+        {# PV-Spitzen: die prognose-/SoC-abhaengige Drossel loesen, solange echter
+           Netto-Ueberschuss vor dem Akku ins Netz ginge. Latch, Entprellung und
+           Fail-closed liegen in binary_sensor.opti_pv_spitze; hier nur das
+           Modus-Gate: PV-Lademodi (Vorschau Dynamisch/nur Laden) und nie im
+           aktiven Netzladen, damit Netzladen nicht mit Maximalleistung aus dem
+           Netz zieht. Temperatur-, Balancing- und Max.-Ladeleistungs-Grenzen
+           bleiben unberuehrt. #}
+        {% set pv_modus = states('sensor.opti_strategie_vorschau') in ['Akku Dynamisch', 'Akku nur Laden'] and not is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') %}
+        {% set drossel_frei = is_state('binary_sensor.opti_pv_spitze', 'on') and pv_modus %}
+        {% if drossel_frei %}{% set ladeleistung = max_helper %}{% endif %}
         {# Balancing-spezifischer Vollladungs-Taper: nur zusaetzlich deckeln,
            niemals den regulaeren SoC-/Temperatur-Taper erhoehen. #}
         {% if balancing and soc >= 96 %}
@@ -451,6 +480,9 @@ template_blocks:
         {{ ladeleistung | round(0) }}
       {% endif %}
     attributes:
+      # PV peak release applied to this value (latch: binary_sensor.opti_pv_spitze).
+      drossel_frei: |
+        {% set pv_modus = states('sensor.opti_strategie_vorschau') in ['Akku Dynamisch', 'Akku nur Laden'] and not is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') %} {{ is_state('binary_sensor.opti_pv_spitze', 'on') and pv_modus }}
       # Same steps as the state, as readable text (issue #129). The parity test
       # in tests/test_engine.py keeps the final value equal to the state.
       branch: |
@@ -501,6 +533,14 @@ template_blocks:
           {% set ladeleistung = [c * temp_faktor, max_helper] | min %}
           {% if c * temp_faktor > max_helper %}
             {% set schritte = schritte + ['Obergrenze Max. Ladeleistung ' ~ (max_helper | round(0) | int) ~ ' W'] %}
+          {% endif %}
+          {% set pv_modus = states('sensor.opti_strategie_vorschau') in ['Akku Dynamisch', 'Akku nur Laden'] and not is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') %}
+          {% set drossel_frei = is_state('binary_sensor.opti_pv_spitze', 'on') and pv_modus %}
+          {% if drossel_frei %}
+            {% set ladeleistung = max_helper %}
+            {% set netto = states('sensor.opti_grid_export_w')|float(0) - states('sensor.opti_grid_import_w')|float(0) + states('sensor.opti_battery_power_w')|float(0) %}
+            {% set seit = state_attr('binary_sensor.opti_pv_spitze', 'kein_ueberschuss_seit') | as_datetime %}
+            {% set schritte = schritte + ['PV-Spitze: Netto-Überschuss ' ~ (netto | round(0) | int) ~ ' W' ~ ((' (gehalten, ohne Überschuss seit ' ~ ((now() - seit).total_seconds() | round(0) | int) ~ ' s)') if seit is not none else (' (gehalten)' if not (soc < 85 and netto > 200) else '')) ~ ' → Drossel gelöst, Max. Ladeleistung ' ~ (max_helper | round(0) | int) ~ ' W'] %}
           {% endif %}
           {% if balancing and soc >= 96 and ladeleistung > cap * 0.02 %}
             {% set ladeleistung = cap * 0.02 %}

@@ -154,6 +154,28 @@ setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, s
 erreicht ist. So geht Solarüberschuss während einer Abendspitze in den Akku
 statt ins Netz. Nachts bleibt es bei „Akku nur Entladen“.
 
+Die prognose- und SoC-abhängige Ladedrossel (schonendes Laden an guten Tagen)
+wird bei PV-Spitzen gelöst: Ist **PV-Überschussladen erlauben** eingeschaltet,
+steht die Strategie auf „Akku Dynamisch“ oder „Akku nur Laden“ und gingen mehr
+als 200 W Überschuss vor dem Akku ins Netz (Einspeisung − Netzbezug +
+Akkuleistung), lädt der Akku unter 85 % SoC mit **Max. Ladeleistung**. Die
+Freigabe hält, solange der SoC unter 87 % liegt; verschwindet der Überschuss,
+endet sie erst nach 60 Sekunden durchgehend ohne Überschuss, damit kurze
+Wolkeneinbrüche keine Schreibsequenzen am Wechselrichter auslösen. Den
+Halte-Zustand führt der Binärsensor **Opti PV Spitze** (Attribut
+`kein_ueberschuss_seit`); die geplante Ladeleistung zeigt im Attribut
+`drossel_frei`, ob die Freigabe gerade wirkt. Temperaturgrenzen, Balancing-Taper
+und die manuelle Ladegrenze bleiben davon unberührt und sperren sofort; fehlen
+Einspeise-, Bezugs- oder Akkuleistung, Temperatur oder SoC, fällt der
+Binärsensor sofort auf `off` und verwirft den Timer. Nach einem Neustart oder
+einer Wiederherstellung älter als 90 Sekunden braucht die Freigabe einen neuen
+vollen Einstieg. Ist er jünger, gilt ein wiederhergestellter Halte-Zustand
+weiter, bis die reguläre Rücknahmebedingung erfüllt ist. Im Modus „Akku Netzladen“ gilt die Freigabe nie,
+damit Netzladen nicht mit Maximalleistung aus dem Netz zieht. Schalten
+Arbitrage-Halten oder die Auto-Vorbereitung nachträglich auf „Akku nur Laden“
+oder „Akku Dynamisch“, hebt die Steuerung die Drossel unter denselben
+Bedingungen ebenfalls auf (Hinweis `PV-Spitze` in `charge_power_limits`).
+
 Die eigentliche Steuerung hat drei getrennte Ebenen:
 
 1. Der Schalter **Strategie berechnen** ist die Hauptfreigabe für die Steuerung,
@@ -449,9 +471,9 @@ Ladeleistung gewählt hat, zeigen diese Entitäten.
   aktuelle Rechnung eine andere ergäbe.
 - **Geplante Ladeleistung**: Das Attribut `branch` zeigt Prognose-Score,
   SoC-Stufe, manuelle Ladegrenze, Temperaturdrosselung, die Obergrenze
-  **Max. Ladeleistung** und die Balancing-Begrenzung, jeweils nur wenn sie
-  greifen. Der Wert nach „Ergebnis“ ist die geplante Ladeleistung der
-  Strategie, nicht die gemessene.
+  **Max. Ladeleistung**, die PV-Spitzen-Freigabe und die Balancing-Begrenzung,
+  jeweils nur wenn sie greifen. Der Wert nach „Ergebnis“ ist die geplante
+  Ladeleistung der Strategie, nicht die gemessene.
 - **Opti Strategie Vorschau** (standardmäßig deaktiviert): Der Zustand ist der
   Modus, den die Strategie wählen würde. Die Attribute enthalten Grund,
   Ziel-SoC, Scores und Preisniveau.

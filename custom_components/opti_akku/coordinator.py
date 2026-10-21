@@ -169,6 +169,26 @@ def validate_setting(key: str, value: Any, current: dict) -> float | bool:
     return number
 
 
+PV_PEAK_DOWNSTREAM_DECISIONS = frozenset({"arbitrage_hold", "ev_preparation"})
+
+
+def pv_peak_release_applies(result, mode: str, manual_mode, strategy_enabled: bool) -> bool:
+    """True when a downstream override chose a PV charge mode under a PV peak.
+
+    The engine only lifts the throttle when its own preview is a PV charge
+    mode. Arbitrage hold and EV preparation may turn 'nur Entladen' into 'nur
+    Laden' afterwards; ``binary_sensor.opti_pv_spitze`` (mode-independent
+    latch, incl. temperature, valid measurements and SoC < 87 %) decides. Grid
+    charging and manual modes never qualify.
+    """
+    if manual_mode is not None or not strategy_enabled or mode not in ("Akku nur Laden", "Akku Dynamisch"):
+        return False
+    if result.decision_id not in PV_PEAK_DOWNSTREAM_DECISIONS:
+        return False
+    attributes = result.attributes.get("sensor.opti_charge_power_w", {})
+    return result.states.get("binary_sensor.opti_pv_spitze") == "on" and attributes.get("drossel_frei") is not True
+
+
 class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Refresh measurements and evaluate before every eligible write."""
 
@@ -959,6 +979,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if arbitrage_hold.get("hold_controls_battery"):
             params["min_charge_w"] = 0
             params["min_discharge_w"] = 0
+        if pv_peak_release_applies(result, mode, self.manual_mode, self.strategy_enabled):
+            # Arbitrage hold and EV preparation switch a 'nur Entladen' preview to a
+            # PV charge mode after the engine planned the power; apply the engine's
+            # mode-independent PV peak latch so surplus is not throttled there.
+            params["charge_power_w"] = max(params["charge_power_w"], params["max_charge_w"])
+            charge_power_limits.append("PV-Spitze: Drossel gelöst (nachgelagerter PV-Lademodus)")
         if (self.manual_mode is None and mode == "Akku Dynamisch"
                 and result.decision_id in ("peak_l1", "peak_l2", "unknown")):
             # Peak discharge only opens charging for PV surplus; a minimum

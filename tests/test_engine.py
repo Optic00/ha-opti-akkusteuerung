@@ -1072,6 +1072,24 @@ def test_day_score_is_unavailable_without_house_load_instead_of_assuming_400_w()
     assert evaluate(states=states).states["sensor.opti_forecast_score"] == "10"
 
 
+def test_minimum_discharge_price_is_display_only():
+    """The tariff margin feeds one sensor; no decision branch or template reads it."""
+    resources = load_resources()
+    text = json.dumps(resources["strategy"])
+    assert "opti_mindestentladepreis_ct_kwh" not in text.replace(
+        '"sensor.opti_mindestentladepreis_ct_kwh"', "")  # only the trigger entity list
+    others = json.dumps({key: value for key, value in resources.items() if key != "strategy"})
+    assert others.count("opti_mindestentladepreis_ct_kwh") == 1  # the sensor definition itself
+    for soc, price in ((50, 10), (50, 60), (20, 35), (90, 5)):
+        base = measurements(**{SOC: soc, "sensor.opti_price_current_ct_kwh": price,
+                               "input_number.ladepreis": 0.2})
+        cheap = evaluate(states={**base, "input_number.mindestpreisdifferenz_lade_entladepreis": 0})
+        dear = evaluate(states={**base, "input_number.mindestpreisdifferenz_lade_entladepreis": 0.3})
+        assert (cheap.mode, cheap.reason) == (dear.mode, dear.reason)
+        assert float(cheap.states["sensor.opti_mindestentladepreis_ct_kwh"]) == 20
+        assert float(dear.states["sensor.opti_mindestentladepreis_ct_kwh"]) == 50
+
+
 def test_clock_going_backwards_restarts_pending_delay():
     engine = StrategyEngine()
     entity = "binary_sensor.opti_ueberschuss_70_aktiv"

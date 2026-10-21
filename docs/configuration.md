@@ -177,3 +177,13 @@ Bei Gerätewechsel wird die Bestätigung für die alleinige Steuerung zurückges
 Der Referenz-Ladepreis neuer Einträge startet wie die ursprüngliche Strategie mit
 `-1 EUR/kWh` (noch keine Referenz), statt wie bisher mit `0`; gespeicherte Werte
 werden nicht geändert.
+
+### Referenz-Ladepreis und Mindestgewinn beim Entladen
+
+**Referenz-Ladepreis** und **Mindestgewinn beim Entladen** (Tarif) sind reine
+Anzeigewerte ohne Steuerwirkung. Die Strategie schreibt den Referenz-Ladepreis
+nach einem Netzladen auf den aktuellen Strompreis; beide Werte speisen nur den
+Sensor `sensor.opti_mindestentladepreis_ct_kwh` (Referenz plus Aufschlag in
+ct/kWh). Kein Zweig der Strategieleiter liest diesen Sensor; die Entladung
+entscheiden Preisniveau, Peak-Leiter und Reserven. Die Option bleibt für
+Dashboards und eigene Automationen erhalten.

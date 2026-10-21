@@ -106,7 +106,8 @@
           "price_provider": "Preisquelle"
         },
         "data_description": {
-          "ladepreis": "-1 bedeutet: noch kein Referenz-Ladepreis bekannt. Vorhandene gespeicherte Werte bleiben beim Upgrade erhalten."
+          "ladepreis": "-1 bedeutet: noch kein Referenz-Ladepreis bekannt. Vorhandene gespeicherte Werte bleiben beim Upgrade erhalten. Die Strategie schreibt den Wert nach Netzladen; er ist nur Anzeige und hat keine Steuerwirkung.",
+          "mindestpreisdifferenz_lade_entladepreis": "Nur Anzeige, keine Steuerwirkung: speist den Sensor Opti Mindestentladepreis (Referenz-Ladepreis plus Aufschlag). Kein Strategiezweig liest ihn."
         }
       },
       "forecast": {
@@ -483,7 +484,8 @@
           "price_provider": "Preisquelle"
         },
         "data_description": {
-          "ladepreis": "-1 bedeutet: noch kein Referenz-Ladepreis bekannt. Vorhandene gespeicherte Werte bleiben beim Upgrade erhalten."
+          "ladepreis": "-1 bedeutet: noch kein Referenz-Ladepreis bekannt. Vorhandene gespeicherte Werte bleiben beim Upgrade erhalten. Die Strategie schreibt den Wert nach Netzladen; er ist nur Anzeige und hat keine Steuerwirkung.",
+          "mindestpreisdifferenz_lade_entladepreis": "Nur Anzeige, keine Steuerwirkung: speist den Sensor Opti Mindestentladepreis (Referenz-Ladepreis plus Aufschlag). Kein Strategiezweig liest ihn."
         }
       },
       "forecast": {

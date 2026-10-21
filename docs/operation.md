@@ -563,10 +563,13 @@ Entität geschrieben (Standard aus).
 
 Voraussetzung ist eine Solcast-Entität mit `detailedForecast` (halbstündlich)
 oder `detailedHourly`; für das Quantil P10 muss `pv_estimate10` enthalten
-sein, für den Median `pv_estimate`. Die Prognose muss die aktuelle Stunde
-abdecken; als Alter gilt die letzte Zustandsänderung der Entität (höchstens
-zwölf Stunden), was den tatsächlichen Abrufzeitpunkt bei Solcast nur
-annähert. Fehlt bei aktivem `grid_check_quantile` das Prüfquantil, gibt es
+sein, für den Median `pv_estimate`. Eine Stunde zählt nur, wenn ihre
+Intervalle alle 60 Minuten abdecken (beide Halbstunden oder die volle
+Stundenzeile); eine nur halb belegte Stunde ist eine Lücke, an der der
+Planungshorizont endet, statt die halbe Energie zu lesen. Die Prognose muss
+die aktuelle Stunde abdecken; als Alter gilt die letzte Zustandsänderung der
+Entität (Grenze aus **Maximales Alter von Prognosen**, Standard zwölf
+Stunden), was den tatsächlichen Abrufzeitpunkt bei Solcast nur annähert. Fehlt bei aktivem `grid_check_quantile` das Prüfquantil, gibt es
 keine Netzladeempfehlung (`grid_check_p50_missing`).
 
 Ohne Oberfläche einstellbar über die Optionen des Eintrags: `planner.wear_ct_kwh`

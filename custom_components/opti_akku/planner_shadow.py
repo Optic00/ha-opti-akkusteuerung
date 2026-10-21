@@ -101,11 +101,14 @@ def pv_forecast_hourly(states: Sequence[Any], now: datetime,
     """Solcast interval rows of several entities as hourly (P10, P50) kWh.
 
     ``detailedForecast`` (half hours) or ``detailedHourly`` (hours) per entity;
-    a missing quantile stays ``None`` instead of invalidating the rows. The
-    result must cover the current hour. One invalid entity invalidates the
-    whole result (fail closed).
+    a missing quantile stays ``None`` instead of invalidating the rows. An hour
+    counts only when its rows cover all 60 minutes (both half hours, or the
+    full hourly row); a partly covered hour is left out, so the horizon ends
+    at that gap instead of reading half the energy. The result must cover the
+    current hour. One invalid entity invalidates the whole result (fail closed).
     """
     hours: dict[datetime, list[float | None]] = {}
+    covered: dict[datetime, float] = {}
     seen: dict[datetime, tuple[float | None, float | None]] = {}
     found = False
     for state in states:
@@ -146,6 +149,7 @@ def pv_forecast_hourly(states: Sequence[Any], now: datetime,
                     continue
                 seen[start] = pair
                 found = True
+                covered[_hour(start)] = covered.get(_hour(start), 0.0) + length.total_seconds()
                 bucket = hours.setdefault(_hour(start), [0.0, 0.0])
                 for index in range(2):
                     if pair[index] is None:
@@ -156,6 +160,7 @@ def pv_forecast_hourly(states: Sequence[Any], now: datetime,
             return "invalid", {}
     if not found:
         return "no_forecast", {}
+    hours = {hour: v for hour, v in hours.items() if covered.get(hour) == 3600.0}
     if _hour(now) not in hours:
         return "stale", {}
     return "ready", {hour: (None if v[0] is None else round(v[0], 4), None if v[1] is None else round(v[1], 4))

@@ -260,6 +260,26 @@ def test_pv_forecast_hourly_default_age_is_twelve_hours_and_the_option_overrides
     assert pv_forecast_hourly([aged], now, max_age=0)[0] == "ready"
 
 
+def test_pv_forecast_hourly_counts_only_complete_hours():
+    """A half-covered hour is a gap, not half the energy; the horizon ends there."""
+    now = T0 + timedelta(hours=6)
+    state = solcast(now, [(1.0, 2.0), (1.0, 2.0), (0.5, 1.0)], updated=now)
+    status, hours = pv_forecast_hourly([state], now)
+    assert status == "ready" and hours == {now: (1.0, 2.0)}
+    periods = [(now, now + timedelta(hours=1), 20.0), (now + timedelta(hours=1), now + timedelta(hours=2), 20.0)]
+    assert len(build_slots(now, periods, hours, "p10", None, 500)) == 1
+    # Only the second half of the current hour: nothing covers now.
+    late = solcast(now + timedelta(minutes=30), [(1.0, 2.0)], updated=now)
+    assert pv_forecast_hourly([late], now)[0] == "stale"
+    # The two halves may come from two entities (today/tomorrow at midnight).
+    first = solcast(now, [(1.0, 2.0)], updated=now)
+    second = solcast(now + timedelta(minutes=30), [(1.0, 2.0)], updated=now)
+    assert pv_forecast_hourly([first, second], now) == ("ready", {now: (1.0, 2.0)})
+    # An hourly row covers its hour on its own.
+    hourly = solcast(now, [(1.0, 2.0)], updated=now, attribute="detailedHourly", minutes=60)
+    assert pv_forecast_hourly([hourly], now) == ("ready", {now: (1.0, 2.0)})
+
+
 def test_pv_forecast_accepts_hourly_rows_and_single_quantiles():
     now = T0 + timedelta(hours=6)
     hourly_state = solcast(now, [(1.0, None), (0.5, None)], updated=now, attribute="detailedHourly", minutes=60)
@@ -626,7 +646,7 @@ def test_pv_forecast_rejects_naive_timestamps_and_oversized_rows():
     bad_update.last_updated = "yesterday"
     assert pv_forecast_hourly([bad_update], now) == ("invalid", {})
     without_rows = SimpleNamespace(state="1", attributes={}, last_updated=now, last_reported=now)
-    assert pv_forecast_hourly([without_rows, solcast(now, [(1.0, 2.0)], updated=now)], now)[0] == "ready"
+    assert pv_forecast_hourly([without_rows, solcast(now, [(1.0, 2.0), (1.0, 2.0)], updated=now)], now)[0] == "ready"
 
 
 def test_slots_take_the_hourly_load_profile_when_present():

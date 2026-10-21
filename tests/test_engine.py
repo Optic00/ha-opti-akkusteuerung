@@ -1062,6 +1062,16 @@ def test_zero_p10_counts_as_valid_for_tomorrow_and_sun_day_scores(p10, expected)
         20 if p10 in (None, -1, "abc") else round(p10, 2))
 
 
+def test_day_score_is_unavailable_without_house_load_instead_of_assuming_400_w():
+    states = measurements(**{"sensor.opti_house_consumption_w": "unavailable",
+                             "sensor.opti_house_consumption_60min_w": "unavailable"})
+    result = evaluate(states=states)
+    assert result.states["sensor.opti_forecast_score"] == "unavailable"
+    assert result.states["sensor.opti_forecast_score_sonnentag"] == "unavailable"
+    states["sensor.opti_house_consumption_w"] = 400
+    assert evaluate(states=states).states["sensor.opti_forecast_score"] == "10"
+
+
 def test_clock_going_backwards_restarts_pending_delay():
     engine = StrategyEngine()
     entity = "binary_sensor.opti_ueberschuss_70_aktiv"

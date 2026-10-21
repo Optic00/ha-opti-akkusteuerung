@@ -483,6 +483,53 @@ Die `branch`-Attribute zeigen nur den aktuellen Stand unter
 der Text mit jedem Prozentpunkt SoC ändert. Ein eigenes Entscheidungsprotokoll
 gibt es nicht.
 
+## Planer im Schattenbetrieb
+
+**Opti Schattenplaner Horizont** (`sensor.opti_plan_shadow`, Diagnose,
+standardmäßig deaktiviert) rechnet alle paar Minuten einen Plan über die
+bekannten Strompreise (Rest heute, morgen sobald veröffentlicht, höchstens
+36 h): Wann aus dem Netz laden, wann entladen, wann halten, damit die Kosten
+aus Netzbezug, entgangener Einspeisung und Zyklen über den Horizont minimal
+werden. Eingaben sind SoC, Kapazität und Grenzen der Anlage, die Preisreihe,
+die Solcast-Intervallprognose (konservativ P10, nicht der Median; Idee aus
+Issue #155) und das stündliche Lastprofil der Peak-Reserve, ersatzweise der
+60-Minuten-Hausverbrauch oder der eingestellte Peak-Verbrauch.
+
+Der Planer **steuert nichts**. Er zeigt als Zustand den Modus, den er jetzt
+wählen würde, in der Sprache der Leiter (`Akku Netzladen`, `Akku nur Laden`,
+`Akku Dynamisch`, `Akku nur Entladen`, `Akku Pause`). Fehlen Daten, bleibt
+der Zustand `unknown` und das Attribut `detail` nennt den Grund
+(`price_series`, `pv_forecast_stale`, `horizon_short`, …). Die Attribute
+ändern sich mit jeder Auswertung und werden deshalb nicht aufgezeichnet; nur
+der Zustandsverlauf landet im Recorder.
+
+Zum Auswerten nach einigen Wochen:
+
+- `deviation` und `totals`: Sekunden je Abweichungsart heute (`today`) und
+  seit Beginn (`total`), zeitgewichtet. `planner_grid_charge` heißt: der
+  Planer würde aus dem Netz laden, die Leiter nicht; `planner_hold`: der
+  Planer würde Energie halten, wo die Leiter entlädt; `planner_discharge`
+  umgekehrt; `indifferent`: kein Modus könnte Energie bewegen (Akku leer oder
+  voll). `today_disagreement_percent` fasst das zusammen.
+- `expected_saving_eur`: erwartete Ersparnis des Plans gegenüber reinem
+  Eigenverbrauch über den Horizont, mit denselben Prognosen. Das ist keine
+  Ersparnis gegenüber der Leiter; die lässt sich nur im Replay bestimmen.
+- `soc_target_next_hours`: geplanter SoC am Ende der nächsten zwölf Stunden,
+  `first_grid_charge`: Beginn der ersten geplanten Netzladung.
+- `terminal_ct_kwh`: Wert, den der Planer einer am Horizontende noch
+  gespeicherten kWh beimisst (Anteil am mittleren Preis, gedeckelt auf die
+  Kosten einer Nachladung in der günstigsten Stunde).
+
+Stündlich speichert die Integration einen Schnappschuss der PV-Prognose
+(P10 und Median je Stunde für 36 h) und der Preisreihe in
+`.storage/opti_akku.<eintrag>.planner_history`, rollierend für 60 Tage. Die
+Datei bleibt lokal und ist der Export für spätere Replays mit damals
+verfügbaren Prognosen; das Attribut `forecast_history` zeigt Umfang und
+Zeitraum. Die Zyklenkosten (3 ct/kWh Entladung), der Endwert-Anteil (0,8)
+und das Quantil lassen sich ohne Oberfläche über die Optionen
+`planner.wear_ct_kwh`, `planner.terminal_factor` und `planner.quantile`
+setzen.
+
 ## Diagnose herunterladen
 
 Unter **Einstellungen -> Geräte & Dienste -> Opti Akku -> Drei-Punkte-Menü ->

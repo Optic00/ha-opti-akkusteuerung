@@ -15,6 +15,8 @@ from homeassistant.helpers.entity import EntityCategory
 from .entity import OptiAkkuEntity, coordinator_data, readable_name
 
 SENSOR_PREFIXES = ("sensor.", "counter.", "input_datetime.")
+PLAN_SHADOW_KEY = "sensor.opti_plan_shadow"
+PLAN_SHADOW_MODES = ["Akku Dynamisch", "Akku Pause", "Akku nur Laden", "Akku nur Entladen", "Akku Netzladen"]
 DIAGNOSTICS = ("mode", "reason", "last_write", "last_error", "source_errors", "price_provider_error", "price_last_success", "notification_error", "load_profile", "control_release", "device_errors", "command_confirmation", "command_evidence", "pause_pending", "reserve_plan", "operating_report", "price_status", "demand_forecast", "source_observation", "connection_status", "ev_preparation", "arbitrage_estimate")
 CORE_UNITS = {"soc": "%", "battery_temp": "°C", "battery_capacity_kwh": "kWh",
               "battery_power_w": "W", "pv_power_w": "W", "pv_generation_w": "W",
@@ -35,7 +37,9 @@ async def async_setup_entry(
         keys = [key for key in states if key.startswith(SENSOR_PREFIXES) and key not in known]
         if keys:
             known.update(keys)
-            async_add_entities(OptiAkkuStateSensor(entry, key) for key in keys)
+            async_add_entities(
+                OptiAkkuPlanShadowSensor(entry, key) if key == PLAN_SHADOW_KEY
+                else OptiAkkuStateSensor(entry, key) for key in keys)
 
     add_new_entities()
     def diagnostic_entity(key: str) -> SensorEntity:
@@ -112,6 +116,33 @@ class OptiAkkuStateSensor(OptiAkkuEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         return coordinator_data(self).get("attributes", {}).get(self._key)
+
+
+class OptiAkkuPlanShadowSensor(OptiAkkuStateSensor):
+    """Planner recommendation; the state stays ``unknown`` with a reason while data is missing.
+
+    Every attribute (plan, costs, counters) changes with each evaluation, so
+    none of them is recorded; the state history alone shows the recommendation.
+    """
+
+    _unrecorded_attributes = frozenset({MATCH_ALL})
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = PLAN_SHADOW_MODES
+
+    def __init__(self, entry: ConfigEntry, key: str) -> None:
+        super().__init__(entry, key)
+        self._attr_device_class = SensorDeviceClass.ENUM
+        self._attr_options = PLAN_SHADOW_MODES
+        self._numeric = False
+
+    @property
+    def available(self) -> bool:
+        return OptiAkkuEntity.available.fget(self)
+
+    @property
+    def native_value(self) -> Any:
+        value = self._value()
+        return value if value in PLAN_SHADOW_MODES else None
 
 
 class OptiAkkuDiagnosticSensor(OptiAkkuEntity, SensorEntity):

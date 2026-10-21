@@ -138,3 +138,26 @@ async def test_existing_forecast_disablement_and_id_survive_platform_setup(
     assert registry.async_get_entity_id("sensor", DOMAIN, unique_id) == existing.entity_id
     assert registry.async_get(existing.entity_id).disabled_by is disabled_by
     assert hass.states.get(existing.entity_id) is None
+
+
+def test_plan_shadow_sensor_records_no_attributes_and_stays_available_while_unknown():
+    from homeassistant.const import MATCH_ALL
+    from custom_components.opti_akku.sensor import OptiAkkuPlanShadowSensor
+
+    key = "sensor.opti_plan_shadow"
+    coordinator = Mock()
+    coordinator.data = {"states": {key: "unknown"}, "metadata": {key: {"name": "Schattenplaner Horizont"}},
+                        "attributes": {key: {"status": "data_missing", "detail": "price_series"}}}
+    coordinator.last_update_success = True
+    coordinator.shadow_mode = False
+    entry = MockConfigEntry(domain="opti_akku", title="Opti Test", data={"profile": "sma_stp_se"})
+    entry.runtime_data = coordinator
+    sensor = OptiAkkuPlanShadowSensor(entry, key)
+
+    assert sensor._unrecorded_attributes == frozenset({MATCH_ALL})
+    assert sensor.entity_registry_enabled_default is False
+    assert sensor.native_value is None and sensor.available is True
+    assert sensor.extra_state_attributes["detail"] == "price_series"
+    coordinator.data["states"][key] = "Akku Netzladen"
+    assert sensor.native_value == "Akku Netzladen"
+    assert "Akku Netzladen" in sensor.options

@@ -365,13 +365,22 @@ class Horizon:
         self.values = tables
         return perf_counter() - started
 
-    def resolve_first(self, slot: Slot) -> None:
-        """Replace the running first slot (shorter now) and redo only its stage."""
+    def resolve_first(self, slot: Slot, deadline_s: float | None = None) -> float:
+        """Replace the running first slot (shorter now) and redo only its stage.
+
+        Counts against the same budget as ``solve``; returns the elapsed time.
+        """
         if not self.values:
             raise ValueError("unsolved")
+        started = perf_counter()
         self.slots[0] = slot
         self.actions[0] = self._actions(slot, 0)
         self.values[0] = self._stage(0, self.values[1])
+        elapsed = perf_counter() - started
+        if deadline_s is not None and elapsed > deadline_s:
+            self.values = []
+            raise PlannerBudgetError("deadline")
+        return elapsed
 
     def choose(self, t: int, position: float) -> Action | None:
         """Best action at slot ``t`` from the exact state ``position``."""

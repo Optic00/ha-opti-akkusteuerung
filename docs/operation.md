@@ -539,7 +539,7 @@ Eintrag entsteht nur, wenn sich Prognose oder Preisreihe geändert haben
 (typisch ein Dutzend PV- und ein bis zwei Preis-Einträge am Tag); Zeitachsen
 sind explizit (Startstunde plus Index, Preissegmente mit Rasterlänge), Lücken
 bleiben erhalten. Gemessen im Test: 60 synthetische Tage mit 12 PV- und 2
-Preisänderungen täglich ergeben rund 450 kB kompakt bzw. unter 1 MB im
+Preisänderungen täglich ergeben rund 530 kB im
 eingerückten Store-Format (Zahlenlisten sind als Strings kodiert); gespeichert
 wird gebündelt spätestens 15 min nach einer Änderung. Die Datei bleibt lokal und ist der
 Export für spätere Replays mit damals verfügbaren Prognosen; das Attribut

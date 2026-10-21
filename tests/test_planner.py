@@ -426,6 +426,15 @@ def test_budget_exceeded_is_reported_not_raised(monkeypatch):
     assert check["status"] == "data_missing" and check["detail"] == "budget_exceeded"
 
 
+def test_budget_covers_the_cached_first_slot_update(monkeypatch):
+    now, pv = day_context(6, {12: (1.0, 2.0)})
+    shadow = PlannerShadow()
+    assert shadow.evaluate(now, TZ, inputs(now, pv))["status"] == "ready"
+    monkeypatch.setattr(planner_shadow, "SOLVE_BUDGET_S", 0.0)
+    check = shadow.evaluate(now + timedelta(minutes=1), TZ, inputs(now, pv))
+    assert check["status"] == "data_missing" and check["detail"] == "budget_exceeded"
+
+
 def test_grid_check_against_p50_blocks_grid_charging_that_p50_pv_would_cover():
     now, pv = day_context(6, {11: (0.6, 2.5), 12: (0.8, 3.0), 13: (0.8, 3.0), 14: (0.6, 2.5)})
     plain = PlannerShadow().evaluate(now, TZ, inputs(now, pv))
@@ -484,15 +493,46 @@ def test_forecast_history_roundtrip_keeps_gaps_and_mixed_price_grids():
     assert restored.entries == history.entries and restored.error is None
     restored.restore({"version": 1, "entries": []})
     assert restored.entries == [] and restored.error == "unsupported_format"
-    restored.restore({"version": 2, "entries": [{"t": "garbage"}, 3, {"t": 5, "pv": {"from": 0}}, entry,
+    restored.restore({"version": 3, "entries": [{"t": "garbage"}, 3, {"t": 5, "pv": {"from": 0}}, entry,
                                                 {"t": 10**30}, {"t": True}]})
-    assert restored.entries == [entry]
+    assert restored.entries == [entry] and restored.error == "5_entries_invalid"
     assert restored.summary()["entries"] == 1
     # A future stamp must not block recording.
     future = {"t": int((now + timedelta(days=3)).timestamp())}
-    restored.restore({"version": 2, "entries": [entry, future]})
+    restored.restore({"version": 3, "entries": [entry, future]})
     assert restored.record(now + timedelta(hours=1), {now + timedelta(hours=1): (3.0, 3.0)}, []) is True
     assert all(item["t"] <= int((now + timedelta(hours=1)).timestamp()) for item in restored.entries)
+
+
+def test_forecast_history_keeps_single_hour_single_quantile_entries():
+    history = ForecastHistory(max_days=2)
+    now = T0 + timedelta(hours=6)
+    assert history.record(now, {now: (0.0, None)}, []) is True
+    entry = history.entries[-1]
+    assert entry["pv"]["p10"] == "0" and entry["pv"]["p50"] == "-"
+    assert history_pv(entry) == {now: (0.0, None)}
+    restored = ForecastHistory(max_days=2)
+    restored.restore(json.loads(json.dumps(history.snapshot())))
+    assert restored.entries == [entry] and restored.error is None
+
+
+def test_forecast_history_migrates_version_2_and_names_rejected_input():
+    now = T0 + timedelta(hours=6)
+    stamp = int(now.timestamp())
+    old = {"version": 2, "entries": [
+        {"t": stamp, "pv": {"from": stamp, "p10": [100, None, 300], "p50": [200, 250, None]},
+         "price": [[stamp, 900, [20.0, 21.5]]]},
+        {"t": stamp + 3600, "pv": {"from": stamp}}]}
+    history = ForecastHistory(max_days=2)
+    history.restore(old)
+    assert history.error == "1_entries_invalid"
+    assert history.entries[0]["pv"] == {"from": stamp, "p10": "100,-,300", "p50": "200,250,-"}
+    assert history.entries[0]["price"] == [[stamp, 900, "20.0,21.5"]]
+    assert history_pv(history.entries[0])[now] == (0.1, 0.2)
+    assert history_prices(history.entries[0])[1][2] == 21.5
+    unknown = ForecastHistory(max_days=2)
+    unknown.restore({"version": 1, "entries": []})
+    assert unknown.error == "unsupported_format"
 
 
 def test_forecast_history_only_records_changes_and_stays_small():

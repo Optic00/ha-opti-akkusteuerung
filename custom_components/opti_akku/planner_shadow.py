@@ -63,7 +63,7 @@ DEVIATIONS = ("planner_grid_charge", "ladder_grid_charge", "planner_hold", "plan
 _COUNTERS = ("ready_seconds", "agree_seconds", *(f"{name}_seconds" for name in DEVIATIONS))
 HISTORY_DAYS = 60
 HISTORY_MAX_ENTRIES = 2400
-HISTORY_VERSION = 2
+HISTORY_VERSION = 3  # 3: packed comma strings; 2: plain number lists (migrated on restore)
 price_periods = _price_periods
 
 
@@ -357,13 +357,10 @@ class PlannerShadow:
         cached = self._cache.get(key)
         age = None if cached is None else now - cached.planned_at
         recent = cached is not None and age is not None and timedelta(0) <= age
-        if recent and cached.structure == structure:
-            if cached.rates == rates and age <= PLAN_INTERVAL:
-                cached.horizon.resolve_first(slots[0])
-                return cached
-            if age < REPLAN_MIN_INTERVAL:
-                cached.horizon.resolve_first(slots[0])
-                return cached
+        if recent and cached.structure == structure and (
+                (cached.rates == rates and age <= PLAN_INTERVAL) or age < REPLAN_MIN_INTERVAL):
+            cached.horizon.resolve_first(slots[0], deadline_s=budget_s)
+            return cached
         horizon = Horizon(slots, battery, settings)
         elapsed = horizon.solve(soc, deadline_s=budget_s)
         cached = _Cached(horizon, structure, rates, now, round(elapsed * 1000, 1))
@@ -515,14 +512,28 @@ def _pv_rows(pv_hourly: Mapping[datetime, tuple[float | None, float | None]], ho
 
 
 def _pack(values: Sequence[Any]) -> str:
-    """Comma-joined values, empty for ``None``: one JSON string instead of one line per number."""
-    return ",".join("" if v is None else str(v) for v in values)
+    """Comma-joined values, ``-`` for ``None``: one JSON string instead of one line per number.
+
+    ``[None]`` becomes ``"-"`` and stays distinct from the empty list ``""``.
+    """
+    return ",".join("-" if v is None else str(v) for v in values)
 
 
 def _unpack(text: Any, cast) -> list[Any]:
     if not isinstance(text, str):
         raise TypeError("packed list expected")
-    return [None if item == "" else cast(item) for item in text.split(",")] if text else []
+    return [None if item == "-" else cast(item) for item in text.split(",")] if text else []
+
+
+def _migrate_v2(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """Version 2 kept plain number lists; pack them into the version 3 strings."""
+    migrated = dict(entry)
+    pv = entry.get("pv")
+    if isinstance(pv, Mapping):
+        migrated["pv"] = {"from": pv["from"], "p10": _pack(list(pv["p10"])), "p50": _pack(list(pv["p50"]))}
+    if isinstance(entry.get("price"), list):
+        migrated["price"] = [[start, seconds, _pack(list(values))] for start, seconds, values in entry["price"]]
+    return migrated
 
 
 def _pv_unchanged(last: Any, new: Mapping[str, Any]) -> bool:
@@ -601,7 +612,8 @@ class ForecastHistory:
         self.entries = []
         if saved is None:
             return
-        if not isinstance(saved, Mapping) or saved.get("version") != HISTORY_VERSION:
+        version = saved.get("version") if isinstance(saved, Mapping) else None
+        if version not in (2, HISTORY_VERSION):
             self.error = "unsupported_format"
             return
         entries = saved.get("entries")
@@ -609,16 +621,22 @@ class ForecastHistory:
             self.error = "unsupported_format"
             return
         kept = []
+        dropped = 0
         for entry in entries:
             stamp = entry.get("t") if isinstance(entry, Mapping) else None
             if not isinstance(stamp, int) or isinstance(stamp, bool) or not HISTORY_MIN_STAMP <= stamp <= HISTORY_MAX_STAMP:
+                dropped += 1
                 continue
             try:
-                history_pv(entry)
-                history_prices(entry)
+                candidate = _migrate_v2(entry) if version == 2 else dict(entry)
+                history_pv(candidate)
+                history_prices(candidate)
             except KeyError, TypeError, ValueError, OverflowError:
+                dropped += 1
                 continue
-            kept.append(dict(entry))
+            kept.append(candidate)
+        if dropped:
+            self.error = f"{dropped}_entries_invalid"
         self.entries = kept[-self.max_entries:]
 
     def summary(self) -> dict[str, Any]:

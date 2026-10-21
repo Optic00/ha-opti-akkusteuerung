@@ -46,7 +46,12 @@ FORECAST_MAX_AGE = 12 * 3600
 FORECAST_ROW_LIMIT = 100
 PLAN_INTERVAL = timedelta(minutes=10)
 REPLAN_MIN_INTERVAL = timedelta(minutes=2)
+# Total solve budget per evaluation (main plan plus the variant B check);
+# building the slots and walking the plan are outside it.
 SOLVE_BUDGET_S = 1.0
+# Plausible snapshot stamps: integration era up to a generous future bound.
+HISTORY_MIN_STAMP = 1_700_000_000
+HISTORY_MAX_STAMP = 4_000_000_000
 MIN_HORIZON_HOURS = 2.0
 SOC_TARGET_HOURS = 12
 MAX_INTERVAL = 90
@@ -268,22 +273,25 @@ def _soc_targets(steps: Sequence[Step], now: datetime, hours: int) -> list[int]:
     return targets
 
 
-def _fingerprint(slots: Sequence[Slot], battery: Battery, settings: Settings) -> tuple:
-    """Identity of a slot sequence: period ends, prices and quantised hourly rates."""
-    return (
-        tuple((s.start + timedelta(hours=s.hours), round(s.price_ct, 3),
-               round(s.pv_kwh / s.hours / FINGERPRINT_KWH), round(s.load_kwh / s.hours / FINGERPRINT_KWH))
-              for s in slots),
-        battery, settings,
-    )
+def _structure(slots: Sequence[Slot], battery: Battery, settings: Settings) -> tuple:
+    """What must match exactly for any reuse: period grid, prices, battery limits, settings."""
+    return (tuple((s.start + timedelta(hours=s.hours), round(s.price_ct, 3)) for s in slots), battery, settings)
+
+
+def _rates(slots: Sequence[Slot]) -> tuple:
+    """Quantised hourly PV and load rates; jitter here may keep a recent plan briefly."""
+    return tuple((round(s.pv_kwh / s.hours / FINGERPRINT_KWH), round(s.load_kwh / s.hours / FINGERPRINT_KWH))
+                 for s in slots)
 
 
 class _Cached:
     """One solved horizon with the identity it was solved for."""
 
-    def __init__(self, horizon: Horizon, fingerprint: tuple, planned_at: datetime, solve_ms: float) -> None:
+    def __init__(self, horizon: Horizon, structure: tuple, rates: tuple, planned_at: datetime,
+                 solve_ms: float) -> None:
         self.horizon = horizon
-        self.fingerprint = fingerprint
+        self.structure = structure
+        self.rates = rates
         self.planned_at = planned_at
         self.solve_ms = solve_ms
 
@@ -337,25 +345,28 @@ class PlannerShadow:
 
     # -- planning ----------------------------------------------------------
     def _horizon(self, key: str, now: datetime, slots: list[Slot], battery: Battery,
-                 settings: Settings, soc: float) -> _Cached:
-        """Solved horizon for ``slots``; reused while only the first slot shrinks."""
-        fingerprint = _fingerprint(slots[1:], battery, settings) + (slots[0].start + timedelta(hours=slots[0].hours),)
+                 settings: Settings, soc: float, budget_s: float) -> _Cached:
+        """Solved horizon for ``slots``; reused while only the first slot shrinks.
+
+        Any change of the period grid, prices, battery limits or settings
+        invalidates the cache at once. Only PV/load rate jitter may keep a plan
+        younger than ``REPLAN_MIN_INTERVAL``; ``budget_s`` is the solve budget left.
+        """
+        structure = _structure(slots, battery, settings)
+        rates = _rates(slots[1:])
         cached = self._cache.get(key)
         age = None if cached is None else now - cached.planned_at
-        fresh = cached is not None and age is not None and timedelta(0) <= age <= PLAN_INTERVAL
-        same = cached is not None and cached.fingerprint == fingerprint
-        if cached is not None and same and fresh:
-            cached.horizon.resolve_first(slots[0])
-            return cached
-        if cached is not None and not same and age is not None and timedelta(0) <= age < REPLAN_MIN_INTERVAL:
-            # Inputs jitter: keep the recent plan a little longer, but on the current slots.
-            if len(cached.horizon.slots) == len(slots):
+        recent = cached is not None and age is not None and timedelta(0) <= age
+        if recent and cached.structure == structure:
+            if cached.rates == rates and age <= PLAN_INTERVAL:
                 cached.horizon.resolve_first(slots[0])
                 return cached
-        started = perf_counter()
+            if age < REPLAN_MIN_INTERVAL:
+                cached.horizon.resolve_first(slots[0])
+                return cached
         horizon = Horizon(slots, battery, settings)
-        horizon.solve(soc, deadline_s=SOLVE_BUDGET_S)
-        cached = _Cached(horizon, fingerprint, now, round((perf_counter() - started) * 1000, 1))
+        elapsed = horizon.solve(soc, deadline_s=budget_s)
+        cached = _Cached(horizon, structure, rates, now, round(elapsed * 1000, 1))
         self._cache[key] = cached
         return cached
 
@@ -394,24 +405,29 @@ class PlannerShadow:
                             grid_charging=bool(inputs.grid_charging),
                             terminal_factor=inputs.terminal_factor,
                             min_benefit_ct=max(0.0, _number(inputs.min_benefit_ct) or 0.0))
+        started = perf_counter()
         try:
-            cached = self._horizon("main", now, slots, battery, settings, soc)
+            cached = self._horizon("main", now, slots, battery, settings, soc, SOLVE_BUDGET_S)
             result, baseline = cached.horizon.recommend(soc)
             grid_check = None
             if (inputs.grid_check_quantile in QUANTILES and inputs.grid_check_quantile != inputs.quantile
                     and result.steps and result.first.grid_charge_kwh > 0):
                 alternative = build_slots(now, periods, inputs.pv_hourly, inputs.grid_check_quantile,
                                           inputs.load_hours, fallback_load)
-                if len(alternative) == len(slots):
-                    check_plan, _ = self._horizon("check", now, alternative, battery, settings, soc).horizon.recommend(soc)
-                    if check_plan.steps and check_plan.first.grid_charge_kwh <= 0:
-                        result, grid_check = check_plan, f"blocked_by_{inputs.grid_check_quantile}"
-                    else:
-                        grid_check = f"confirmed_by_{inputs.grid_check_quantile}"
+                if len(alternative) != len(slots):
+                    # Fail closed: grid charging was promised only with the check's confirmation.
+                    return {**out, "status": "data_missing",
+                            "detail": f"grid_check_{inputs.grid_check_quantile}_missing"}
+                remaining = max(0.0, SOLVE_BUDGET_S - (perf_counter() - started))
+                check_plan, _ = self._horizon("check", now, alternative, battery, settings, soc,
+                                              remaining).horizon.recommend(soc)
+                if check_plan.steps and check_plan.first.grid_charge_kwh <= 0:
+                    result, grid_check = check_plan, f"blocked_by_{inputs.grid_check_quantile}"
                 else:
-                    grid_check = "unavailable"
+                    grid_check = f"confirmed_by_{inputs.grid_check_quantile}"
         except PlannerBudgetError:
             self._cache.pop("main", None)
+            self._cache.pop("check", None)
             return {**out, "status": "data_missing", "detail": "budget_exceeded"}
         if not result.steps:
             return {**out, "status": "data_missing", "detail": "no_plan"}
@@ -495,7 +511,18 @@ def _pv_rows(pv_hourly: Mapping[datetime, tuple[float | None, float | None]], ho
         index = int((stamp - first).total_seconds() // 3600)
         p10[index] = None if a is None else int(round(a * 1000))
         p50[index] = None if b is None else int(round(b * 1000))
-    return {"from": int(first.timestamp()), "p10": p10, "p50": p50}
+    return {"from": int(first.timestamp()), "p10": _pack(p10), "p50": _pack(p50)}
+
+
+def _pack(values: Sequence[Any]) -> str:
+    """Comma-joined values, empty for ``None``: one JSON string instead of one line per number."""
+    return ",".join("" if v is None else str(v) for v in values)
+
+
+def _unpack(text: Any, cast) -> list[Any]:
+    if not isinstance(text, str):
+        raise TypeError("packed list expected")
+    return [None if item == "" else cast(item) for item in text.split(",")] if text else []
 
 
 def _pv_unchanged(last: Any, new: Mapping[str, Any]) -> bool:
@@ -506,7 +533,7 @@ def _pv_unchanged(last: Any, new: Mapping[str, Any]) -> bool:
     if offset < 0 or (new["from"] - last["from"]) % 3600:
         return False
     for key in ("p10", "p50"):
-        if last[key][offset:] != new[key]:
+        if _unpack(last[key], int)[offset:] != _unpack(new[key], int):
             return False
     return True
 
@@ -525,7 +552,7 @@ def _price_segments(periods: Sequence[tuple[datetime, datetime, float]]) -> list
             segments[-1][3] = end
         else:
             segments.append([int(start.timestamp()), seconds, [round(price, 3)], end])
-    return [segment[:3] for segment in segments]
+    return [[start, seconds, _pack(values)] for start, seconds, values, _end in segments]
 
 
 def history_pv(entry: Mapping[str, Any]) -> PvHours:
@@ -535,7 +562,7 @@ def history_pv(entry: Mapping[str, Any]) -> PvHours:
         return {}
     first = datetime.fromtimestamp(rows["from"], UTC)
     out: PvHours = {}
-    for index, (a, b) in enumerate(zip(rows["p10"], rows["p50"], strict=True)):
+    for index, (a, b) in enumerate(zip(_unpack(rows["p10"], int), _unpack(rows["p50"], int), strict=True)):
         if a is None and b is None:
             continue
         out[first + timedelta(hours=index)] = (None if a is None else a / 1000, None if b is None else b / 1000)
@@ -547,7 +574,7 @@ def history_prices(entry: Mapping[str, Any]) -> list[tuple[datetime, datetime, f
     periods = []
     for start, seconds, values in entry.get("price") or []:
         cursor = datetime.fromtimestamp(start, UTC)
-        for value in values:
+        for value in _unpack(values, float):
             periods.append((cursor, cursor + timedelta(seconds=seconds), value))
             cursor += timedelta(seconds=seconds)
     return periods
@@ -583,7 +610,8 @@ class ForecastHistory:
             return
         kept = []
         for entry in entries:
-            if not isinstance(entry, Mapping) or not isinstance(entry.get("t"), int):
+            stamp = entry.get("t") if isinstance(entry, Mapping) else None
+            if not isinstance(stamp, int) or isinstance(stamp, bool) or not HISTORY_MIN_STAMP <= stamp <= HISTORY_MAX_STAMP:
                 continue
             try:
                 history_pv(entry)
@@ -610,7 +638,10 @@ class ForecastHistory:
         """Add what changed since the last snapshot; returns True when something was added."""
         hour = _hour(now)
         stamp = int(hour.timestamp())
-        if self.entries and self.entries[-1]["t"] >= stamp:
+        if self.entries and self.entries[-1]["t"] > stamp:
+            # Entries from the future (clock jump, foreign file) must not block recording.
+            self.entries = [item for item in self.entries if item["t"] <= stamp]
+        if self.entries and self.entries[-1]["t"] == stamp:
             return False
         entry: dict[str, Any] = {"t": stamp}
         pv = _pv_rows(pv_hourly, hour)

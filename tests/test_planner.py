@@ -145,6 +145,20 @@ def test_no_discharge_without_soc_decrease_at_minsoc():
     assert all(step.soc_after == pytest.approx(5.0) for step in result.steps)
 
 
+def test_standing_still_survives_action_thinning():
+    # Review reproduction: a small battery with many grid moves thins the action list;
+    # the zero action must remain, otherwise a full-power deficit has no plan at all.
+    battery = Battery(5.0, 5, 95, 3000, 8000)
+    slots = hourly([25.0] * 36, load=[3.02] * 36)
+    result = plan(slots, battery, Settings(feed_in_ct=10, grid_charging=False), 5.0)
+    assert len(result.steps) == 36 and sum(step.discharge_kwh for step in result.steps) == 0
+    for actions in Horizon(slots, battery, Settings()).actions:
+        assert any(a.charge_kwh == 0 and a.discharge_kwh == 0 for a in actions)
+    # Flat prices: nothing to gain from buying, so no grid purchase at all.
+    flat = plan(hourly([25.0] * 36, load=[0.5] * 36), battery, Settings(feed_in_ct=10), 5.0)
+    assert sum(step.grid_charge_kwh for step in flat.steps) == 0
+
+
 def test_terminal_credit_never_buys_grid_energy_for_itself():
     battery = Battery(12.8, 5, 95, 3000, 8000)
     settings = Settings(feed_in_ct=8, wear_ct_kwh=0, terminal="value", terminal_factor=1.0)
@@ -372,6 +386,30 @@ def test_cached_plan_stays_consistent_with_the_shrinking_first_slot():
     assert second["horizon_hours"] == pytest.approx(first["horizon_hours"] - 0.15, abs=1e-6)
 
 
+def test_changed_limits_and_settings_invalidate_the_cache_at_once():
+    now, pv = day_context(6, {11: (0.6, 2.5), 12: (0.8, 3.0), 13: (0.8, 3.0)})
+    shadow = PlannerShadow()
+    first = shadow.evaluate(now, TZ, inputs(now, pv))
+    assert first["verdict"] == GRID_CHARGE
+    later = now + timedelta(seconds=30)
+    no_grid = shadow.evaluate(later, TZ, inputs(later, pv, grid_charging=False))
+    assert no_grid["status"] == "ready" and no_grid["grid_charge_w"] == 0 and no_grid["planned_at"] != first["planned_at"]
+    capped = shadow.evaluate(later + timedelta(seconds=30), TZ, inputs(later, pv, max_charge_w=0))
+    assert capped["status"] == "ready" and capped["grid_charge_w"] == 0 and capped["planned_charge_w"] == 0
+    smaller = shadow.evaluate(later + timedelta(seconds=60), TZ, inputs(later, pv, maxsoc=30))
+    assert max(smaller["soc_target_next_hours"]) <= 30
+
+
+def test_grid_check_fails_closed_when_the_check_quantile_is_missing():
+    now, pv = day_context(6, {11: (0.6, None), 12: (0.8, None), 13: (0.8, None)})
+    pv = {hour: (a, None) for hour, (a, b) in pv.items()}
+    plain = PlannerShadow().evaluate(now, TZ, inputs(now, pv))
+    assert plain["verdict"] == GRID_CHARGE
+    checked = PlannerShadow().evaluate(now, TZ, inputs(now, pv, grid_check_quantile="p50"))
+    assert checked["status"] == "data_missing" and checked["detail"] == "grid_check_p50_missing"
+    assert "verdict" not in checked
+
+
 def test_tomorrow_only_prices_never_become_todays_recommendation():
     now, pv = day_context(6, {12: (1.0, 2.0)})
     tomorrow_only = PlannerInputs(**{**inputs(now, pv).__dict__,
@@ -446,8 +484,15 @@ def test_forecast_history_roundtrip_keeps_gaps_and_mixed_price_grids():
     assert restored.entries == history.entries and restored.error is None
     restored.restore({"version": 1, "entries": []})
     assert restored.entries == [] and restored.error == "unsupported_format"
-    restored.restore({"version": 2, "entries": [{"t": "garbage"}, 3, {"t": 5, "pv": {"from": 0}}, entry]})
+    restored.restore({"version": 2, "entries": [{"t": "garbage"}, 3, {"t": 5, "pv": {"from": 0}}, entry,
+                                                {"t": 10**30}, {"t": True}]})
     assert restored.entries == [entry]
+    assert restored.summary()["entries"] == 1
+    # A future stamp must not block recording.
+    future = {"t": int((now + timedelta(days=3)).timestamp())}
+    restored.restore({"version": 2, "entries": [entry, future]})
+    assert restored.record(now + timedelta(hours=1), {now + timedelta(hours=1): (3.0, 3.0)}, []) is True
+    assert all(item["t"] <= int((now + timedelta(hours=1)).timestamp()) for item in restored.entries)
 
 
 def test_forecast_history_only_records_changes_and_stays_small():
@@ -469,11 +514,12 @@ def test_forecast_history_only_records_changes_and_stays_small():
                 (at + timedelta(minutes=15 * i), at + timedelta(minutes=15 * (i + 1)), 20.0 + day) for i in range(192)]
             if history.record(at, pv, series):
                 writes += 1
-    size = len(json.dumps(history.snapshot(), separators=(",", ":")))
+    # The HA store writes an indented document with a hull; measure that format.
+    hull = {"version": 1, "minor_version": 1, "key": "opti_akku.entry.planner_history", "data": history.snapshot()}
+    size = len(json.dumps(hull, indent=2))
     per_day = writes / 61
     assert history.summary()["entries"] <= 61 * 14
-    print(f"history size {size} B, {per_day:.1f} saves/day")
+    print(f"history size {size} B (indented store format), {per_day:.1f} saves/day")
     assert size < 1_000_000, size
     assert per_day <= 14.5
-    # Daily write volume at one coalesced save per change: well under the review's 142 MB.
     assert size * per_day < 15_000_000

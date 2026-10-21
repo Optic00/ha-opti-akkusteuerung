@@ -523,9 +523,12 @@ Zum Auswerten nach einigen Wochen:
   gespeicherten kWh beimisst (Anteil am mittleren Preis, gedeckelt auf die
   Kosten einer Nachladung in der günstigsten Stunde).
 
-Die Rechnung läuft in einem Hintergrund-Thread mit Zeitbudget (1 s, danach
-`budget_exceeded`), höchstens alle zehn Minuten neu oder wenn Preise oder
-Prognose sich ändern; Lastrauschen unter 50 W löst keinen neuen Plan aus.
+Die Rechnung läuft in einem Hintergrund-Thread; das Lösen (Hauptplan plus
+Prüfplan der Variante B) hat zusammen ein Budget von 1 s, danach
+`budget_exceeded`. Aufbau der Slots und Auswertung des Plans liegen außerhalb
+(Millisekunden). Neu gerechnet wird höchstens alle zehn Minuten oder sofort,
+wenn Preise, Prognose, Batteriegrenzen oder Planer-Optionen sich ändern;
+reines Lastrauschen unter 50 W löst keinen neuen Plan aus.
 Solange die Entität deaktiviert ist, wird nichts gerechnet und nichts
 gespeichert.
 
@@ -536,8 +539,9 @@ Eintrag entsteht nur, wenn sich Prognose oder Preisreihe geändert haben
 (typisch ein Dutzend PV- und ein bis zwei Preis-Einträge am Tag); Zeitachsen
 sind explizit (Startstunde plus Index, Preissegmente mit Rasterlänge), Lücken
 bleiben erhalten. Gemessen im Test: 60 synthetische Tage mit 12 PV- und 2
-Preisänderungen täglich ergeben rund 450 kB; gespeichert wird gebündelt
-spätestens 15 min nach einer Änderung. Die Datei bleibt lokal und ist der
+Preisänderungen täglich ergeben rund 450 kB kompakt bzw. unter 1 MB im
+eingerückten Store-Format (Zahlenlisten sind als Strings kodiert); gespeichert
+wird gebündelt spätestens 15 min nach einer Änderung. Die Datei bleibt lokal und ist der
 Export für spätere Replays mit damals verfügbaren Prognosen; das Attribut
 `forecast_history` zeigt Umfang, Zeitraum und Lesefehler. Ein defekter
 Speicher stört weder Start noch Steuerung. Mit der Option
@@ -547,7 +551,10 @@ Entität geschrieben (Standard aus).
 Voraussetzung ist eine Solcast-Entität mit `detailedForecast` (halbstündlich)
 oder `detailedHourly`; für das Quantil P10 muss `pv_estimate10` enthalten
 sein, für den Median `pv_estimate`. Die Prognose muss die aktuelle Stunde
-abdecken und darf nicht älter als zwölf Stunden sein.
+abdecken; als Alter gilt die letzte Zustandsänderung der Entität (höchstens
+zwölf Stunden), was den tatsächlichen Abrufzeitpunkt bei Solcast nur
+annähert. Fehlt bei aktivem `grid_check_quantile` das Prüfquantil, gibt es
+keine Netzladeempfehlung (`grid_check_p50_missing`).
 
 Ohne Oberfläche einstellbar über die Optionen des Eintrags: `planner.wear_ct_kwh`
 (Zyklenkosten, 3 ct/kWh Entladung), `planner.terminal_factor` (0,8),

@@ -284,10 +284,11 @@ class Horizon:
                 cost = slot_cost(slot, charge, discharge, s)
                 candidates[key] = Action(delta, charge, discharge, cost, cost - early * min(charge, pv_charge_max))
 
+        add(0.0, 0.0)  # standing still is always possible, whatever the thinning below drops
         up = floor(charge_max * b.eta_charge / self.step_kwh + _EPS)
         down = floor(discharge_max / b.eta_discharge / self.step_kwh + _EPS)
         stride = max(1, ceil((up + down + 1) / MAX_ACTIONS))
-        for offset in range(-down, up + 1, stride):
+        for offset in [*range(-stride, -down - 1, -stride), *range(stride, up + 1, stride)]:
             charge = offset * self.step_kwh / b.eta_charge if offset > 0 else 0.0
             discharge = -offset * self.step_kwh * b.eta_discharge if offset < 0 else 0.0
             add(charge, discharge)
@@ -346,18 +347,23 @@ class Horizon:
             best[lo:hi + 1] = map(min, best[lo:hi + 1], candidate, strict=True)
         return best
 
-    def solve(self, start_soc: float, deadline_s: float | None = None) -> None:
-        """Fill ``values[t][i]`` = best cost from grid state ``i`` at slot ``t`` to the end."""
+    def solve(self, start_soc: float, deadline_s: float | None = None) -> float:
+        """Fill ``values[t][i]`` = best cost from grid state ``i`` at slot ``t`` to the end.
+
+        ``deadline_s`` is the budget for this solve; it is checked before and
+        after every stage, and the elapsed time is returned.
+        """
         started = perf_counter()
         self.start_position = self.position(start_soc)
         tables: list[list[float]] = [[]] * (len(self.slots) + 1)
         tables[-1] = self.terminal_values(self.start_position)
         for t in range(len(self.slots) - 1, -1, -1):
+            tables[t] = self._stage(t, tables[t + 1])
             if deadline_s is not None and perf_counter() - started > deadline_s:
                 self.values = []
                 raise PlannerBudgetError("deadline")
-            tables[t] = self._stage(t, tables[t + 1])
         self.values = tables
+        return perf_counter() - started
 
     def resolve_first(self, slot: Slot) -> None:
         """Replace the running first slot (shorter now) and redo only its stage."""

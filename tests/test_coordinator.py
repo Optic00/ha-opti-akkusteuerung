@@ -3484,7 +3484,7 @@ async def test_plan_shadow_records_hourly_forecast_history_in_its_own_store(coor
     history = data["attributes"]["sensor.opti_plan_shadow"]["forecast_history"]
     assert history["entries"] == 1
     saved = coordinator._planner_history.snapshot()
-    assert saved["entries"][0]["pv"]["p10"] == [1000, 1000, 1000] and saved["entries"][0]["pv"]["p50"] == [2000] * 3
+    assert saved["entries"][0]["pv"]["p10"] == "1000,1000,1000" and saved["entries"][0]["pv"]["p50"] == "2000,2000,2000"
     assert "planner_history" not in coordinator._stored_data()
 
 

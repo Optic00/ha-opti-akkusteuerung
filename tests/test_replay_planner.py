@@ -107,3 +107,52 @@ def test_cli_specs_build_planner_policies_and_report_shows_the_gap():
     report = render(results, {})
     assert "## Lücke zum Oracle" in report
     assert "| oracle | 0.00 |" in report
+
+
+def test_planned_partial_discharge_is_executed_through_the_setpoint():
+    # Review reproduction: a plan step with 0.2 kWh of a 0.5 kWh deficit must discharge 0.2 kWh.
+    from tools.replay import battery as battery_model
+    from tools.replay.planner_policies import _decision, planner
+
+    slot = planner.Slot(dt.datetime(2026, 1, 10, 18, tzinfo=TZ), 1.0, 40.0, 0.0, 0.5)
+    step = planner.Step(slot, 50.0, 48.0, 0.0, 0.2, 0.0, 0.3, 0.0, 0.12, planner.DYNAMIC, planner.ONLY_CHARGE,
+                        None, 200.0)
+    decision = _decision(step, "rh", "test", PARAMS)
+    assert decision.mode == "Akku Dynamisch" and decision.discharge_limit_w == pytest.approx(200.0)
+    quarter = battery_model.step(decision.mode, 50.0, 0.0, 0.125, 0.25, PARAMS,
+                                 decision.charge_limit_w, decision.discharge_limit_w)
+    assert quarter.discharge_kwh == pytest.approx(0.05) and quarter.import_kwh == pytest.approx(0.075)
+
+
+def test_harness_runs_without_home_assistant(tmp_path):
+    """``python -m tools.replay --help`` with a homeassistant package that cannot be imported."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    fake = tmp_path / "homeassistant"
+    fake.mkdir()
+    (fake / "__init__.py").write_text("raise ImportError('no Home Assistant in this environment')\n")
+    root = Path(__file__).resolve().parents[1]
+    code = ("import sys; sys.path[:0] = [sys.argv[1], sys.argv[2]]\n"
+            "import importlib\n"
+            "try:\n    import homeassistant\nexcept ImportError:\n    pass\nelse:\n    raise SystemExit('fake HA not active')\n"
+            "import tools.replay.planner_policies\n"
+            "from tools.replay.__main__ import main\n"
+            "try:\n    main(['--help'])\nexcept SystemExit as err:\n    raise SystemExit(0 if err.code in (0, None) else 3)\n")
+    result = subprocess.run([sys.executable, "-I", "-c", code, str(tmp_path), str(root)],
+                            capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stderr
+    assert "usage:" in result.stdout
+
+
+def test_variants_min_benefit_and_grid_check_change_decisions():
+    hours = winter_days(2)
+    strict = RecedingHorizonPolicy(hours, PLANT, PARAMS, min_benefit_ct=10_000)
+    run(strict, hours)
+    assert strict.summary()["min_benefit_fallbacks"] == strict.summary()["plans"] > 0
+    checked = RecedingHorizonPolicy(hours, PLANT, PARAMS, pv_trust=0.5, grid_check=True)
+    run(checked, hours)
+    assert checked.summary()["pv_trust"] == 0.5 and checked.summary()["grid_check"] is True
+    with pytest.raises(ValueError):
+        RecedingHorizonPolicy(hours, PLANT, PARAMS, pv_trust=0)

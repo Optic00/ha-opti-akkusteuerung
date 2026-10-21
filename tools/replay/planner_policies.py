@@ -32,12 +32,14 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from custom_components.opti_akku.planner import Battery, Horizon, Settings, Slot
-
 from .battery import DYNAMIC, BatteryParams
 from .policies import Decision, StepContext
+from .resources import load_planner_module
 from .simulate import TOMORROW_KNOWN_FROM_HOUR, _blocks, climatology, previous_month
 from .timeseries import Hour
+
+planner = load_planner_module()
+Battery, Horizon, Settings, Slot = planner.Battery, planner.Horizon, planner.Settings, planner.Slot
 
 
 def battery_of(params: BatteryParams) -> Battery:
@@ -72,16 +74,14 @@ def load_climatology(hours: list[Hour]) -> dict[tuple[int, int], list[float]]:
 
 
 def _decision(step: Any, policy: str, reason: str, params: BatteryParams) -> Decision:
-    """Execute the planned flows faithfully: the mode plus both power setpoints.
+    """Execute the planned flows faithfully: the executable mode plus both setpoints.
 
     The ladder vocabulary alone cannot express partial moves (charge a third
-    of the surplus, discharge half the deficit); the limits make the simulated
-    battery follow the plan instead of the mode's full flow.
+    of the surplus, discharge half the deficit); ``step.mode`` with the planned
+    powers makes the simulated battery follow the plan exactly.
     """
-    hours = step.slot.hours
-    charge = step.charge_kwh / hours * 1000 if step.charge_kwh > 0 else params.max_charge_w
-    discharge = step.discharge_kwh / hours * 1000 if step.discharge_kwh > 0 else None
-    return Decision(step.mode, policy, reason, charge, True, step.soc_after, discharge)
+    charge = step.charge_w if step.charge_w is not None else params.max_charge_w
+    return Decision(step.mode, policy, reason, charge, True, step.soc_after, step.discharge_w)
 
 
 @dataclass
@@ -139,10 +139,10 @@ class OraclePolicy:
         decision = None
         if entry is not None:
             horizon, t = entry
-            index = horizon.index(context.soc)
-            action = horizon.choose(t, index)
+            position = horizon.position(context.soc)
+            action = horizon.choose(t, position)
             if action is not None:
-                decision = _decision(horizon.step(t, index, action), "oracle", "perfekte Voraussicht", self.params)
+                decision = _decision(horizon.step(t, position, action), "oracle", "perfekte Voraussicht", self.params)
         if decision is None:
             self.missing_steps += 1
             decision = Decision(DYNAMIC, "oracle_missing", "Stunde ohne Plan")
@@ -172,6 +172,12 @@ class RecedingHorizonPolicy:
     wear_ct: float = 3.0
     terminal_factor: float = 0.8
     soc_step: float = 0.5
+    # Robustness variants: A = minimum expected advantage over self-consumption
+    # per plan (ct), B = plan on PV x pv_trust and allow grid charging only if
+    # the plan on the full forecast charges from the grid as well.
+    min_benefit_ct: float = 0.0
+    pv_trust: float = 1.0
+    grid_check: bool = False
     name: str = "rh"
 
     def __post_init__(self) -> None:
@@ -184,7 +190,10 @@ class RecedingHorizonPolicy:
         self.battery = battery_of(self.params)
         self.settings = Settings(feed_in_ct=float(self.plant.get("feed_in_ct", 0)), wear_ct_kwh=self.wear_ct,
                                  grid_charging=bool(self.plant.get("grid_precharge", True)),
-                                 terminal="value", terminal_factor=self.terminal_factor, soc_step=self.soc_step)
+                                 terminal="value", terminal_factor=self.terminal_factor, soc_step=self.soc_step,
+                                 min_benefit_ct=self.min_benefit_ct)
+        if not 0 < self.pv_trust <= 1:
+            raise ValueError("pv_trust must be within (0, 1]")
         self.pv_profiles = climatology(self.hours)
         self.load_profiles = load_climatology(self.hours)
         self.by_day: dict[dt.date, list[Hour]] = defaultdict(list)
@@ -198,6 +207,8 @@ class RecedingHorizonPolicy:
         self.steps = 0
         self.plans = 0
         self.fallback_steps = 0
+        self.min_benefit_fallbacks = 0
+        self.grid_checks_blocked = 0
         self.solve_seconds = 0.0
 
     def _profile(self, table: dict, key: tuple[int, int]) -> list[float]:
@@ -263,6 +274,26 @@ class RecedingHorizonPolicy:
                                       self._load(stamp, month_key, stamp.astimezone(tz).hour)))
         return slots
 
+    def _plan_step(self, slots: list[Slot], soc: float) -> Any:
+        """First step of the (trusted) plan, with variants A and B applied."""
+        trusted = [Slot(s.start, s.hours, s.price_ct, s.pv_kwh * self.pv_trust, s.load_kwh) for s in slots]
+        horizon = Horizon(trusted, self.battery, self.settings)
+        horizon.solve(soc)
+        self._horizon = horizon
+        chosen, _ = horizon.recommend(soc)
+        if chosen.source == "self_consumption":
+            self.min_benefit_fallbacks += 1
+        if not chosen.steps:
+            return None
+        if self.grid_check and self.pv_trust < 1 and chosen.first.grid_charge_kwh > 0:
+            full = Horizon(slots, self.battery, self.settings)
+            full.solve(soc)
+            check, _ = full.recommend(soc)
+            if check.steps and check.first.grid_charge_kwh <= 0:
+                self.grid_checks_blocked += 1
+                return check.first
+        return chosen.first
+
     def decide(self, context: StepContext) -> Decision:
         self.steps += 1
         key = _hour_key(context.now)
@@ -270,13 +301,12 @@ class RecedingHorizonPolicy:
             started = time.perf_counter()
             slots = self._slots(context)
             self._horizon = None
+            step = None
             if slots:
-                self._horizon = Horizon(slots, self.battery, self.settings)
-                self._horizon.solve(context.soc)
+                step = self._plan_step(slots, context.soc)
                 self.plans += 1
             self._plan_key = key
             self.solve_seconds += time.perf_counter() - started
-            step = self._horizon.first(context.soc) if self._horizon is not None else None
             self._held = (None if step is None
                           else _decision(step, "rh", f"Plan {self.forecast_mode}", self.params))
         if self._held is None:
@@ -293,5 +323,7 @@ class RecedingHorizonPolicy:
         return {"planner": "receding_horizon", "forecast_mode": self.forecast_mode, "load_mode": self.load_mode,
                 "pv_mode": self.pv_mode,
                 "wear_ct_kwh": self.wear_ct, "terminal_factor": self.terminal_factor, "soc_step": self.soc_step,
+                "min_benefit_ct": self.min_benefit_ct, "pv_trust": self.pv_trust, "grid_check": self.grid_check,
                 "steps": self.steps, "plans": self.plans, "fallback_steps": self.fallback_steps,
+                "min_benefit_fallbacks": self.min_benefit_fallbacks, "grid_checks_blocked": self.grid_checks_blocked,
                 "solve_seconds": round(self.solve_seconds, 1)}

@@ -67,9 +67,11 @@ def _gap_table(metrics: dict[str, dict[str, dict]], seasons: list[str]) -> list[
     if oracle is None and baseline is None:
         return []
     lines = ["## Lücke zum Oracle", "",
-             "Nettokosten je Policy minus Nettokosten des Oracles (perfekte Voraussicht, gleiche Anlagengrenzen);",
-             "negativ ist unmöglich bis auf Rundung. Vorteil ggü. Eigenverbrauch: Nettokosten von self_consumption",
-             "minus Nettokosten der Policy (positiv = Ersparnis).", ""]
+             "Nettokosten je Policy minus Nettokosten des Oracles (perfekte Voraussicht, gleiche Anlagengrenzen).",
+             "Der Oracle minimiert Nettokosten plus Verschleiß unter seiner Endbedingung; die Nettokosten allein",
+             "sind deshalb keine strikte Untergrenze, eine Policy kann sie um den Verschleißanteil unterbieten.",
+             "Vorteil ggü. Eigenverbrauch: Nettokosten von self_consumption minus Nettokosten der Policy",
+             "(positiv = Ersparnis).", ""]
     header = ["Policy"]
     for season in seasons:
         if oracle:
@@ -88,6 +90,34 @@ def _gap_table(metrics: dict[str, dict[str, dict]], seasons: list[str]) -> list[
                 ref = metrics[baseline].get(season, {}).get("net_cost_eur")
                 row.append(_fmt(round(ref - cost, 2)) if cost is not None and ref is not None else "-")
         lines.append("| " + " | ".join(row) + " |")
+    return lines + [""] + _robustness_table(metrics, seasons, baseline)
+
+
+BAD_DAY_EUR = 0.5
+
+
+def _robustness_table(metrics: dict[str, dict[str, dict]], seasons: list[str], baseline: str | None) -> list[str]:
+    """Net cost, wear, grid charge, end SoC and bad days (> 0.5 EUR worse than self-consumption)."""
+    lines = ["## Robustheit je Saison", "",
+             f"Schlechte Tage: Tage, an denen die Policy mehr als {BAD_DAY_EUR:.2f} EUR teurer war als Eigenverbrauch",
+             "(nur Tage mit Preis). Verschleiß = entladene kWh x --wear-ct, nur zur Bewertung.", ""]
+    header = ["Policy", "Saison", "Nettokosten EUR", "Verschleiß EUR", "Netzladung kWh", "SoC Ende %", "SoC Mittel %",
+              "schlechte Tage", "Tage"]
+    lines += ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    for policy, periods in metrics.items():
+        for season in seasons:
+            row = periods.get(season)
+            if row is None:
+                continue
+            bad, days = "-", "-"
+            if baseline and isinstance(row.get("daily_net_cost_eur"), dict):
+                reference = metrics[baseline].get(season, {}).get("daily_net_cost_eur", {})
+                common = [day for day in row["daily_net_cost_eur"] if day in reference]
+                bad = sum(1 for day in common if row["daily_net_cost_eur"][day] - reference[day] > BAD_DAY_EUR)
+                days = len(common)
+            lines.append("| " + " | ".join(str(item) for item in (
+                policy, season, _fmt(row.get("net_cost_eur")), _fmt(row.get("wear_cost_eur")),
+                _fmt(row.get("grid_charge_kwh")), _fmt(row.get("soc_end")), _fmt(row.get("mean_soc")), bad, days)) + " |")
     return lines + [""]
 
 

@@ -49,9 +49,15 @@ Policies:
 Planer-Parameter: `--wear-ct` (Zyklenkosten ct/kWh Entladung, Standard 3),
 `--terminal-factor` (Endwert-Anteil am mittleren Horizontpreis, Standard 0,8,
 gedeckelt auf die Nachladekosten der günstigsten Stunde), `--planner-step`
-(SoC-Raster in %, Standard 0,5). Der Bericht enthält unter „Lücke zum Oracle“
-die Nettokosten je Policy minus Oracle und den Vorteil gegenüber Eigenverbrauch
-je Saison.
+(SoC-Raster in %, Standard 0,5). Robustheitsvarianten für `rh`:
+`--min-benefit-ct X` (A: Plan nur, wenn sein erwarteter Vorteil gegenüber
+Eigenverbrauch über den Horizont X ct erreicht, sonst Eigenverbrauch),
+`--pv-trust F` mit `--grid-check` (B: Planung mit PV × F als Ersatz für P10, da
+der Harness keine Solcast-Quantile hat; Netzladen nur, wenn auch der Plan mit
+der vollen Prognose netzlädt). Der Bericht enthält unter „Lücke zum Oracle“ die
+Nettokosten je Policy minus Oracle, den Vorteil gegenüber Eigenverbrauch und
+unter „Robustheit“ Verschleiß (entladene kWh × `--wear-ct`), Netzladung,
+End-SoC und schlechte Tage (> 0,5 EUR teurer als Eigenverbrauch) je Saison.
 
 `mapping.json` ordnet Größen den Statistik-Entitäten zu (`change` für Zähler,
 `mean`/`min`/`max` für SoC und Preis; `pv_kwh` darf mehrere Zähler summieren,
@@ -132,14 +138,14 @@ Jeder Schritt erfüllt `pv + import + discharge = load + export + charge`.
 - Kein Modell für Wechselrichter-Abregelung, SMA-Settling nach Moduswechsel,
   Lade-/Entladekurven am Rand oder Temperaturderating.
 - Keine Netzlade-Preisunterscheidung über Netzentgelte hinaus (Preisreihe = Arbeitspreis).
-- Der Planer rechnet auf einem SoC-Raster (Standard 0,5 %); exakte Züge runden
-  den Zustand auf den nächsten Rasterpunkt. Der Plan kann dadurch je Stunde bis
-  zu einem halben Schritt Energie zu viel oder zu wenig buchen; ausgeführt werden
-  aber immer die echten Flüsse durch `battery.step`, und jede Entscheidung liest
-  die Tabellen mit dem simulierten SoC neu. Konservatives Runden (Laden ab-,
-  Entladen aufgerundet) wurde verworfen: es drängte den Plan systematisch zu
-  Teilzügen mit Netzrest (rund 27 EUR Verlust im Datensatz). `--planner-step 0.25`
-  zeigt die Empfindlichkeit.
+- Der Planer führt Werttabellen auf einem SoC-Raster (Standard 0,5 %), der
+  Zustand selbst ist exakt: jeder Zug bewegt genau die Energie seiner Flüsse,
+  Zwischenwerte werden linear interpoliert. Kein Zug liefert Energie ohne
+  SoC-Abnahme oder kassiert einen Endwert für nicht vorhandene Energie; die
+  einzige Näherung ist die Interpolation (bei konvexem Kostenverlauf leicht
+  pessimistisch). `--planner-step 0.25` zeigt die Empfindlichkeit.
+- Die Planer-Policies laden `planner.py` wie den Engine-Loader direkt per Pfad;
+  `python -m tools.replay --help` läuft ohne installiertes Home Assistant.
 - `rh` kennt keine Lastprognose aus der Integration; das Vormonatsmittel je Stunde
   ersetzt sie. Wärmepumpen- oder EV-Tage trifft das nicht.
 

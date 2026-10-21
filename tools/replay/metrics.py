@@ -103,7 +103,8 @@ def end_of_day_potential(
 
 
 class _Accumulator:
-    def __init__(self) -> None:
+    def __init__(self, feed_in_ct: float = 0.0) -> None:
+        self.feed_in_ct = feed_in_ct
         self.sums: dict[str, float] = defaultdict(float)
         self.mode_changes = 0
         self.error_steps = 0
@@ -116,6 +117,10 @@ class _Accumulator:
         self.day_decisions: dict[dt.date, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         self.day_modes: dict[dt.date, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         self.potential_days: dict[dt.date, dict[str, float]] = {}
+        self.day_net_cost: dict[dt.date, float] = defaultdict(float)
+        self.soc_end: float | None = None
+        self.soc_hours = 0.0
+        self.hours = 0.0
 
     def add(self, record: StepRecord, raw_free: float, grid_charge: float, mode_changed: bool, step_hours: float) -> None:
         s = self.sums
@@ -130,10 +135,15 @@ class _Accumulator:
         s["export_free_battery_raw_kwh"] += raw_free
         if record.soc_before > HIGH_SOC:
             s["hours_soc_above_85"] += step_hours
+        self.soc_end = record.soc_after
+        self.soc_hours += record.soc_before * step_hours
+        self.hours += step_hours
         if record.price_ct is not None:
             s["priced_import_kwh"] += record.import_kwh
             s["priced_export_kwh"] += record.export_kwh
             s["import_cost_eur"] += record.import_kwh * record.price_ct / 100
+            self.day_net_cost[record.ts_local.date()] += (
+                record.import_kwh * record.price_ct - record.export_kwh * self.feed_in_ct) / 100
         self.mode_changes += mode_changed
         self.error_steps += not record.engine_ok
         if raw_free > 0:
@@ -146,7 +156,7 @@ class _Accumulator:
             self.day_decisions[day][record.decision_id] += raw_free
             self.day_modes[day][record.mode] += raw_free
 
-    def result(self, capacity_kwh: float, feed_in_ct: float, top_n: int) -> dict[str, Any]:
+    def result(self, capacity_kwh: float, feed_in_ct: float, top_n: int, wear_ct_kwh: float = 0.0) -> dict[str, Any]:
         s = self.sums
         pv = s["pv_kwh"]
         revenue = s["priced_export_kwh"] * feed_in_ct / 100
@@ -175,6 +185,10 @@ class _Accumulator:
             "import_cost_eur": round(s["import_cost_eur"], 2),
             "feed_in_revenue_eur": round(revenue, 2),
             "net_cost_eur": round(s["import_cost_eur"] - revenue, 2),
+            "wear_cost_eur": round(s["discharge_kwh"] * wear_ct_kwh / 100, 2),
+            "soc_end": round(self.soc_end, 1) if self.soc_end is not None else None,
+            "mean_soc": round(self.soc_hours / self.hours, 1) if self.hours > 0 else None,
+            "daily_net_cost_eur": {day.isoformat(): round(value, 3) for day, value in sorted(self.day_net_cost.items())},
             "mode_changes": self.mode_changes,
             "engine_error_steps": self.error_steps,
             "raw_by_decision": _rounded(self.by_decision),
@@ -203,15 +217,16 @@ def _rounded(values: dict) -> dict:
 
 def summarize(
     records: list[StepRecord], *, params: BatteryParams, feed_in_ct: float,
-    step_hours: float = 0.25, top_n: int = 10,
+    step_hours: float = 0.25, top_n: int = 10, wear_ct_kwh: float = 0.0,
 ) -> dict[str, dict[str, Any]]:
     """Metrics keyed by period: ``gesamt``, each month, ``uebergang`` and ``winter``.
 
     Warm-up records after a measurement block restart are excluded from every
-    period and reported under ``warmup_steps`` of ``gesamt``.
+    period and reported under ``warmup_steps`` of ``gesamt``. ``wear_ct_kwh``
+    only prices the discharged energy for the report; it changes no flow.
     """
     counted = [record for record in records if not record.warmup]
-    accumulators: dict[str, _Accumulator] = defaultdict(_Accumulator)
+    accumulators: dict[str, _Accumulator] = defaultdict(lambda: _Accumulator(feed_in_ct))
     previous_mode = None
     charge_cap_kwh = params.max_charge_w * step_hours / 1000
     for record in counted:
@@ -225,7 +240,7 @@ def summarize(
         for key in period_keys(dt.datetime.combine(day, dt.time())):
             accumulators[key].potential_days[day] = values
     result = {
-        key: accumulator.result(params.capacity_kwh, feed_in_ct, top_n)
+        key: accumulator.result(params.capacity_kwh, feed_in_ct, top_n, wear_ct_kwh)
         for key, accumulator in sorted(accumulators.items())
     }
     if "gesamt" in result:

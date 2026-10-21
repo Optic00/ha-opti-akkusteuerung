@@ -11,6 +11,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENGINE_PATH = REPO_ROOT / "custom_components" / "opti_akku" / "engine.py"
+PLANNER_PATH = REPO_ROOT / "custom_components" / "opti_akku" / "planner.py"
 STRATEGY_RELATIVE = "custom_components/opti_akku/resources/strategy.json"
 
 
@@ -20,6 +21,18 @@ def load_engine_module():
     if name in sys.modules:
         return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, ENGINE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_planner_module():
+    """Import the pure planner core by path, without the integration package (no HA)."""
+    name = "opti_replay_planner"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, PLANNER_PATH)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)

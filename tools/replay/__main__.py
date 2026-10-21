@@ -63,6 +63,9 @@ def build_policy(spec: str, plant: dict, sun: SunModel, hours=None, params: Batt
         return RecedingHorizonPolicy(hours, plant, params, forecast_mode=mode,
                                      load_mode=planner.get("load_mode", "climatology"),
                                      pv_mode=planner.get("pv_mode", "forecast"),
+                                     min_benefit_ct=planner.get("min_benefit_ct", 0.0),
+                                     pv_trust=planner.get("pv_trust", 1.0),
+                                     grid_check=planner.get("grid_check", False),
                                      wear_ct=planner.get("wear_ct", 3.0),
                                      terminal_factor=planner.get("terminal_factor", 0.8),
                                      soc_step=planner.get("soc_step", 0.5), name=spec)
@@ -92,7 +95,8 @@ def _compare(args: argparse.Namespace) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     planner = {"wear_ct": args.wear_ct, "terminal_factor": args.terminal_factor, "soc_step": args.planner_step,
-               "load_mode": args.rh_load, "pv_mode": args.rh_pv}
+               "load_mode": args.rh_load, "pv_mode": args.rh_pv, "min_benefit_ct": args.min_benefit_ct,
+               "pv_trust": args.pv_trust, "grid_check": args.grid_check}
     all_metrics: dict[str, dict] = {}
     meta: dict[str, Any] = {
         "series": str(args.series), "hours": len(hours),
@@ -124,7 +128,7 @@ def _compare(args: argparse.Namespace) -> int:
         simulate.write_records(records, out_dir / f"records_{name}.csv")
         result = metrics_module.summarize(
             records, params=params, feed_in_ct=float(plant.get("feed_in_ct", 0)),
-            step_hours=1 / args.steps, top_n=args.top,
+            step_hours=1 / args.steps, top_n=args.top, wear_ct_kwh=args.wear_ct,
         )
         (out_dir / f"metrics_{name}.json").write_text(
             json.dumps({"policy": spec, "info": info, "periods": result, "meta": meta}, indent=2, default=str),
@@ -170,6 +174,12 @@ def _add_sim_arguments(parser: argparse.ArgumentParser) -> None:
                         help="rh: Lastprognose aus Vormonats-Klimatologie oder perfekt")
     parser.add_argument("--rh-pv", choices=("forecast", "perfect"), default="forecast",
                         help="rh: PV aus Harness-Prognose oder perfekt (Diagnose der Prognosefehler)")
+    parser.add_argument("--min-benefit-ct", type=float, default=0.0,
+                        help="rh Variante A: Plan nur, wenn erwarteter Vorteil je Plan >= ct, sonst Eigenverbrauch")
+    parser.add_argument("--pv-trust", type=float, default=1.0,
+                        help="rh Variante B: Planung mit PV x Faktor (Ersatz fuer P10, der Harness hat keine Quantile)")
+    parser.add_argument("--grid-check", action="store_true",
+                        help="rh Variante B: Netzladen nur, wenn auch der Plan mit voller PV-Prognose netzlaedt")
 
 
 def main(argv: list[str] | None = None) -> int:

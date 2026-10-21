@@ -20,6 +20,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import sun
 from homeassistant.util import dt as dt_util
 
@@ -51,6 +52,7 @@ from .plant import plant_entity_ids, plant_semantic_fingerprint
 from .load_profile import LoadProfile
 from .clipping import clipping_forecast
 from .negative_price_hold import NegativePriceHoldShadow, negative_price_hold_check
+from .planner_shadow import ForecastHistory, PlannerInputs, PlannerShadow, price_periods, pv_forecast_hourly
 from .demand import EV_SCOPE_VERSION, DemandForecast, pv_intervals, ev_profile_sources, ev_profile_scope, profile_house_value
 from .refill_comparison import RefillReserveComparison, refill_reserve_check
 from .demand_comparison import build_strategy_comparison, remaining_day_profile
@@ -89,11 +91,32 @@ def _build_metadata(engine: Any) -> dict:
         "sensor.opti_forecast_remaining_load_profile_kwh": {"name": "Verbrauchsprofil Resttag", "unit_of_measurement": "kWh", "state_class": "measurement"},
         "sensor.opti_clipping_forecast_kwh": {"name": "Erwartete Energie über AC-Grenze", "unit_of_measurement": "kWh", "state_class": "measurement"},
         "sensor.opti_negative_price_hold": {"name": "Schattenvergleich PV-Ladung bis Preisfenster"},
+        "sensor.opti_plan_shadow": {"name": "Schattenplaner Horizont"},
         "binary_sensor.opti_connection": {"name": "Verbindung", "device_class": "connectivity"},
         "binary_sensor.opti_block_violation": {"name": "Sperrverletzung", "device_class": "problem"},
         "binary_sensor.opti_write_stalled": {"name": "Schreibstillstand", "device_class": "problem"},
     })
     return metadata
+
+
+def _expected_load_hours(profile: Any) -> dict[str, float]:
+    """Peak load profile without its switching margin: the planner wants the expectation."""
+    if not isinstance(profile, dict) or not isinstance(profile.get("hours"), dict):
+        return {}
+    margin = 1 + (finite(profile.get("margin_percent")) or 0) / 100
+    methods = profile.get("methods") if isinstance(profile.get("methods"), dict) else {}
+    hours = {}
+    for key, value in profile["hours"].items():
+        number = finite(value)
+        if number is None:
+            continue
+        hours[key] = number / margin if "profile" in str(methods.get(key, "")) else number
+    return hours
+
+
+def _option_number(cfg: dict, key: str, default: float) -> float:
+    value = finite(cfg.get(key, default))
+    return default if value is None else value
 
 
 def _load_device_identity(connection: dict) -> dict:
@@ -170,6 +193,8 @@ def validate_setting(key: str, value: Any, current: dict) -> float | bool:
 
 
 PV_PEAK_DOWNSTREAM_DECISIONS = frozenset({"arbitrage_hold", "ev_preparation"})
+# Forecast snapshots are coalesced; a crash loses at most this much history.
+HISTORY_SAVE_DELAY = 900
 
 
 def pv_peak_release_applies(result, mode: str, manual_mode, strategy_enabled: bool) -> bool:
@@ -220,6 +245,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._precharge_comparison = PrechargeComparison()
         self._refill_comparison = RefillReserveComparison()
         self._negative_price_hold = NegativePriceHoldShadow()
+        self._planner = PlannerShadow()
+        self._planner_history = ForecastHistory()
         self._demand_forecast = DemandForecast()
         self._ev_preparation = EVPreparation()
         self._source_observation = SourceObservation()
@@ -253,6 +280,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_error: str | None = None
         self._unsubscribe_sources = None
         self._store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}", private=True)
+        # Forecast snapshots grow to a few hundred kB; keep them out of the settings store.
+        self._history_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.planner_history", private=True)
         self._measurements: dict = {}
         self._violation_since: float | None = None
         self._violation_mode: str | None = None
@@ -323,6 +352,14 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._precharge_comparison.restore(stored.get("precharge_comparison"))
         self._refill_comparison.restore(stored.get("refill_reserve_comparison"))
         self._negative_price_hold.restore(stored.get("negative_price_hold"))
+        self._planner.restore(stored.get("planner_shadow"))
+        try:
+            # Diagnosis only: a broken history must never block the integration.
+            self._planner_history.restore(await self._history_store.async_load())
+        except Exception as err:  # noqa: BLE001 - any store failure stays in the diagnosis
+            _LOGGER.warning("Planner forecast history unavailable: %s", type(err).__name__)
+            self._planner_history.restore(None)
+            self._planner_history.error = type(err).__name__
         self._demand_forecast.restore(stored.get("demand_forecast", {}))
         self._source_observation.restore(stored.get("source_observation", {}))
         previous_load_source = stored.get("load_source_fingerprint")
@@ -423,7 +460,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "engine": self._engine_snapshot, "operating_report": self._operating_report.snapshot(),
                 "precharge_comparison": self._precharge_comparison.snapshot(),
                 "refill_reserve_comparison": self._refill_comparison.snapshot(),
-                "negative_price_hold": self._negative_price_hold.snapshot(), "load_profile": self._load_profile.snapshot(),
+                "negative_price_hold": self._negative_price_hold.snapshot(),
+                "planner_shadow": self._planner.snapshot(), "load_profile": self._load_profile.snapshot(),
                 "score_load_profile": self._score_load_profile.snapshot(),
                 "load_source_fingerprint": self._load_source_fingerprint,
                 "score_load_fingerprint": self._score_load_fingerprint,
@@ -1183,6 +1221,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._refill_comparison.interrupt()
         self._update_negative_price_hold(
             data, now, (captured_options.get("sources", {}).get("forecast_today"), demand_sources.get("pv_today")))
+        await self._async_update_planner(data, now, captured_options, demand_sources)
         self._update_arbitrage_report(data, now, captured_options, arbitrage_hold, safety_reason)
         await self._async_update_observations(data, now, captured_options)
         self._store.async_delay_save(self._stored_data, 5)
@@ -1251,6 +1290,93 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._negative_price_hold.interrupt()
             check = {"status": "error", "observation_only": True, "controls_battery": False}
         states[key] = check.get("verdict", "unavailable") if check.get("status") == "ready" else "unavailable"
+        attributes[key] = check
+
+    def _planner_entity_enabled(self) -> bool:
+        """The shadow sensor is disabled by default; a disabled entity costs no CPU."""
+        registry = er.async_get(self.hass)
+        entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{self.entry.entry_id}_sensor.opti_plan_shadow")
+        entry = registry.async_get(entity_id) if entity_id else None
+        return entry is not None and entry.disabled_by is None
+
+    async def _async_update_planner(self, data, now, options, demand_sources):
+        """Shadow horizon planner; runs after the decision and never changes it.
+
+        The solve is CPU work in an executor thread with a time budget. With
+        the entity disabled nothing is computed and nothing is recorded unless
+        ``planner.history_always`` asks for the forecast history anyway.
+        """
+        key = "sensor.opti_plan_shadow"
+        states, attributes = data["states"], data["attributes"]
+        try:
+            settings = self.settings
+            cfg = options.get("planner") if isinstance(options.get("planner"), dict) else {}
+            enabled = self._planner_entity_enabled()
+            if not enabled and cfg.get("history_always") is not True:
+                self._planner.interrupt()
+                states[key] = "unknown"
+                attributes[key] = {"status": "disabled", "detail": "entity_disabled", "observation_only": True,
+                                   "controls_battery": False}
+                return
+            sources = options.get("sources", {})
+            pv_status, pv_hourly, periods = "no_forecast", {}, []
+            for today, tomorrow in ((sources.get("forecast_today"), sources.get("forecast_tomorrow")),
+                                    (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow"))):
+                entities = [self.hass.states.get(entity) for entity in (today, tomorrow) if entity]
+                pv_status, pv_hourly = pv_forecast_hourly(entities, now)
+                if pv_status == "ready":
+                    break
+            profile = attributes.get("sensor.opti_peak_load_profile") or {}
+            load_hours = _expected_load_hours(profile)
+            if load_hours:
+                load_source = "peak_load_profile"
+                fallback_load_w = finite(settings.get("input_number.opti_peak_verbrauch_kw")) or 0
+                fallback_load_w *= 1000
+            elif finite(states.get("sensor.opti_house_consumption_60min_w")) is not None:
+                load_source = "house_consumption_60min"
+                fallback_load_w = finite(states.get("sensor.opti_house_consumption_60min_w"))
+            else:
+                load_source = "fixed_setting"
+                fallback_load_w = (finite(settings.get("input_number.opti_peak_verbrauch_kw")) or 0) * 1000
+            inputs = PlannerInputs(
+                price_series=attributes.get("sensor.opti_price_series"),
+                pv_status=pv_status, pv_hourly=pv_hourly,
+                load_hours=load_hours if load_hours else None, load_source=load_source,
+                fallback_load_w=fallback_load_w,
+                soc=states.get("sensor.opti_soc"), capacity_kwh=states.get("sensor.opti_battery_capacity_kwh"),
+                minsoc=settings.get("input_number.minsoc"), maxsoc=settings.get("input_number.maxsoc"),
+                max_charge_w=settings.get("input_number.akkusteuerung_max_ladestaerke"),
+                max_discharge_w=settings.get("input_number.akkusteuerung_max_entladestaerke"),
+                feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
+                grid_charging=settings.get("input_boolean.opti_prognose_netzladen") is True,
+                ladder_mode=data.get("mode"),
+                quantile=cfg.get("quantile", "p10"),
+                wear_ct_kwh=_option_number(cfg, "wear_ct_kwh", 3.0),
+                terminal_factor=_option_number(cfg, "terminal_factor", 0.8),
+                min_benefit_ct=_option_number(cfg, "min_benefit_ct", 0.0),
+                grid_check_quantile=cfg.get("grid_check_quantile"),
+            )
+            if enabled:
+                check = await self.hass.async_add_executor_job(
+                    self._planner.evaluate, now, dt_util.DEFAULT_TIME_ZONE, inputs)
+                check["totals"] = self._planner.observe(now, dt_util.DEFAULT_TIME_ZONE, check)
+            else:
+                self._planner.interrupt()
+                check = {"status": "disabled", "detail": "entity_disabled", "observation_only": True,
+                         "controls_battery": False}
+            try:
+                periods = price_periods(inputs.price_series, now, dt_util.DEFAULT_TIME_ZONE)
+                if self._planner_history.record(now, pv_hourly, periods):
+                    self._history_store.async_delay_save(self._planner_history.snapshot, HISTORY_SAVE_DELAY)
+            except Exception as err:  # noqa: BLE001 - history is diagnosis only
+                _LOGGER.debug("Planner history not recorded: %s", type(err).__name__)
+                self._planner_history.error = type(err).__name__
+            check["forecast_history"] = self._planner_history.summary()
+        except Exception as err:  # Observation only; never affects the decision.
+            _LOGGER.debug("Planner shadow unavailable: %s", type(err).__name__)
+            self._planner.interrupt()
+            check = {"status": "error", "observation_only": True, "controls_battery": False}
+        states[key] = check.get("verdict", "unknown") if check.get("status") == "ready" else "unknown"
         attributes[key] = check
 
     def _update_arbitrage_report(self, data, now, options, arbitrage_hold, safety_reason):

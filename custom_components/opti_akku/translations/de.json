@@ -861,16 +861,59 @@
           "superseded": "Befehl durch neueren Stand ersetzt"
         },
         "state_attributes": {
-          "execution_basis": {"name": "Ausführungsgrundlage", "state": {"modbus_write_sequence": "Modbus-Schreibsequenz", "ha_service_and_entity_checks": "Home-Assistant-Dienste und Entitätsprüfung", "unknown": "Unbekannt"}},
-          "setpoint_readback": {"name": "Sollwert-Rücklesung", "state": {"not_supported": "Nicht unterstützt", "not_assessed": "Nicht geprüft", "partial": "Partiell", "pending": "Ausstehend"}},
-          "setpoint_readback_limitation": {"name": "Grenze der Rücklesung", "state": {"bms_and_setpoints_not_read_back": "BMS- und Sollwertregister werden nicht zurückgelesen", "tou_schedule_not_independently_read_back": "TOU-Zeitplan wird nicht unabhängig zurückgelesen", "unspecified": "Nicht angegeben"}},
-          "physical_effect": {"name": "Physische Wirkung", "state": {"not_verified": "Nicht nachgewiesen"}},
-          "block_observation": {"name": "Beobachtung der Richtungssperre", "state": {"not_assessed": "Nicht geprüft", "violation_observed": "Verletzung beobachtet"}},
-          "observed_battery_power_w": {"name": "Beobachtete Akkuleistung (W)"},
-          "battery_power_observed_at": {"name": "Akkuleistung beobachtet um"},
-          "observed_after_execution": {"name": "Beobachtung nach Adapterausführung"},
-          "execution_completed_at": {"name": "Letzte abgeschlossene Adapterausführung"},
-          "safe_phase_completed": {"name": "Konservative Phase abgeschlossen"}
+          "execution_basis": {
+            "name": "Ausführungsgrundlage",
+            "state": {
+              "modbus_write_sequence": "Modbus-Schreibsequenz",
+              "ha_service_and_entity_checks": "Home-Assistant-Dienste und Entitätsprüfung",
+              "unknown": "Unbekannt"
+            }
+          },
+          "setpoint_readback": {
+            "name": "Sollwert-Rücklesung",
+            "state": {
+              "not_supported": "Nicht unterstützt",
+              "not_assessed": "Nicht geprüft",
+              "partial": "Partiell",
+              "pending": "Ausstehend"
+            }
+          },
+          "setpoint_readback_limitation": {
+            "name": "Grenze der Rücklesung",
+            "state": {
+              "bms_and_setpoints_not_read_back": "BMS- und Sollwertregister werden nicht zurückgelesen",
+              "tou_schedule_not_independently_read_back": "TOU-Zeitplan wird nicht unabhängig zurückgelesen",
+              "unspecified": "Nicht angegeben"
+            }
+          },
+          "physical_effect": {
+            "name": "Physische Wirkung",
+            "state": {
+              "not_verified": "Nicht nachgewiesen"
+            }
+          },
+          "block_observation": {
+            "name": "Beobachtung der Richtungssperre",
+            "state": {
+              "not_assessed": "Nicht geprüft",
+              "violation_observed": "Verletzung beobachtet"
+            }
+          },
+          "observed_battery_power_w": {
+            "name": "Beobachtete Akkuleistung (W)"
+          },
+          "battery_power_observed_at": {
+            "name": "Akkuleistung beobachtet um"
+          },
+          "observed_after_execution": {
+            "name": "Beobachtung nach Adapterausführung"
+          },
+          "execution_completed_at": {
+            "name": "Letzte abgeschlossene Adapterausführung"
+          },
+          "safe_phase_completed": {
+            "name": "Konservative Phase abgeschlossen"
+          }
         }
       },
       "pause_pending": {
@@ -937,7 +980,9 @@
           "command_confirmation": {
             "name": "Befehlsstatus"
           },
-          "execution_completed_at": {"name": "Letzte abgeschlossene Adapterausführung"},
+          "execution_completed_at": {
+            "name": "Letzte abgeschlossene Adapterausführung"
+          },
           "last_confirmed_command_at": {
             "name": "Nicht belegt (Legacy-Feld)"
           },
@@ -1021,54 +1066,150 @@
       "arbitrage_estimate": {
         "name": "Arbitrage und Energierestwert",
         "state_attributes": {
-          "status": {"name": "Status"},
-          "minimum_high_price_ct_kwh": {"name": "Mindestens nötiger höherer Preis (ct/kWh)"},
-          "charge_price_ct_kwh": {"name": "Angenommener Ladepreis (ct/kWh)"},
-          "throughput_cost_ct_kwh": {"name": "Kosten je kWh Akkudurchsatz"},
-          "cycle_cost_floor_ct_kwh": {"name": "Zykluskosten und Marge (ct/kWh)"},
-          "degradation_value_eur": {"name": "Angesetzter Verschleißwert über Lebensdauer (EUR)"},
-          "battery_price_eur": {"name": "Akkuanteil am Kaufpreis (EUR)"},
-          "degradation_percent": {"name": "Angesetzter Wertverlust (%)"},
-          "cycles": {"name": "Angenommene Zyklen"},
-          "usable_capacity_kwh": {"name": "Nutzbare Kapazität (kWh)"},
-          "charge_efficiency": {"name": "Ladewirkungsgrad"},
-          "discharge_efficiency": {"name": "Entladewirkungsgrad"},
-          "margin_ct": {"name": "Zusätzliche Marge (ct/kWh)"},
-          "formula": {"name": "Formel"},
-          "terminal_value_status": {"name": "Status des Energierestwerts"},
-          "terminal_value_reason": {"name": "Grundlage des Energierestwerts"},
-          "terminal_value_horizon_end": {"name": "Ende des Prognosehorizonts"},
-          "terminal_value_window_hours": {"name": "Abgedeckte Prognosestunden"},
-          "terminal_value_forecast_coverage_percent": {"name": "Prognoseabdeckung (%)"},
-          "terminal_value_price_coverage_percent": {"name": "Preisabdeckung (%)"},
-          "terminal_value_residual_load_kwh": {"name": "Restlast im Horizont (kWh)"},
-          "terminal_value_valued_load_kwh": {"name": "Wirtschaftlich bewertete Restlast (kWh)"},
-          "terminal_value_ac_capacity_kwh": {"name": "Nutzbare AC-Akkuenergie (kWh)"},
-          "terminal_value_curve_knee_kwh": {"name": "Knickpunkt der Restwertkurve (kWh)"},
-          "terminal_value_first_marginal_ct_kwh": {"name": "Höchster Grenzwert (ct/kWh)"},
-          "terminal_value_full_marginal_ct_kwh": {"name": "Grenzwert bei vollem Akku (ct/kWh)"},
-          "terminal_value_full_battery_eur": {"name": "Wert des voll nutzbaren Akkus (EUR)"},
-          "terminal_value_current_ac_kwh": {"name": "Aktuell nutzbare AC-Energie (kWh)"},
-          "terminal_value_current_battery_eur": {"name": "Wert der aktuell gespeicherten Energie (EUR)"},
-          "terminal_value_current_marginal_ct_kwh": {"name": "Aktueller Grenzwert der Energie (ct/kWh)"},
-          "terminal_value_current_soc": {"name": "SoC der Restwertberechnung (%)"},
-          "terminal_value_battery_capacity_kwh": {"name": "Kapazität der Restwertberechnung (kWh)"},
-          "terminal_value_minimum_soc": {"name": "Min-SoC der Restwertberechnung (%)"},
-          "terminal_value_maximum_soc": {"name": "Max-SoC der Restwertberechnung (%)"},
-          "terminal_value_issued_at": {"name": "Zeitpunkt der Restwertberechnung"},
-          "terminal_value_method": {"name": "Restwertmethode"},
-          "terminal_value_controls_battery": {"name": "Restwert steuert den Akku"},
-          "hold_enabled": {"name": "Entladeschutz aktiviert"},
-          "hold_status": {"name": "Status des Entladeschutzes"},
-          "hold_current_net_ct_kwh": {"name": "Aktueller Energiewert nach Kosten (ct/kWh)"},
-          "hold_future_marginal_ct_kwh": {"name": "Späterer Grenzwert (ct/kWh)"},
-          "hold_advantage_ct_kwh": {"name": "Vorteil des Haltens (ct/kWh)"},
-          "hold_required_margin_ct_kwh": {"name": "Geforderte Marge (ct/kWh)"},
-          "hold_switch_threshold_ct_kwh": {"name": "Aktuelle Schaltschwelle (ct/kWh)"},
-          "hold_would_control_battery": {"name": "Würde den Akku steuern"},
-          "hold_controls_battery": {"name": "Entladeschutz steuert den Akku"},
-          "informational_only": {"name": "Nur Information"},
-          "controls_battery": {"name": "Steuert den Akku"}
+          "status": {
+            "name": "Status"
+          },
+          "minimum_high_price_ct_kwh": {
+            "name": "Mindestens nötiger höherer Preis (ct/kWh)"
+          },
+          "charge_price_ct_kwh": {
+            "name": "Angenommener Ladepreis (ct/kWh)"
+          },
+          "throughput_cost_ct_kwh": {
+            "name": "Kosten je kWh Akkudurchsatz"
+          },
+          "cycle_cost_floor_ct_kwh": {
+            "name": "Zykluskosten und Marge (ct/kWh)"
+          },
+          "degradation_value_eur": {
+            "name": "Angesetzter Verschleißwert über Lebensdauer (EUR)"
+          },
+          "battery_price_eur": {
+            "name": "Akkuanteil am Kaufpreis (EUR)"
+          },
+          "degradation_percent": {
+            "name": "Angesetzter Wertverlust (%)"
+          },
+          "cycles": {
+            "name": "Angenommene Zyklen"
+          },
+          "usable_capacity_kwh": {
+            "name": "Nutzbare Kapazität (kWh)"
+          },
+          "charge_efficiency": {
+            "name": "Ladewirkungsgrad"
+          },
+          "discharge_efficiency": {
+            "name": "Entladewirkungsgrad"
+          },
+          "margin_ct": {
+            "name": "Zusätzliche Marge (ct/kWh)"
+          },
+          "formula": {
+            "name": "Formel"
+          },
+          "terminal_value_status": {
+            "name": "Status des Energierestwerts"
+          },
+          "terminal_value_reason": {
+            "name": "Grundlage des Energierestwerts"
+          },
+          "terminal_value_horizon_end": {
+            "name": "Ende des Prognosehorizonts"
+          },
+          "terminal_value_window_hours": {
+            "name": "Abgedeckte Prognosestunden"
+          },
+          "terminal_value_forecast_coverage_percent": {
+            "name": "Prognoseabdeckung (%)"
+          },
+          "terminal_value_price_coverage_percent": {
+            "name": "Preisabdeckung (%)"
+          },
+          "terminal_value_residual_load_kwh": {
+            "name": "Restlast im Horizont (kWh)"
+          },
+          "terminal_value_valued_load_kwh": {
+            "name": "Wirtschaftlich bewertete Restlast (kWh)"
+          },
+          "terminal_value_ac_capacity_kwh": {
+            "name": "Nutzbare AC-Akkuenergie (kWh)"
+          },
+          "terminal_value_curve_knee_kwh": {
+            "name": "Knickpunkt der Restwertkurve (kWh)"
+          },
+          "terminal_value_first_marginal_ct_kwh": {
+            "name": "Höchster Grenzwert (ct/kWh)"
+          },
+          "terminal_value_full_marginal_ct_kwh": {
+            "name": "Grenzwert bei vollem Akku (ct/kWh)"
+          },
+          "terminal_value_full_battery_eur": {
+            "name": "Wert des voll nutzbaren Akkus (EUR)"
+          },
+          "terminal_value_current_ac_kwh": {
+            "name": "Aktuell nutzbare AC-Energie (kWh)"
+          },
+          "terminal_value_current_battery_eur": {
+            "name": "Wert der aktuell gespeicherten Energie (EUR)"
+          },
+          "terminal_value_current_marginal_ct_kwh": {
+            "name": "Aktueller Grenzwert der Energie (ct/kWh)"
+          },
+          "terminal_value_current_soc": {
+            "name": "SoC der Restwertberechnung (%)"
+          },
+          "terminal_value_battery_capacity_kwh": {
+            "name": "Kapazität der Restwertberechnung (kWh)"
+          },
+          "terminal_value_minimum_soc": {
+            "name": "Min-SoC der Restwertberechnung (%)"
+          },
+          "terminal_value_maximum_soc": {
+            "name": "Max-SoC der Restwertberechnung (%)"
+          },
+          "terminal_value_issued_at": {
+            "name": "Zeitpunkt der Restwertberechnung"
+          },
+          "terminal_value_method": {
+            "name": "Restwertmethode"
+          },
+          "terminal_value_controls_battery": {
+            "name": "Restwert steuert den Akku"
+          },
+          "hold_enabled": {
+            "name": "Entladeschutz aktiviert"
+          },
+          "hold_status": {
+            "name": "Status des Entladeschutzes"
+          },
+          "hold_current_net_ct_kwh": {
+            "name": "Aktueller Energiewert nach Kosten (ct/kWh)"
+          },
+          "hold_future_marginal_ct_kwh": {
+            "name": "Späterer Grenzwert (ct/kWh)"
+          },
+          "hold_advantage_ct_kwh": {
+            "name": "Vorteil des Haltens (ct/kWh)"
+          },
+          "hold_required_margin_ct_kwh": {
+            "name": "Geforderte Marge (ct/kWh)"
+          },
+          "hold_switch_threshold_ct_kwh": {
+            "name": "Aktuelle Schaltschwelle (ct/kWh)"
+          },
+          "hold_would_control_battery": {
+            "name": "Würde den Akku steuern"
+          },
+          "hold_controls_battery": {
+            "name": "Entladeschutz steuert den Akku"
+          },
+          "informational_only": {
+            "name": "Nur Information"
+          },
+          "controls_battery": {
+            "name": "Steuert den Akku"
+          }
         }
       },
       "source_observation": {
@@ -1107,6 +1248,16 @@
       },
       "last_write_values": {
         "name": "Letzte SMA-Steuerwerte"
+      },
+      "plan_shadow": {
+        "name": "Schattenplaner Horizont",
+        "state": {
+          "dynamisch": "Akku Dynamisch",
+          "pause": "Akku Pause",
+          "nur_laden": "Akku nur Laden",
+          "nur_entladen": "Akku nur Entladen",
+          "netzladen": "Akku Netzladen"
+        }
       }
     },
     "button": {

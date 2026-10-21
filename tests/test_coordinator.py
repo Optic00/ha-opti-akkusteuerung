@@ -3373,3 +3373,125 @@ async def test_daytime_peak_dynamic_never_forces_grid_charging(
     assert data["mode"] == mode
     params = coordinator.device.async_apply.await_args.args[1]
     assert params["min_charge_w"] == expected
+
+
+def enable_plan_shadow(hass, entry):
+    from homeassistant.helpers import entity_registry as er
+    er.async_get(hass).async_get_or_create(
+        "sensor", "opti_akku", f"{entry.entry_id}_sensor.opti_plan_shadow", config_entry=entry)
+
+
+async def test_plan_shadow_is_published_as_observation(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
+    data = await coordinator._async_update_data()
+    attrs = data["attributes"]["sensor.opti_plan_shadow"]
+    assert data["states"]["sensor.opti_plan_shadow"] == "unknown"
+    assert attrs["status"] == "data_missing" and attrs["controls_battery"] is False
+    assert "totals" in attrs and attrs["forecast_history"]["entries"] == 0
+    assert coordinator._stored_data()["planner_shadow"]["version"] == 1
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+async def test_plan_shadow_disabled_entity_computes_and_records_nothing(coordinator, hass, entry):
+    with patch("custom_components.opti_akku.coordinator.PlannerShadow.evaluate") as evaluate, \
+            patch.object(coordinator._planner_history, "record") as record:
+        data = await coordinator._async_update_data()
+    attrs = data["attributes"]["sensor.opti_plan_shadow"]
+    assert data["states"]["sensor.opti_plan_shadow"] == "unknown"
+    assert attrs["status"] == "disabled" and attrs["detail"] == "entity_disabled"
+    evaluate.assert_not_called()
+    record.assert_not_called()
+
+
+async def test_plan_shadow_history_always_records_without_the_entity(coordinator, hass, entry):
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "planner": {"history_always": True}})
+    with patch("custom_components.opti_akku.coordinator.PlannerShadow.evaluate") as evaluate, \
+            patch.object(coordinator._planner_history, "record", return_value=False) as record:
+        data = await coordinator._async_update_data()
+    assert data["attributes"]["sensor.opti_plan_shadow"]["status"] == "disabled"
+    evaluate.assert_not_called()
+    record.assert_called_once()
+
+
+async def test_plan_shadow_runs_the_solver_in_the_executor(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
+    calls = []
+    original = hass.async_add_executor_job
+
+    def spy(func, *args):
+        calls.append(getattr(func, "__name__", str(func)))
+        return original(func, *args)
+
+    with patch.object(hass, "async_add_executor_job", side_effect=spy):
+        await coordinator._async_update_data()
+    assert "evaluate" in calls
+
+
+async def test_history_store_failure_never_blocks_restore(hass, entry):
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    result = OptiCoordinator(hass, entry, device(), engine)
+    with patch.object(result._history_store, "async_load", side_effect=RuntimeError("disk")):
+        await result.async_restore()
+    assert result._planner_history.entries == [] and result._planner_history.error == "RuntimeError"
+    await result.async_stop()
+
+
+async def test_plan_shadow_receives_the_ladder_mode_and_settings(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
+    captured = {}
+
+    def fake_evaluate(self, now, timezone, inputs):
+        captured["inputs"] = inputs
+        return {"status": "ready", "verdict": "Akku Netzladen", "deviation": "planner_grid_charge",
+                "observation_only": True, "controls_battery": False}
+
+    with patch("custom_components.opti_akku.coordinator.PlannerShadow.evaluate", fake_evaluate):
+        data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_plan_shadow"] == "Akku Netzladen"
+    inputs = captured["inputs"]
+    assert inputs.ladder_mode == data["mode"] == "Akku Pause"
+    assert inputs.minsoc == coordinator.settings["input_number.minsoc"]
+    assert inputs.max_charge_w == coordinator.settings["input_number.akkusteuerung_max_ladestaerke"]
+    assert inputs.grid_charging is (coordinator.settings["input_boolean.opti_prognose_netzladen"] is True)
+    assert inputs.quantile == "p10" and inputs.load_source in ("house_consumption_60min", "fixed_setting")
+    assert inputs.pv_status == "no_forecast"
+
+
+async def test_plan_shadow_error_never_stops_the_update(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
+    with patch("custom_components.opti_akku.coordinator.PlannerShadow.evaluate",
+               side_effect=RuntimeError("boom")):
+        data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_plan_shadow"] == "unknown"
+    assert data["attributes"]["sensor.opti_plan_shadow"]["status"] == "error"
+    assert data["mode"] == "Akku Pause"
+
+
+async def test_plan_shadow_records_hourly_forecast_history_in_its_own_store(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
+    now = dt_util.utcnow()
+    start = now.replace(minute=0, second=0, microsecond=0)
+    detail = [{"period_start": (start + timedelta(minutes=30 * i)).isoformat(),
+               "pv_estimate": 2.0, "pv_estimate10": 1.0, "pv_estimate90": 3.0} for i in range(6)]
+    hass.states.async_set("sensor.solcast_demand", "40", {"detailedForecast": detail})
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "demand_forecast": {"enabled": True, "sources": {"pv_today": "sensor.solcast_demand"}}})
+    with patch.object(coordinator._history_store, "async_delay_save") as delay_save:
+        data = await coordinator._async_update_data()
+        assert delay_save.call_count == 1
+        await coordinator._async_update_data()
+        assert delay_save.call_count == 1  # one snapshot per hour
+    history = data["attributes"]["sensor.opti_plan_shadow"]["forecast_history"]
+    assert history["entries"] == 1
+    saved = coordinator._planner_history.snapshot()
+    assert saved["entries"][0]["pv"]["p10"] == "1000,1000,1000" and saved["entries"][0]["pv"]["p50"] == "2000,2000,2000"
+    assert "planner_history" not in coordinator._stored_data()
+
+
+def test_expected_load_hours_strips_the_profile_margin_only():
+    from custom_components.opti_akku.coordinator import _expected_load_hours
+    profile = {"hours": {"1": 1200.0, "2": 800.0, "3": "x"}, "margin_percent": 20,
+               "methods": {"1": "measured_profile", "2": "fixed_setting"}}
+    assert _expected_load_hours(profile) == {"1": 1000.0, "2": 800.0}
+    assert _expected_load_hours({"status": "disabled", "hours": {}}) == {}
+    assert _expected_load_hours(None) == {}

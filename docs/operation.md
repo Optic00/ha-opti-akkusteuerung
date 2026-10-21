@@ -483,6 +483,87 @@ Die `branch`-Attribute zeigen nur den aktuellen Stand unter
 der Text mit jedem Prozentpunkt SoC ändert. Ein eigenes Entscheidungsprotokoll
 gibt es nicht.
 
+## Planer im Schattenbetrieb
+
+**Opti Schattenplaner Horizont** (`sensor.opti_plan_shadow`, Diagnose,
+standardmäßig deaktiviert) rechnet alle paar Minuten einen Plan über die
+bekannten Strompreise (Rest heute, morgen sobald veröffentlicht, höchstens
+36 h): Wann aus dem Netz laden, wann entladen, wann halten, damit die Kosten
+aus Netzbezug, entgangener Einspeisung und Zyklen über den Horizont minimal
+werden. Eingaben sind SoC, Kapazität und Grenzen der Anlage, die Preisreihe,
+die Solcast-Intervallprognose (konservativ P10, nicht der Median; Idee aus
+Issue #155) und das stündliche Lastprofil der Peak-Reserve, ersatzweise der
+60-Minuten-Hausverbrauch oder der eingestellte Peak-Verbrauch.
+
+Der Planer **steuert nichts**. Er zeigt als Zustand den Modus, den er jetzt
+wählen würde, in der Sprache der Leiter (`Akku Netzladen`, `Akku nur Laden`,
+`Akku Dynamisch`, `Akku nur Entladen`, `Akku Pause`). Fehlen Daten, bleibt
+der Zustand `unknown` und das Attribut `detail` nennt den Grund
+(`price_series`, `pv_forecast_stale`, `horizon_short`, …). Die Attribute
+ändern sich mit jeder Auswertung und werden deshalb nicht aufgezeichnet; nur
+der Zustandsverlauf landet im Recorder.
+
+Zum Auswerten nach einigen Wochen:
+
+- `deviation` und `totals`: Sekunden je Abweichungsart heute (`today`) und
+  seit Beginn (`total`), zeitgewichtet. `planner_grid_charge` heißt: der
+  Planer würde aus dem Netz laden, die Leiter nicht; `planner_hold`: der
+  Planer würde Energie halten, wo die Leiter entlädt; `planner_discharge`
+  umgekehrt; `indifferent`: kein Modus könnte Energie bewegen (Akku leer oder
+  voll), zählt nicht als Abweichung. `today_disagreement_percent` fasst das
+  zusammen. `executable_mode` mit `planned_charge_w`/`planned_discharge_w`
+  ist der Zug, der den Planfluss exakt reproduziert (auch Teilflüsse); der
+  Zustand ist die gröbere Einordnung in die Leiter-Sprache.
+- `expected_saving_eur`: erwartete Ersparnis des Plans gegenüber reinem
+  Eigenverbrauch über den Horizont, mit denselben Prognosen. Das ist keine
+  Ersparnis gegenüber der Leiter; die lässt sich nur im Replay bestimmen.
+- `soc_target_next_hours`: geplanter SoC am Ende der nächsten zwölf Stunden,
+  `first_grid_charge`: Beginn der ersten geplanten Netzladung.
+- `terminal_ct_kwh`: Wert, den der Planer einer am Horizontende noch
+  gespeicherten kWh beimisst (Anteil am mittleren Preis, gedeckelt auf die
+  Kosten einer Nachladung in der günstigsten Stunde).
+
+Die Rechnung läuft in einem Hintergrund-Thread; das Lösen (Hauptplan plus
+Prüfplan der Variante B) hat zusammen ein Budget von 1 s, danach
+`budget_exceeded`. Aufbau der Slots und Auswertung des Plans liegen außerhalb
+(Millisekunden). Neu gerechnet wird höchstens alle zehn Minuten oder sofort,
+wenn Preise, Prognose, Batteriegrenzen oder Planer-Optionen sich ändern;
+reines Lastrauschen unter 50 W löst keinen neuen Plan aus.
+Solange die Entität deaktiviert ist, wird nichts gerechnet und nichts
+gespeichert.
+
+Die Integration speichert Schnappschüsse der PV-Prognose (P10 und Median je
+Stunde, so weit Solcast sie liefert) und der Preisreihe in
+`.storage/opti_akku.<eintrag>.planner_history`, rollierend für 60 Tage. Ein
+Eintrag entsteht nur, wenn sich Prognose oder Preisreihe geändert haben
+(typisch ein Dutzend PV- und ein bis zwei Preis-Einträge am Tag); Zeitachsen
+sind explizit (Startstunde plus Index, Preissegmente mit Rasterlänge), Lücken
+bleiben erhalten. Gemessen im Test: 60 synthetische Tage mit 12 PV- und 2
+Preisänderungen täglich ergeben rund 530 kB im
+eingerückten Store-Format (Zahlenlisten sind als Strings kodiert); gespeichert
+wird gebündelt spätestens 15 min nach einer Änderung. Die Datei bleibt lokal und ist der
+Export für spätere Replays mit damals verfügbaren Prognosen; das Attribut
+`forecast_history` zeigt Umfang, Zeitraum und Lesefehler. Ein defekter
+Speicher stört weder Start noch Steuerung. Mit der Option
+`planner.history_always: true` wird die Historie auch bei deaktivierter
+Entität geschrieben (Standard aus).
+
+Voraussetzung ist eine Solcast-Entität mit `detailedForecast` (halbstündlich)
+oder `detailedHourly`; für das Quantil P10 muss `pv_estimate10` enthalten
+sein, für den Median `pv_estimate`. Die Prognose muss die aktuelle Stunde
+abdecken; als Alter gilt die letzte Zustandsänderung der Entität (höchstens
+zwölf Stunden), was den tatsächlichen Abrufzeitpunkt bei Solcast nur
+annähert. Fehlt bei aktivem `grid_check_quantile` das Prüfquantil, gibt es
+keine Netzladeempfehlung (`grid_check_p50_missing`).
+
+Ohne Oberfläche einstellbar über die Optionen des Eintrags: `planner.wear_ct_kwh`
+(Zyklenkosten, 3 ct/kWh Entladung), `planner.terminal_factor` (0,8),
+`planner.quantile` (`p10`), `planner.min_benefit_ct` (Variante A: Plan nur,
+wenn sein erwarteter Vorteil gegenüber Eigenverbrauch über den Horizont diesen
+Betrag erreicht, sonst Eigenverbrauch; `plan_source` zeigt es) und
+`planner.grid_check_quantile` (Variante B, z. B. `p50`: Netzladen nur, wenn
+auch der Plan mit dem Median-PV netzlädt; `grid_check` zeigt das Ergebnis).
+
 ## Diagnose herunterladen
 
 Unter **Einstellungen -> Geräte & Dienste -> Opti Akku -> Drei-Punkte-Menü ->

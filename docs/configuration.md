@@ -145,6 +145,22 @@ das bei fehlenden Daten per `float(0)` weiter Null liefert oder immer verfügbar
 bleibt, ist dafür ungeeignet. Ein Zeittrigger, der lediglich denselben alten Wert
 neu veröffentlicht, ist ebenfalls kein Nachweis aktueller Gerätedaten.
 
+### Altersgrenze für Prognosen
+
+Unter **Erweitert** legt **Maximales Alter von Prognosen (Sekunden)** fest,
+wie alt eine zugeordnete PV-Prognose sein darf. Diese eine Grenze gilt für
+die Tagesprognosen heute/morgen, die Solcast-Intervalle des Bedarfsprofils,
+den Negativpreis-Schattenvergleich, die Clipping-Abschätzung und den
+Horizont-Planer; feste 6- oder 12-Stunden-Prüfungen gibt es nicht mehr.
+Standard für neue Einträge ist 43200 Sekunden (12 Stunden), weil der
+kostenlose Solcast-Tarif nur vier Abrufe pro Tag erlaubt und eine Prognose
+daher bis zum nächsten Abruf fast zwölf Stunden alt sein kann (#103).
+
+**Upgrade:** Ein bestehender Eintrag behält seinen gespeicherten Wert, in der
+Regel die bisherigen 21600 Sekunden. Wer die neue Vorgabe möchte, setzt den
+Wert unter **Erweitert** selbst auf 43200. Nur Einträge ohne gespeicherten
+Wert nutzen automatisch den neuen Standard.
+
 Bestehende Einstellungen ändern sich beim Update nicht. Eine Änderung dieser
 Gültigkeitsregel beginnt ein neues Verbrauchsprofil. Die gezielte Beta-6-Ausnahme
 für alte Nullwerte von Ausschlusslasten bleibt verfügbar; bei 0 ist sie nicht

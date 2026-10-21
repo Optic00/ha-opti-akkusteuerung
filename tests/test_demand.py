@@ -404,6 +404,24 @@ def test_enabling_ev_scope_drops_incompatible_cells_prior_and_accuracy():
     assert restored.previous[1] == 500
 
 
+def test_pv_intervals_default_age_is_twelve_hours_and_the_option_overrides_it():
+    """Issue #103: Solcast free plans refresh four times a day."""
+    rows = [{"period_start": NOW + timedelta(minutes=30 * i), "pv_estimate10": 1} for i in range(4)]
+    aged = state(1, "kWh", now=NOW - timedelta(seconds=30000), detailedForecast=rows)
+    assert pv_intervals({"sensor.pv": aged}, {"pv_today": "sensor.pv"}, NOW)
+    assert pv_intervals({"sensor.pv": aged}, {"pv_today": "sensor.pv"}, NOW, max_age=21600) == []
+    too_old = state(1, "kWh", now=NOW - timedelta(seconds=43201), detailedForecast=rows)
+    assert pv_intervals({"sensor.pv": too_old}, {"pv_today": "sensor.pv"}, NOW) == []
+
+
+def test_demand_forecast_passes_the_configured_forecast_age_to_pv_timing():
+    data, options, states = fixture()
+    states["sensor.pv"].last_reported = states["sensor.pv"].last_updated = NOW - timedelta(seconds=30000)
+    assert update(DemandForecast(), data, options, states)["status"] != "no_pv_timing"
+    options["forecast_max_age"] = 21600
+    assert update(DemandForecast(), data, options, states)["status"] == "no_pv_timing"
+
+
 def test_pv_intervals_fail_closed_on_invalid_or_conflicting_forecasts():
     invalid = state(1, "kWh", detailedForecast=[{"period_start": NOW}])
     assert pv_intervals({"sensor.pv": invalid}, {"pv_today": "sensor.pv"}, NOW) == []

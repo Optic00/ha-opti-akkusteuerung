@@ -51,6 +51,7 @@ from .sources import build_inputs, finite
 from .plant import plant_entity_ids, plant_semantic_fingerprint
 from .load_profile import LoadProfile
 from .clipping import clipping_forecast
+from .source_quality import DEFAULT_FORECAST_MAX_AGE
 from .negative_price_hold import NegativePriceHoldShadow, negative_price_hold_check
 from .planner_shadow import ForecastHistory, PlannerInputs, PlannerShadow, price_periods, pv_forecast_hourly
 from .demand import EV_SCOPE_VERSION, DemandForecast, pv_intervals, ev_profile_sources, ev_profile_scope, profile_house_value
@@ -911,7 +912,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     soc=states.get("sensor.opti_soc"),
                     capacity_kwh=states.get("sensor.opti_battery_capacity_kwh"),
                     maxsoc=self.settings.get("input_number.maxsoc"),
-                    max_age=captured_options.get("forecast_max_age", 21600),
+                    max_age=captured_options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE),
                 )
                 if clipping_attributes.get("status") not in ("no_forecast", "no_detail"):
                     break
@@ -1220,7 +1221,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Disabled time must not count under the last held verdict after re-enabling.
             self._refill_comparison.interrupt()
         self._update_negative_price_hold(
-            data, now, (captured_options.get("sources", {}).get("forecast_today"), demand_sources.get("pv_today")))
+            data, now, (captured_options.get("sources", {}).get("forecast_today"), demand_sources.get("pv_today")),
+            captured_options)
         await self._async_update_planner(data, now, captured_options, demand_sources)
         self._update_arbitrage_report(data, now, captured_options, arbitrage_hold, safety_reason)
         await self._async_update_observations(data, now, captured_options)
@@ -1254,15 +1256,17 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data["reserve_plan"] = {"status": "no_valid_plan"}
             data["operating_report"] = {"status": "error", "error_type": type(err).__name__}
 
-    def _update_negative_price_hold(self, data, now, forecast_entities):
+    def _update_negative_price_hold(self, data, now, forecast_entities, options):
         """Shadow check for #136; runs after the decision and never changes it."""
         key = "sensor.opti_negative_price_hold"
         states, attributes = data["states"], data["attributes"]
         try:
             # A daily-total forecast source has no intervals; try the demand Solcast source next.
             forecast_entity, pv_slots = None, []
+            max_age = options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE)
             for candidate in forecast_entities:
-                if candidate and (pv_slots := pv_intervals(self.hass.states, {"pv_today": candidate}, now)):
+                if candidate and (pv_slots := pv_intervals(self.hass.states, {"pv_today": candidate}, now,
+                                                           max_age=max_age)):
                     forecast_entity = candidate
                     break
             load = states.get("sensor.opti_house_consumption_60min_w")
@@ -1323,7 +1327,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for today, tomorrow in ((sources.get("forecast_today"), sources.get("forecast_tomorrow")),
                                     (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow"))):
                 entities = [self.hass.states.get(entity) for entity in (today, tomorrow) if entity]
-                pv_status, pv_hourly = pv_forecast_hourly(entities, now)
+                pv_status, pv_hourly = pv_forecast_hourly(
+                    entities, now, max_age=options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE))
                 if pv_status == "ready":
                     break
             profile = attributes.get("sensor.opti_peak_load_profile") or {}

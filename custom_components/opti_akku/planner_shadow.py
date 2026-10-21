@@ -21,6 +21,7 @@ from time import perf_counter
 from typing import Any
 
 from .arbitrage import _price_periods
+from .source_quality import DEFAULT_FORECAST_MAX_AGE
 from .planner import (
     DYNAMIC,
     GRID_CHARGE,
@@ -41,8 +42,9 @@ FORECAST_ATTRIBUTES = (("detailedForecast", timedelta(minutes=30)), ("detailedHo
 QUANTILE_KEYS = {"p10": "pv_estimate10", "p50": "pv_estimate"}
 QUANTILES = tuple(QUANTILE_KEYS)
 # The entity's last update is only a proxy for the fetch time; the forecast
-# must additionally cover the current hour.
-FORECAST_MAX_AGE = 12 * 3600
+# must additionally cover the current hour. The coordinator passes the
+# configured ``forecast_max_age`` option (#103).
+FORECAST_MAX_AGE = DEFAULT_FORECAST_MAX_AGE
 FORECAST_ROW_LIMIT = 100
 PLAN_INTERVAL = timedelta(minutes=10)
 REPLAN_MIN_INTERVAL = timedelta(minutes=2)

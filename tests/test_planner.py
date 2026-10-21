@@ -252,6 +252,14 @@ def test_pv_forecast_hourly_sums_half_hours_and_fails_closed():
     assert pv_forecast_hourly([state, other], now)[0] == "invalid"
 
 
+def test_pv_forecast_hourly_default_age_is_twelve_hours_and_the_option_overrides_it():
+    now = T0 + timedelta(hours=6)
+    aged = solcast(now, [(1.0, 2.0), (1.0, 2.0)], updated=now - timedelta(seconds=30000))
+    assert pv_forecast_hourly([aged], now)[0] == "ready"
+    assert pv_forecast_hourly([aged], now, max_age=21600)[0] == "stale"
+    assert pv_forecast_hourly([aged], now, max_age=0)[0] == "ready"
+
+
 def test_pv_forecast_accepts_hourly_rows_and_single_quantiles():
     now = T0 + timedelta(hours=6)
     hourly_state = solcast(now, [(1.0, None), (0.5, None)], updated=now, attribute="detailedHourly", minutes=60)

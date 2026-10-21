@@ -3467,6 +3467,32 @@ async def test_plan_shadow_error_never_stops_the_update(coordinator, hass, entry
     assert data["mode"] == "Akku Pause"
 
 
+@pytest.mark.parametrize("options,expected", [({}, 43200), ({"forecast_max_age": 21600}, 21600)])
+async def test_forecast_age_option_reaches_planner_negative_hold_and_clipping(coordinator, hass, entry, options, expected):
+    """Issue #103: one configured limit, no fixed 6 h or 12 h checks left behind."""
+    from custom_components.opti_akku.clipping import clipping_forecast
+    from custom_components.opti_akku.demand import pv_intervals
+    from custom_components.opti_akku.planner_shadow import pv_forecast_hourly
+    enable_plan_shadow(hass, entry)
+    now = dt_util.utcnow()
+    start = now.replace(minute=0, second=0, microsecond=0)
+    detail = [{"period_start": (start + timedelta(minutes=30 * i)).isoformat(),
+               "pv_estimate": 2.0, "pv_estimate10": 1.0, "pv_estimate90": 3.0} for i in range(6)]
+    hass.states.async_set("sensor.solcast_today", "40", {"detailedForecast": detail})
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, **options, "sources": {"forecast_today": "sensor.solcast_today"}})
+    coordinator.settings["input_number.akkusteuerung_wr_ac_ueberschuss_grenze"] = 9500
+    with patch("custom_components.opti_akku.coordinator.pv_forecast_hourly", wraps=pv_forecast_hourly) as hourly, \
+            patch("custom_components.opti_akku.coordinator.pv_intervals", wraps=pv_intervals) as intervals, \
+            patch("custom_components.opti_akku.coordinator.clipping_forecast", wraps=clipping_forecast) as clipping:
+        data = await coordinator._async_update_data()
+    assert data["attributes"]["sensor.opti_clipping_forecast_kwh"]["status"] == "ready"
+    assert data["attributes"]["sensor.opti_plan_shadow"].get("detail") != "pv_forecast_stale"
+    assert hourly.call_args.kwargs["max_age"] == expected
+    assert intervals.call_args.kwargs["max_age"] == expected
+    assert clipping.call_args.kwargs["max_age"] == expected
+
+
 async def test_plan_shadow_records_hourly_forecast_history_in_its_own_store(coordinator, hass, entry):
     enable_plan_shadow(hass, entry)
     now = dt_util.utcnow()

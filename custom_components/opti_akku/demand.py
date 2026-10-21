@@ -10,7 +10,7 @@ from statistics import median
 from .load_profile import LoadProfile
 from .demand_accuracy import DemandAccuracy
 from .demand_history import HistoricalPrior, CONTEXT_KEYS
-from .source_quality import measurement_max_age, reported_recently
+from .source_quality import DEFAULT_FORECAST_MAX_AGE, measurement_max_age, reported_recently
 
 
 SOURCE_KEYS = (
@@ -157,8 +157,11 @@ def profile_house_value(data, options, states, now, *, house_key="sensor.opti_ho
     return house - ev_power, None
 
 
-def pv_intervals(states, sources, now):
-    """Solcast detailedForecast: dated half-hour mean power in kW (P10)."""
+def pv_intervals(states, sources, now, max_age=DEFAULT_FORECAST_MAX_AGE):
+    """Solcast detailedForecast: dated half-hour mean power in kW (P10).
+
+    ``max_age`` is the configured forecast age limit in seconds (#103).
+    """
     rows = {}
     for key in ("pv_today", "pv_tomorrow"):
         s = states.get(sources.get(key, ""))
@@ -167,7 +170,7 @@ def pv_intervals(states, sources, now):
         try:
             age = (now - instant(s.last_reported or s.last_updated)).total_seconds()
             detail = s.attributes.get("detailedForecast")
-            if not -60 <= age <= 21600 or not isinstance(detail, list) or len(detail) > 100:
+            if not -60 <= age <= max_age or not isinstance(detail, list) or len(detail) > 100:
                 continue
             for row in detail:
                 start = instant(row["period_start"])
@@ -403,7 +406,8 @@ class DemandForecast:
         if not sources.get("heat_power") and (heating is True or dhw is True):
             uplift = 0.0
         out["extra_base_load_w"] = round(uplift, 1)
-        slots = pv_intervals(states, sources, now)
+        slots = pv_intervals(states, sources, now,
+                             max_age=options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE))
         if not slots:
             return {**out, "status": "no_pv_timing"}
         fallback = number(settings.get("input_number.opti_peak_verbrauch_kw"))

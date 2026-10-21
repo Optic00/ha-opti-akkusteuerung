@@ -40,6 +40,8 @@ MESSAGES = {
 # that confirmed code counts, and only under the night/empty-battery conditions
 # checked below; any other code keeps raising the connection alert.
 SMA_STANDBY_STATUS_CODES: frozenset[int] = frozenset({16777213})
+# Largest PV or battery power (W) still consistent with an idle inverter.
+STANDBY_IDLE_W = 50.0
 
 
 def night_standby(data) -> bool:
@@ -57,6 +59,12 @@ def night_standby(data) -> bool:
         return False
     states = data.get("states", {})
     if not data.get("online", False) or not isinstance(states, Mapping) or states.get("sun.sun") != "below_horizon":
+        return False
+    # 16777213 only means "no information"; demand telemetry that fits an idle
+    # device (no PV, no battery flow) so a fault with the same code and any
+    # activity still alerts. Missing telemetry fails closed.
+    pv, battery = finite(states.get("sensor.opti_pv_generation_w")), finite(states.get("sensor.opti_battery_power_w"))
+    if pv is None or battery is None or pv > STANDBY_IDLE_W or abs(battery) > STANDBY_IDLE_W:
         return False
     if states.get("binary_sensor.opti_minsoc_schutz_aktiv") == "on":
         return True

@@ -630,6 +630,7 @@ def documented_standby(monkeypatch):
 def night_standby(**overrides):
     """SMA night standby with an empty battery (#103): not_ready, online, below horizon."""
     states = {"sun.sun": "below_horizon", "sensor.opti_soc": 8, "input_number.minsoc": 10,
+              "sensor.opti_pv_generation_w": 0, "sensor.opti_battery_power_w": 0,
               "binary_sensor.opti_minsoc_schutz_aktiv": "off"}
     states.update(overrides.pop("states", {}))
     kwargs = {"connection_status": {"status": "not_ready", "write_ready": False, "inverter_status": 4242},
@@ -670,6 +671,9 @@ async def test_night_standby_at_minsoc_is_informational_not_an_incident(hass, al
 @pytest.mark.parametrize("overrides", [
     {"states": {"sun.sun": "above_horizon"}},                                   # daylight
     {"states": {"sensor.opti_soc": 40}},                                         # battery not empty
+    {"states": {"sensor.opti_pv_generation_w": 300}},                            # device not idle: PV
+    {"states": {"sensor.opti_battery_power_w": -400}},                           # device not idle: charging
+    {"states": {"sensor.opti_battery_power_w": "unavailable"}},                  # telemetry missing
     {"states": {"sensor.opti_soc": "unavailable"}},                              # unknown SoC
     {"online": False, "connection_status": {"status": "offline", "inverter_status": None}},
     {"connection_status": {"status": "recovering", "inverter_status": 235}},

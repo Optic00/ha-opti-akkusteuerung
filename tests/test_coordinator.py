@@ -199,6 +199,8 @@ async def test_write_watchdog_pauses_only_in_a_documented_night_standby(coordina
     coordinator.settings["input_number.minsoc"] = 10
     coordinator.device.async_read.return_value["sensor.opti_soc"] = 8
     coordinator.device.async_read.return_value["sensor.opti_inverter_status"] = status
+    coordinator.device.async_read.return_value["sensor.opti_pv_generation_w"] = 0
+    coordinator.device.async_read.return_value["sensor.opti_battery_power_w"] = 0
     clock = [100.0]
     with patch("custom_components.opti_akku.coordinator.time.monotonic", side_effect=lambda: clock[0]):
         first = await coordinator._async_update_data()

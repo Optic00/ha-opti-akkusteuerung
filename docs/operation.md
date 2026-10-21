@@ -440,8 +440,11 @@ unbekanntem Sonnenstand oder weiteren Quellenfehlern gilt die Meldefrist von
 
 Meldet ein erreichbarer Wechselrichter nachts `not_ready` mit einem als
 Standby belegten Rohstatus, während der SoC bei oder unter MinSOC liegt oder
-der MinSOC-Schutz noch hält, ist das ein normaler Standby mit leerem Akku
-(#103), keine Störung. Es entstehen dann weder HA-Störmeldung noch Push, und
+der MinSOC-Schutz noch hält und weder PV noch Akku mehr als 50 W liefern,
+wertet Opti Akku das als Standby mit leerem Akku (#103), nicht als Störung.
+Sicher ist das nicht: Der Code bedeutet bei SMA nur „Information liegt nicht
+vor“. Ein Fehler, der denselben Code bei stillstehendem Gerät meldet, bliebe
+bis zum Sonnenaufgang oder bis zur nächsten Aktivität verdeckt. Es entstehen dann weder HA-Störmeldung noch Push, und
 der Schreib-Watchdog zählt diese Zeit nicht als Schreibstillstand. Der
 Diagnosesensor **Wechselrichter-Bereitschaft** bleibt auf `not_ready` und
 zeigt zusätzlich das Attribut `standby: night_empty` neben dem rohen

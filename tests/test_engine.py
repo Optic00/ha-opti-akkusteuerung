@@ -1675,9 +1675,11 @@ def test_restore_keeps_sub_second_timestamps_so_no_extra_sample_becomes_due():
     restored = StrategyEngine(resource)
     restored.restore(snapshot)
     after = restored.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), probe)
-    assert live.attributes[DAILY]["sample_count"] == 719
+    # Live and restored engines must agree exactly (count, gate, mean); with the
+    # raster tolerance both may take the 59.8 s sample, never only one of them.
     assert after.attributes[DAILY]["sample_count"] == live.attributes[DAILY]["sample_count"]
-    assert after.attributes[DAILY]["coverage_ok"] is live.attributes[DAILY]["coverage_ok"] is False
+    assert after.attributes[DAILY]["coverage_ok"] is live.attributes[DAILY]["coverage_ok"]
+    assert after.attributes[DAILY]["sample_coverage_ratio"] == live.attributes[DAILY]["sample_coverage_ratio"]
     assert after.states[DAILY] == live.states[DAILY]
 
 

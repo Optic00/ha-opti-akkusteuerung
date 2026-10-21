@@ -1683,6 +1683,29 @@ def test_restore_keeps_sub_second_timestamps_so_no_extra_sample_becomes_due():
     assert after.states[DAILY] == live.states[DAILY]
 
 
+@pytest.mark.parametrize("offset_us, probe_s", [(400400, 58.9998), (400000, 59.8), (999999, 59.0)])
+def test_restore_agrees_with_live_at_any_sub_second_offset(offset_us, probe_s):
+    """Rounding the persisted timestamps to any precision shifts the early-sample error, so none is allowed."""
+    resource = load_resources()
+    resource["template_blocks"] = []
+    resource["balancing_automations"] = []
+    engine = StrategyEngine(resource)
+    start = NOW - dt.timedelta(hours=12) + dt.timedelta(microseconds=offset_us)
+    last = start
+    for minute in range(719):
+        last = start + dt.timedelta(minutes=minute)
+        engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), last)
+    snapshot = json.loads(json.dumps(engine.snapshot()))
+    probe = last + dt.timedelta(seconds=probe_s)
+    live = engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), probe)
+    restored = StrategyEngine(resource)
+    restored.restore(snapshot)
+    after = restored.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), probe)
+    assert after.attributes[DAILY]["sample_count"] == live.attributes[DAILY]["sample_count"]
+    assert after.attributes[DAILY]["coverage_ok"] is live.attributes[DAILY]["coverage_ok"]
+    assert after.states[DAILY] == live.states[DAILY]
+
+
 @pytest.mark.parametrize("steps_per_hour", [7, 11])
 def test_fractional_raster_steps_do_not_lose_samples(steps_per_hour):
     """Replay cadences of 3600/n s carry float noise; the raster must not skip samples."""

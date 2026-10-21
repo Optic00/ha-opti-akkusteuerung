@@ -626,11 +626,11 @@ class StrategyEngine:
                 bucket[1] = max(bucket[1], timestamp)
                 bucket[2] += value
                 bucket[3] += 1
-        # Keep sub-second timestamps: rounding the last sample earlier would make
-        # the next raster sample due too early after a restore (one extra sample
-        # can flip the coverage gate at the edge).
+        # Persist timestamps and sums unrounded: any rounding of the last sample
+        # can make the next raster sample due early after a restore, and one
+        # extra sample flips the coverage gate at the edge.
         return [
-            [round(row[0], 3), round(row[1], 3), round(row[2], 3), int(row[3]), round(row[4], 3)]
+            [row[0], row[1], row[2], int(row[3]), row[4]]
             for _, row in sorted(buckets.items())
         ][-_MAX_BUCKETS:]
 

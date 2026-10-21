@@ -1599,10 +1599,12 @@ def test_daily_statistics_snapshot_stays_small_and_restores_mean_and_coverage():
     resource["template_blocks"] = []
     resource["balancing_automations"] = []
     engine = StrategyEngine(resource)
-    start = NOW - dt.timedelta(hours=25)
+    # Worst case for the JSON size: sub-second timestamps and fractional loads
+    # are persisted unrounded.
+    start = NOW - dt.timedelta(hours=25) + dt.timedelta(microseconds=999999)
     for minute in range(25 * 60 + 1):
-        engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500 + minute % 7,
-                                        "sensor.opti_forecast_house_instant_w": 300 + minute % 5,
+        engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500.37 + minute % 7,
+                                        "sensor.opti_forecast_house_instant_w": 300.21 + minute % 5,
                                         "input_boolean.opti_score_house_includes_ev": "on"}),
                         solar_attrs(), start + dt.timedelta(minutes=minute))
     snapshot = engine.snapshot()
@@ -1610,7 +1612,7 @@ def test_daily_statistics_snapshot_stays_small_and_restores_mean_and_coverage():
         assert entity not in snapshot["samples"]
         assert len(snapshot["buckets"][entity]) <= 26
     extra = json.dumps({key: snapshot["buckets"][key] for key in (DAILY, DAILY_EV)}, indent=2)
-    assert len(extra.encode()) < 5000  # was ~200 kB with 2 x 1440 raw minute samples (HA JSON formatting)
+    assert len(extra.encode()) < 8000  # was ~200 kB with 2 x 1440 raw minute samples (HA JSON formatting)
     assert len(json.dumps(snapshot["samples"]["sensor.opti_house_consumption_60min_w"])) < 2000
     before = engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), NOW)
     restored = StrategyEngine(resource)

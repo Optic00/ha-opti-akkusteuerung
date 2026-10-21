@@ -13,17 +13,19 @@ the battery never exports and every slot satisfies
 
 Discretisation: the state is the grid index above MinSOC. Grid actions move by
 whole steps. "Exact" actions (absorb the whole surplus, cover the whole deficit,
-full grid charge) use the true energy for the costs but round their state move
-conservatively (charging rounds down, discharging rounds up), so the programme
-can never create energy out of rounding. The plan therefore slightly
-understates what is achievable; it never overstates it.
+full grid charge) use the true energy for the costs and round their state move
+to the nearest grid point, so the plan is not biased towards partial moves
+that leave a remainder to the grid. The bookkeeping error is at most half a
+step per slot and never accumulates: every real decision is re-read from the
+tables with the measured SoC, and the costs that matter are those of the
+executed flows.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from math import ceil, floor, inf, isfinite
+from math import floor, inf, isfinite
 from typing import Any
 
 DYNAMIC = "Akku Dynamisch"
@@ -229,12 +231,12 @@ class Horizon:
             if _EPS < charge - pv_charge_max < grid_min:
                 continue
             add(offset, charge, discharge)
-        # Exact flows with a conservative state move (never creates energy).
+        # Exact flows with the state move rounded to the nearest grid point.
         for charge in (pv_charge_max, charge_max):
             if charge > _EPS and not _EPS < charge - pv_charge_max < grid_min:
-                add(floor(charge * b.eta_charge / self.step_kwh + _EPS), charge, 0.0)
+                add(int(round(charge * b.eta_charge / self.step_kwh)), charge, 0.0)
         if discharge_max > _EPS:
-            add(-ceil(discharge_max / b.eta_discharge / self.step_kwh - _EPS), 0.0, discharge_max)
+            add(-int(round(discharge_max / b.eta_discharge / self.step_kwh)), 0.0, discharge_max)
         return sorted(candidates.values(), key=lambda a: a.offset)
 
     def _terminal_ct(self) -> float:

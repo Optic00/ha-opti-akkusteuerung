@@ -56,6 +56,7 @@ class Decision:
     charge_limit_w: float | None = None
     ok: bool = True
     target_soc: float | None = None
+    discharge_limit_w: float | None = None  # only planner policies set it
 
 
 class SelfConsumptionPolicy:

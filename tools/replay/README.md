@@ -70,6 +70,9 @@ Einspeisevergütung, Spreads, Lade-/Entladeleistung und die Schalter
 | Akku Netzladen | laden mit `opti_charge_power_w` aus PV+Netz, Rest einspeisen | laden aus dem Netz |
 
 Verluste je Richtung 0,95 (`--eta`), SoC-Grenzen minsoc/maxsoc als harte Grenzen.
+Die Planer-Policies setzen zusätzlich Lade- und Entladeleistung je Schritt
+(`charge_limit_w`, `discharge_limit_w`), damit Teilzüge des Plans ausgeführt werden;
+die Engine-Policy kennt nur die Ladeleistung.
 Jeder Schritt erfüllt `pv + import + discharge = load + export + charge`.
 
 ## Annahmen (bewusst einfach, im Bericht sichtbar)
@@ -128,9 +131,13 @@ Jeder Schritt erfüllt `pv + import + discharge = load + export + charge`.
 - Kein Modell für Wechselrichter-Abregelung, SMA-Settling nach Moduswechsel,
   Lade-/Entladekurven am Rand oder Temperaturderating.
 - Keine Netzlade-Preisunterscheidung über Netzentgelte hinaus (Preisreihe = Arbeitspreis).
-- Der Planer rechnet auf einem SoC-Raster; exakte Züge runden den Zustand
-  konservativ (Laden ab-, Entladen aufgerundet), erzeugen also nie Energie.
-  Oracle und `rh` sind damit leicht unterschätzt, nie überschätzt. `--planner-step 0.1`
+- Der Planer rechnet auf einem SoC-Raster (Standard 0,5 %); exakte Züge runden
+  den Zustand auf den nächsten Rasterpunkt. Der Plan kann dadurch je Stunde bis
+  zu einem halben Schritt Energie zu viel oder zu wenig buchen; ausgeführt werden
+  aber immer die echten Flüsse durch `battery.step`, und jede Entscheidung liest
+  die Tabellen mit dem simulierten SoC neu. Konservatives Runden (Laden ab-,
+  Entladen aufgerundet) wurde verworfen: es drängte den Plan systematisch zu
+  Teilzügen mit Netzrest (rund 27 EUR Verlust im Datensatz). `--planner-step 0.25`
   zeigt die Empfindlichkeit.
 - `rh` kennt keine Lastprognose aus der Integration; das Vormonatsmittel je Stunde
   ersetzt sie. Wärmepumpen- oder EV-Tage trifft das nicht.

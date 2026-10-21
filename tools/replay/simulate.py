@@ -48,6 +48,7 @@ class StepRecord:
     target_soc: float | None
     engine_ok: bool
     warmup: bool = False
+    discharge_limit_w: float | None = None
 
 
 @dataclass
@@ -182,12 +183,14 @@ def run(
                     forecast_remaining_kwh=remaining,
                 )
                 decision: Decision = policy.decide(context)
-                flows = battery.step(decision.mode, soc, pv_kwh, load_kwh, step_h, params, decision.charge_limit_w)
+                flows = battery.step(decision.mode, soc, pv_kwh, load_kwh, step_h, params, decision.charge_limit_w,
+                                     decision.discharge_limit_w)
                 records.append(StepRecord(
                     now, policy.name, decision.mode, decision.decision_id, decision.reason,
                     pv_kwh, load_kwh, flows.charge_kwh, flows.discharge_kwh, flows.export_kwh, flows.import_kwh,
                     soc, flows.soc_after, hour.price_ct, decision.charge_limit_w, decision.target_soc, decision.ok,
                     warmup=block_number > 0 and now < warmup_until,
+                    discharge_limit_w=decision.discharge_limit_w,
                 ))
                 soc = flows.soc_after
                 factor = 1000 / step_h

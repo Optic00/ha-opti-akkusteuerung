@@ -69,8 +69,16 @@ def load_climatology(hours: list[Hour]) -> dict[tuple[int, int], list[float]]:
 
 
 def _decision(step: Any, policy: str, reason: str, params: BatteryParams) -> Decision:
-    limit = step.charge_limit_w if step.charge_limit_w is not None else params.max_charge_w
-    return Decision(step.mode, policy, reason, limit, True, step.soc_after)
+    """Execute the planned flows faithfully: the mode plus both power setpoints.
+
+    The ladder vocabulary alone cannot express partial moves (charge a third
+    of the surplus, discharge half the deficit); the limits make the simulated
+    battery follow the plan instead of the mode's full flow.
+    """
+    hours = step.slot.hours
+    charge = step.charge_kwh / hours * 1000 if step.charge_kwh > 0 else params.max_charge_w
+    discharge = step.discharge_kwh / hours * 1000 if step.discharge_kwh > 0 else None
+    return Decision(step.mode, policy, reason, charge, True, step.soc_after, discharge)
 
 
 @dataclass

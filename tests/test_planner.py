@@ -93,10 +93,10 @@ def test_physics_balance_limits_and_efficiency():
         assert step.charge_kwh <= 2.0 + 1e-9 and step.discharge_kwh <= 3.0 + 1e-9
         assert step.discharge_kwh <= max(0.0, s.load_kwh - s.pv_kwh) + 1e-9  # never exports
         assert 10 - 1e-9 <= step.soc_after <= 90 + 1e-9
-        # Stored energy never rises faster than charge x eta or falls slower than discharge / eta.
+        # Stored energy follows charge x eta and discharge / eta up to half a grid step.
         stored_change = (step.soc_after - step.soc_before) / 100 * battery.capacity_kwh
-        assert stored_change <= step.charge_kwh * 0.9 + 1e-9
-        assert -stored_change >= step.discharge_kwh / 0.8 - 1e-9 or step.discharge_kwh == 0
+        half_step = 0.5 / 100 / 2 * battery.capacity_kwh
+        assert abs(stored_change - (step.charge_kwh * 0.9 - step.discharge_kwh / 0.8)) <= half_step + 1e-9
     assert result.steps[2].charge_kwh > 0  # PV surplus is stored
     assert result.objective_eur <= baseline_cost(slots, battery, settings, 10) + 1e-9
 

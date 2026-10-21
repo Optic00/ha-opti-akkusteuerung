@@ -90,3 +90,13 @@ def test_unknown_mode_is_rejected():
 def test_params_from_plant_apply_overrides():
     params = BatteryParams.from_plant({"capacity_kwh": 12.8, "minsoc": 5, "maxsoc": 95}, eta_charge=0.9)
     assert params.max_charge_w == 3000 and params.eta_charge == 0.9 and params.eta_discharge == 0.95
+
+
+def test_discharge_limit_caps_discharging_like_the_setpoint():
+    full = step(battery.DYNAMIC, 50, pv_kwh=0.0, load_kwh=0.5, hours=0.25, params=PARAMS)
+    limited = step(battery.DYNAMIC, 50, pv_kwh=0.0, load_kwh=0.5, hours=0.25, params=PARAMS, discharge_limit_w=400)
+    assert full.discharge_kwh == pytest.approx(0.5)
+    assert limited.discharge_kwh == pytest.approx(0.1) and limited.import_kwh == pytest.approx(0.4)
+    assert balanced(limited, 0.0, 0.5)
+    assert step(battery.ONLY_DISCHARGE, 50, pv_kwh=0.0, load_kwh=0.5, hours=0.25, params=PARAMS,
+                discharge_limit_w=-5).discharge_kwh == 0

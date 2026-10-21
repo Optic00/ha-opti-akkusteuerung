@@ -333,6 +333,8 @@ class PlannerShadow:
             status="ready", verdict=step.mode, ladder_mode=inputs.ladder_mode,
             deviation=verdict,
             grid_charge_w=round(step.charge_limit_w) if step.charge_limit_w is not None else 0,
+            planned_charge_w=round(step.charge_kwh / step.slot.hours * 1000) if step.slot.hours > 0 else 0,
+            planned_discharge_w=round(step.discharge_kwh / step.slot.hours * 1000) if step.slot.hours > 0 else 0,
             planned_at=self._planned_at.isoformat() if self._planned_at else None,
             solve_ms=self._solve_ms,
             horizon_hours=round(horizon_hours, 2), slots=len(slots),

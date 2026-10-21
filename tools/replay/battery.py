@@ -57,11 +57,14 @@ def step(
     hours: float,
     params: BatteryParams,
     charge_limit_w: float | None = None,
+    discharge_limit_w: float | None = None,
 ) -> Flows:
     """Apply one step of ``hours`` duration in ``mode`` and return the flows.
 
     ``charge_limit_w`` is the strategy's charge power (``opti_charge_power_w``);
     it caps charging in Dynamisch, nur Laden and Netzladen like the adapter.
+    ``discharge_limit_w`` caps discharging the same way (the adapter's
+    discharge setpoint); the planner policies use it for partial moves.
     """
     if mode not in MODES:
         raise ValueError(f"Unknown mode: {mode}")
@@ -69,8 +72,10 @@ def step(
     room = max(0.0, params.maxsoc / 100 * params.capacity_kwh - stored)
     available = max(0.0, stored - params.minsoc / 100 * params.capacity_kwh)
     power_cap = params.max_charge_w if charge_limit_w is None else min(params.max_charge_w, max(0.0, charge_limit_w))
+    discharge_power = (params.max_discharge_w if discharge_limit_w is None
+                       else min(params.max_discharge_w, max(0.0, discharge_limit_w)))
     charge_cap = min(power_cap * hours / 1000, room / params.eta_charge)
-    discharge_cap = min(params.max_discharge_w * hours / 1000, available * params.eta_discharge)
+    discharge_cap = min(discharge_power * hours / 1000, available * params.eta_discharge)
     surplus = pv_kwh - load_kwh
     charge = discharge = 0.0
     if mode == GRID_CHARGE:

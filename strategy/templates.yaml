@@ -179,17 +179,28 @@ template_blocks:
     name: Opti Peak Horizont Lang
     icon: mdi:timer-sand
     state: |
-      {% set war_an = this is defined and this.state == 'on' %} {% set score = states('sensor.opti_forecast_score_sonnentag') | float(none) %} {% if score is none %}
+      {# Issue #124: nachts schwankt der Sonnentag-Score nur mit der Hauslast
+         (Prognose konstant). Ein vorhandener Horizont wird daher bei
+         sun.sun below_horizon nie abgeschaltet; die Hysterese greift erst
+         nach Sonnenaufgang. Ohne Vorzustand (Neueintrag, #125) bleibt die
+         bisherige Einstiegsregel. #}
+      {% set war_an = this is defined and this.state == 'on' %} {% set hat_vorzustand = this is defined and this.state in ['on', 'off'] %} {% set nacht = is_state('sun.sun', 'below_horizon') %} {% set score = states('sensor.opti_forecast_score_sonnentag') | float(none) %} {% if score is none %}
         {{ true }}
+      {% elif nacht and hat_vorzustand %}
+        {{ war_an or score <= 1 }}
       {% else %}
         {{ score <= 1 or (score < 3 and war_an) }}
       {% endif %}
     attributes:
       branch: |
-        {% set war_an = this is defined and this.state == 'on' %} {% set roh = states('sensor.opti_forecast_score_sonnentag') %} {% set score = roh | float(none) %} {% if score is none %}
+        {% set war_an = this is defined and this.state == 'on' %} {% set hat_vorzustand = this is defined and this.state in ['on', 'off'] %} {% set nacht = is_state('sun.sun', 'below_horizon') %} {% set roh = states('sensor.opti_forecast_score_sonnentag') %} {% set score = roh | float(none) %} {% if score is none %}
           Score={{ roh }} fehlt -> an (36 h)
+        {% elif nacht and hat_vorzustand and war_an %}
+          Score={{ roh }} -> Nacht: Vorzustand an gehalten (Hysterese erst nach Sonnenaufgang)
         {% elif score <= 1 %}
           Score={{ roh }} -> an (36 h, ein <= 1)
+        {% elif nacht and hat_vorzustand %}
+          Score={{ roh }} -> Nacht: Vorzustand aus gehalten (ein <= 1)
         {% elif score >= 3 %}
           Score={{ roh }} -> aus (Sonnenaufgang + Puffer, aus >= 3)
         {% else %}

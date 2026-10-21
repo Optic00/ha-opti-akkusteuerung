@@ -196,6 +196,12 @@ Score nicht verfügbar. Ohne EV-Option gilt weiterhin die bisherige Berechnung.
 `score_load_error`. Ein neuer Eintrag startet bei gültigem Score zwischen den
 Schaltschwellen mit kurzem Horizont; ein vorhandener langer Horizont bleibt
 in diesem Bereich erhalten. Ein fehlender Score wählt weiterhin 36 Stunden.
+Nachts (`sun.sun` unter dem Horizont) schwankt der Sonnentag-Score nur mit
+der Hauslast, die Prognose selbst ändert sich nicht. Ein bereits langer
+Horizont wird deshalb nachts nicht mehr abgeschaltet; ein kurzer wird nachts
+weiterhin nur bei Score ≤ 1 lang. Die Abschaltschwelle (Score ≥ 3) wirkt erst
+wieder nach Sonnenaufgang. Ein Neueintrag ohne Vorzustand startet nachts wie
+bisher.
 
 Für bereits als Peak klassifizierte Zeitfenster über 60 ct/kWh kommt ein
 zusätzlicher Extrempreispuffer hinzu. Er beträgt

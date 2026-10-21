@@ -278,6 +278,12 @@ def test_pv_forecast_hourly_counts_only_complete_hours():
     # An hourly row covers its hour on its own.
     hourly = solcast(now, [(1.0, 2.0)], updated=now, attribute="detailedHourly", minutes=60)
     assert pv_forecast_hourly([hourly], now) == ("ready", {now: (1.0, 2.0)})
+    # Summed durations are not coverage: 12:15 + 12:45 leave the first quarter open.
+    shifted = solcast(now + timedelta(minutes=15), [(1.0, 2.0), (1.0, 2.0)], updated=now)
+    assert pv_forecast_hourly([shifted], now)[0] == "stale"
+    aligned = solcast(now, [(1.0, 2.0), (1.0, 2.0)], updated=now)
+    status, hours = pv_forecast_hourly([aligned, shifted], now)
+    assert status == "ready" and set(hours) == {now}
 
 
 def test_pv_forecast_accepts_hourly_rows_and_single_quantiles():

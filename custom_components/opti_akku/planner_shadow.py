@@ -46,6 +46,8 @@ QUANTILES = tuple(QUANTILE_KEYS)
 # configured ``forecast_max_age`` option (#103).
 FORECAST_MAX_AGE = DEFAULT_FORECAST_MAX_AGE
 FORECAST_ROW_LIMIT = 100
+# (offset s, length s) row sets that cover one hour without a gap.
+HOUR_COVERAGE_PATTERNS = (frozenset({(0.0, 1800.0), (1800.0, 1800.0)}), frozenset({(0.0, 3600.0)}))
 PLAN_INTERVAL = timedelta(minutes=10)
 REPLAN_MIN_INTERVAL = timedelta(minutes=2)
 # Total solve budget per evaluation (main plan plus the variant B check);
@@ -108,7 +110,9 @@ def pv_forecast_hourly(states: Sequence[Any], now: datetime,
     current hour. One invalid entity invalidates the whole result (fail closed).
     """
     hours: dict[datetime, list[float | None]] = {}
-    covered: dict[datetime, float] = {}
+    # Per hour the (offset, length) pairs seen; coverage needs the aligned,
+    # gapless pattern, not just 3600 summed seconds (12:15 + 12:45 is a gap).
+    covered: dict[datetime, set[tuple[float, float]]] = {}
     seen: dict[datetime, tuple[float | None, float | None]] = {}
     found = False
     for state in states:
@@ -149,7 +153,8 @@ def pv_forecast_hourly(states: Sequence[Any], now: datetime,
                     continue
                 seen[start] = pair
                 found = True
-                covered[_hour(start)] = covered.get(_hour(start), 0.0) + length.total_seconds()
+                covered.setdefault(_hour(start), set()).add(
+                    ((start - _hour(start)).total_seconds(), length.total_seconds()))
                 bucket = hours.setdefault(_hour(start), [0.0, 0.0])
                 for index in range(2):
                     if pair[index] is None:
@@ -160,7 +165,8 @@ def pv_forecast_hourly(states: Sequence[Any], now: datetime,
             return "invalid", {}
     if not found:
         return "no_forecast", {}
-    hours = {hour: v for hour, v in hours.items() if covered.get(hour) == 3600.0}
+    hours = {hour: v for hour, v in hours.items()
+             if any(pattern <= covered.get(hour, set()) for pattern in HOUR_COVERAGE_PATTERNS)}
     if _hour(now) not in hours:
         return "stale", {}
     return "ready", {hour: (None if v[0] is None else round(v[0], 4), None if v[1] is None else round(v[1], 4))

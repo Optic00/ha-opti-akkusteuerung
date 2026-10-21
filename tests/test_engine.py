@@ -1090,6 +1090,27 @@ def test_minimum_discharge_price_is_display_only():
         assert float(dear.states["sensor.opti_mindestentladepreis_ct_kwh"]) == 50
 
 
+def test_zero_p10_drives_effective_remaining_target_soc_and_preview():
+    """Median 20, P10 0, optimism 0: effectively nothing is left, not 20 kWh."""
+    states = measurements(**{"sensor.opti_forecast_remaining_today_kwh": 20,
+                             "input_number.opti_forecast_optimismus": 0})
+    attrs = solar_attrs()
+    attrs["sensor.opti_forecast_remaining_today_kwh"] = {"estimate10": 0}
+    pessimistic = evaluate(states=states, attributes=attrs)
+    assert float(pessimistic.states["sensor.opti_forecast_effective_remaining_kwh"]) == 0
+    assert float(pessimistic.attributes["sensor.opti_forecast_effective_remaining_kwh"]["p10_kwh"]) == 0
+    empty = evaluate(states=measurements(**{"sensor.opti_forecast_remaining_today_kwh": 0,
+                                            "input_number.opti_forecast_optimismus": 0}))
+    assert pessimistic.states[TARGET] == empty.states[TARGET]
+    assert pessimistic.states["sensor.opti_forecast_score"] == empty.states["sensor.opti_forecast_score"]
+    assert (pessimistic.mode, pessimistic.reason) == (empty.mode, empty.reason)
+    assert pessimistic.states["sensor.opti_strategie_vorschau"] == pessimistic.mode
+    assert pessimistic.attributes["sensor.opti_strategie_vorschau"]["grund"] == pessimistic.reason
+    optimistic = evaluate(states=states, attributes=solar_attrs())  # attribute missing -> median
+    assert float(optimistic.states["sensor.opti_forecast_effective_remaining_kwh"]) == 20
+    assert float(optimistic.states[TARGET]) < float(pessimistic.states[TARGET])
+
+
 def test_clock_going_backwards_restarts_pending_delay():
     engine = StrategyEngine()
     entity = "binary_sensor.opti_ueberschuss_70_aktiv"

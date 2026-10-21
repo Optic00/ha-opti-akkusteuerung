@@ -283,14 +283,14 @@ template_blocks:
     availability: |
       {{ has_value('sensor.opti_forecast_remaining_today_kwh') }}
     state: |
-      {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %} {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(median) %} {% set p10 = p10_raw if p10_raw > 0 else median %} {% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus') | float(0)] | min] | max) / 100 %} {% set blended = alpha * median + (1 - alpha) * p10 %} {# Roh, NICHT gerundet: haelt alpha=0 bit-identisch zum alten
+      {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %} {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(none) %} {# P10 = 0 ist ein gueltiger, pessimistischer Wert; nur fehlend/ungueltig faellt auf den Median #} {% set p10 = p10_raw if p10_raw is not none and p10_raw >= 0 else median %} {% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus') | float(0)] | min] | max) / 100 %} {% set blended = alpha * median + (1 - alpha) * p10 %} {# Roh, NICHT gerundet: haelt alpha=0 bit-identisch zum alten
          min(median, P10) und vermeidet einen Rundungs-Kipp an den
          Ziel-SoC-Stufengrenzen. Anzeige-Rundung nur in den Attributen. #}
       {{ [median, blended] | min }}
     attributes:
       median_kwh: '{{ states(''sensor.opti_forecast_remaining_today_kwh'') | float(0) | round(3) }}'
       p10_kwh: |
-        {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %} {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(median) %} {{ (p10_raw if p10_raw > 0 else median) | round(3) }}
+        {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %} {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(none) %} {{ (p10_raw if p10_raw is not none and p10_raw >= 0 else median) | round(3) }}
       alpha: '{{ ([0, [100, states(''input_number.opti_forecast_optimismus'') | float(0)] | min] | max)
         / 100 }}'
   - unique_id: opti_target_soc

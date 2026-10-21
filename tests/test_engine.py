@@ -1622,11 +1622,37 @@ def test_daily_statistics_snapshot_stays_small_and_restores_mean_and_coverage():
         assert after.attributes[entity]["coverage_ok"] is True
         assert after.attributes[entity]["sample_coverage_ratio"] >= 0.99
     # The raster continues after a restore and later snapshots merge new minutes into the hour buckets.
+    # A restored bucket counts only while it lies entirely inside the window: once
+    # its first sample expires the whole hour drops out (<= 1 h underhang, never
+    # expired samples in mean or coverage). The raster still holds: no new
+    # sample 30 s after the last one, one more a minute later.
     mid = restored.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), NOW + dt.timedelta(seconds=30))
-    assert mid.attributes[DAILY]["sample_count"] == after.attributes[DAILY]["sample_count"]  # raster holds
+    assert mid.attributes[DAILY]["sample_count"] == after.attributes[DAILY]["sample_count"] - 60
     later = restored.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), NOW + dt.timedelta(seconds=60))
-    # Restored buckets expire as a whole once their last sample leaves the window (<= 1 h overhang).
-    assert later.attributes[DAILY]["sample_count"] == after.attributes[DAILY]["sample_count"] + 1
-    assert later.attributes[DAILY]["sample_coverage_ratio"] == 1.0
+    assert later.attributes[DAILY]["sample_count"] == mid.attributes[DAILY]["sample_count"] + 1
+    assert later.attributes[DAILY]["sample_coverage_ratio"] >= 0.95
+    assert later.attributes[DAILY]["coverage_ok"] is True
     merged = restored.snapshot()["buckets"][DAILY]
     assert len(merged) <= 26 and sum(row[3] for row in merged) == later.attributes[DAILY]["sample_count"]
+
+
+def test_restore_never_reports_more_coverage_than_the_live_engine():
+    """Alternating one hour of samples and one hour of gap must stay gated after a restore."""
+    resource = load_resources()
+    resource["template_blocks"] = []
+    resource["balancing_automations"] = []
+    engine = StrategyEngine(resource)
+    start = NOW - dt.timedelta(hours=26, minutes=30)
+    for minute in range(26 * 60 + 31):
+        # 50 minutes of samples per two hours: ~42 % coverage, gaps of 70 minutes.
+        load = 500 if minute % 120 < 50 else "unavailable"
+        engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": load}), solar_attrs(),
+                        start + dt.timedelta(minutes=minute))
+    live = engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), NOW)
+    restored = StrategyEngine(resource)
+    restored.restore(engine.snapshot())
+    after = restored.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), NOW)
+    assert live.attributes[DAILY]["coverage_ok"] is False
+    assert after.attributes[DAILY]["coverage_ok"] is False
+    assert after.attributes[DAILY]["sample_coverage_ratio"] <= live.attributes[DAILY]["sample_coverage_ratio"]
+    assert after.attributes[DAILY]["sample_count"] <= live.attributes[DAILY]["sample_count"]

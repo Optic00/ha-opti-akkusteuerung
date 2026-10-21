@@ -664,8 +664,12 @@ class StrategyEngine:
             # 15-second evaluation cadence. Short windows sample every evaluation.
             sample_interval = self._duration(definition.get("sample_interval", 0))
             rows = [row for row in self._samples.get(entity, []) if timestamp - max_age <= row[0] <= timestamp]
+            # A restored bucket counts only while it lies entirely inside the
+            # window; a bucket whose first sample already expired would keep
+            # expired samples in mean and coverage (conservative at the edge).
             buckets = [
-                row for row in self._buckets.get(entity, []) if timestamp - max_age <= row[1] <= timestamp
+                row for row in self._buckets.get(entity, [])
+                if timestamp - max_age <= row[0] and row[1] <= timestamp
             ] if sample_interval > 0 else []
             value = self._get_state(source)
             invalid_score_load = source == "sensor.opti_forecast_house_instant_w" and not _finite(value)

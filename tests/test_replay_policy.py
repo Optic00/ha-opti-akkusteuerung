@@ -227,3 +227,14 @@ def test_lastprofil_variant_injects_the_previous_months_daily_load(head_resource
                for definition in policy._engine_resources["statistics"] if "sample_interval" in definition)
     with pytest.raises(ValueError):
         StrategyPolicy(PLANT, resources=head_resources, house_daily="perfect")
+
+
+def test_build_policy_rasters_the_daily_statistics_to_the_simulation_step(head_resources, monkeypatch):
+    from tools.replay.__main__ import build_policy
+    from tools.replay.sun import SunModel
+
+    monkeypatch.setattr("tools.replay.policies.StrategyPolicy.__post_init__", lambda self: None)
+    hourly = build_policy("strategy@HEAD", PLANT, SunModel(), steps_per_hour=1)
+    quarter = build_policy("strategy@HEAD", PLANT, SunModel())
+    assert hourly.sample_interval_s == 3600.0
+    assert quarter.sample_interval_s == 900.0

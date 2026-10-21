@@ -1,31 +1,30 @@
 """Receding-horizon plan over the stored battery energy. Pure Python, no HA.
 
-A dynamic programme over the stored energy on a SoC grid decides per slot how
-much to charge (from PV or the grid) and how much to discharge, given the
-known price series, a PV forecast and a load forecast. The plan is observation
-material for the shadow sensor and the replay harness; nothing here controls
-the battery.
+A dynamic programme over the stored energy decides per slot how much to
+charge (from PV or the grid) and how much to discharge, given the known price
+series, a PV forecast and a load forecast. The plan is observation material
+for the shadow sensor and the replay harness; nothing here controls the
+battery.
 
 Physics follow ``tools/replay/battery.py``: losses per direction, the stored
 energy rises by ``charge * eta_charge`` and falls by ``discharge / eta_discharge``,
 the battery never exports and every slot satisfies
 ``pv + import + discharge == load + export + charge``.
 
-Discretisation: the state is the grid index above MinSOC. Grid actions move by
-whole steps. "Exact" actions (absorb the whole surplus, cover the whole deficit,
-full grid charge) use the true energy for the costs and round their state move
-to the nearest grid point, so the plan is not biased towards partial moves
-that leave a remainder to the grid. The bookkeeping error is at most half a
-step per slot and never accumulates: every real decision is re-read from the
-tables with the measured SoC, and the costs that matter are those of the
-executed flows.
+Discretisation: value tables live on a SoC grid, the state itself does not.
+Every action moves the stored energy by exactly the energy of its flows; the
+value of a state between grid points is interpolated linearly. No action can
+therefore deliver energy without lowering the state, store more than it
+charged, or collect a terminal credit for energy it does not hold. The only
+approximation is the interpolation of the value tables.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from math import floor, inf, isfinite
+from math import ceil, floor, inf, isfinite
+from time import perf_counter
 from typing import Any
 
 DYNAMIC = "Akku Dynamisch"
@@ -36,18 +35,27 @@ GRID_CHARGE = "Akku Netzladen"
 MODES = (DYNAMIC, PAUSE, ONLY_CHARGE, ONLY_DISCHARGE, GRID_CHARGE)
 TERMINAL_MODES = ("value", "hold", "none")
 MAX_HORIZON_HOURS = 36.0
-# A planned flow below this share of what Dynamisch would do counts as "not that".
+# A planned flow below this share of what Dynamisch would do is classified as
+# "not that" in the ladder vocabulary (diagnosis only, never execution).
 MODE_SHARE = 0.5
-# Grid charging below this share of the charge power is rounding noise in a
-# PV slot, not a decision; such moves are neither offered nor reported as Netzladen.
+TERMINAL_MARGIN_CT = 0.01
+# Grid charging below this share of the charge power in a PV slot is noise,
+# not a decision; such moves are neither offered nor reported as Netzladen.
 GRID_MIN_SHARE = 0.1
 # Tie-break towards storing PV surplus as soon as it is there instead of a
 # later slot of the same forecast: ct per kWh at the horizon start, fading to
 # zero at its end. Far below any real price difference; it only decides ties,
 # which otherwise bet on PV that the forecast may not deliver.
 PV_EARLY_CT = 0.2
-TERMINAL_MARGIN_CT = 0.01
+# Budget: the grid is coarsened beyond this many states, integer moves are
+# thinned beyond this many per slot, and a solve past its deadline is abandoned.
+MAX_STATES = 401
+MAX_ACTIONS = 120
 _EPS = 1e-9
+
+
+class PlannerBudgetError(RuntimeError):
+    """The solve exceeded its time budget."""
 
 
 @dataclass(frozen=True)
@@ -95,11 +103,14 @@ class Settings:
     terminal: str = "value"
     terminal_factor: float = 0.8
     soc_step: float = 0.5
+    # Variant A: the plan replaces self-consumption only when its expected
+    # advantage over the horizon (after losses and wear) reaches this amount.
+    min_benefit_ct: float = 0.0
 
 
 @dataclass(frozen=True)
 class Action:
-    offset: int
+    delta: float  # state move in grid units, exactly charge*eta/step - discharge/eta/step
     charge_kwh: float
     discharge_kwh: float
     cost_eur: float  # true cost of the slot
@@ -117,8 +128,10 @@ class Step:
     import_kwh: float
     export_kwh: float
     cost_eur: float
-    mode: str
-    charge_limit_w: float | None
+    mode: str  # executable mode: with charge_w/discharge_w it reproduces the flows
+    ladder_mode: str  # diagnosis in the ladder vocabulary (full flows only)
+    charge_w: float | None  # planned charge power, None = unlimited
+    discharge_w: float | None  # planned discharge power, None = unlimited
     # True when no mode could move energy in this slot (empty battery in a
     # deficit, full battery in a surplus): the recommendation is not a decision.
     indifferent: bool = False
@@ -130,6 +143,7 @@ class Plan:
     cost_eur: float  # operational cost over the horizon (import - export + wear)
     terminal_value_eur: float  # credit for usable energy left at the end
     soc_start: float
+    source: str = "plan"  # plan | self_consumption (variant A fallback)
 
     @property
     def first(self) -> Step:
@@ -168,11 +182,28 @@ def dynamic_flows(slot: Slot, battery: Battery, soc: float) -> tuple[float, floa
     return 0.0, 0.0
 
 
-def mode_for(slot: Slot, battery: Battery, soc: float, charge_kwh: float, discharge_kwh: float) -> str:
-    """Translate planned flows into the ladder's mode vocabulary for this slot."""
+def _grid_kwh(slot: Slot, charge_kwh: float) -> float:
+    return max(0.0, charge_kwh - max(0.0, slot.pv_kwh - slot.load_kwh))
+
+
+def executable_mode(slot: Slot, charge_kwh: float, discharge_kwh: float) -> str:
+    """Mode that, with the planned power setpoints, reproduces the flows exactly."""
+    if _grid_kwh(slot, charge_kwh) > _EPS:
+        return GRID_CHARGE
+    surplus = slot.pv_kwh - slot.load_kwh
+    if surplus > 0:
+        return DYNAMIC if charge_kwh > _EPS else ONLY_DISCHARGE
+    if surplus < 0:
+        return DYNAMIC if discharge_kwh > _EPS else ONLY_CHARGE
+    return DYNAMIC
+
+
+def ladder_mode(slot: Slot, battery: Battery, soc: float, charge_kwh: float, discharge_kwh: float) -> str:
+    """Diagnosis in the ladder's vocabulary: the mode whose full flow comes closest."""
     surplus = slot.pv_kwh - slot.load_kwh
     grid_min = GRID_MIN_SHARE * battery.max_charge_w * slot.hours / 1000
-    if charge_kwh - max(0.0, surplus) >= min(grid_min, charge_kwh) - _EPS and charge_kwh > max(0.0, surplus) + _EPS:
+    grid = _grid_kwh(slot, charge_kwh)
+    if grid > _EPS and grid >= min(grid_min, charge_kwh) - _EPS:
         return GRID_CHARGE
     dyn_charge, dyn_discharge = dynamic_flows(slot, battery, soc)
     if surplus > 0:
@@ -180,6 +211,22 @@ def mode_for(slot: Slot, battery: Battery, soc: float, charge_kwh: float, discha
     if surplus < 0:
         return DYNAMIC if discharge_kwh >= dyn_discharge * MODE_SHARE - _EPS else ONLY_CHARGE
     return DYNAMIC
+
+
+def interpolate(table: list[float], position: float) -> float:
+    """Linear interpolation of a value table at a fractional grid position."""
+    k = floor(position)
+    if k >= len(table) - 1:
+        return table[-1]
+    if k < 0:
+        return table[0]
+    f = position - k
+    if f <= _EPS:
+        return table[k]
+    low, high = table[k], table[k + 1]
+    if low == inf or high == inf:
+        return inf
+    return (1 - f) * low + f * high
 
 
 class Horizon:
@@ -192,25 +239,28 @@ class Horizon:
             raise ValueError("no_slots")
         if settings.terminal not in TERMINAL_MODES:
             raise ValueError("terminal_invalid")
-        if not 0 < settings.soc_step <= battery.maxsoc - battery.minsoc:
+        span = battery.maxsoc - battery.minsoc
+        if not 0 < settings.soc_step <= span:
             raise ValueError("soc_step_invalid")
-        self.slots = slots
+        self.slots = list(slots)
         self.battery = battery
         self.settings = settings
-        self.states = int(round((battery.maxsoc - battery.minsoc) / settings.soc_step)) + 1
-        self.step_pct = (battery.maxsoc - battery.minsoc) / (self.states - 1)
+        step = max(settings.soc_step, span / (MAX_STATES - 1))
+        self.states = int(round(span / step)) + 1
+        self.step_pct = span / (self.states - 1)
         self.step_kwh = self.step_pct / 100 * battery.capacity_kwh
-        self.actions = [self._actions(slot, t) for t, slot in enumerate(slots)]
-        self.values: list[list[float]] = []
         self.terminal_ct = self._terminal_ct()
+        self.actions = [self._actions(slot, t) for t, slot in enumerate(self.slots)]
+        self.values: list[list[float]] = []
+        self.start_position: float | None = None
 
     # -- discretisation -------------------------------------------------
-    def index(self, soc: float) -> int:
-        raw = int(round((soc - self.battery.minsoc) / self.step_pct))
-        return min(self.states - 1, max(0, raw))
+    def position(self, soc: float) -> float:
+        raw = (soc - self.battery.minsoc) / self.step_pct
+        return min(self.states - 1.0, max(0.0, raw))
 
-    def soc(self, index: int) -> float:
-        return self.battery.minsoc + index * self.step_pct
+    def soc(self, position: float) -> float:
+        return self.battery.minsoc + position * self.step_pct
 
     def _actions(self, slot: Slot, t: int) -> list[Action]:
         b, s = self.battery, self.settings
@@ -222,122 +272,183 @@ class Horizon:
         pv_charge_max = min(surplus, cap_charge)
         charge_max = cap_charge if s.grid_charging else pv_charge_max
         discharge_max = min(deficit, cap_discharge)
-        candidates: dict[tuple[int, float, float], Action] = {}
-
-        def add(offset: int, charge: float, discharge: float) -> None:
-            key = (offset, round(charge, 9), round(discharge, 9))
-            if key not in candidates:
-                cost = slot_cost(slot, charge, discharge, s)
-                candidates[key] = Action(offset, charge, discharge, cost, cost - early * min(charge, pv_charge_max))
-
         grid_min = GRID_MIN_SHARE * cap_charge
+        candidates: dict[tuple[float, float], Action] = {}
+
+        def add(charge: float, discharge: float) -> None:
+            if _EPS < charge - pv_charge_max < grid_min:
+                return  # rounding-sized grid top-up in a PV slot
+            key = (round(charge, 9), round(discharge, 9))
+            if key not in candidates:
+                delta = (charge * b.eta_charge - discharge / b.eta_discharge) / self.step_kwh
+                cost = slot_cost(slot, charge, discharge, s)
+                candidates[key] = Action(delta, charge, discharge, cost, cost - early * min(charge, pv_charge_max))
+
         up = floor(charge_max * b.eta_charge / self.step_kwh + _EPS)
         down = floor(discharge_max / b.eta_discharge / self.step_kwh + _EPS)
-        for offset in range(-down, up + 1):
+        stride = max(1, ceil((up + down + 1) / MAX_ACTIONS))
+        for offset in range(-down, up + 1, stride):
             charge = offset * self.step_kwh / b.eta_charge if offset > 0 else 0.0
             discharge = -offset * self.step_kwh * b.eta_discharge if offset < 0 else 0.0
-            if _EPS < charge - pv_charge_max < grid_min:
-                continue
-            add(offset, charge, discharge)
-        # Exact flows with the state move rounded to the nearest grid point.
+            add(charge, discharge)
+        # Exact flows: absorb the whole surplus, full grid charge, cover the whole deficit.
         for charge in (pv_charge_max, charge_max):
-            if charge > _EPS and not _EPS < charge - pv_charge_max < grid_min:
-                add(int(round(charge * b.eta_charge / self.step_kwh)), charge, 0.0)
+            if charge > _EPS:
+                add(charge, 0.0)
         if discharge_max > _EPS:
-            add(-int(round(discharge_max / b.eta_discharge / self.step_kwh)), 0.0, discharge_max)
-        return sorted(candidates.values(), key=lambda a: a.offset)
+            add(0.0, discharge_max)
+        return sorted(candidates.values(), key=lambda a: a.delta)
 
     def _terminal_ct(self) -> float:
         """Credit per usable kWh at the horizon end.
 
         A share of the horizon's mean price, as the energy displaces imports at
-        an unknown later price. Capped at the cost of refilling from the grid in
-        the cheapest slot (losses in both directions), so the programme never
-        buys grid energy just to collect the credit.
+        an unknown later price. Capped strictly below the cost of refilling from
+        the grid in the cheapest slot (losses in both directions), so the
+        programme never buys grid energy just to collect the credit.
         """
         if self.settings.terminal != "value":
             return 0.0
         hours = sum(slot.hours for slot in self.slots)
         mean = sum(slot.price_ct * slot.hours for slot in self.slots) / hours if hours > 0 else 0.0
         cheapest = min(slot.price_ct for slot in self.slots)
-        # Strictly below the refill cost, so a tie never tips towards buying.
         refill = cheapest / (self.battery.eta_charge * self.battery.eta_discharge) - TERMINAL_MARGIN_CT
         return max(0.0, min(mean * self.settings.terminal_factor, refill))
 
-    def terminal_values(self, start_index: int) -> list[float]:
+    def terminal_values(self, start_position: float) -> list[float]:
         if self.settings.terminal == "hold":
-            return [0.0 if i >= start_index else inf for i in range(self.states)]
+            threshold = ceil(start_position - 1e-6)
+            return [0.0 if i >= threshold else inf for i in range(self.states)]
         if self.settings.terminal == "none":
             return [0.0] * self.states
         value = self.step_kwh * self.battery.eta_discharge * self.terminal_ct / 100
         return [-i * value for i in range(self.states)]
 
     # -- dynamic programme ---------------------------------------------
-    def solve(self, start_soc: float) -> None:
-        """Fill ``values[t][i]`` = best cost from state ``i`` at slot ``t`` to the end."""
+    def _stage(self, t: int, nxt: list[float]) -> list[float]:
+        """Best cost-to-go for every grid state at slot ``t`` given ``nxt``."""
         n = self.states
+        best = [inf] * n
+        for action in self.actions[t]:
+            d, cost = action.delta, action.objective_eur
+            lo = max(0, ceil(-d - _EPS))
+            hi = min(n - 1, floor(n - 1 - d + _EPS))
+            if lo > hi:
+                continue
+            k = floor(d + _EPS)
+            f = d - k
+            if f <= _EPS:
+                candidate = [cost + v for v in nxt[lo + k:hi + k + 1]]
+            else:
+                w0, w1 = 1 - f, f
+                candidate = [cost + (w0 * a + w1 * b if a != inf and b != inf else inf)
+                             for a, b in zip(nxt[lo + k:hi + k + 1], nxt[lo + k + 1:hi + k + 2], strict=True)]
+            best[lo:hi + 1] = map(min, best[lo:hi + 1], candidate, strict=True)
+        return best
+
+    def solve(self, start_soc: float, deadline_s: float | None = None) -> None:
+        """Fill ``values[t][i]`` = best cost from grid state ``i`` at slot ``t`` to the end."""
+        started = perf_counter()
+        self.start_position = self.position(start_soc)
         tables: list[list[float]] = [[]] * (len(self.slots) + 1)
-        tables[-1] = self.terminal_values(self.index(start_soc))
+        tables[-1] = self.terminal_values(self.start_position)
         for t in range(len(self.slots) - 1, -1, -1):
-            nxt = tables[t + 1]
-            best = [inf] * n
-            for action in self.actions[t]:
-                d, cost = action.offset, action.objective_eur
-                lo, hi = max(0, -d), min(n, n - d)
-                if lo >= hi:
-                    continue
-                candidate = [cost + v for v in nxt[lo + d:hi + d]]
-                best[lo:hi] = map(min, best[lo:hi], candidate, strict=True)
-            tables[t] = best
+            if deadline_s is not None and perf_counter() - started > deadline_s:
+                self.values = []
+                raise PlannerBudgetError("deadline")
+            tables[t] = self._stage(t, tables[t + 1])
         self.values = tables
 
-    def choose(self, t: int, index: int) -> Action | None:
-        """Best action at slot ``t`` from state ``index`` using the solved tables."""
+    def resolve_first(self, slot: Slot) -> None:
+        """Replace the running first slot (shorter now) and redo only its stage."""
+        if not self.values:
+            raise ValueError("unsolved")
+        self.slots[0] = slot
+        self.actions[0] = self._actions(slot, 0)
+        self.values[0] = self._stage(0, self.values[1])
+
+    def choose(self, t: int, position: float) -> Action | None:
+        """Best action at slot ``t`` from the exact state ``position``."""
         nxt = self.values[t + 1]
         best, chosen = inf, None
         for action in self.actions[t]:
-            j = index + action.offset
-            if 0 <= j < self.states and (total := action.objective_eur + nxt[j]) < best:
-                best, chosen = total, action
+            q = position + action.delta
+            if -_EPS <= q <= self.states - 1 + _EPS:
+                total = action.objective_eur + interpolate(nxt, min(self.states - 1.0, max(0.0, q)))
+                if total < best:
+                    best, chosen = total, action
         return chosen
 
-    def step(self, t: int, index: int, action: Action) -> Step:
+    def step(self, t: int, position: float, action: Action) -> Step:
         slot = self.slots[t]
         imported, exported = flows(slot, action.charge_kwh, action.discharge_kwh)
-        soc = self.soc(index)
-        surplus = max(0.0, slot.pv_kwh - slot.load_kwh)
-        grid = max(0.0, action.charge_kwh - surplus)
-        mode = mode_for(slot, self.battery, soc, action.charge_kwh, action.discharge_kwh)
-        limit = action.charge_kwh / slot.hours * 1000 if mode == GRID_CHARGE and slot.hours > 0 else None
-        indifferent = (mode != GRID_CHARGE and action.charge_kwh == 0 and action.discharge_kwh == 0
+        soc = self.soc(position)
+        mode = executable_mode(slot, action.charge_kwh, action.discharge_kwh)
+        charge_w = action.charge_kwh / slot.hours * 1000 if action.charge_kwh > _EPS and slot.hours > 0 else None
+        discharge_w = (action.discharge_kwh / slot.hours * 1000
+                       if action.discharge_kwh > _EPS and slot.hours > 0 else None)
+        indifferent = (action.charge_kwh <= _EPS and action.discharge_kwh <= _EPS
                        and dynamic_flows(slot, self.battery, soc) == (0.0, 0.0))
-        return Step(slot, soc, self.soc(index + action.offset), action.charge_kwh, action.discharge_kwh,
-                    grid, imported, exported, action.cost_eur, mode, limit, indifferent)
+        return Step(slot, soc, self.soc(position + action.delta), action.charge_kwh, action.discharge_kwh,
+                    _grid_kwh(slot, action.charge_kwh), imported, exported, action.cost_eur, mode,
+                    ladder_mode(slot, self.battery, soc, action.charge_kwh, action.discharge_kwh),
+                    charge_w, discharge_w, indifferent)
 
     def walk(self, start_soc: float) -> Plan:
         """Forward pass from ``start_soc`` over the solved tables."""
         if not self.values:
             self.solve(start_soc)
-        index = self.index(start_soc)
+        position = self.position(start_soc)
         steps: list[Step] = []
         cost = 0.0
         for t in range(len(self.slots)):
-            action = self.choose(t, index)
+            action = self.choose(t, position)
             if action is None:
                 break
-            step = self.step(t, index, action)
+            step = self.step(t, position, action)
             steps.append(step)
             cost += step.cost_eur
-            index += action.offset
-        terminal = self.values[-1][index] if steps else 0.0
-        return Plan(steps, cost, -terminal if isfinite(terminal) else 0.0, self.soc(self.index(start_soc)))
+            position = min(self.states - 1.0, max(0.0, position + action.delta))
+        terminal = interpolate(self.values[-1], position) if steps else 0.0
+        return Plan(steps, cost, -terminal if isfinite(terminal) else 0.0, self.soc(self.position(start_soc)))
 
     def first(self, soc: float) -> Step | None:
         """Only the next move from ``soc``; used between full re-plans."""
         if not self.values:
             self.solve(soc)
-        action = self.choose(0, self.index(soc))
-        return None if action is None else self.step(0, self.index(soc), action)
+        action = self.choose(0, self.position(soc))
+        return None if action is None else self.step(0, self.position(soc), action)
+
+    def self_consumption(self, start_soc: float) -> Plan:
+        """``Akku Dynamisch`` throughout, with the same forecasts and terminal credit."""
+        position = self.position(start_soc)
+        steps: list[Step] = []
+        cost = 0.0
+        for t, slot in enumerate(self.slots):
+            charge, discharge = dynamic_flows(slot, self.battery, self.soc(position))
+            delta = (charge * self.battery.eta_charge - discharge / self.battery.eta_discharge) / self.step_kwh
+            action = Action(delta, charge, discharge, slot_cost(slot, charge, discharge, self.settings), 0.0)
+            step = self.step(t, position, action)
+            steps.append(step)
+            cost += step.cost_eur
+            position = min(self.states - 1.0, max(0.0, position + delta))
+        terminal = 0.0
+        if self.settings.terminal == "value":
+            terminal = position * self.step_kwh * self.battery.eta_discharge * self.terminal_ct / 100
+        return Plan(steps, cost, terminal, self.soc(self.position(start_soc)), "self_consumption")
+
+    def recommend(self, soc: float) -> tuple[Plan, Plan]:
+        """(recommended plan, self-consumption plan); variant A falls back to the latter.
+
+        The recommended plan is the optimum unless its advantage over
+        self-consumption stays below ``min_benefit_ct``.
+        """
+        optimum = self.walk(soc)
+        baseline = self.self_consumption(soc)
+        if (optimum.steps and self.settings.min_benefit_ct > 0
+                and (baseline.objective_eur - optimum.objective_eur) * 100 < self.settings.min_benefit_ct):
+            return baseline, baseline
+        return optimum, baseline
 
 
 def plan(slots: list[Slot], battery: Battery, settings: Settings, soc: float) -> Plan:
@@ -346,21 +457,9 @@ def plan(slots: list[Slot], battery: Battery, settings: Settings, soc: float) ->
     return horizon.walk(soc)
 
 
-def baseline_cost(slots: list[Slot], battery: Battery, settings: Settings, soc: float,
-                  terminal_ct: float | None = None) -> float:
-    """Cost of ``Akku Dynamisch`` throughout, with the same forecasts and terminal credit."""
-    total = 0.0
-    stored = min(battery.maxsoc, max(battery.minsoc, soc)) / 100 * battery.capacity_kwh
-    for slot in slots:
-        charge, discharge = dynamic_flows(slot, battery, stored / battery.capacity_kwh * 100)
-        total += slot_cost(slot, charge, discharge, settings)
-        stored += charge * battery.eta_charge - discharge / battery.eta_discharge
-    if settings.terminal == "value":
-        if terminal_ct is None:
-            terminal_ct = Horizon(slots, battery, settings).terminal_ct
-        usable = max(0.0, stored - battery.minsoc / 100 * battery.capacity_kwh)
-        total -= usable * battery.eta_discharge * terminal_ct / 100
-    return total
+def baseline_cost(slots: list[Slot], battery: Battery, settings: Settings, soc: float) -> float:
+    """Objective of ``Akku Dynamisch`` throughout (same forecasts, same terminal credit)."""
+    return Horizon(slots, battery, settings).self_consumption(soc).objective_eur
 
 
 def describe(value: Any) -> dict[str, Any]:
@@ -373,4 +472,5 @@ def describe(value: Any) -> dict[str, Any]:
         "grid_charge_kwh": round(sum(step.grid_charge_kwh for step in value.steps), 3),
         "discharge_kwh": round(sum(step.discharge_kwh for step in value.steps), 3),
         "modes": [step.mode for step in value.steps],
+        "source": value.source,
     }

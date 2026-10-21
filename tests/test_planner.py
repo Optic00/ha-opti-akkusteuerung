@@ -38,22 +38,23 @@ def hourly(prices, pv=None, load=None, start=T0):
     return [Slot(start + timedelta(hours=i), 1.0, p, pv[i], load[i]) for i, p in enumerate(prices)]
 
 
-def brute_force(horizon: Horizon, start_soc: float) -> float:
-    """Minimum objective over every sequence of the horizon's own discrete actions."""
+def brute_force(horizon: Horizon, start_soc: float) -> tuple[float, float]:
+    """Best (programme objective, true cost) over every sequence of the horizon's discrete actions."""
     start = horizon.index(start_soc)
     terminal = horizon.terminal_values(start)
-    best = float("inf")
+    best, best_cost = float("inf"), float("inf")
     for sequence in product(*horizon.actions):
-        index, cost, ok = start, 0.0, True
+        index, objective, cost, ok = start, 0.0, 0.0, True
         for action in sequence:
             index += action.offset
             if not 0 <= index < horizon.states:
                 ok = False
                 break
+            objective += action.objective_eur
             cost += action.cost_eur
-        if ok:
-            best = min(best, cost + terminal[index])
-    return best
+        if ok and objective + terminal[index] < best:
+            best, best_cost = objective + terminal[index], cost + terminal[index]
+    return best, best_cost
 
 
 @pytest.mark.parametrize("terminal", ["value", "hold", "none"])
@@ -66,9 +67,10 @@ def test_dp_matches_brute_force_on_small_cases(terminal, grid):
         horizon = Horizon(slots, battery, settings)
         horizon.solve(soc)
         result = horizon.walk(soc)
-        assert result.objective_eur == pytest.approx(brute_force(horizon, soc), abs=1e-9)
-        # The forward walk reproduces the table value of the start state.
-        assert horizon.values[0][horizon.index(soc)] == pytest.approx(result.objective_eur, abs=1e-9)
+        objective, cost = brute_force(horizon, soc)
+        assert result.objective_eur == pytest.approx(cost, abs=1e-9)
+        # The table value of the start state is the programme's optimum.
+        assert horizon.values[0][horizon.index(soc)] == pytest.approx(objective, abs=1e-9)
 
 
 def test_known_solution_charges_cheap_and_discharges_expensive():

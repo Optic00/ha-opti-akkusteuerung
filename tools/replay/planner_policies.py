@@ -168,6 +168,7 @@ class RecedingHorizonPolicy:
     params: BatteryParams
     forecast_mode: str = "naive"
     load_mode: str = "climatology"
+    pv_mode: str = "forecast"  # perfect: actual PV per hour (diagnostic bound)
     wear_ct: float = 3.0
     terminal_factor: float = 0.8
     soc_step: float = 0.5
@@ -178,6 +179,8 @@ class RecedingHorizonPolicy:
             raise ValueError(f"Unknown forecast mode: {self.forecast_mode}")
         if self.load_mode not in ("climatology", "perfect"):
             raise ValueError(f"Unknown load mode: {self.load_mode}")
+        if self.pv_mode not in ("forecast", "perfect"):
+            raise ValueError(f"Unknown pv mode: {self.pv_mode}")
         self.battery = battery_of(self.params)
         self.settings = Settings(feed_in_ct=float(self.plant.get("feed_in_ct", 0)), wear_ct_kwh=self.wear_ct,
                                  grid_charging=bool(self.plant.get("grid_precharge", True)),
@@ -215,6 +218,11 @@ class RecedingHorizonPolicy:
         profile = self._profile(self.pv_profiles, month_key)
         return [profile[stamp.astimezone(self.tz).hour] for stamp in stamps]
 
+    def _pv(self, stamp: dt.datetime, forecast: float) -> float:
+        if self.pv_mode == "perfect" and stamp in self.by_hour and self.by_hour[stamp].pv_kwh is not None:
+            return self.by_hour[stamp].pv_kwh
+        return forecast
+
     def _load(self, stamp: dt.datetime, month_key: tuple[int, int], local_hour: int) -> float:
         if self.load_mode == "perfect" and stamp in self.by_hour and self.by_hour[stamp].load_kwh is not None:
             return self.by_hour[stamp].load_kwh
@@ -240,7 +248,7 @@ class RecedingHorizonPolicy:
             position = stamps_today.index(stamp)
             local_hour = stamp.astimezone(tz).hour
             pv = pv_total * weight / total if total > 0 else 0.0
-            slots.append(Slot(stamp, 1.0, context.price_today[position], pv,
+            slots.append(Slot(stamp, 1.0, context.price_today[position], self._pv(stamp, pv),
                               self._load(stamp, month_key, local_hour)))
         if context.price_tomorrow and now.hour >= TOMORROW_KNOWN_FROM_HOUR:
             tomorrow = today + dt.timedelta(days=1)
@@ -251,7 +259,8 @@ class RecedingHorizonPolicy:
                 pv_total = context.forecast_tomorrow_kwh or 0.0
                 for stamp, weight, price in zip(stamps, shape, context.price_tomorrow, strict=True):
                     pv = pv_total * weight / total if total > 0 else 0.0
-                    slots.append(Slot(stamp, 1.0, price, pv, self._load(stamp, month_key, stamp.astimezone(tz).hour)))
+                    slots.append(Slot(stamp, 1.0, price, self._pv(stamp, pv),
+                                      self._load(stamp, month_key, stamp.astimezone(tz).hour)))
         return slots
 
     def decide(self, context: StepContext) -> Decision:
@@ -282,6 +291,7 @@ class RecedingHorizonPolicy:
 
     def summary(self) -> dict[str, Any]:
         return {"planner": "receding_horizon", "forecast_mode": self.forecast_mode, "load_mode": self.load_mode,
+                "pv_mode": self.pv_mode,
                 "wear_ct_kwh": self.wear_ct, "terminal_factor": self.terminal_factor, "soc_step": self.soc_step,
                 "steps": self.steps, "plans": self.plans, "fallback_steps": self.fallback_steps,
                 "solve_seconds": round(self.solve_seconds, 1)}

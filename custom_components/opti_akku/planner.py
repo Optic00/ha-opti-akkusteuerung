@@ -41,6 +41,11 @@ MODE_SHARE = 0.5
 # Grid charging below this share of the charge power is rounding noise in a
 # PV slot, not a decision; such moves are neither offered nor reported as Netzladen.
 GRID_MIN_SHARE = 0.1
+# Tie-break towards storing PV surplus as soon as it is there instead of a
+# later slot of the same forecast: ct per kWh at the horizon start, fading to
+# zero at its end. Far below any real price difference; it only decides ties,
+# which otherwise bet on PV that the forecast may not deliver.
+PV_EARLY_CT = 0.2
 TERMINAL_MARGIN_CT = 0.01
 _EPS = 1e-9
 
@@ -97,7 +102,8 @@ class Action:
     offset: int
     charge_kwh: float
     discharge_kwh: float
-    cost_eur: float
+    cost_eur: float  # true cost of the slot
+    objective_eur: float  # cost minus the early-PV tie-break, what the programme minimises
 
 
 @dataclass(frozen=True)
@@ -194,7 +200,7 @@ class Horizon:
         self.states = int(round((battery.maxsoc - battery.minsoc) / settings.soc_step)) + 1
         self.step_pct = (battery.maxsoc - battery.minsoc) / (self.states - 1)
         self.step_kwh = self.step_pct / 100 * battery.capacity_kwh
-        self.actions = [self._actions(slot) for slot in slots]
+        self.actions = [self._actions(slot, t) for t, slot in enumerate(slots)]
         self.values: list[list[float]] = []
         self.terminal_ct = self._terminal_ct()
 
@@ -206,8 +212,9 @@ class Horizon:
     def soc(self, index: int) -> float:
         return self.battery.minsoc + index * self.step_pct
 
-    def _actions(self, slot: Slot) -> list[Action]:
+    def _actions(self, slot: Slot, t: int) -> list[Action]:
         b, s = self.battery, self.settings
+        early = PV_EARLY_CT * (len(self.slots) - t) / len(self.slots) / 100
         surplus = max(0.0, slot.pv_kwh - slot.load_kwh)
         deficit = max(0.0, slot.load_kwh - slot.pv_kwh)
         cap_charge = b.max_charge_w * slot.hours / 1000
@@ -220,7 +227,8 @@ class Horizon:
         def add(offset: int, charge: float, discharge: float) -> None:
             key = (offset, round(charge, 9), round(discharge, 9))
             if key not in candidates:
-                candidates[key] = Action(offset, charge, discharge, slot_cost(slot, charge, discharge, s))
+                cost = slot_cost(slot, charge, discharge, s)
+                candidates[key] = Action(offset, charge, discharge, cost, cost - early * min(charge, pv_charge_max))
 
         grid_min = GRID_MIN_SHARE * cap_charge
         up = floor(charge_max * b.eta_charge / self.step_kwh + _EPS)
@@ -274,7 +282,7 @@ class Horizon:
             nxt = tables[t + 1]
             best = [inf] * n
             for action in self.actions[t]:
-                d, cost = action.offset, action.cost_eur
+                d, cost = action.offset, action.objective_eur
                 lo, hi = max(0, -d), min(n, n - d)
                 if lo >= hi:
                     continue
@@ -289,7 +297,7 @@ class Horizon:
         best, chosen = inf, None
         for action in self.actions[t]:
             j = index + action.offset
-            if 0 <= j < self.states and (total := action.cost_eur + nxt[j]) < best:
+            if 0 <= j < self.states and (total := action.objective_eur + nxt[j]) < best:
                 best, chosen = total, action
         return chosen
 

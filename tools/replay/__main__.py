@@ -62,6 +62,7 @@ def build_policy(spec: str, plant: dict, sun: SunModel, hours=None, params: Batt
         mode = spec.partition("@")[2] or forecast_mode
         return RecedingHorizonPolicy(hours, plant, params, forecast_mode=mode,
                                      load_mode=planner.get("load_mode", "climatology"),
+                                     pv_mode=planner.get("pv_mode", "forecast"),
                                      wear_ct=planner.get("wear_ct", 3.0),
                                      terminal_factor=planner.get("terminal_factor", 0.8),
                                      soc_step=planner.get("soc_step", 0.5), name=spec)
@@ -91,7 +92,7 @@ def _compare(args: argparse.Namespace) -> int:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     planner = {"wear_ct": args.wear_ct, "terminal_factor": args.terminal_factor, "soc_step": args.planner_step,
-               "load_mode": args.rh_load}
+               "load_mode": args.rh_load, "pv_mode": args.rh_pv}
     all_metrics: dict[str, dict] = {}
     meta: dict[str, Any] = {
         "series": str(args.series), "hours": len(hours),
@@ -167,6 +168,8 @@ def _add_sim_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--planner-step", type=float, default=0.5, help="Planer: SoC-Raster in Prozent")
     parser.add_argument("--rh-load", choices=("climatology", "perfect"), default="climatology",
                         help="rh: Lastprognose aus Vormonats-Klimatologie oder perfekt")
+    parser.add_argument("--rh-pv", choices=("forecast", "perfect"), default="forecast",
+                        help="rh: PV aus Harness-Prognose oder perfekt (Diagnose der Prognosefehler)")
 
 
 def main(argv: list[str] | None = None) -> int:

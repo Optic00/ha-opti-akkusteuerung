@@ -112,6 +112,23 @@ async def test_manual_modes_use_protected_explicit_charge_limit(coordinator, mod
     assert (await coordinator._async_update_data())["mode"] == "Akku Pause"
 
 
+async def test_store_saves_once_a_minute_and_only_when_the_snapshot_changed(coordinator):
+    """The 15 s cycle must not schedule a write per cycle (SD-card wear)."""
+    snapshot = {"settings": {"input_number.minsoc": 10}, "engine": {"states": {}}}
+    with patch.object(coordinator, "_stored_data", return_value=snapshot), \
+            patch.object(coordinator._store, "async_delay_save") as delayed:
+        await coordinator._async_update_data()
+        assert delayed.call_count == 1
+        assert delayed.call_args.args[1] == 60
+        await coordinator._async_update_data()
+        await coordinator._async_update_data()
+        assert delayed.call_count == 1  # unchanged data: no new save
+        snapshot["engine"]["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] = "on"
+        await coordinator._async_update_data()
+        assert delayed.call_count == 2
+        assert delayed.call_args.args[1] == 60
+
+
 async def test_manual_charge_override_is_temporary_even_with_stored_options(coordinator, hass):
     key = "input_boolean.opti_manuelle_ladegrenze"
     await coordinator.async_apply_settings({key: True}, "temporary")

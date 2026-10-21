@@ -189,7 +189,12 @@ Die automatische MinSOC-Regel sperrt Entladung bei oder unter dem eingestellten
 Minimum. Nach diesem Eintritt hält sie den Schutz bis drei Prozentpunkte darüber;
 bei engem Abstand zum Maximum wird das Band auf den halben Abstand begrenzt.
 Bei MinSOC 10 % gibt sie also ab 13 % wieder frei. Der eigene Schutzzustand bleibt
-über Neustarts und ungültige SoC-Messungen erhalten. Änderungen der Min-/Max-Grenzen
+über Neustarts und ungültige SoC-Messungen erhalten. Solche Routinezustände
+(Haltezustände, Zähler, Berichte) schreibt Opti Akku höchstens einmal pro
+Minute und nur nach einer Änderung; ein geordneter Stopp oder HA-Neustart
+speichert sofort, ein harter Absturz verliert höchstens die letzte Minute.
+Bewusste Aktionen wie Schreibfreigabe, Einstellungen oder Pause speichern
+weiterhin direkt. Änderungen der Min-/Max-Grenzen
 setzen den Haltezustand zurück; liegt der SoC über dem neuen Minimum, wird
 der Schutz freigegeben. Andere Gründe für „Akku nur Laden“ aktivieren ihn nicht.
 Zulässiges Peak-Vorladen und Netzladen unter der Einspeisevergütung haben auch

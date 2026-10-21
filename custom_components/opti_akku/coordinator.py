@@ -196,6 +196,10 @@ def validate_setting(key: str, value: Any, current: dict) -> float | bool:
 PV_PEAK_DOWNSTREAM_DECISIONS = frozenset({"arbitrage_hold", "ev_preparation"})
 # Forecast snapshots are coalesced; a crash loses at most this much history.
 HISTORY_SAVE_DELAY = 900
+# Routine state (latches, counters, reports) is written at most once a minute
+# and only after a change; a clean stop still flushes immediately, so a crash
+# loses at most this much. Explicit user actions keep their own direct saves.
+STORE_SAVE_DELAY = 60
 
 
 def pv_peak_release_applies(result, mode: str, manual_mode, strategy_enabled: bool) -> bool:
@@ -300,6 +304,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._stop_lock = asyncio.Lock()
         self._stopped = False
         self._engine_snapshot: dict = {}
+        self._stored_fingerprint: int | None = None
         self._manual_charge_blocked = False
         self._manual_discharge_blocked = False
         self._manual_ev_latched = False
@@ -1226,8 +1231,20 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_update_planner(data, now, captured_options, demand_sources)
         self._update_arbitrage_report(data, now, captured_options, arbitrage_hold, safety_reason)
         await self._async_update_observations(data, now, captured_options)
-        self._store.async_delay_save(self._stored_data, 5)
+        self._schedule_routine_save()
         return data
+
+    @callback
+    def _schedule_routine_save(self) -> None:
+        """Coalesce the per-cycle store write; skip it while nothing changed."""
+        try:
+            fingerprint = hash(json.dumps(self._stored_data(), sort_keys=True, default=str))
+        except (TypeError, ValueError):
+            fingerprint = None
+        if fingerprint is not None and fingerprint == self._stored_fingerprint:
+            return
+        self._stored_fingerprint = fingerprint
+        self._store.async_delay_save(self._stored_data, STORE_SAVE_DELAY)
 
     def _update_refill_comparison(self, data, now):
         """Attach the peak-versus-refill shadow comparison; it never changes control."""

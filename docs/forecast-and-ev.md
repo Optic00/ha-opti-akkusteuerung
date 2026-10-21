@@ -191,7 +191,10 @@ bleiben die Mittelung zeitgewichtet und die konfigurierte Mindestlast erhalten.
 Bei fehlendem Ladestatus, ungültiger Ladeleistung oder einem Abzug größer als
 die Hauslast dient deren gültiger unbereinigter 60-Minuten-Wert als Ersatz,
 sonst die gültige aktuelle Hauslast. Ohne gültige aktuelle Hauslast ist der
-Score nicht verfügbar. Ohne EV-Option gilt weiterhin die bisherige Berechnung.
+Score nicht verfügbar. Das gilt auch ohne EV-Option: Fehlt
+`sensor.opti_house_consumption_w`, sind Tages-, Morgen- und Sonnentag-Score
+nicht verfügbar, statt mit einer erfundenen Last von 400 W zu rechnen.
+Ansonsten gilt ohne EV-Option weiterhin die bisherige Berechnung.
 `reserve_plan` zeigt `sun_day_score`, `long_horizon`, `horizon_reason` und
 `score_load_error`. Ein neuer Eintrag startet bei gültigem Score zwischen den
 Schaltschwellen mit kurzem Horizont; ein vorhandener langer Horizont bleibt

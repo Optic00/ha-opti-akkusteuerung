@@ -674,6 +674,7 @@ async def test_night_standby_at_minsoc_is_informational_not_an_incident(hass, al
     {"states": {"sensor.opti_pv_generation_w": 300}},                            # device not idle: PV
     {"states": {"sensor.opti_battery_power_w": -400}},                           # device not idle: charging
     {"states": {"sensor.opti_battery_power_w": "unavailable"}},                  # telemetry missing
+    {"mode": "Akku Netzladen"},                                                  # grid charge requested: idle = failure
     {"states": {"sensor.opti_soc": "unavailable"}},                              # unknown SoC
     {"online": False, "connection_status": {"status": "offline", "inverter_status": None}},
     {"connection_status": {"status": "recovering", "inverter_status": 235}},

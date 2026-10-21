@@ -442,6 +442,9 @@ Meldet ein erreichbarer Wechselrichter nachts `not_ready` mit einem als
 Standby belegten Rohstatus, während der SoC bei oder unter MinSOC liegt oder
 der MinSOC-Schutz noch hält und weder PV noch Akku mehr als 50 W liefern,
 wertet Opti Akku das als Standby mit leerem Akku (#103), nicht als Störung.
+Fordert die Strategie in dieser Zeit Netzladen an, gilt die Ausnahme nicht:
+Ein stillstehendes Gerät wäre dann ein Fehler, und das Ladefenster darf
+nicht unbemerkt verstreichen.
 Sicher ist das nicht: Der Code bedeutet bei SMA nur „Information liegt nicht
 vor“. Ein Fehler, der denselben Code bei stillstehendem Gerät meldet, bliebe
 bis zum Sonnenaufgang oder bis zur nächsten Aktivität verdeckt. Es entstehen dann weder HA-Störmeldung noch Push, und

@@ -42,6 +42,9 @@ MESSAGES = {
 SMA_STANDBY_STATUS_CODES: frozenset[int] = frozenset({16777213})
 # Largest PV or battery power (W) still consistent with an idle inverter.
 STANDBY_IDLE_W = 50.0
+# Modes that expect the device to act at night; an idle device is then a
+# failure, never a standby, so the charge window cannot pass unnoticed.
+GRID_CHARGE_MODES = frozenset({"Akku Netzladen", "Akku schnell Laden", "Akku 0.2C Laden"})
 
 
 def night_standby(data) -> bool:
@@ -56,6 +59,8 @@ def night_standby(data) -> bool:
     if not isinstance(connection, Mapping) or connection.get("status") != "not_ready":
         return False
     if connection.get("inverter_status") not in SMA_STANDBY_STATUS_CODES:
+        return False
+    if data.get("mode") in GRID_CHARGE_MODES:
         return False
     states = data.get("states", {})
     if not data.get("online", False) or not isinstance(states, Mapping) or states.get("sun.sun") != "below_horizon":

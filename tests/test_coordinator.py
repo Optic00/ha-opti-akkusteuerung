@@ -214,6 +214,25 @@ async def test_write_watchdog_pauses_only_in_a_documented_night_standby(coordina
     coordinator.device.async_apply.assert_not_awaited()
 
 
+async def test_write_watchdog_sees_the_effective_mode_so_requested_grid_charging_is_never_a_standby(coordinator, hass, monkeypatch):
+    from custom_components.opti_akku import coordinator as module
+    seen = []
+    monkeypatch.setattr(module, "night_standby", lambda data: seen.append(data) or False)
+    hass.states.async_set("sun.sun", "below_horizon", {"next_rising": "2026-07-27T05:45:00+02:00",
+                                                        "next_setting": "2026-07-27T21:00:00+02:00"})
+    coordinator.write_enabled = True
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    data = await coordinator._async_update_data()
+    assert seen and seen[-1]["mode"] == data["mode"]
+    from custom_components.opti_akku.alerts import night_standby
+    idle = {**seen[-1], "mode": "Akku Netzladen",
+            "connection_status": {"status": "not_ready", "inverter_status": 16777213}, "online": True,
+            "states": {**seen[-1]["states"], "sun.sun": "below_horizon", "sensor.opti_soc": 5,
+                       "input_number.minsoc": 10, "sensor.opti_pv_generation_w": 0, "sensor.opti_battery_power_w": 0}}
+    assert night_standby(idle) is False
+    assert night_standby({**idle, "mode": "Akku nur Laden"}) is True
+
+
 async def test_manual_charge_override_is_temporary_even_with_stored_options(coordinator, hass):
     key = "input_boolean.opti_manuelle_ladegrenze"
     await coordinator.async_apply_settings({key: True}, "temporary")

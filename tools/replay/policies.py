@@ -1,6 +1,7 @@
 """Mode policies: the real StrategyEngine, and a self-consumption baseline."""
 from __future__ import annotations
 
+import copy
 import datetime as dt
 from dataclasses import dataclass, field
 from typing import Any
@@ -97,6 +98,7 @@ class StrategyPolicy:
     name: str = "strategy"
     resources: dict | None = None  # overrides strategy_ref (tests, patched variants)
     house_daily: str = "engine"  # "lastprofil": 24-h load statistic replaced by the previous month's mean daily load
+    sample_interval_s: float = 900.0  # raster of the long-window statistics = simulation step (live: 60 s)
 
     def __post_init__(self) -> None:
         if self.house_daily not in HOUSE_DAILY_MODES:
@@ -105,7 +107,14 @@ class StrategyPolicy:
         self._injected = self.resources is not None
         if self.resources is None:
             self.resources = load_strategy(self.strategy_ref)
-        self.engine = self._engine_module.StrategyEngine(self.resources)
+        # The engine samples once per evaluation step here, not once a minute as
+        # live: rastered statistics get the step as interval so their expected
+        # sample count (and with it coverage_ok) matches the simulation cadence.
+        self._engine_resources = copy.deepcopy(self.resources)
+        for definition in self._engine_resources.get("statistics", []):
+            if definition.get("sample_interval"):
+                definition["sample_interval"] = {"seconds": self.sample_interval_s}
+        self.engine = self._engine_module.StrategyEngine(self._engine_resources)
         self.steps = 0
         self.error_steps = 0
         self.charge_limit_unknown_steps = 0
@@ -138,7 +147,8 @@ class StrategyPolicy:
         if self.house_daily == "lastprofil" and context.load_day_kwh is not None:
             # Variant C: the learned profile's daily demand stands in for the 24-h statistic.
             states[DAILY_LOAD_STATISTIC] = round(context.load_day_kwh / 24 * 1000)
-            attributes[DAILY_LOAD_STATISTIC] = {"age_coverage_ratio": 1.0, "sample_count": 24}
+            attributes[DAILY_LOAD_STATISTIC] = {"coverage_ok": True, "sample_coverage_ratio": 1.0,
+                                                "age_coverage_ratio": 1.0, "max_gap_seconds": 0, "sample_count": 24}
         if context.forecast_today_kwh is not None:
             states["sensor.opti_forecast_today_kwh"] = round(context.forecast_today_kwh, 3)
             states["sensor.opti_forecast_tomorrow_kwh"] = round(context.forecast_tomorrow_kwh or 0.0, 3)
@@ -175,7 +185,7 @@ class StrategyPolicy:
 
     def reset(self) -> None:
         """Fresh engine state at a measurement block boundary (like a cold start)."""
-        self.engine = self._engine_module.StrategyEngine(self.resources)
+        self.engine = self._engine_module.StrategyEngine(self._engine_resources)
         self.resets += 1
 
     def summary(self) -> dict[str, Any]:

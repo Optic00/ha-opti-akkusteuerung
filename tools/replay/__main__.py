@@ -51,7 +51,7 @@ def build_policy(spec: str, plant: dict, sun: SunModel, hours=None, params: Batt
         return None
     if spec == "self_consumption":
         return SelfConsumptionPolicy()
-    if spec == "strategy" or spec.startswith(("strategy@", "strategy+lastprofil@")):
+    if spec in ("strategy", "strategy+lastprofil") or spec.startswith(("strategy@", "strategy+lastprofil@")):
         # ``strategy+lastprofil@ref``: the 24-h load statistic is replaced by the
         # previous month's mean daily load (stand-in for the learned demand profile).
         head, _, ref = spec.partition("@")

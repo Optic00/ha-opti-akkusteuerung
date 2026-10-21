@@ -30,8 +30,12 @@ Policies:
   oder einer Datei. Mehrere Refs lassen sich in einem `compare` nebeneinander stellen.
   `strategy+lastprofil[@…]` ersetzt die 24-h-Laststatistik der Engine
   (`sensor.opti_house_consumption_24h_w`) durch das mittlere Tagesprofil des
-  Vormonats (Summe der Stundenmittel, volle Abdeckung) als Stellvertreter für ein
-  gelerntes Lastprofil; der Rest der Strategie bleibt unverändert.
+  Vormonats (Summe der Stundenmittel, volle Abdeckung) als groben Stellvertreter
+  für ein gelerntes Lastprofil; fehlt der Vormonat, bleibt die Engine-Statistik
+  (kein Zukunftswissen aus dem laufenden Monat). Ein echtes Online-Profil mit
+  Tag-/Nachtverhältnis bildet das nicht ab. Rastergestützte Statistiken
+  (`sample_interval`) bekommen den Simulationsschritt als Raster, damit ihre
+  Abdeckung (`coverage_ok`) zur Schrittweite passt.
 - `oracle[@hold|@value]`: perfekte Voraussicht je Messblock mit dem Planer-Kern
   (`custom_components/opti_akku/planner.py`, DP über die gespeicherte Energie).
   `hold` (Standard) verlangt am Blockende mindestens den Start-SoC, `value`

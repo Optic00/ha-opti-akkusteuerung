@@ -187,7 +187,8 @@ def run(
             start_utc = hour.ts_local.astimezone(dt.UTC)
             month_key = (hour.ts_local.year, hour.ts_local.month)
             profile = profiles.get(previous_month(month_key)) or profiles.get(month_key) or [0.0] * 24
-            load_day = load_days.get(previous_month(month_key), load_days.get(month_key))
+            # Previous month only: the running month would be future knowledge.
+            load_day = load_days.get(previous_month(month_key))
             for sub in range(steps_per_hour):
                 fraction = sub / steps_per_hour
                 now = (start_utc + dt.timedelta(hours=fraction)).astimezone(hour.ts_local.tzinfo)

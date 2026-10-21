@@ -217,7 +217,13 @@ def test_lastprofil_variant_injects_the_previous_months_daily_load(head_resource
     policy.engine.evaluate = spy
     simulate.run(hours, policy, BatteryParams.from_plant(PLANT), start_soc=50)
     # 0.5 kWh per hour -> 12 kWh per day -> 500 W, with full coverage so the templates accept it.
-    assert seen[dt.date(2026, 10, 1)] == (500, {"age_coverage_ratio": 1.0, "sample_count": 24})
+    assert seen[dt.date(2026, 10, 1)][0] == 500
+    assert seen[dt.date(2026, 10, 1)][1]["coverage_ok"] is True
+    # Without a previous month nothing is injected: the engine statistic (no future knowledge) stands.
+    assert seen[dt.date(2026, 9, 30)] == (None, None)
     assert simulate.load_day_climatology(hours)[(2026, 9)] == pytest.approx(12.0)
+    assert policy._engine_resources is not head_resources
+    assert all(definition["sample_interval"] == {"seconds": 900.0}
+               for definition in policy._engine_resources["statistics"] if "sample_interval" in definition)
     with pytest.raises(ValueError):
         StrategyPolicy(PLANT, resources=head_resources, house_daily="perfect")

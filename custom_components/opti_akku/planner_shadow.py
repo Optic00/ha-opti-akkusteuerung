@@ -165,8 +165,10 @@ def pv_forecast_hourly(states: Sequence[Any], now: datetime,
             return "invalid", {}
     if not found:
         return "no_forecast", {}
+    # Exactly one full grid per hour; extra shifted intervals would be summed
+    # twice, so such an hour counts as a gap instead.
     hours = {hour: v for hour, v in hours.items()
-             if any(pattern <= covered.get(hour, set()) for pattern in HOUR_COVERAGE_PATTERNS)}
+             if covered.get(hour, frozenset()) in HOUR_COVERAGE_PATTERNS}
     if _hour(now) not in hours:
         return "stale", {}
     return "ready", {hour: (None if v[0] is None else round(v[0], 4), None if v[1] is None else round(v[1], 4))

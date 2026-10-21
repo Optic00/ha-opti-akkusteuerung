@@ -1247,9 +1247,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_update_planner(data, now, captured_options, demand_sources)
         self._update_arbitrage_report(data, now, captured_options, arbitrage_hold, safety_reason)
         await self._async_update_observations(data, now, captured_options)
+        # Only a real on<->off transition forces a write; a latch missing on one
+        # side (disabled strategy, first cycle) waits for the routine interval.
         latch_changed = any(
             previous_latches[key] != result.states.get(key)
-            and ("on" in (previous_latches[key], result.states.get(key)) or "off" in (previous_latches[key], result.states.get(key)))
+            and previous_latches[key] in ("on", "off") and result.states.get(key) in ("on", "off")
             for key in PERSISTED_LATCHES
         )
         self._schedule_routine_save(monotonic_now, force=latch_changed)

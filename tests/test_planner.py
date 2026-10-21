@@ -281,9 +281,14 @@ def test_pv_forecast_hourly_counts_only_complete_hours():
     # Summed durations are not coverage: 12:15 + 12:45 leave the first quarter open.
     shifted = solcast(now + timedelta(minutes=15), [(1.0, 2.0), (1.0, 2.0)], updated=now)
     assert pv_forecast_hourly([shifted], now)[0] == "stale"
+    # Overlapping shifted rows on top of the aligned grid would double the
+    # energy (1/2 kWh -> 2/4 kWh); such an hour is a gap, never a sum.
     aligned = solcast(now, [(1.0, 2.0), (1.0, 2.0)], updated=now)
-    status, hours = pv_forecast_hourly([aligned, shifted], now)
-    assert status == "ready" and set(hours) == {now}
+    assert pv_forecast_hourly([aligned], now) == ("ready", {now: (1.0, 2.0)})
+    assert pv_forecast_hourly([aligned, shifted], now)[0] == "stale"
+    later = solcast(now + timedelta(hours=1), [(1.0, 2.0), (1.0, 2.0)], updated=now)
+    status, hours = pv_forecast_hourly([aligned, shifted, later], now)
+    assert status == "stale" and now not in hours
 
 
 def test_pv_forecast_accepts_hourly_rows_and_single_quantiles():

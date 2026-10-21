@@ -138,6 +138,14 @@ async def test_latch_transitions_are_persisted_immediately(coordinator):
         coordinator.device.async_read.return_value["sensor.opti_soc"] = 11
         await coordinator._async_update_data()
         assert not any(call.args[1] == 0 for call in delayed.call_args_list)
+        # A disabled strategy drops the latch states; that is no transition and
+        # must not force a write on every cycle.
+        delayed.reset_mock()
+        coordinator.strategy_enabled = False
+        for _ in range(3):
+            data = await coordinator._async_update_data()
+            assert data["states"].get("binary_sensor.opti_minsoc_schutz_aktiv") not in ("on", "off")
+        assert not any(call.args[1] == 0 for call in delayed.call_args_list)
 
 
 async def test_minsoc_latch_survives_a_crash_right_after_it_latched(hass, entry):

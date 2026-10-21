@@ -189,10 +189,11 @@ Die automatische MinSOC-Regel sperrt Entladung bei oder unter dem eingestellten
 Minimum. Nach diesem Eintritt hält sie den Schutz bis drei Prozentpunkte darüber;
 bei engem Abstand zum Maximum wird das Band auf den halben Abstand begrenzt.
 Bei MinSOC 10 % gibt sie also ab 13 % wieder frei. Der eigene Schutzzustand bleibt
-über Neustarts und ungültige SoC-Messungen erhalten. Solche Routinezustände
-(Haltezustände, Zähler, Berichte) schreibt Opti Akku höchstens einmal pro
-Minute und nur nach einer Änderung; ein geordneter Stopp oder HA-Neustart
-speichert sofort, ein harter Absturz verliert höchstens die letzte Minute.
+über Neustarts und ungültige SoC-Messungen erhalten. Ein Wechsel dieses
+Schutzes (wie auch von PV-Spitze, Ladedeckel und langem Peak-Horizont) wird
+sofort gespeichert; übrige Routinezustände (Zähler, Berichte) schreibt Opti
+Akku einmal pro Minute. Ein geordneter Stopp oder HA-Neustart speichert
+sofort, ein harter Absturz verliert höchstens die letzte Minute davon.
 Bewusste Aktionen wie Schreibfreigabe, Einstellungen oder Pause speichern
 weiterhin direkt. Änderungen der Min-/Max-Grenzen
 setzen den Haltezustand zurück; liegt der SoC über dem neuen Minimum, wird
@@ -437,15 +438,24 @@ Quellenfehler. Der Fehler bleibt in der Diagnose sichtbar. Bei Tageslicht,
 unbekanntem Sonnenstand oder weiteren Quellenfehlern gilt die Meldefrist von
 60 Sekunden weiterhin. Steuerung und andere Alarme ändern sich dadurch nicht.
 
-Meldet ein erreichbarer Wechselrichter nachts `not_ready`, während der SoC
-bei oder unter MinSOC liegt oder der MinSOC-Schutz noch hält, ist das ein
-normaler Standby mit leerem Akku (#103), keine Störung. Es entstehen dann
-weder HA-Störmeldung noch Push. Der Diagnosesensor
-**Wechselrichter-Bereitschaft** bleibt auf `not_ready` und zeigt zusätzlich
-das Attribut `standby: night_empty` neben dem rohen `inverter_status`; die
-Diagnose führt den Zustand unter `health.standby`. Schreibzugriffe bleiben
-bis `ready` gesperrt. `offline`, `recovering`, Tageslicht oder ein nicht
-leerer Akku melden weiterhin nach 60 Sekunden.
+Meldet ein erreichbarer Wechselrichter nachts `not_ready` mit einem als
+Standby belegten Rohstatus, während der SoC bei oder unter MinSOC liegt oder
+der MinSOC-Schutz noch hält, ist das ein normaler Standby mit leerem Akku
+(#103), keine Störung. Es entstehen dann weder HA-Störmeldung noch Push, und
+der Schreib-Watchdog zählt diese Zeit nicht als Schreibstillstand. Der
+Diagnosesensor **Wechselrichter-Bereitschaft** bleibt auf `not_ready` und
+zeigt zusätzlich das Attribut `standby: night_empty` neben dem rohen
+`inverter_status`; die Diagnose führt den Zustand unter `health.standby`.
+Schreibzugriffe bleiben bis `ready` gesperrt. `offline`, `recovering`,
+Tageslicht, ein nicht leerer Akku oder ein nicht belegter Rohstatus melden
+weiterhin nach 60 Sekunden.
+
+Als Standby belegte Codes stehen in `SMA_STANDBY_STATUS_CODES`
+(`alerts.py`). Für Register 33003 sind bisher nur 235 (Netzparallelbetrieb),
+1463 (Backup), 1469 (Herunterfahren), 2119 (Abregelung) und 16777213
+(Information liegt nicht vor) belegt, kein Standby-Code. Die Liste ist daher
+leer und die Ausnahme inaktiv, bis der Code aus dem Verlauf des Attributs
+`inverter_status` eines betroffenen Geräts bestätigt und nachgetragen ist.
 
 Ein Neuladen der Integration oder HA-Neustart beginnt eine neue
 Vorfallserkennung. Ein weiterhin vorhandener Quellenfehler kann deshalb nach

@@ -112,21 +112,96 @@ async def test_manual_modes_use_protected_explicit_charge_limit(coordinator, mod
     assert (await coordinator._async_update_data())["mode"] == "Akku Pause"
 
 
-async def test_store_saves_once_a_minute_and_only_when_the_snapshot_changed(coordinator):
-    """The 15 s cycle must not schedule a write per cycle (SD-card wear)."""
-    snapshot = {"settings": {"input_number.minsoc": 10}, "engine": {"states": {}}}
-    with patch.object(coordinator, "_stored_data", return_value=snapshot), \
-            patch.object(coordinator._store, "async_delay_save") as delayed:
+async def test_routine_save_reaches_the_real_store_at_least_once_a_minute(coordinator, hass):
+    """Re-arming a 60 s delay every 15 s cycle would postpone the write forever."""
+    clock = [1000.0]
+    with patch("custom_components.opti_akku.coordinator.time.monotonic", side_effect=lambda: clock[0]), \
+            patch.object(coordinator._store, "_async_write_data", AsyncMock()) as write:
+        for _ in range(40):  # 600 s of 15 s cycles
+            await coordinator._async_update_data()
+            await hass.async_block_till_done()
+            clock[0] += 15
+    assert write.await_count >= 10
+
+
+async def test_latch_transitions_are_persisted_immediately(coordinator):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.minsoc"] = 10
+    with patch.object(coordinator._store, "async_delay_save") as delayed:
         await coordinator._async_update_data()
-        assert delayed.call_count == 1
-        assert delayed.call_args.args[1] == 60
+        delayed.reset_mock()
+        coordinator.device.async_read.return_value["sensor.opti_soc"] = 9
+        data = await coordinator._async_update_data()
+        assert data["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "on"
+        assert delayed.call_args.args[1] == 0
+        delayed.reset_mock()
+        coordinator.device.async_read.return_value["sensor.opti_soc"] = 11
         await coordinator._async_update_data()
-        await coordinator._async_update_data()
-        assert delayed.call_count == 1  # unchanged data: no new save
-        snapshot["engine"]["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] = "on"
-        await coordinator._async_update_data()
-        assert delayed.call_count == 2
-        assert delayed.call_args.args[1] == 60
+        assert not any(call.args[1] == 0 for call in delayed.call_args_list)
+
+
+async def test_minsoc_latch_survives_a_crash_right_after_it_latched(hass, entry):
+    """Saved off, SoC 10 -> on, recovery to 11, crash: restore at 11 must stay on until 13."""
+    before = OptiCoordinator(hass, entry, device(), StrategyEngine())
+    await before.async_restore()
+    saved = {}
+
+    def capture(data_func, delay):
+        if delay == 0:
+            saved.clear()
+            saved.update(deepcopy(data_func()))
+
+    try:
+        before.settings["input_boolean.akku_opti_automatik"] = True
+        before.settings["input_number.minsoc"] = 10
+        before.device.async_read.return_value["sensor.opti_soc"] = 60
+        await before._async_update_data()
+        saved.update(deepcopy(before._stored_data()))
+        assert saved["engine"]["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "off"
+        with patch.object(before._store, "async_delay_save", side_effect=capture):
+            before.device.async_read.return_value["sensor.opti_soc"] = 10
+            assert (await before._async_update_data())["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "on"
+            before.device.async_read.return_value["sensor.opti_soc"] = 11
+            assert (await before._async_update_data())["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "on"
+    finally:
+        await before.async_stop()
+    inverter = device()
+    inverter.async_read.return_value["sensor.opti_soc"] = 11
+    after = OptiCoordinator(hass, entry, inverter, StrategyEngine())
+    with patch.object(after._store, "async_load", AsyncMock(return_value=saved)):
+        await after.async_restore()
+    try:
+        after.settings["input_boolean.akku_opti_automatik"] = True
+        after.settings["input_number.minsoc"] = 10
+        data = await after._async_update_data()
+        assert data["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "on"
+        assert data["mode"] == "Akku nur Laden"
+    finally:
+        await after.async_stop()
+
+
+@pytest.mark.parametrize("status,stalled", [(4242, "off"), (9999, "on")])
+async def test_write_watchdog_pauses_only_in_a_documented_night_standby(coordinator, hass, monkeypatch, status, stalled):
+    from custom_components.opti_akku import alerts
+    monkeypatch.setattr(alerts, "SMA_STANDBY_STATUS_CODES", frozenset({4242}))
+    hass.states.async_set("sun.sun", "below_horizon", {"next_rising": "2026-07-27T05:45:00+02:00",
+                                                        "next_setting": "2026-07-27T21:00:00+02:00"})
+    coordinator.write_enabled = True
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.minsoc"] = 10
+    coordinator.device.async_read.return_value["sensor.opti_soc"] = 8
+    coordinator.device.async_read.return_value["sensor.opti_inverter_status"] = status
+    clock = [100.0]
+    with patch("custom_components.opti_akku.coordinator.time.monotonic", side_effect=lambda: clock[0]):
+        first = await coordinator._async_update_data()
+        assert first["connection_status"]["status"] == "not_ready"
+        for _ in range(20):
+            clock[0] += 15
+            data = await coordinator._async_update_data()
+    assert data["states"]["binary_sensor.opti_write_stalled"] == stalled
+    assert ("write" in coordinator.alerts._active) == (stalled == "on")
+    assert (data["connection_status"].get("standby") == "night_empty") == (stalled == "off")
+    coordinator.device.async_apply.assert_not_awaited()
 
 
 async def test_manual_charge_override_is_temporary_even_with_stored_options(coordinator, hass):

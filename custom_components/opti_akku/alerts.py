@@ -30,15 +30,30 @@ MESSAGES = {
 }
 
 
+# Raw Operation.RunStt codes (register 33003) that are documented as a normal
+# night standby with an empty battery. Documented codes for 33003 are only
+# 235 = grid-parallel operation, 1463 = backup, 1469 = shutting down,
+# 2119 = derating and 16777213 = information not available
+# (ha-modbus-akku-adapter/docs/modbus-register-referenz.md:57). No standby
+# code is documented anywhere, so this set ships EMPTY and the night-standby
+# exception below stays inactive. Add the code from the ``inverter_status``
+# attribute of an affected user's readiness sensor history (#103) once it is
+# confirmed; never guess one. Unknown codes keep raising the connection alert.
+SMA_STANDBY_STATUS_CODES: frozenset[int] = frozenset()
+
+
 def night_standby(data) -> bool:
     """SMA hybrid inverters report not_ready at night with an empty battery (#103).
 
-    The device is reachable, the sun is down and the SoC sits at or under
-    MinSOC (or inside its exit band via the latch). That is a normal standby,
-    not an incident; writes stay blocked by the readiness gate regardless.
+    The device is reachable, its raw status is a documented standby code, the
+    sun is down and the SoC sits at or under MinSOC (or inside its exit band
+    via the latch). That is a normal standby, not an incident; writes stay
+    blocked by the readiness gate regardless.
     """
     connection = data.get("connection_status", {})
     if not isinstance(connection, Mapping) or connection.get("status") != "not_ready":
+        return False
+    if connection.get("inverter_status") not in SMA_STANDBY_STATUS_CODES:
         return False
     states = data.get("states", {})
     if not data.get("online", False) or not isinstance(states, Mapping) or states.get("sun.sun") != "below_horizon":

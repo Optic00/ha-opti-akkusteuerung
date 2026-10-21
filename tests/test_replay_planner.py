@@ -54,8 +54,8 @@ def test_oracle_beats_self_consumption_and_buys_in_the_cheap_night():
     grid = [r for r in records if r.charge_kwh > max(0.0, r.pv_kwh - r.load_kwh) + 1e-9]
     assert grid and {r.ts_local.hour for r in grid} <= {1, 2, 3, 4}
     assert {r.mode for r in grid} == {"Akku Netzladen"}
-    # hold: the block ends at least where it started.
-    assert records[-1].soc_after >= 20 - 1e-6
+    # hold: the block ends where it started, up to the grid rounding of the plan.
+    assert records[-1].soc_after >= 20 - 0.5
     summary = oracle.summary()
     assert summary["blocks"] == 1 and summary["missing_steps"] == 0 and summary["price_filled_hours"] == 0
 

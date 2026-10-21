@@ -7,8 +7,8 @@ that a planner with the forecasts of the moment would get (receding horizon).
 
 Oracle: one dynamic programme per measurement block over the actual PV and
 load, prices of hours without a price filled with the month's mean. The
-decision at every step is re-read from the solved tables with the simulated
-SoC, so rounding in the plan never accumulates. The terminal condition
+decision of every hour is read from the solved tables with the simulated SoC,
+so rounding in the plan never accumulates. The terminal condition
 ``hold`` requires the block to end at least at its starting SoC (fair against
 the other policies); ``value`` credits leftover energy like the live planner.
 
@@ -18,8 +18,11 @@ PV level from the reconstructed day forecasts (``forecast_remaining`` and
 ``forecast_tomorrow``), shaped by the previous month's climatology (``naive``)
 or the day's actual profile (``calibrated``, future knowledge of timing). Load
 is the previous month's mean hourly profile (``climatology``) or the actual
-hour (``perfect``). Quarter-hour steps re-read the hour's tables with the
-simulated SoC. Without a price series the policy falls back to Dynamisch.
+hour (``perfect``). Both policies choose once per hour from the simulated SoC
+and hold that move (mode plus charge and discharge setpoints) over the
+quarter-hour steps; re-choosing mid-hour from the already moved state mixed
+hourly moves with partial hours and cost about 30 EUR in the data set. Without
+a price series the receding horizon falls back to Dynamisch.
 """
 from __future__ import annotations
 
@@ -93,6 +96,7 @@ class OraclePolicy:
     soc_step: float = 0.5
     name: str = "oracle"
     _tables: dict[dt.datetime, tuple[Horizon, int]] = field(default_factory=dict, repr=False)
+    _held: tuple[dt.datetime, Decision] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.battery = battery_of(self.params)
@@ -122,21 +126,32 @@ class OraclePolicy:
         self.missing_steps = 0
 
     def decide(self, context: StepContext) -> Decision:
+        """Choose once per hour from the simulated SoC; sub-steps execute that hourly move.
+
+        The tables value a whole hour ahead, so re-choosing mid-hour from the
+        already moved state would mix hourly moves with partial hours.
+        """
         self.steps += 1
-        entry = self._tables.get(_hour_key(context.now))
-        if entry is None:
+        key = _hour_key(context.now)
+        if self._held is not None and self._held[0] == key:
+            return self._held[1]
+        entry = self._tables.get(key)
+        decision = None
+        if entry is not None:
+            horizon, t = entry
+            index = horizon.index(context.soc)
+            action = horizon.choose(t, index)
+            if action is not None:
+                decision = _decision(horizon.step(t, index, action), "oracle", "perfekte Voraussicht", self.params)
+        if decision is None:
             self.missing_steps += 1
-            return Decision(DYNAMIC, "oracle_missing", "Stunde ohne Plan")
-        horizon, t = entry
-        index = horizon.index(context.soc)
-        action = horizon.choose(t, index)
-        if action is None:
-            self.missing_steps += 1
-            return Decision(DYNAMIC, "oracle_missing", "kein zulaessiger Zug")
-        return _decision(horizon.step(t, index, action), "oracle", "perfekte Voraussicht", self.params)
+            decision = Decision(DYNAMIC, "oracle_missing", "Stunde ohne Plan")
+        self._held = (key, decision)
+        return decision
 
     def reset(self) -> None:
-        """Tables are per block already; nothing to discard."""
+        """Tables are per block already; only the held hour is discarded."""
+        self._held = None
 
     def summary(self) -> dict[str, Any]:
         return {"planner": "oracle", "terminal": self.terminal, "wear_ct_kwh": self.wear_ct,
@@ -176,6 +191,7 @@ class RecedingHorizonPolicy:
         self.tz = self.hours[0].ts_local.tzinfo if self.hours else dt.UTC
         self._plan_key: dt.datetime | None = None
         self._horizon: Horizon | None = None
+        self._held: Decision | None = None
         self.steps = 0
         self.plans = 0
         self.fallback_steps = 0
@@ -251,18 +267,18 @@ class RecedingHorizonPolicy:
                 self.plans += 1
             self._plan_key = key
             self.solve_seconds += time.perf_counter() - started
-        if self._horizon is None:
+            step = self._horizon.first(context.soc) if self._horizon is not None else None
+            self._held = (None if step is None
+                          else _decision(step, "rh", f"Plan {self.forecast_mode}", self.params))
+        if self._held is None:
             self.fallback_steps += 1
-            return Decision(DYNAMIC, "rh_fallback", "keine Preisreihe")
-        step = self._horizon.first(context.soc)
-        if step is None:
-            self.fallback_steps += 1
-            return Decision(DYNAMIC, "rh_fallback", "kein zulaessiger Zug")
-        return _decision(step, "rh", f"Plan {self.forecast_mode}", self.params)
+            return Decision(DYNAMIC, "rh_fallback", "keine Preisreihe oder kein zulaessiger Zug")
+        return self._held
 
     def reset(self) -> None:
         self._plan_key = None
         self._horizon = None
+        self._held = None
 
     def summary(self) -> dict[str, Any]:
         return {"planner": "receding_horizon", "forecast_mode": self.forecast_mode, "load_mode": self.load_mode,

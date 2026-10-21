@@ -33,8 +33,9 @@ Policies:
   `hold` (Standard) verlangt am Blockende mindestens den Start-SoC, `value`
   bewertet Restenergie wie der Live-Planer. Stunden ohne Preis bekommen für die
   Planung den Monatsmittelpreis (`price_filled_hours`); Kosten zählen weiter nur
-  bepreiste Schritte. Jeder Schritt liest seine Entscheidung mit dem simulierten
-  SoC aus den gelösten Tabellen, Rundung summiert sich also nicht.
+  bepreiste Schritte. Jede Stunde liest ihre Entscheidung mit dem simulierten
+  SoC aus den gelösten Tabellen und hält sie über die Viertelstunden, Rundung
+  summiert sich also nicht.
 - `rh[@naive|@calibrated]`: Receding Horizon mit Day-Ahead-Wissen, jede volle
   Stunde ein neuer Plan über die bekannten Preise (Rest heute, morgen ab 13 Uhr)
   mit den Prognosen des Harness: PV-Pegel aus den rekonstruierten Tagesprognosen,

@@ -133,6 +133,8 @@ class OptiAkkuPlanShadowSensor(OptiAkkuStateSensor):
         super().__init__(entry, key)
         self._attr_device_class = SensorDeviceClass.ENUM
         self._attr_options = PLAN_SHADOW_MODES
+        self._attr_translation_key = "plan_shadow"
+        self._attr_name = None
         self._numeric = False
 
     @property

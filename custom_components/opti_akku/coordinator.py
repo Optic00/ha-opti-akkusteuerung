@@ -20,6 +20,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import sun
 from homeassistant.util import dt as dt_util
 
@@ -192,6 +193,8 @@ def validate_setting(key: str, value: Any, current: dict) -> float | bool:
 
 
 PV_PEAK_DOWNSTREAM_DECISIONS = frozenset({"arbitrage_hold", "ev_preparation"})
+# Forecast snapshots are coalesced; a crash loses at most this much history.
+HISTORY_SAVE_DELAY = 900
 
 
 def pv_peak_release_applies(result, mode: str, manual_mode, strategy_enabled: bool) -> bool:
@@ -350,7 +353,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._refill_comparison.restore(stored.get("refill_reserve_comparison"))
         self._negative_price_hold.restore(stored.get("negative_price_hold"))
         self._planner.restore(stored.get("planner_shadow"))
-        self._planner_history.restore(await self._history_store.async_load())
+        try:
+            # Diagnosis only: a broken history must never block the integration.
+            self._planner_history.restore(await self._history_store.async_load())
+        except Exception as err:  # noqa: BLE001 - any store failure stays in the diagnosis
+            _LOGGER.warning("Planner forecast history unavailable: %s", type(err).__name__)
+            self._planner_history.restore(None)
+            self._planner_history.error = type(err).__name__
         self._demand_forecast.restore(stored.get("demand_forecast", {}))
         self._source_observation.restore(stored.get("source_observation", {}))
         previous_load_source = stored.get("load_source_fingerprint")
@@ -1212,7 +1221,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._refill_comparison.interrupt()
         self._update_negative_price_hold(
             data, now, (captured_options.get("sources", {}).get("forecast_today"), demand_sources.get("pv_today")))
-        self._update_planner(data, now, captured_options, demand_sources)
+        await self._async_update_planner(data, now, captured_options, demand_sources)
         self._update_arbitrage_report(data, now, captured_options, arbitrage_hold, safety_reason)
         await self._async_update_observations(data, now, captured_options)
         self._store.async_delay_save(self._stored_data, 5)
@@ -1283,13 +1292,32 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         states[key] = check.get("verdict", "unavailable") if check.get("status") == "ready" else "unavailable"
         attributes[key] = check
 
-    def _update_planner(self, data, now, options, demand_sources):
-        """Shadow horizon planner; runs after the decision and never changes it."""
+    def _planner_entity_enabled(self) -> bool:
+        """The shadow sensor is disabled by default; a disabled entity costs no CPU."""
+        registry = er.async_get(self.hass)
+        entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{self.entry.entry_id}_sensor.opti_plan_shadow")
+        entry = registry.async_get(entity_id) if entity_id else None
+        return entry is not None and entry.disabled_by is None
+
+    async def _async_update_planner(self, data, now, options, demand_sources):
+        """Shadow horizon planner; runs after the decision and never changes it.
+
+        The solve is CPU work in an executor thread with a time budget. With
+        the entity disabled nothing is computed and nothing is recorded unless
+        ``planner.history_always`` asks for the forecast history anyway.
+        """
         key = "sensor.opti_plan_shadow"
         states, attributes = data["states"], data["attributes"]
         try:
             settings = self.settings
             cfg = options.get("planner") if isinstance(options.get("planner"), dict) else {}
+            enabled = self._planner_entity_enabled()
+            if not enabled and cfg.get("history_always") is not True:
+                self._planner.interrupt()
+                states[key] = "unknown"
+                attributes[key] = {"status": "disabled", "detail": "entity_disabled", "observation_only": True,
+                                   "controls_battery": False}
+                return
             sources = options.get("sources", {})
             pv_status, pv_hourly, periods = "no_forecast", {}, []
             for today, tomorrow in ((sources.get("forecast_today"), sources.get("forecast_tomorrow")),
@@ -1325,12 +1353,24 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 quantile=cfg.get("quantile", "p10"),
                 wear_ct_kwh=_option_number(cfg, "wear_ct_kwh", 3.0),
                 terminal_factor=_option_number(cfg, "terminal_factor", 0.8),
+                min_benefit_ct=_option_number(cfg, "min_benefit_ct", 0.0),
+                grid_check_quantile=cfg.get("grid_check_quantile"),
             )
-            check = self._planner.evaluate(now, dt_util.DEFAULT_TIME_ZONE, inputs)
-            check["totals"] = self._planner.observe(now, dt_util.DEFAULT_TIME_ZONE, check)
-            periods = price_periods(inputs.price_series, now, dt_util.DEFAULT_TIME_ZONE)
-            if self._planner_history.record(now, pv_hourly, periods):
-                self._history_store.async_delay_save(self._planner_history.snapshot, 30)
+            if enabled:
+                check = await self.hass.async_add_executor_job(
+                    self._planner.evaluate, now, dt_util.DEFAULT_TIME_ZONE, inputs)
+                check["totals"] = self._planner.observe(now, dt_util.DEFAULT_TIME_ZONE, check)
+            else:
+                self._planner.interrupt()
+                check = {"status": "disabled", "detail": "entity_disabled", "observation_only": True,
+                         "controls_battery": False}
+            try:
+                periods = price_periods(inputs.price_series, now, dt_util.DEFAULT_TIME_ZONE)
+                if self._planner_history.record(now, pv_hourly, periods):
+                    self._history_store.async_delay_save(self._planner_history.snapshot, HISTORY_SAVE_DELAY)
+            except Exception as err:  # noqa: BLE001 - history is diagnosis only
+                _LOGGER.debug("Planner history not recorded: %s", type(err).__name__)
+                self._planner_history.error = type(err).__name__
             check["forecast_history"] = self._planner_history.summary()
         except Exception as err:  # Observation only; never affects the decision.
             _LOGGER.debug("Planner shadow unavailable: %s", type(err).__name__)

@@ -3375,7 +3375,14 @@ async def test_daytime_peak_dynamic_never_forces_grid_charging(
     assert params["min_charge_w"] == expected
 
 
-async def test_plan_shadow_is_published_as_observation(coordinator):
+def enable_plan_shadow(hass, entry):
+    from homeassistant.helpers import entity_registry as er
+    er.async_get(hass).async_get_or_create(
+        "sensor", "opti_akku", f"{entry.entry_id}_sensor.opti_plan_shadow", config_entry=entry)
+
+
+async def test_plan_shadow_is_published_as_observation(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
     data = await coordinator._async_update_data()
     attrs = data["attributes"]["sensor.opti_plan_shadow"]
     assert data["states"]["sensor.opti_plan_shadow"] == "unknown"
@@ -3385,7 +3392,52 @@ async def test_plan_shadow_is_published_as_observation(coordinator):
     coordinator.device.async_apply.assert_not_awaited()
 
 
-async def test_plan_shadow_receives_the_ladder_mode_and_settings(coordinator):
+async def test_plan_shadow_disabled_entity_computes_and_records_nothing(coordinator, hass, entry):
+    with patch("custom_components.opti_akku.coordinator.PlannerShadow.evaluate") as evaluate, \
+            patch.object(coordinator._planner_history, "record") as record:
+        data = await coordinator._async_update_data()
+    attrs = data["attributes"]["sensor.opti_plan_shadow"]
+    assert data["states"]["sensor.opti_plan_shadow"] == "unknown"
+    assert attrs["status"] == "disabled" and attrs["detail"] == "entity_disabled"
+    evaluate.assert_not_called()
+    record.assert_not_called()
+
+
+async def test_plan_shadow_history_always_records_without_the_entity(coordinator, hass, entry):
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "planner": {"history_always": True}})
+    with patch("custom_components.opti_akku.coordinator.PlannerShadow.evaluate") as evaluate, \
+            patch.object(coordinator._planner_history, "record", return_value=False) as record:
+        data = await coordinator._async_update_data()
+    assert data["attributes"]["sensor.opti_plan_shadow"]["status"] == "disabled"
+    evaluate.assert_not_called()
+    record.assert_called_once()
+
+
+async def test_plan_shadow_runs_the_solver_in_the_executor(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
+    calls = []
+    original = hass.async_add_executor_job
+
+    def spy(func, *args):
+        calls.append(getattr(func, "__name__", str(func)))
+        return original(func, *args)
+
+    with patch.object(hass, "async_add_executor_job", side_effect=spy):
+        await coordinator._async_update_data()
+    assert "evaluate" in calls
+
+
+async def test_history_store_failure_never_blocks_restore(hass, entry):
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    result = OptiCoordinator(hass, entry, device(), engine)
+    with patch.object(result._history_store, "async_load", side_effect=RuntimeError("disk")):
+        await result.async_restore()
+    assert result._planner_history.entries == [] and result._planner_history.error == "RuntimeError"
+    await result.async_stop()
+
+
+async def test_plan_shadow_receives_the_ladder_mode_and_settings(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
     captured = {}
 
     def fake_evaluate(self, now, timezone, inputs):
@@ -3405,7 +3457,8 @@ async def test_plan_shadow_receives_the_ladder_mode_and_settings(coordinator):
     assert inputs.pv_status == "no_forecast"
 
 
-async def test_plan_shadow_error_never_stops_the_update(coordinator):
+async def test_plan_shadow_error_never_stops_the_update(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
     with patch("custom_components.opti_akku.coordinator.PlannerShadow.evaluate",
                side_effect=RuntimeError("boom")):
         data = await coordinator._async_update_data()
@@ -3415,6 +3468,7 @@ async def test_plan_shadow_error_never_stops_the_update(coordinator):
 
 
 async def test_plan_shadow_records_hourly_forecast_history_in_its_own_store(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
     now = dt_util.utcnow()
     start = now.replace(minute=0, second=0, microsecond=0)
     detail = [{"period_start": (start + timedelta(minutes=30 * i)).isoformat(),
@@ -3430,7 +3484,7 @@ async def test_plan_shadow_records_hourly_forecast_history_in_its_own_store(coor
     history = data["attributes"]["sensor.opti_plan_shadow"]["forecast_history"]
     assert history["entries"] == 1
     saved = coordinator._planner_history.snapshot()
-    assert saved["entries"][0]["pv_p10"] == [1.0, 1.0, 1.0] and saved["entries"][0]["pv_p50"] == [2.0, 2.0, 2.0]
+    assert saved["entries"][0]["pv"]["p10"] == [1000, 1000, 1000] and saved["entries"][0]["pv"]["p50"] == [2000] * 3
     assert "planner_history" not in coordinator._stored_data()
 
 

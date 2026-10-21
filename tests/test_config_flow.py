@@ -1727,6 +1727,22 @@ async def test_saved_tibber_provider_hides_manual_price_sources(hass):
     assert form_values(result)["price_max_age"] == 7200
 
 
+async def test_forecast_age_defaults_to_twelve_hours_but_stored_values_are_kept(hass):
+    """Issue #103: new entries get 43200 s; existing entries keep their saved limit."""
+    from custom_components.opti_akku.const import DEFAULT_OPTIONS
+    assert DEFAULT_OPTIONS["forecast_max_age"] == 43200
+    for stored, shown in ((None, 43200), (21600, 21600)):
+        options = {"sources": {}, "single_inverter": True}
+        if stored is not None:
+            options["forecast_max_age"] = stored
+        entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, options=options)
+        entry.add_to_hass(hass)
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await configure_options(hass, result["flow_id"], {"next_step_id": "advanced"})
+        assert form_values(result)["forecast_max_age"] == shown
+        hass.config_entries.options.async_abort(result["flow_id"])
+
+
 async def test_related_source_sets_and_limits_report_section_errors(hass):
     entry = MockConfigEntry(
         domain=DOMAIN,

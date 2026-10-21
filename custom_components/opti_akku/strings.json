@@ -106,7 +106,8 @@
           "price_provider": "Price source"
         },
         "data_description": {
-          "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades."
+          "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades. The strategy writes this value after grid charging; it is informational and has no control effect.",
+          "mindestpreisdifferenz_lade_entladepreis": "Display only, no control effect: feeds the sensor Opti Mindestentladepreis (reference charging price plus margin). No strategy branch reads it."
         }
       },
       "forecast": {
@@ -483,7 +484,8 @@
           "price_provider": "Price source"
         },
         "data_description": {
-          "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades."
+          "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades. The strategy writes this value after grid charging; it is informational and has no control effect.",
+          "mindestpreisdifferenz_lade_entladepreis": "Display only, no control effect: feeds the sensor Opti Mindestentladepreis (reference charging price plus margin). No strategy branch reads it."
         }
       },
       "forecast": {

@@ -179,6 +179,24 @@ def test_true_zero_profile_uses_visible_one_watt_day_floor():
     assert tomorrow["candidate_score"] == 5
 
 
+@pytest.mark.parametrize("p10,expected_score,expected_p10", [
+    (0, 0, 0),          # true zero stays pessimistic
+    (0.012, 0, 0.012),  # tiny positive value behaves as before
+    (None, 10, 24),     # missing attribute falls back to the median
+    (-1, 10, 24),       # invalid attribute falls back to the median
+])
+def test_zero_p10_is_a_valid_pessimistic_forecast(p10, expected_score, expected_p10):
+    issued = datetime(2026, 9, 16, 10, tzinfo=UTC)
+    data = payload(issued)
+    if p10 is None:
+        del data["attributes"]["sensor.opti_forecast_tomorrow_kwh"]["estimate10"]
+    else:
+        data["attributes"]["sensor.opti_forecast_tomorrow_kwh"]["estimate10"] = p10
+    tomorrow = compare(learned_model(issued), issued, data)["blocks"]["tomorrow"]
+    assert tomorrow["candidate_score"] == expected_score
+    assert tomorrow["p10_pv_kwh"] == expected_p10
+
+
 def test_tomorrow_does_not_use_incomplete_current_day_cells():
     issued = datetime(2026, 9, 16, 10, tzinfo=UTC)
     model = learned_model(issued)

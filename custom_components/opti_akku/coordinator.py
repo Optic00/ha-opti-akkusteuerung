@@ -24,7 +24,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import sun
 from homeassistant.util import dt as dt_util
 
-from .alerts import HealthAlerts
+from .alerts import HealthAlerts, night_standby
 from .arbitrage import (
     PrechargeComparison,
     apply_discharge_hold,
@@ -51,6 +51,7 @@ from .sources import build_inputs, finite
 from .plant import plant_entity_ids, plant_semantic_fingerprint
 from .load_profile import LoadProfile
 from .clipping import clipping_forecast
+from .source_quality import DEFAULT_FORECAST_MAX_AGE
 from .negative_price_hold import NegativePriceHoldShadow, negative_price_hold_check
 from .planner_shadow import ForecastHistory, PlannerInputs, PlannerShadow, price_periods, pv_forecast_hourly
 from .demand import EV_SCOPE_VERSION, DemandForecast, pv_intervals, ev_profile_sources, ev_profile_scope, profile_house_value
@@ -195,6 +196,16 @@ def validate_setting(key: str, value: Any, current: dict) -> float | bool:
 PV_PEAK_DOWNSTREAM_DECISIONS = frozenset({"arbitrage_hold", "ev_preparation"})
 # Forecast snapshots are coalesced; a crash loses at most this much history.
 HISTORY_SAVE_DELAY = 900
+# Routine state (latches, counters, reports) is written once per interval on
+# the coordinator's own clock. HA's Store postpones a pending delayed write
+# whenever async_delay_save is called again with a later deadline, so the
+# write is requested with delay 0 and at most once per interval. Latch
+# transitions that restore depends on are written immediately. A clean stop
+# flushes as well; a crash loses at most one interval of non-latch state.
+STORE_SAVE_INTERVAL = 60
+# Derived latches whose on/off transition must survive a crash right away.
+PERSISTED_LATCHES = ("binary_sensor.opti_minsoc_schutz_aktiv", "binary_sensor.opti_pv_spitze",
+                     "binary_sensor.opti_ladedeckel_aktiv", "binary_sensor.opti_peak_horizont_lang")
 
 
 def pv_peak_release_applies(result, mode: str, manual_mode, strategy_enabled: bool) -> bool:
@@ -299,6 +310,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._stop_lock = asyncio.Lock()
         self._stopped = False
         self._engine_snapshot: dict = {}
+        self._routine_save_at: float | None = None
+        self._write_stall_paused_at: float | None = None
         self._manual_charge_blocked = False
         self._manual_discharge_blocked = False
         self._manual_ev_latched = False
@@ -911,7 +924,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     soc=states.get("sensor.opti_soc"),
                     capacity_kwh=states.get("sensor.opti_battery_capacity_kwh"),
                     maxsoc=self.settings.get("input_number.maxsoc"),
-                    max_age=captured_options.get("forecast_max_age", 21600),
+                    max_age=captured_options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE),
                 )
                 if clipping_attributes.get("status") not in ("no_forecast", "no_detail"):
                     break
@@ -936,6 +949,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             .get("sensor.opti_target_soc", {})
             .get("level")
         )
+        previous_latches = {key: self._engine_snapshot.get("states", {}).get(key) for key in PERSISTED_LATCHES}
         def evaluate():
             result = self.engine.evaluate(states, attributes, dt_util.as_local(now))
             return result, self.engine.snapshot()
@@ -1151,7 +1165,15 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_error = f"Sperrverletzung hält trotz {VIOLATION_MAX_RENEWALS} Erneuerungen an"
         result.states["binary_sensor.opti_connection"] = "on" if self._online else "off"
         result.states["binary_sensor.opti_block_violation"] = "on" if persistent_violation else "off"
-        result.states["binary_sensor.opti_write_stalled"] = "on" if not self.shadow_mode and self.write_enabled and self._write_monitor_since is not None and monotonic_now - (self._last_apply or self._write_monitor_since) > 240 else "off"
+        # A documented night standby (#103) cannot be written to; its time does
+        # not count as "without a successful write". The watchdog resumes
+        # counting from the end of the standby.
+        if night_standby({"connection_status": connection, "online": self._online, "states": result.states}):
+            self._write_stall_paused_at = monotonic_now
+        stall_reference = self._last_apply or self._write_monitor_since
+        if stall_reference is not None and self._write_stall_paused_at is not None:
+            stall_reference = max(stall_reference, self._write_stall_paused_at)
+        result.states["binary_sensor.opti_write_stalled"] = "on" if not self.shadow_mode and self.write_enabled and self._write_monitor_since is not None and monotonic_now - stall_reference > 240 else "off"
         metadata = {key: dict(value) for key, value in self._metadata.items()}
         for identity in result.states:
             if identity.startswith("sensor.opti_") and identity.endswith("_w"):
@@ -1220,12 +1242,29 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Disabled time must not count under the last held verdict after re-enabling.
             self._refill_comparison.interrupt()
         self._update_negative_price_hold(
-            data, now, (captured_options.get("sources", {}).get("forecast_today"), demand_sources.get("pv_today")))
+            data, now, (captured_options.get("sources", {}).get("forecast_today"), demand_sources.get("pv_today")),
+            captured_options)
         await self._async_update_planner(data, now, captured_options, demand_sources)
         self._update_arbitrage_report(data, now, captured_options, arbitrage_hold, safety_reason)
         await self._async_update_observations(data, now, captured_options)
-        self._store.async_delay_save(self._stored_data, 5)
+        # Only a real on<->off transition forces a write; a latch missing on one
+        # side (disabled strategy, first cycle) waits for the routine interval.
+        latch_changed = any(
+            previous_latches[key] != result.states.get(key)
+            and previous_latches[key] in ("on", "off") and result.states.get(key) in ("on", "off")
+            for key in PERSISTED_LATCHES
+        )
+        self._schedule_routine_save(monotonic_now, force=latch_changed)
         return data
+
+    @callback
+    def _schedule_routine_save(self, monotonic_now: float, *, force: bool = False) -> None:
+        """Request the routine store write at most once per interval, or now for a latch change."""
+        if (not force and self._routine_save_at is not None
+                and monotonic_now - self._routine_save_at < STORE_SAVE_INTERVAL):
+            return
+        self._routine_save_at = monotonic_now
+        self._store.async_delay_save(self._stored_data, 0)
 
     def _update_refill_comparison(self, data, now):
         """Attach the peak-versus-refill shadow comparison; it never changes control."""
@@ -1254,15 +1293,17 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data["reserve_plan"] = {"status": "no_valid_plan"}
             data["operating_report"] = {"status": "error", "error_type": type(err).__name__}
 
-    def _update_negative_price_hold(self, data, now, forecast_entities):
+    def _update_negative_price_hold(self, data, now, forecast_entities, options):
         """Shadow check for #136; runs after the decision and never changes it."""
         key = "sensor.opti_negative_price_hold"
         states, attributes = data["states"], data["attributes"]
         try:
             # A daily-total forecast source has no intervals; try the demand Solcast source next.
             forecast_entity, pv_slots = None, []
+            max_age = options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE)
             for candidate in forecast_entities:
-                if candidate and (pv_slots := pv_intervals(self.hass.states, {"pv_today": candidate}, now)):
+                if candidate and (pv_slots := pv_intervals(self.hass.states, {"pv_today": candidate}, now,
+                                                           max_age=max_age)):
                     forecast_entity = candidate
                     break
             load = states.get("sensor.opti_house_consumption_60min_w")
@@ -1323,7 +1364,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for today, tomorrow in ((sources.get("forecast_today"), sources.get("forecast_tomorrow")),
                                     (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow"))):
                 entities = [self.hass.states.get(entity) for entity in (today, tomorrow) if entity]
-                pv_status, pv_hourly = pv_forecast_hourly(entities, now)
+                pv_status, pv_hourly = pv_forecast_hourly(
+                    entities, now, max_age=options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE))
                 if pv_status == "ready":
                     break
             profile = attributes.get("sensor.opti_peak_load_profile") or {}

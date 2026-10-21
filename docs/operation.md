@@ -189,12 +189,21 @@ Die automatische MinSOC-Regel sperrt Entladung bei oder unter dem eingestellten
 Minimum. Nach diesem Eintritt hält sie den Schutz bis drei Prozentpunkte darüber;
 bei engem Abstand zum Maximum wird das Band auf den halben Abstand begrenzt.
 Bei MinSOC 10 % gibt sie also ab 13 % wieder frei. Der eigene Schutzzustand bleibt
-über Neustarts und ungültige SoC-Messungen erhalten. Änderungen der Min-/Max-Grenzen
+über Neustarts und ungültige SoC-Messungen erhalten. Ein Wechsel dieses
+Schutzes (wie auch von PV-Spitze, Ladedeckel und langem Peak-Horizont) wird
+sofort gespeichert; übrige Routinezustände (Zähler, Berichte) schreibt Opti
+Akku einmal pro Minute. Ein geordneter Stopp oder HA-Neustart speichert
+sofort, ein harter Absturz verliert höchstens die letzte Minute davon.
+Bewusste Aktionen wie Schreibfreigabe, Einstellungen oder Pause speichern
+weiterhin direkt. Änderungen der Min-/Max-Grenzen
 setzen den Haltezustand zurück; liegt der SoC über dem neuen Minimum, wird
 der Schutz freigegeben. Andere Gründe für „Akku nur Laden“ aktivieren ihn nicht.
 Zulässiges Peak-Vorladen und Netzladen unter der Einspeisevergütung haben auch
 bei oder unter MinSOC Vorrang, denn „Akku Netzladen“ entlädt nicht. Ein leerer
-Akku kann so vor einer Preisspitze günstig nachladen. Netz-Balancing ist nur
+Akku kann so vor einer Preisspitze günstig nachladen. Meldet der
+Wechselrichter dabei `not_ready` (bei SMA-Hybridgeräten nachts mit leerem Akku
+üblich), wird dieses Netzladen nicht geschrieben: Die Bereitschaftssperre gilt
+unverändert, der Befehl folgt erst nach `ready`. Netz-Balancing ist nur
 innerhalb des Haltebandes möglich; bei oder unter MinSOC behält die
 Entladesperre dort Vorrang. Die Schutzregeln der manuellen Modi gelten separat weiter.
 Der Schutz im Halteband hat wie die harte MinSOC-Regel Vorrang vor der
@@ -429,6 +438,25 @@ Quellenfehler. Der Fehler bleibt in der Diagnose sichtbar. Bei Tageslicht,
 unbekanntem Sonnenstand oder weiteren Quellenfehlern gilt die Meldefrist von
 60 Sekunden weiterhin. Steuerung und andere Alarme ändern sich dadurch nicht.
 
+Meldet ein erreichbarer Wechselrichter nachts `not_ready` mit einem als
+Standby belegten Rohstatus, während der SoC bei oder unter MinSOC liegt oder
+der MinSOC-Schutz noch hält, ist das ein normaler Standby mit leerem Akku
+(#103), keine Störung. Es entstehen dann weder HA-Störmeldung noch Push, und
+der Schreib-Watchdog zählt diese Zeit nicht als Schreibstillstand. Der
+Diagnosesensor **Wechselrichter-Bereitschaft** bleibt auf `not_ready` und
+zeigt zusätzlich das Attribut `standby: night_empty` neben dem rohen
+`inverter_status`; die Diagnose führt den Zustand unter `health.standby`.
+Schreibzugriffe bleiben bis `ready` gesperrt. `offline`, `recovering`,
+Tageslicht, ein nicht leerer Akku oder ein nicht belegter Rohstatus melden
+weiterhin nach 60 Sekunden.
+
+Als Standby belegte Codes stehen in `SMA_STANDBY_STATUS_CODES`
+(`alerts.py`). Für Register 33003 sind bisher nur 235 (Netzparallelbetrieb),
+1463 (Backup), 1469 (Herunterfahren), 2119 (Abregelung) und 16777213
+(Information liegt nicht vor) belegt, kein Standby-Code. Die Liste ist daher
+leer und die Ausnahme inaktiv, bis der Code aus dem Verlauf des Attributs
+`inverter_status` eines betroffenen Geräts bestätigt und nachgetragen ist.
+
 Ein Neuladen der Integration oder HA-Neustart beginnt eine neue
 Vorfallserkennung. Ein weiterhin vorhandener Quellenfehler kann deshalb nach
 erneuten 60 Sekunden wieder melden. Häufige Neustarts können diese Meldungen
@@ -550,10 +578,13 @@ Entität geschrieben (Standard aus).
 
 Voraussetzung ist eine Solcast-Entität mit `detailedForecast` (halbstündlich)
 oder `detailedHourly`; für das Quantil P10 muss `pv_estimate10` enthalten
-sein, für den Median `pv_estimate`. Die Prognose muss die aktuelle Stunde
-abdecken; als Alter gilt die letzte Zustandsänderung der Entität (höchstens
-zwölf Stunden), was den tatsächlichen Abrufzeitpunkt bei Solcast nur
-annähert. Fehlt bei aktivem `grid_check_quantile` das Prüfquantil, gibt es
+sein, für den Median `pv_estimate`. Eine Stunde zählt nur, wenn ihre
+Intervalle alle 60 Minuten abdecken (beide Halbstunden oder die volle
+Stundenzeile); eine nur halb belegte Stunde ist eine Lücke, an der der
+Planungshorizont endet, statt die halbe Energie zu lesen. Die Prognose muss
+die aktuelle Stunde abdecken; als Alter gilt die letzte Zustandsänderung der
+Entität (Grenze aus **Maximales Alter von Prognosen**, Standard zwölf
+Stunden), was den tatsächlichen Abrufzeitpunkt bei Solcast nur annähert. Fehlt bei aktivem `grid_check_quantile` das Prüfquantil, gibt es
 keine Netzladeempfehlung (`grid_check_p50_missing`).
 
 Ohne Oberfläche einstellbar über die Optionen des Eintrags: `planner.wear_ct_kwh`

@@ -21,6 +21,7 @@ from time import perf_counter
 from typing import Any
 
 from .arbitrage import _price_periods
+from .source_quality import DEFAULT_FORECAST_MAX_AGE
 from .planner import (
     DYNAMIC,
     GRID_CHARGE,
@@ -41,9 +42,12 @@ FORECAST_ATTRIBUTES = (("detailedForecast", timedelta(minutes=30)), ("detailedHo
 QUANTILE_KEYS = {"p10": "pv_estimate10", "p50": "pv_estimate"}
 QUANTILES = tuple(QUANTILE_KEYS)
 # The entity's last update is only a proxy for the fetch time; the forecast
-# must additionally cover the current hour.
-FORECAST_MAX_AGE = 12 * 3600
+# must additionally cover the current hour. The coordinator passes the
+# configured ``forecast_max_age`` option (#103).
+FORECAST_MAX_AGE = DEFAULT_FORECAST_MAX_AGE
 FORECAST_ROW_LIMIT = 100
+# (offset s, length s) row sets that cover one hour without a gap.
+HOUR_COVERAGE_PATTERNS = (frozenset({(0.0, 1800.0), (1800.0, 1800.0)}), frozenset({(0.0, 3600.0)}))
 PLAN_INTERVAL = timedelta(minutes=10)
 REPLAN_MIN_INTERVAL = timedelta(minutes=2)
 # Total solve budget per evaluation (main plan plus the variant B check);
@@ -99,11 +103,16 @@ def pv_forecast_hourly(states: Sequence[Any], now: datetime,
     """Solcast interval rows of several entities as hourly (P10, P50) kWh.
 
     ``detailedForecast`` (half hours) or ``detailedHourly`` (hours) per entity;
-    a missing quantile stays ``None`` instead of invalidating the rows. The
-    result must cover the current hour. One invalid entity invalidates the
-    whole result (fail closed).
+    a missing quantile stays ``None`` instead of invalidating the rows. An hour
+    counts only when its rows cover all 60 minutes (both half hours, or the
+    full hourly row); a partly covered hour is left out, so the horizon ends
+    at that gap instead of reading half the energy. The result must cover the
+    current hour. One invalid entity invalidates the whole result (fail closed).
     """
     hours: dict[datetime, list[float | None]] = {}
+    # Per hour the (offset, length) pairs seen; coverage needs the aligned,
+    # gapless pattern, not just 3600 summed seconds (12:15 + 12:45 is a gap).
+    covered: dict[datetime, set[tuple[float, float]]] = {}
     seen: dict[datetime, tuple[float | None, float | None]] = {}
     found = False
     for state in states:
@@ -144,6 +153,8 @@ def pv_forecast_hourly(states: Sequence[Any], now: datetime,
                     continue
                 seen[start] = pair
                 found = True
+                covered.setdefault(_hour(start), set()).add(
+                    ((start - _hour(start)).total_seconds(), length.total_seconds()))
                 bucket = hours.setdefault(_hour(start), [0.0, 0.0])
                 for index in range(2):
                     if pair[index] is None:
@@ -154,6 +165,10 @@ def pv_forecast_hourly(states: Sequence[Any], now: datetime,
             return "invalid", {}
     if not found:
         return "no_forecast", {}
+    # Exactly one full grid per hour; extra shifted intervals would be summed
+    # twice, so such an hour counts as a gap instead.
+    hours = {hour: v for hour, v in hours.items()
+             if covered.get(hour, frozenset()) in HOUR_COVERAGE_PATTERNS}
     if _hour(now) not in hours:
         return "stale", {}
     return "ready", {hour: (None if v[0] is None else round(v[0], 4), None if v[1] is None else round(v[1], 4))

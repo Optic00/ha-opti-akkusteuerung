@@ -145,6 +145,22 @@ das bei fehlenden Daten per `float(0)` weiter Null liefert oder immer verfügbar
 bleibt, ist dafür ungeeignet. Ein Zeittrigger, der lediglich denselben alten Wert
 neu veröffentlicht, ist ebenfalls kein Nachweis aktueller Gerätedaten.
 
+### Altersgrenze für Prognosen
+
+Unter **Erweitert** legt **Maximales Alter von Prognosen (Sekunden)** fest,
+wie alt eine zugeordnete PV-Prognose sein darf. Diese eine Grenze gilt für
+die Tagesprognosen heute/morgen, die Solcast-Intervalle des Bedarfsprofils,
+den Negativpreis-Schattenvergleich, die Clipping-Abschätzung und den
+Horizont-Planer; feste 6- oder 12-Stunden-Prüfungen gibt es nicht mehr.
+Standard für neue Einträge ist 43200 Sekunden (12 Stunden), weil der
+kostenlose Solcast-Tarif nur vier Abrufe pro Tag erlaubt und eine Prognose
+daher bis zum nächsten Abruf fast zwölf Stunden alt sein kann (#103).
+
+**Upgrade:** Ein bestehender Eintrag behält seinen gespeicherten Wert, in der
+Regel die bisherigen 21600 Sekunden. Wer die neue Vorgabe möchte, setzt den
+Wert unter **Erweitert** selbst auf 43200. Nur Einträge ohne gespeicherten
+Wert nutzen automatisch den neuen Standard.
+
 Bestehende Einstellungen ändern sich beim Update nicht. Eine Änderung dieser
 Gültigkeitsregel beginnt ein neues Verbrauchsprofil. Die gezielte Beta-6-Ausnahme
 für alte Nullwerte von Ausschlusslasten bleibt verfügbar; bei 0 ist sie nicht
@@ -161,3 +177,13 @@ Bei Gerätewechsel wird die Bestätigung für die alleinige Steuerung zurückges
 Der Referenz-Ladepreis neuer Einträge startet wie die ursprüngliche Strategie mit
 `-1 EUR/kWh` (noch keine Referenz), statt wie bisher mit `0`; gespeicherte Werte
 werden nicht geändert.
+
+### Referenz-Ladepreis und Mindestgewinn beim Entladen
+
+**Referenz-Ladepreis** und **Mindestgewinn beim Entladen** (Tarif) sind reine
+Anzeigewerte ohne Steuerwirkung. Die Strategie schreibt den Referenz-Ladepreis
+nach einem Netzladen auf den aktuellen Strompreis; beide Werte speisen nur den
+Sensor `sensor.opti_mindestentladepreis_ct_kwh` (Referenz plus Aufschlag in
+ct/kWh). Kein Zweig der Strategieleiter liest diesen Sensor; die Entladung
+entscheiden Preisniveau, Peak-Leiter und Reserven. Die Option bleibt für
+Dashboards und eigene Automationen erhalten.

@@ -4,6 +4,10 @@ from datetime import datetime
 import math
 from typing import Any
 
+# Solcast free plans refresh four times a day (#103); one cycle may be
+# almost twelve hours old before the next fetch lands.
+DEFAULT_FORECAST_MAX_AGE = 43200
+
 
 def measurement_max_age(value: Any, *, event_based: bool = False) -> float:
     """Convert a stored option, never an effective limit; zero opts event-based HA measurements in.

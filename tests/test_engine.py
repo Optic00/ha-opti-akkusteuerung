@@ -913,6 +913,68 @@ def test_fresh_peak_horizon_score_two_starts_short_but_missing_score_starts_long
     assert evaluate(StrategyEngine(), states, attrs, now).states["binary_sensor.opti_peak_horizont_lang"] == "on"
 
 
+def _night_horizon_states(load_w, forecast_kwh=2.5, sun="below_horizon"):
+    # Issue #124: with a constant forecast of 2.5 kWh the sun-day score is
+    # 1 at 700 W, 3 at 407 W and 2 at 530 W house load.
+    return measurements(**{
+        "sun.sun": sun,
+        "sensor.opti_house_consumption_w": load_w,
+        "sensor.opti_house_consumption_60min_w": load_w,
+        "sensor.opti_forecast_today_kwh": forecast_kwh,
+    })
+
+
+_NIGHT_ATTRS = {"sun.sun": {"next_rising": "2026-07-27T05:45:00+02:00",
+                            "next_setting": "2026-07-27T21:00:00+02:00"}}
+
+
+def test_peak_horizon_night_latch_ignores_load_driven_score_jumps():
+    engine = StrategyEngine()
+    now = dt.datetime(2026, 7, 27, 0, 5, tzinfo=TZ)
+    entity = "binary_sensor.opti_peak_horizont_lang"
+    first = evaluate(engine, _night_horizon_states(700), _NIGHT_ATTRS, now)
+    assert first.states["sensor.opti_forecast_score_sonnentag"] == "1"
+    assert first.states[entity] == "on"
+    second = evaluate(engine, _night_horizon_states(407), _NIGHT_ATTRS, now + dt.timedelta(minutes=1))
+    assert second.states["sensor.opti_forecast_score_sonnentag"] == "3"
+    assert second.states[entity] == "on"
+    assert "Nacht: Vorzustand" in second.attributes[entity]["branch"]
+    third = evaluate(engine, _night_horizon_states(530), _NIGHT_ATTRS, now + dt.timedelta(minutes=2))
+    assert third.states["sensor.opti_forecast_score_sonnentag"] == "2"
+    assert third.states[entity] == "on"
+    restored = StrategyEngine()
+    restored.restore(engine.snapshot())
+    assert evaluate(restored, _night_horizon_states(407), _NIGHT_ATTRS,
+                    now + dt.timedelta(minutes=3)).states[entity] == "on"
+    # A night-time short horizon only becomes long at score <= 1, as before.
+    short = StrategyEngine()
+    assert evaluate(short, _night_horizon_states(530), _NIGHT_ATTRS, now).states[entity] == "off"
+    assert evaluate(short, _night_horizon_states(407), _NIGHT_ATTRS, now + dt.timedelta(minutes=1)).states[entity] == "off"
+    assert evaluate(short, _night_horizon_states(700), _NIGHT_ATTRS, now + dt.timedelta(minutes=2)).states[entity] == "on"
+
+
+def test_peak_horizon_day_hysteresis_still_switches_off_at_score_three():
+    engine = StrategyEngine()
+    now = dt.datetime(2026, 7, 27, 0, 5, tzinfo=TZ)
+    entity = "binary_sensor.opti_peak_horizont_lang"
+    assert evaluate(engine, _night_horizon_states(700), _NIGHT_ATTRS, now).states[entity] == "on"
+    assert evaluate(engine, _night_horizon_states(407), _NIGHT_ATTRS, now + dt.timedelta(minutes=1)).states[entity] == "on"
+    sunrise = dt.datetime(2026, 7, 27, 6, 0, tzinfo=TZ)
+    day_attrs = {"sun.sun": {"next_rising": "2026-07-28T05:46:00+02:00",
+                             "next_setting": "2026-07-27T21:00:00+02:00"}}
+    # After sunrise the sun-day score reads tomorrow's forecast; score 2 is still held.
+    states = _night_horizon_states(530, sun="above_horizon")
+    states["sensor.opti_forecast_tomorrow_kwh"] = 2.5
+    held = evaluate(engine, states, day_attrs, sunrise)
+    assert held.states["sensor.opti_forecast_score_sonnentag"] == "2"
+    assert held.states[entity] == "on"
+    states = _night_horizon_states(407, sun="above_horizon")
+    states["sensor.opti_forecast_tomorrow_kwh"] = 2.5
+    released = evaluate(engine, states, day_attrs, sunrise + dt.timedelta(minutes=1))
+    assert released.states["sensor.opti_forecast_score_sonnentag"] == "3"
+    assert released.states[entity] == "off"
+
+
 def test_ev_score_statistic_is_separate_and_invalid_sample_hides_history():
     engine = StrategyEngine()
     states = measurements(**{"sensor.opti_house_consumption_w": 2200,
@@ -979,6 +1041,74 @@ def test_forecast_optimism_blend_drives_current_and_tomorrow_scores():
     result = evaluate(states=states, attributes=attrs)
     assert float(result.states["sensor.opti_forecast_effective_remaining_kwh"]) == 15
     assert result.attributes["sensor.opti_forecast_score_tomorrow"]["alpha"] == 0.5
+
+
+@pytest.mark.parametrize("p10,expected", [
+    (0, "0"),        # a true P10 of zero is pessimistic, not "missing"
+    (0.001, "0"),    # tiny positive P10 behaves as before
+    (None, "10"),    # missing attribute falls back to the median
+    (-1, "10"),      # invalid (negative) attribute falls back to the median
+    ("abc", "10"),   # non-numeric attribute falls back to the median
+])
+def test_zero_p10_counts_as_valid_for_tomorrow_and_sun_day_scores(p10, expected):
+    states = measurements(**{"sensor.opti_forecast_tomorrow_kwh": 20, "input_number.opti_forecast_optimismus": 0})
+    attrs = solar_attrs()
+    if p10 is not None:
+        attrs["sensor.opti_forecast_tomorrow_kwh"] = {"estimate10": p10}
+    result = evaluate(states=states, attributes=attrs)
+    assert result.states["sensor.opti_forecast_score_tomorrow"] == expected
+    assert result.states["sensor.opti_forecast_score_sonnentag"] == expected
+    assert float(result.attributes["sensor.opti_forecast_score_tomorrow"]["p10_kwh"]) == (
+        20 if p10 in (None, -1, "abc") else round(p10, 2))
+
+
+def test_day_score_is_unavailable_without_house_load_instead_of_assuming_400_w():
+    states = measurements(**{"sensor.opti_house_consumption_w": "unavailable",
+                             "sensor.opti_house_consumption_60min_w": "unavailable"})
+    result = evaluate(states=states)
+    assert result.states["sensor.opti_forecast_score"] == "unavailable"
+    assert result.states["sensor.opti_forecast_score_sonnentag"] == "unavailable"
+    states["sensor.opti_house_consumption_w"] = 400
+    assert evaluate(states=states).states["sensor.opti_forecast_score"] == "10"
+
+
+def test_minimum_discharge_price_is_display_only():
+    """The tariff margin feeds one sensor; no decision branch or template reads it."""
+    resources = load_resources()
+    text = json.dumps(resources["strategy"])
+    assert "opti_mindestentladepreis_ct_kwh" not in text.replace(
+        '"sensor.opti_mindestentladepreis_ct_kwh"', "")  # only the trigger entity list
+    others = json.dumps({key: value for key, value in resources.items() if key != "strategy"})
+    assert others.count("opti_mindestentladepreis_ct_kwh") == 1  # the sensor definition itself
+    for soc, price in ((50, 10), (50, 60), (20, 35), (90, 5)):
+        base = measurements(**{SOC: soc, "sensor.opti_price_current_ct_kwh": price,
+                               "input_number.ladepreis": 0.2})
+        cheap = evaluate(states={**base, "input_number.mindestpreisdifferenz_lade_entladepreis": 0})
+        dear = evaluate(states={**base, "input_number.mindestpreisdifferenz_lade_entladepreis": 0.3})
+        assert (cheap.mode, cheap.reason) == (dear.mode, dear.reason)
+        assert float(cheap.states["sensor.opti_mindestentladepreis_ct_kwh"]) == 20
+        assert float(dear.states["sensor.opti_mindestentladepreis_ct_kwh"]) == 50
+
+
+def test_zero_p10_drives_effective_remaining_target_soc_and_preview():
+    """Median 20, P10 0, optimism 0: effectively nothing is left, not 20 kWh."""
+    states = measurements(**{"sensor.opti_forecast_remaining_today_kwh": 20,
+                             "input_number.opti_forecast_optimismus": 0})
+    attrs = solar_attrs()
+    attrs["sensor.opti_forecast_remaining_today_kwh"] = {"estimate10": 0}
+    pessimistic = evaluate(states=states, attributes=attrs)
+    assert float(pessimistic.states["sensor.opti_forecast_effective_remaining_kwh"]) == 0
+    assert float(pessimistic.attributes["sensor.opti_forecast_effective_remaining_kwh"]["p10_kwh"]) == 0
+    empty = evaluate(states=measurements(**{"sensor.opti_forecast_remaining_today_kwh": 0,
+                                            "input_number.opti_forecast_optimismus": 0}))
+    assert pessimistic.states[TARGET] == empty.states[TARGET]
+    assert pessimistic.states["sensor.opti_forecast_score"] == empty.states["sensor.opti_forecast_score"]
+    assert (pessimistic.mode, pessimistic.reason) == (empty.mode, empty.reason)
+    assert pessimistic.states["sensor.opti_strategie_vorschau"] == pessimistic.mode
+    assert pessimistic.attributes["sensor.opti_strategie_vorschau"]["grund"] == pessimistic.reason
+    optimistic = evaluate(states=states, attributes=solar_attrs())  # attribute missing -> median
+    assert float(optimistic.states["sensor.opti_forecast_effective_remaining_kwh"]) == 20
+    assert float(optimistic.states[TARGET]) < float(pessimistic.states[TARGET])
 
 
 def test_clock_going_backwards_restarts_pending_delay():

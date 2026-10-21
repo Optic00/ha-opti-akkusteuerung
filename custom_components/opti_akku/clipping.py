@@ -12,6 +12,8 @@ from datetime import UTC, datetime, timedelta, tzinfo
 from math import isfinite
 from typing import Any
 
+from .source_quality import DEFAULT_FORECAST_MAX_AGE
+
 SLOT = timedelta(minutes=30)
 ESTIMATES = (("p50", "pv_estimate"), ("p10", "pv_estimate10"), ("p90", "pv_estimate90"))
 # Several slots at the same peak suggest Solcast already caps at its AC capacity.
@@ -85,7 +87,7 @@ def clipping_forecast(
     soc: Any = None,
     capacity_kwh: Any = None,
     maxsoc: Any = None,
-    max_age: float = 21600,
+    max_age: float = DEFAULT_FORECAST_MAX_AGE,
 ) -> tuple[float | str, dict[str, Any]]:
     """Return (remaining P50 kWh or 'unavailable', attributes)."""
     attrs: dict[str, Any] = {"observation_only": True, "controls_battery": False}

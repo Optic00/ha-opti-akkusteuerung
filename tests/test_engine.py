@@ -1043,6 +1043,25 @@ def test_forecast_optimism_blend_drives_current_and_tomorrow_scores():
     assert result.attributes["sensor.opti_forecast_score_tomorrow"]["alpha"] == 0.5
 
 
+@pytest.mark.parametrize("p10,expected", [
+    (0, "0"),        # a true P10 of zero is pessimistic, not "missing"
+    (0.001, "0"),    # tiny positive P10 behaves as before
+    (None, "10"),    # missing attribute falls back to the median
+    (-1, "10"),      # invalid (negative) attribute falls back to the median
+    ("abc", "10"),   # non-numeric attribute falls back to the median
+])
+def test_zero_p10_counts_as_valid_for_tomorrow_and_sun_day_scores(p10, expected):
+    states = measurements(**{"sensor.opti_forecast_tomorrow_kwh": 20, "input_number.opti_forecast_optimismus": 0})
+    attrs = solar_attrs()
+    if p10 is not None:
+        attrs["sensor.opti_forecast_tomorrow_kwh"] = {"estimate10": p10}
+    result = evaluate(states=states, attributes=attrs)
+    assert result.states["sensor.opti_forecast_score_tomorrow"] == expected
+    assert result.states["sensor.opti_forecast_score_sonnentag"] == expected
+    assert float(result.attributes["sensor.opti_forecast_score_tomorrow"]["p10_kwh"]) == (
+        20 if p10 in (None, -1, "abc") else round(p10, 2))
+
+
 def test_clock_going_backwards_restarts_pending_delay():
     engine = StrategyEngine()
     entity = "binary_sensor.opti_ueberschuss_70_aktiv"

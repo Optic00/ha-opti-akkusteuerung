@@ -60,6 +60,37 @@ def _patterns(policy: str, period: str, row: dict) -> list[str]:
     return lines + [""]
 
 
+def _gap_table(metrics: dict[str, dict[str, dict]], seasons: list[str]) -> list[str]:
+    """Net cost against the oracle and against self-consumption per season."""
+    oracle = next((name for name in metrics if name == "oracle" or name.startswith("oracle@")), None)
+    baseline = "self_consumption" if "self_consumption" in metrics else None
+    if oracle is None and baseline is None:
+        return []
+    lines = ["## Lücke zum Oracle", "",
+             "Nettokosten je Policy minus Nettokosten des Oracles (perfekte Voraussicht, gleiche Anlagengrenzen);",
+             "negativ ist unmöglich bis auf Rundung. Vorteil ggü. Eigenverbrauch: Nettokosten von self_consumption",
+             "minus Nettokosten der Policy (positiv = Ersparnis).", ""]
+    header = ["Policy"]
+    for season in seasons:
+        if oracle:
+            header.append(f"Lücke {season} EUR")
+        if baseline:
+            header.append(f"Vorteil {season} EUR")
+    lines += ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    for policy, periods in metrics.items():
+        row = [policy]
+        for season in seasons:
+            cost = periods.get(season, {}).get("net_cost_eur")
+            if oracle:
+                ref = metrics[oracle].get(season, {}).get("net_cost_eur")
+                row.append(_fmt(round(cost - ref, 2)) if cost is not None and ref is not None else "-")
+            if baseline:
+                ref = metrics[baseline].get(season, {}).get("net_cost_eur")
+                row.append(_fmt(round(ref - cost, 2)) if cost is not None and ref is not None else "-")
+        lines.append("| " + " | ".join(row) + " |")
+    return lines + [""]
+
+
 def render(metrics: dict[str, dict[str, dict]], meta: dict[str, Any]) -> str:
     """``metrics`` maps policy name -> period -> metric dict."""
     periods: list[str] = []
@@ -86,6 +117,7 @@ def render(metrics: dict[str, dict[str, dict]], meta: dict[str, Any]) -> str:
               "", "## Zeiträume", ""]
     for period in seasons + months:
         lines += _table(period, metrics)
+    lines += _gap_table(metrics, seasons)
     lines += ["## Muster vermeidbarer Einspeisung", ""]
     for policy, policy_periods in metrics.items():
         for period in seasons:

@@ -14,6 +14,7 @@ from . import report as report_module
 from . import simulate
 from .battery import BatteryParams
 from .importer import import_series
+from .planner_policies import OraclePolicy, RecedingHorizonPolicy
 from .policies import SelfConsumptionPolicy, StrategyPolicy
 from .resources import describe_engine
 from .sun import SunModel
@@ -42,7 +43,10 @@ def cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
-def build_policy(spec: str, plant: dict, sun: SunModel):
+def build_policy(spec: str, plant: dict, sun: SunModel, hours=None, params: BatteryParams | None = None,
+                 forecast_mode: str = "calibrated", planner: dict | None = None):
+    """``oracle[@hold|@value]`` and ``rh[@naive|@calibrated]`` need the series and the battery."""
+    planner = planner or {}
     if spec == "actual":
         return None
     if spec == "self_consumption":
@@ -50,13 +54,24 @@ def build_policy(spec: str, plant: dict, sun: SunModel):
     if spec == "strategy" or spec.startswith("strategy@"):
         ref = spec.partition("@")[2] or None
         return StrategyPolicy(plant, ref, sun=sun, name=spec)
+    if spec == "oracle" or spec.startswith("oracle@"):
+        terminal = spec.partition("@")[2] or "hold"
+        return OraclePolicy(hours, plant, params, wear_ct=planner.get("wear_ct", 3.0), terminal=terminal,
+                            soc_step=planner.get("soc_step", 0.5), name=spec)
+    if spec == "rh" or spec.startswith("rh@"):
+        mode = spec.partition("@")[2] or forecast_mode
+        return RecedingHorizonPolicy(hours, plant, params, forecast_mode=mode,
+                                     load_mode=planner.get("load_mode", "climatology"),
+                                     wear_ct=planner.get("wear_ct", 3.0),
+                                     terminal_factor=planner.get("terminal_factor", 0.8),
+                                     soc_step=planner.get("soc_step", 0.5), name=spec)
     raise SystemExit(f"Unknown policy: {spec}")
 
 
 def run_policy(spec: str, hours, plant: dict, params: BatteryParams, sun: SunModel, steps_per_hour: int,
-               forecast_mode: str = "calibrated"):
+               forecast_mode: str = "calibrated", planner: dict | None = None):
     started = time.perf_counter()
-    policy = build_policy(spec, plant, sun)
+    policy = build_policy(spec, plant, sun, hours, params, forecast_mode, planner)
     if policy is None:
         records = simulate.run_actual(hours, steps_per_hour)
         info: dict[str, Any] = {}
@@ -75,6 +90,8 @@ def _compare(args: argparse.Namespace) -> int:
     sun = SunModel(args.latitude, args.longitude)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    planner = {"wear_ct": args.wear_ct, "terminal_factor": args.terminal_factor, "soc_step": args.planner_step,
+               "load_mode": args.rh_load}
     all_metrics: dict[str, dict] = {}
     meta: dict[str, Any] = {
         "series": str(args.series), "hours": len(hours),
@@ -97,10 +114,11 @@ def _compare(args: argparse.Namespace) -> int:
             "warmup_hours_after_restart": simulate.WARMUP_HOURS,
             "price_gaps": "days with missing hours get no price series (no price level); current price always given",
             "unknown_charge_limit_w": 0,
+            "planner": planner,
         },
     }
     for spec in args.policies:
-        records, info = run_policy(spec, hours, plant, params, sun, args.steps, args.forecast_mode)
+        records, info = run_policy(spec, hours, plant, params, sun, args.steps, args.forecast_mode, planner)
         name = _safe(spec)
         simulate.write_records(records, out_dir / f"records_{name}.csv")
         result = metrics_module.summarize(
@@ -143,6 +161,12 @@ def _add_sim_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--top", type=int, default=10, help="Top-N Tage im Bericht")
     parser.add_argument("--forecast-mode", choices=simulate.FORECAST_MODES, default="calibrated",
                         help="Restprognose: calibrated (Ist-Tagesverlauf, Zukunftswissen) oder naive (Klimatologie Vormonat)")
+    parser.add_argument("--wear-ct", type=float, default=3.0, help="Planer: Zyklenkosten ct je kWh Entladung")
+    parser.add_argument("--terminal-factor", type=float, default=0.8,
+                        help="Planer (rh): Endwert-Anteil am mittleren Horizontpreis fuer Restenergie")
+    parser.add_argument("--planner-step", type=float, default=0.5, help="Planer: SoC-Raster in Prozent")
+    parser.add_argument("--rh-load", choices=("climatology", "perfect"), default="climatology",
+                        help="rh: Lastprognose aus Vormonats-Klimatologie oder perfekt")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -161,7 +185,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p_run = sub.add_parser("run", help="eine Policy simulieren")
     _add_sim_arguments(p_run)
-    p_run.add_argument("--policy", required=True, help="actual | self_consumption | strategy[@ref|@pfad]")
+    p_run.add_argument("--policy", required=True,
+                       help="actual | self_consumption | strategy[@ref|@pfad] | oracle[@hold|@value] | rh[@naive|@calibrated]")
     p_run.set_defaults(func=lambda args: _compare(argparse.Namespace(**vars(args), policies=[args.policy])))
 
     p_compare = sub.add_parser("compare", help="mehrere Policies nebeneinander")

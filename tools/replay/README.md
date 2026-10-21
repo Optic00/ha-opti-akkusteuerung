@@ -28,6 +28,29 @@ Policies:
 - `strategy[@ref|@pfad]`: echte Engine mit `strategy.json` aus dem Arbeitsbaum,
   einem Git-Ref (`git show <ref>:custom_components/opti_akku/resources/strategy.json`)
   oder einer Datei. Mehrere Refs lassen sich in einem `compare` nebeneinander stellen.
+- `oracle[@hold|@value]`: perfekte Voraussicht je Messblock mit dem Planer-Kern
+  (`custom_components/opti_akku/planner.py`, DP über die gespeicherte Energie).
+  `hold` (Standard) verlangt am Blockende mindestens den Start-SoC, `value`
+  bewertet Restenergie wie der Live-Planer. Stunden ohne Preis bekommen für die
+  Planung den Monatsmittelpreis (`price_filled_hours`); Kosten zählen weiter nur
+  bepreiste Schritte. Jeder Schritt liest seine Entscheidung mit dem simulierten
+  SoC aus den gelösten Tabellen, Rundung summiert sich also nicht.
+- `rh[@naive|@calibrated]`: Receding Horizon mit Day-Ahead-Wissen, jede volle
+  Stunde ein neuer Plan über die bekannten Preise (Rest heute, morgen ab 13 Uhr)
+  mit den Prognosen des Harness: PV-Pegel aus den rekonstruierten Tagesprognosen,
+  Form aus der Klimatologie des Vormonats (`naive`) oder dem Ist-Tagesverlauf
+  (`calibrated`, Zukunftswissen), Last aus dem Vormonatsmittel je Stunde
+  (`--rh-load perfect` nimmt die Ist-Last). Ohne Preisreihe fällt die Policy auf
+  Dynamisch zurück (`fallback_steps`). Der Modus hinter `@` überschreibt
+  `--forecast-mode` nur für die PV-Form; der Restpegel kommt weiterhin aus dem
+  globalen Modus, deshalb `rh@naive` mit `--forecast-mode naive` laufen lassen.
+
+Planer-Parameter: `--wear-ct` (Zyklenkosten ct/kWh Entladung, Standard 3),
+`--terminal-factor` (Endwert-Anteil am mittleren Horizontpreis, Standard 0,8,
+gedeckelt auf die Nachladekosten der günstigsten Stunde), `--planner-step`
+(SoC-Raster in %, Standard 0,5). Der Bericht enthält unter „Lücke zum Oracle“
+die Nettokosten je Policy minus Oracle und den Vorteil gegenüber Eigenverbrauch
+je Saison.
 
 `mapping.json` ordnet Größen den Statistik-Entitäten zu (`change` für Zähler,
 `mean`/`min`/`max` für SoC und Preis; `pv_kwh` darf mehrere Zähler summieren,
@@ -105,7 +128,12 @@ Jeder Schritt erfüllt `pv + import + discharge = load + export + charge`.
 - Kein Modell für Wechselrichter-Abregelung, SMA-Settling nach Moduswechsel,
   Lade-/Entladekurven am Rand oder Temperaturderating.
 - Keine Netzlade-Preisunterscheidung über Netzentgelte hinaus (Preisreihe = Arbeitspreis).
-- Der `oracle`-Modus (perfekte Voraussicht) ist nicht enthalten.
+- Der Planer rechnet auf einem SoC-Raster; exakte Züge runden den Zustand
+  konservativ (Laden ab-, Entladen aufgerundet), erzeugen also nie Energie.
+  Oracle und `rh` sind damit leicht unterschätzt, nie überschätzt. `--planner-step 0.1`
+  zeigt die Empfindlichkeit.
+- `rh` kennt keine Lastprognose aus der Integration; das Vormonatsmittel je Stunde
+  ersetzt sie. Wärmepumpen- oder EV-Tage trifft das nicht.
 
 ## Datenschutz
 

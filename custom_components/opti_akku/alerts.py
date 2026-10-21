@@ -34,12 +34,12 @@ MESSAGES = {
 # night standby with an empty battery. Documented codes for 33003 are only
 # 235 = grid-parallel operation, 1463 = backup, 1469 = shutting down,
 # 2119 = derating and 16777213 = information not available
-# (ha-modbus-akku-adapter/docs/modbus-register-referenz.md:57). No standby
-# code is documented anywhere, so this set ships EMPTY and the night-standby
-# exception below stays inactive. Add the code from the ``inverter_status``
-# attribute of an affected user's readiness sensor history (#103) once it is
-# confirmed; never guess one. Unknown codes keep raising the connection alert.
-SMA_STANDBY_STATUS_CODES: frozenset[int] = frozenset()
+# (ha-modbus-akku-adapter/docs/modbus-register-referenz.md:57). An STP SE with
+# an empty battery and no PV at night reports 16777213 in 33003 (read directly
+# from the inverter by the reporter of #103; 235 in normal operation). Only
+# that confirmed code counts, and only under the night/empty-battery conditions
+# checked below; any other code keeps raising the connection alert.
+SMA_STANDBY_STATUS_CODES: frozenset[int] = frozenset({16777213})
 
 
 def night_standby(data) -> bool:

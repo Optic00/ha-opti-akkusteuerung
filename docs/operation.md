@@ -451,11 +451,11 @@ Tageslicht, ein nicht leerer Akku oder ein nicht belegter Rohstatus melden
 weiterhin nach 60 Sekunden.
 
 Als Standby belegte Codes stehen in `SMA_STANDBY_STATUS_CODES`
-(`alerts.py`). Für Register 33003 sind bisher nur 235 (Netzparallelbetrieb),
-1463 (Backup), 1469 (Herunterfahren), 2119 (Abregelung) und 16777213
-(Information liegt nicht vor) belegt, kein Standby-Code. Die Liste ist daher
-leer und die Ausnahme inaktiv, bis der Code aus dem Verlauf des Attributs
-`inverter_status` eines betroffenen Geräts bestätigt und nachgetragen ist.
+(`alerts.py`). Belegt ist bisher nur 16777213: Diesen Wert meldet ein STP SE in
+Register 33003 nachts bei leerem Akku ohne Ertrag, im Normalbetrieb steht dort
+235 (#103). Der Wert bedeutet bei SMA „Information liegt nicht vor“; er gilt
+nur unter den oben genannten Bedingungen als Standby, in jeder anderen Lage
+meldet er weiterhin als Störung.
 
 Ein Neuladen der Integration oder HA-Neustart beginnt eine neue
 Vorfallserkennung. Ein weiterhin vorhandener Quellenfehler kann deshalb nach

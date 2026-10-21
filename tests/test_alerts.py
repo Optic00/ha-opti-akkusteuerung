@@ -687,11 +687,15 @@ async def test_real_connection_problems_still_alert_at_night(hass, alerts, docum
     assert "standby" not in data["connection_status"]
 
 
-async def test_night_standby_exception_is_inactive_until_a_code_is_documented(hass, alerts):
-    """No standby code for register 33003 is documented yet; the constant ships empty."""
+async def test_night_standby_exception_covers_only_the_confirmed_code(hass, alerts):
+    """16777213 is the code an STP SE reports at night with an empty battery (#103); nothing else counts."""
     from custom_components.opti_akku.alerts import SMA_STANDBY_STATUS_CODES
-    assert SMA_STANDBY_STATUS_CODES == frozenset()
+    assert SMA_STANDBY_STATUS_CODES == frozenset({16777213})
     start = dt_util.utcnow()
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start):
+        confirmed = night_standby(connection_status={"status": "not_ready", "write_ready": False, "inverter_status": 16777213})
+        alerts.update(confirmed)
+    assert confirmed["connection_status"]["standby"] == "night_empty" and not alerts._active
     with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start):
         alerts.update(night_standby())
     with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=65)):

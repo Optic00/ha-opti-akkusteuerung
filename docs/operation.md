@@ -194,7 +194,10 @@ setzen den Haltezustand zurück; liegt der SoC über dem neuen Minimum, wird
 der Schutz freigegeben. Andere Gründe für „Akku nur Laden“ aktivieren ihn nicht.
 Zulässiges Peak-Vorladen und Netzladen unter der Einspeisevergütung haben auch
 bei oder unter MinSOC Vorrang, denn „Akku Netzladen“ entlädt nicht. Ein leerer
-Akku kann so vor einer Preisspitze günstig nachladen. Netz-Balancing ist nur
+Akku kann so vor einer Preisspitze günstig nachladen. Meldet der
+Wechselrichter dabei `not_ready` (bei SMA-Hybridgeräten nachts mit leerem Akku
+üblich), wird dieses Netzladen nicht geschrieben: Die Bereitschaftssperre gilt
+unverändert, der Befehl folgt erst nach `ready`. Netz-Balancing ist nur
 innerhalb des Haltebandes möglich; bei oder unter MinSOC behält die
 Entladesperre dort Vorrang. Die Schutzregeln der manuellen Modi gelten separat weiter.
 Der Schutz im Halteband hat wie die harte MinSOC-Regel Vorrang vor der
@@ -428,6 +431,16 @@ Ist ausschließlich die optionale PV-Erzeugungsquelle ungültig und steht
 Quellenfehler. Der Fehler bleibt in der Diagnose sichtbar. Bei Tageslicht,
 unbekanntem Sonnenstand oder weiteren Quellenfehlern gilt die Meldefrist von
 60 Sekunden weiterhin. Steuerung und andere Alarme ändern sich dadurch nicht.
+
+Meldet ein erreichbarer Wechselrichter nachts `not_ready`, während der SoC
+bei oder unter MinSOC liegt oder der MinSOC-Schutz noch hält, ist das ein
+normaler Standby mit leerem Akku (#103), keine Störung. Es entstehen dann
+weder HA-Störmeldung noch Push. Der Diagnosesensor
+**Wechselrichter-Bereitschaft** bleibt auf `not_ready` und zeigt zusätzlich
+das Attribut `standby: night_empty` neben dem rohen `inverter_status`; die
+Diagnose führt den Zustand unter `health.standby`. Schreibzugriffe bleiben
+bis `ready` gesperrt. `offline`, `recovering`, Tageslicht oder ein nicht
+leerer Akku melden weiterhin nach 60 Sekunden.
 
 Ein Neuladen der Integration oder HA-Neustart beginnt eine neue
 Vorfallserkennung. Ein weiterhin vorhandener Quellenfehler kann deshalb nach

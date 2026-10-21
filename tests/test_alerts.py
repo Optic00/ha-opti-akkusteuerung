@@ -620,6 +620,64 @@ async def test_recovery_expected_not_ready_is_one_connection_incident(alerts):
     assert "write" in alerts._active
 
 
+def night_standby(**overrides):
+    """SMA night standby with an empty battery (#103): not_ready, online, below horizon."""
+    states = {"sun.sun": "below_horizon", "sensor.opti_soc": 8, "input_number.minsoc": 10,
+              "binary_sensor.opti_minsoc_schutz_aktiv": "off"}
+    states.update(overrides.pop("states", {}))
+    kwargs = {"connection_status": {"status": "not_ready", "write_ready": False, "inverter_status": 303},
+              "states": states, **overrides}
+    return health(**kwargs)
+
+
+async def test_night_standby_at_minsoc_is_informational_not_an_incident(hass, alerts):
+    calls = []
+
+    async def push(call):
+        calls.append(call.data)
+
+    hass.services.async_register("notify", "test_phone", push)
+    start = dt_util.utcnow()
+    for seconds in (0, 65, 130):
+        data = night_standby()
+        with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=seconds)):
+            alerts.update(data)
+        assert data["connection_status"]["standby"] == "night_empty"
+        assert data["connection_status"]["inverter_status"] == 303
+        assert data["connection_status"]["status"] == "not_ready"
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert not alerts._active and not calls
+    assert hass.states.get(f"persistent_notification.opti_akku_health_{alerts.entry.entry_id}") is None
+    # The exit band counts via the latch even when the SoC is already above MinSOC.
+    latched = night_standby(states={"sensor.opti_soc": 12, "binary_sensor.opti_minsoc_schutz_aktiv": "on"})
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=200)):
+        alerts.update(latched)
+    assert latched["connection_status"]["standby"] == "night_empty" and not alerts._active
+    # An InverterNotReadyError write result stays suppressed during the standby.
+    unconfirmed = night_standby(last_error="Schreibvorgang nicht bestätigt: InverterNotReadyError")
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=260)):
+        alerts.update(unconfirmed)
+    assert not alerts._active
+
+
+@pytest.mark.parametrize("overrides", [
+    {"states": {"sun.sun": "above_horizon"}},                                   # daylight
+    {"states": {"sensor.opti_soc": 40}},                                         # battery not empty
+    {"states": {"sensor.opti_soc": "unavailable"}},                              # unknown SoC
+    {"online": False, "connection_status": {"status": "offline", "inverter_status": None}},
+    {"connection_status": {"status": "recovering", "inverter_status": 235}},
+])
+async def test_real_connection_problems_still_alert_at_night(hass, alerts, overrides):
+    start = dt_util.utcnow()
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start):
+        alerts.update(night_standby(**overrides))
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=65)):
+        data = night_standby(**overrides)
+        alerts.update(data)
+    assert alerts._active == {"connection"}
+    assert "standby" not in data["connection_status"]
+
+
 async def test_recovery_never_suppresses_restriction_or_write_stall(alerts):
     alerts.update(
         health(

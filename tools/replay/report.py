@@ -121,6 +121,43 @@ def _robustness_table(metrics: dict[str, dict[str, dict]], seasons: list[str], b
     return lines + [""]
 
 
+STABILITY_COLUMNS = [
+    ("nights", "Nächte"),
+    ("horizon_switches_night", "Horizont-Umschaltungen nachts"),
+    ("horizon_switches_per_night", "je Nacht"),
+    ("horizon_long_night_pct", "Horizont lang nachts %"),
+    ("score_flips_night", "Score-Kipp <3 nachts"),
+    ("score_flips_per_night", "je Nacht"),
+    ("score_night_lt3_pct", "Score<3 nachts %"),
+    ("score_night_le1_pct", "Score<=1 nachts %"),
+    ("score_night_ge9_pct", "Score>=9 nachts %"),
+]
+RESERVE_DECISIONS = ("reserve_low", "reserve_forecast", "reserve_winter", "reserve_today_low", "reserve_cheap",
+                     "negative_price")
+
+
+def _stability(metrics: dict[str, dict[str, dict]], periods: list[str]) -> list[str]:
+    """Night-time switching of score and long horizon, score distribution and reserve-branch steps."""
+    lines = ["## Score-Stabilität", "",
+             "Nachtschritte: Sonne unter dem Horizont (Sonnenmodell des Harness). Umschaltungen und Kipp-Punkte",
+             "zählen Wechsel zwischen aufeinanderfolgenden Nachtschritten; Score = sensor.opti_forecast_score",
+             "(abends Morgen-Score, vor Sonnenaufgang Sonnentag-Score). Nur Policies mit Engine liefern Werte.", ""]
+    header = ["Policy", "Zeitraum", *(label for _, label in STABILITY_COLUMNS), "Score-Verteilung nachts 0..10",
+              "Reserve-Zweige Schritte"]
+    lines += ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    for policy, policy_periods in metrics.items():
+        for period in periods:
+            row = policy_periods.get(period)
+            if row is None or not row.get("score_hist"):
+                continue
+            hist = row.get("score_night_hist", {})
+            histogram = " ".join(str(hist.get(str(score), 0)) for score in range(11))
+            reserve = sum(v for k, v in row.get("steps_by_decision", {}).items() if k in RESERVE_DECISIONS)
+            lines.append("| " + " | ".join(str(item) for item in (
+                policy, period, *(_fmt(row.get(key)) for key, _ in STABILITY_COLUMNS), histogram, reserve)) + " |")
+    return lines + [""]
+
+
 def render(metrics: dict[str, dict[str, dict]], meta: dict[str, Any]) -> str:
     """``metrics`` maps policy name -> period -> metric dict."""
     periods: list[str] = []
@@ -148,6 +185,7 @@ def render(metrics: dict[str, dict[str, dict]], meta: dict[str, Any]) -> str:
     for period in seasons + months:
         lines += _table(period, metrics)
     lines += _gap_table(metrics, seasons)
+    lines += _stability(metrics, seasons + months)
     lines += ["## Muster vermeidbarer Einspeisung", ""]
     for policy, policy_periods in metrics.items():
         for period in seasons:

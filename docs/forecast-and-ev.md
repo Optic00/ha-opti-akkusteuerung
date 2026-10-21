@@ -206,6 +206,23 @@ weiterhin nur bei Score ≤ 1 lang. Die Abschaltschwelle (Score ≥ 3) wirkt ers
 wieder nach Sonnenaufgang. Ein Neueintrag ohne Vorzustand startet nachts wie
 bisher.
 
+Morgen- und Sonnentag-Score teilen die Tagesprognose seit Issue #124 durch den
+Tagesbedarf statt durch die auf 24 Stunden hochgerechnete letzte Stunde: Die
+Engine führt dafür ein 24-Stunden-Mittel der Hauslast
+(`sensor.opti_house_consumption_24h_w`, mit EV-Option
+`sensor.opti_forecast_house_24h_w`) im Minutenraster. Sobald dieses Mittel
+mindestens zwölf Stunden abdeckt (`age_coverage_ratio` ≥ 0,5), bildet es mit dem
+Faktor 0,8 den Nenner; davor, nach einem Neustart ohne gespeicherte Historie
+oder bei ungültiger EV-bereinigter Last gilt die bisherige
+60-Minuten-Hochrechnung. Der Faktor hält die Bedeutung der Schwellen 1 und 3:
+Sie waren auf die nächtliche Stundenlast kalibriert, die im Replay einer
+Referenzanlage rund 80 % des Tagesmittels betrug; ohne Faktor fielen deutlich
+mehr Winternächte in die Reserve-Zweige. Die Attribute `load_source`,
+`tagesmittel_24h_w` und `tagesbedarf_w` der beiden Scores zeigen, welche Last
+gerade im Nenner steht. Nachts ändert sich der Score damit nur noch mit der
+Prognose, nicht mehr mit jeder Lastspitze; der Nacht-Latch des langen Horizonts
+bleibt als Rückfall für die Hochrechnungsphase bestehen.
+
 Für bereits als Peak klassifizierte Zeitfenster über 60 ct/kWh kommt ein
 zusätzlicher Extrempreispuffer hinzu. Er beträgt
 `0,25 × clamp((Preis - 60) / 40, 0, 1)` der bisherigen Lastannahme: bis

@@ -262,19 +262,20 @@ class StrategyEngine:
 
     def reset_load_statistics(self) -> None:
         """Discard only house-load histories when input semantics change."""
-        for key in ("sensor.opti_house_consumption_60min_w", "sensor.haus_stromverbrauch_60_min"):
+        for key in ("sensor.opti_house_consumption_60min_w", "sensor.haus_stromverbrauch_60_min",
+                    "sensor.opti_house_consumption_24h_w"):
             self._samples.pop(key, None)
             self._states.pop(key, None)
             self._attributes.pop(key, None)
 
     def reset_score_statistics(self) -> None:
         """Discard EV-adjusted score samples after their source binding changes."""
-        key = "sensor.opti_forecast_house_60min_w"
-        self._samples.pop(key, None)
-        self._states.pop(key, None)
-        self._attributes.pop(key, None)
-        self._derived_states.pop(key, None)
-        self._derived_attrs.pop(key, None)
+        for key in ("sensor.opti_forecast_house_60min_w", "sensor.opti_forecast_house_24h_w"):
+            self._samples.pop(key, None)
+            self._states.pop(key, None)
+            self._attributes.pop(key, None)
+            self._derived_states.pop(key, None)
+            self._derived_attrs.pop(key, None)
 
     def snapshot(self) -> dict:
         """Return a JSON-serializable snapshot suitable for HA's local Store."""
@@ -589,11 +590,16 @@ class StrategyEngine:
                 continue
             source = definition["entity_id"]
             max_age = self._duration(definition["max_age"])
+            # Optional raster: long windows (24 h) keep one sample per interval so
+            # the sampling_size cap never shortens the window silently at the
+            # 15-second evaluation cadence. Short windows sample every evaluation.
+            sample_interval = self._duration(definition.get("sample_interval", 0))
             rows = self._samples.get(entity, [])
             rows = [row for row in rows if timestamp - max_age <= row[0] <= timestamp]
             value = self._get_state(source)
-            invalid_score_load = entity == "sensor.opti_forecast_house_60min_w" and not _finite(value)
-            if _finite(value) and (not rows or rows[-1][0] != timestamp):
+            invalid_score_load = source == "sensor.opti_forecast_house_instant_w" and not _finite(value)
+            due = not rows or (rows[-1][0] != timestamp and timestamp - rows[-1][0] >= sample_interval)
+            if _finite(value) and due:
                 rows.append([timestamp, float(value)])
             rows = rows[-definition.get("sampling_size", 1500):]
             self._samples[entity] = rows
@@ -602,7 +608,13 @@ class StrategyEngine:
                 _state(round(mean, definition.get("precision", 0)))
                 if mean is not None else "unavailable"
             )
-            self._attributes[entity] = {"sample_count": len(rows), "max_age_seconds": max_age}
+            # age_coverage_ratio mirrors HA's statistics platform: span of the
+            # kept samples relative to max_age (0 = a single sample).
+            coverage = (rows[-1][0] - rows[0][0]) / max_age if len(rows) > 1 and max_age > 0 else 0.0
+            self._attributes[entity] = {
+                "sample_count": len(rows), "max_age_seconds": max_age,
+                "age_coverage_ratio": round(min(coverage, 1.0), 3),
+            }
 
     def _update_balancing(self) -> None:
         # The original action tree remains the oracle; this scheduler supplies

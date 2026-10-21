@@ -192,3 +192,32 @@ def test_incomplete_hours_are_skipped_and_soc_is_carried():
     assert len(records) == 92
     assert records[48].ts_local.hour == 13
     assert records[48].soc_before == pytest.approx(records[47].soc_after)
+
+
+def test_observed_scores_and_horizon_reach_the_records(head_resources):
+    policy, records = run_day(head_resources)
+    scored = [item for item in records if item.score is not None]
+    assert scored and all(0 <= item.score <= 10 for item in scored)
+    assert any(item.night for item in records) and any(not item.night for item in records)
+    assert {item.horizon_long for item in records} <= {True, False, None}
+    assert policy.summary()["house_daily"] == "engine"
+
+
+def test_lastprofil_variant_injects_the_previous_months_daily_load(head_resources):
+    hours = peak_day(dt.date(2026, 9, 30)) + peak_day(dt.date(2026, 10, 1))
+    policy = StrategyPolicy(PLANT, resources=head_resources, name="profil", house_daily="lastprofil")
+    seen = {}
+    original = policy.engine.evaluate
+
+    def spy(states, attributes, now):
+        seen[now.date()] = (states.get("sensor.opti_house_consumption_24h_w"),
+                            attributes.get("sensor.opti_house_consumption_24h_w"))
+        return original(states, attributes, now)
+
+    policy.engine.evaluate = spy
+    simulate.run(hours, policy, BatteryParams.from_plant(PLANT), start_soc=50)
+    # 0.5 kWh per hour -> 12 kWh per day -> 500 W, with full coverage so the templates accept it.
+    assert seen[dt.date(2026, 10, 1)] == (500, {"age_coverage_ratio": 1.0, "sample_count": 24})
+    assert simulate.load_day_climatology(hours)[(2026, 9)] == pytest.approx(12.0)
+    with pytest.raises(ValueError):
+        StrategyPolicy(PLANT, resources=head_resources, house_daily="perfect")

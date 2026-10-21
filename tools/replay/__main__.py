@@ -51,9 +51,12 @@ def build_policy(spec: str, plant: dict, sun: SunModel, hours=None, params: Batt
         return None
     if spec == "self_consumption":
         return SelfConsumptionPolicy()
-    if spec == "strategy" or spec.startswith("strategy@"):
-        ref = spec.partition("@")[2] or None
-        return StrategyPolicy(plant, ref, sun=sun, name=spec)
+    if spec == "strategy" or spec.startswith(("strategy@", "strategy+lastprofil@")):
+        # ``strategy+lastprofil@ref``: the 24-h load statistic is replaced by the
+        # previous month's mean daily load (stand-in for the learned demand profile).
+        head, _, ref = spec.partition("@")
+        house_daily = "lastprofil" if head.endswith("+lastprofil") else "engine"
+        return StrategyPolicy(plant, ref or None, sun=sun, name=spec, house_daily=house_daily)
     if spec == "oracle" or spec.startswith("oracle@"):
         terminal = spec.partition("@")[2] or "hold"
         return OraclePolicy(hours, plant, params, wear_ct=planner.get("wear_ct", 3.0), terminal=terminal,
@@ -199,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run = sub.add_parser("run", help="eine Policy simulieren")
     _add_sim_arguments(p_run)
     p_run.add_argument("--policy", required=True,
-                       help="actual | self_consumption | strategy[@ref|@pfad] | oracle[@hold|@value] | rh[@naive|@calibrated]")
+                       help="actual | self_consumption | strategy[+lastprofil][@ref|@pfad] | oracle[@hold|@value] | rh[@naive|@calibrated]")
     p_run.set_defaults(func=lambda args: _compare(argparse.Namespace(**vars(args), policies=[args.policy])))
 
     p_compare = sub.add_parser("compare", help="mehrere Policies nebeneinander")

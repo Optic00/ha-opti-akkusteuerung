@@ -159,5 +159,24 @@ def test_plan_shadow_sensor_records_no_attributes_and_stays_available_while_unkn
     assert sensor.native_value is None and sensor.available is True
     assert sensor.extra_state_attributes["detail"] == "price_series"
     coordinator.data["states"][key] = "Akku Netzladen"
-    assert sensor.native_value == "Akku Netzladen"
-    assert "Akku Netzladen" in sensor.options
+    assert sensor.native_value == "netzladen"
+    assert sensor.options == ["dynamisch", "pause", "nur_laden", "nur_entladen", "netzladen"]
+    assert sensor.translation_key == "plan_shadow"
+
+
+def test_translation_state_keys_are_hassfest_slugs():
+    import json
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "custom_components" / "opti_akku"
+    pattern = re.compile(r"^[a-z0-9-_]+$")
+    checked = 0
+    for path in (root / "strings.json", *sorted((root / "translations").glob("*.json"))):
+        entities = json.loads(path.read_text()).get("entity", {})
+        for platform in entities.values():
+            for definition in platform.values():
+                for key in definition.get("state", {}):
+                    assert pattern.match(key), f"{path.name}: state key {key!r} is not a slug"
+                    checked += 1
+    assert checked >= 15

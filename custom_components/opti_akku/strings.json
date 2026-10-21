@@ -1252,11 +1252,11 @@
       "plan_shadow": {
         "name": "Shadow planner horizon",
         "state": {
-          "Akku Dynamisch": "Battery dynamic",
-          "Akku Pause": "Battery pause",
-          "Akku nur Laden": "Battery charge only",
-          "Akku nur Entladen": "Battery discharge only",
-          "Akku Netzladen": "Battery grid charge"
+          "dynamisch": "Battery dynamic",
+          "pause": "Battery pause",
+          "nur_laden": "Battery charge only",
+          "nur_entladen": "Battery discharge only",
+          "netzladen": "Battery grid charge"
         }
       }
     },

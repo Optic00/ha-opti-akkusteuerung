@@ -563,3 +563,114 @@ def test_forecast_history_only_records_changes_and_stays_small():
     assert size < 1_000_000, size
     assert per_day <= 14.5
     assert size * per_day < 15_000_000
+
+
+# -- validation and helper paths -----------------------------------------------
+
+@pytest.mark.parametrize("battery", [
+    Battery(float("nan"), 5, 95, 3000, 5000),
+    Battery(10, 5, 95, -1, 5000),
+    Battery(10, 5, 95, 3000, 5000, eta_charge=1.5),
+    Battery(10, 95, 5, 3000, 5000),
+])
+def test_invalid_batteries_are_rejected_by_the_core(battery):
+    assert battery.problem() == "battery_invalid"
+    with pytest.raises(ValueError, match="battery_invalid"):
+        Horizon(hourly([20]), battery, Settings())
+
+
+def test_horizon_rejects_empty_or_inconsistent_configuration():
+    battery = Battery(10, 5, 95, 3000, 5000)
+    with pytest.raises(ValueError, match="no_slots"):
+        Horizon([], battery, Settings())
+    with pytest.raises(ValueError, match="terminal_invalid"):
+        Horizon(hourly([20]), battery, Settings(terminal="forever"))
+    with pytest.raises(ValueError, match="soc_step_invalid"):
+        Horizon(hourly([20]), battery, Settings(soc_step=200))
+    with pytest.raises(ValueError, match="unsolved"):
+        Horizon(hourly([20]), battery, Settings()).resolve_first(hourly([20])[0])
+
+
+def test_walk_first_and_describe_work_on_an_unsolved_horizon():
+    from custom_components.opti_akku.planner import describe, interpolate
+
+    battery = Battery(10, 5, 95, 3000, 5000)
+    horizon = Horizon(hourly([10, 50], load=[0.0, 0.5]), battery, Settings(terminal="none"))
+    step = horizon.first(5)  # solves on demand
+    assert step is not None and step.mode == GRID_CHARGE
+    fresh = Horizon(hourly([10, 50], load=[0.0, 0.5]), battery, Settings(terminal="none"))
+    result = fresh.walk(5)
+    assert result.soc_path()[0] == 5 and len(result.soc_path()) == 3
+    summary = describe(result)
+    assert summary["modes"][0] == GRID_CHARGE and summary["source"] == "plan"
+    assert describe("not a plan") == {}
+    assert interpolate([1.0, 2.0], -0.5) == 1.0 and interpolate([1.0, 2.0], 7) == 2.0
+
+
+def test_pv_forecast_rejects_naive_timestamps_and_oversized_rows():
+    now = T0 + timedelta(hours=6)
+    naive = solcast(now, [(1.0, 2.0)], updated=now)
+    naive.attributes["detailedForecast"][0]["period_start"] = "2026-01-20T06:00:00"
+    assert pv_forecast_hourly([naive], now) == ("invalid", {})
+    huge = solcast(now, [(1.0, 2.0)] * 101, updated=now)
+    assert pv_forecast_hourly([huge], now) == ("invalid", {})
+    bad_update = solcast(now, [(1.0, 2.0)], updated=now)
+    bad_update.last_updated = "yesterday"
+    assert pv_forecast_hourly([bad_update], now) == ("invalid", {})
+    without_rows = SimpleNamespace(state="1", attributes={}, last_updated=now, last_reported=now)
+    assert pv_forecast_hourly([without_rows, solcast(now, [(1.0, 2.0)], updated=now)], now)[0] == "ready"
+
+
+def test_slots_take_the_hourly_load_profile_when_present():
+    now, pv = day_context(6, {})
+    periods = _price_periods(prices(precharge_prices(), now), now, TZ)
+    key = str(int(now.timestamp()))
+    slots = build_slots(now, periods, pv, "p10", {key: 1500.0, "x": "bad"}, 500)
+    assert slots[0].load_kwh == pytest.approx(1.5) and slots[1].load_kwh == pytest.approx(0.5)
+    assert build_slots(now, periods, pv, "p10", {key: 99999.0}, 500)[0].load_kwh == pytest.approx(0.5)
+
+
+def test_shadow_reports_short_horizons_and_bad_fallback_load():
+    now, pv = day_context(6, {})
+    short = {hour: value for hour, value in pv.items() if hour <= now}
+    check = PlannerShadow().evaluate(now, TZ, inputs(now, short))
+    assert check["status"] == "data_missing" and check["detail"] == "horizon_short"
+    check = PlannerShadow().evaluate(now, TZ, inputs(now, pv, fallback_load_w=-5))
+    assert check["detail"] == "load"
+
+
+def test_grid_check_confirms_when_the_median_plan_also_buys():
+    now, pv = day_context(6, {})  # no PV at all: the P50 plan needs the grid as well
+    check = PlannerShadow().evaluate(now, TZ, inputs(now, pv, grid_check_quantile="p50"))
+    assert check["status"] == "ready" and check["grid_check"] == "confirmed_by_p50"
+    assert check["verdict"] == GRID_CHARGE
+
+
+def test_counter_restore_rejects_naive_stamps_and_wrong_buckets():
+    shadow = PlannerShadow()
+    good = shadow.snapshot()
+    for broken in (
+        {**good, "started_at": "2026-01-20T06:00:00"},
+        {**good, "today": "nope"},
+        {**good, "day": 5},
+        {**good, "started_at": 12},
+    ):
+        restored = PlannerShadow()
+        restored.data["total"]["ready_seconds"] = 7
+        restored.restore(broken)
+        assert restored.data["total"]["ready_seconds"] == 0
+
+
+def test_history_rejects_unpacked_or_misaligned_rows():
+    from custom_components.opti_akku.planner_shadow import _pv_unchanged
+
+    history = ForecastHistory(max_days=2)
+    history.restore({"version": 3, "entries": "not a list"})
+    assert history.error == "unsupported_format"
+    history.restore({"version": 3, "entries": [{"t": HISTORY_STAMP, "pv": {"from": HISTORY_STAMP, "p10": [1], "p50": [1]}}]})
+    assert history.entries == [] and history.error == "1_entries_invalid"
+    assert _pv_unchanged({"from": 1800, "p10": "1", "p50": "1"}, {"from": 3600, "p10": "1", "p50": "1"}) is False
+    assert _pv_unchanged(None, {"from": 3600, "p10": "1", "p50": "1"}) is False
+
+
+HISTORY_STAMP = int(T0.timestamp())

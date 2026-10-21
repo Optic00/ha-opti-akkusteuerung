@@ -16,7 +16,10 @@ from .entity import OptiAkkuEntity, coordinator_data, readable_name
 
 SENSOR_PREFIXES = ("sensor.", "counter.", "input_datetime.")
 PLAN_SHADOW_KEY = "sensor.opti_plan_shadow"
-PLAN_SHADOW_MODES = ["Akku Dynamisch", "Akku Pause", "Akku nur Laden", "Akku nur Entladen", "Akku Netzladen"]
+# ENUM states need slug keys for translations; the coordinator keeps the ladder wording.
+PLAN_SHADOW_STATES = {"Akku Dynamisch": "dynamisch", "Akku Pause": "pause", "Akku nur Laden": "nur_laden",
+                      "Akku nur Entladen": "nur_entladen", "Akku Netzladen": "netzladen"}
+PLAN_SHADOW_MODES = list(PLAN_SHADOW_STATES.values())
 DIAGNOSTICS = ("mode", "reason", "last_write", "last_error", "source_errors", "price_provider_error", "price_last_success", "notification_error", "load_profile", "control_release", "device_errors", "command_confirmation", "command_evidence", "pause_pending", "reserve_plan", "operating_report", "price_status", "demand_forecast", "source_observation", "connection_status", "ev_preparation", "arbitrage_estimate")
 CORE_UNITS = {"soc": "%", "battery_temp": "°C", "battery_capacity_kwh": "kWh",
               "battery_power_w": "W", "pv_power_w": "W", "pv_generation_w": "W",
@@ -143,8 +146,7 @@ class OptiAkkuPlanShadowSensor(OptiAkkuStateSensor):
 
     @property
     def native_value(self) -> Any:
-        value = self._value()
-        return value if value in PLAN_SHADOW_MODES else None
+        return PLAN_SHADOW_STATES.get(self._value())
 
 
 class OptiAkkuDiagnosticSensor(OptiAkkuEntity, SensorEntity):

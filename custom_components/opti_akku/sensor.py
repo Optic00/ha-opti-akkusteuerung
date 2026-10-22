@@ -140,7 +140,8 @@ class OptiAkkuPlanShadowSensor(OptiAkkuStateSensor):
         # The base class assigns a generated name; an instance-level ``None``
         # would make HA use the bare device name (#165). Drop the instance
         # attribute so the translation key names the entity.
-        if "_attr_name" in vars(self):
+        # HA keeps _attr_name behind a property, so check with hasattr, not vars().
+        if hasattr(self, "_attr_name"):
             del self._attr_name
         self._numeric = False
 

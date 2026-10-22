@@ -629,6 +629,7 @@ def documented_standby(monkeypatch):
 
 def night_standby(**overrides):
     """SMA night standby with an empty battery (#103): not_ready, online, below horizon."""
+    overrides.setdefault("mode", "Akku nur Laden")
     states = {"sun.sun": "below_horizon", "sensor.opti_soc": 8, "input_number.minsoc": 10,
               "sensor.opti_pv_generation_w": 0, "sensor.opti_battery_power_w": 0,
               "binary_sensor.opti_minsoc_schutz_aktiv": "off"}
@@ -675,6 +676,9 @@ async def test_night_standby_at_minsoc_is_informational_not_an_incident(hass, al
     {"states": {"sensor.opti_battery_power_w": -400}},                           # device not idle: charging
     {"states": {"sensor.opti_battery_power_w": "unavailable"}},                  # telemetry missing
     {"mode": "Akku Netzladen"},                                                  # grid charge requested: idle = failure
+    {"mode": "Akku schnell Laden"},                                              # manual preset expects activity
+    {"mode": "unbekannt"},                                                       # unknown mode: fail closed
+    {"mode": None},                                                              # missing mode: fail closed
     {"states": {"sensor.opti_soc": "unavailable"}},                              # unknown SoC
     {"online": False, "connection_status": {"status": "offline", "inverter_status": None}},
     {"connection_status": {"status": "recovering", "inverter_status": 235}},

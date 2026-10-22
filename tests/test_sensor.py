@@ -166,7 +166,7 @@ def test_plan_shadow_sensor_records_no_attributes_and_stays_available_while_unkn
     # name the entity (a leftover None would mean "device name only").
     assert sensor.has_entity_name
     with pytest.raises(AttributeError):
-        sensor._attr_name
+        getattr(sensor, "_attr_name")  # noqa: B009 - the attribute must be absent, not None
 
 
 def test_translation_state_keys_are_hassfest_slugs():

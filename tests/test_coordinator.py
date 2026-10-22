@@ -199,10 +199,42 @@ async def test_write_watchdog_pauses_only_in_a_documented_night_standby(coordina
     coordinator.settings["input_number.minsoc"] = 10
     coordinator.device.async_read.return_value["sensor.opti_soc"] = 8
     coordinator.device.async_read.return_value["sensor.opti_inverter_status"] = status
+    coordinator.device.async_read.return_value["sensor.opti_pv_generation_w"] = 0
+    coordinator.device.async_read.return_value["sensor.opti_battery_power_w"] = 0
     clock = [100.0]
     with patch("custom_components.opti_akku.coordinator.time.monotonic", side_effect=lambda: clock[0]):
         first = await coordinator._async_update_data()
         assert first["connection_status"]["status"] == "not_ready"
+        for _ in range(20):
+            clock[0] += 15
+            data = await coordinator._async_update_data()
+    assert data["states"]["binary_sensor.opti_write_stalled"] == stalled
+    assert ("write" in coordinator.alerts._active) == (stalled == "on")
+    assert (data["connection_status"].get("standby") == "night_empty") == (stalled == "off")
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+@pytest.mark.parametrize("mode, stalled", [("Akku Netzladen", "on"), ("Akku nur Laden", "off")])
+async def test_write_watchdog_stays_armed_when_grid_charging_is_requested_in_a_night_standby(coordinator, hass, mode, stalled):
+    """An idle device with the standby code is a failure while the strategy wants grid charging."""
+    from custom_components.opti_akku.engine import Evaluation
+    hass.states.async_set("sun.sun", "below_horizon", {"next_rising": "2026-07-27T05:45:00+02:00",
+                                                        "next_setting": "2026-07-27T21:00:00+02:00"})
+    coordinator.write_enabled = True
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.minsoc"] = 10
+    reading = coordinator.device.async_read.return_value
+    reading.update({"sensor.opti_soc": 8, "sensor.opti_inverter_status": 16777213,
+                    "sensor.opti_pv_generation_w": 0, "sensor.opti_battery_power_w": 0})
+
+    def requested(states, attributes, now):
+        return Evaluation(dict(states), dict(attributes), mode, "Testmodus", {}, decision_id="test")
+
+    clock = [100.0]
+    with patch.object(coordinator.engine, "evaluate", side_effect=requested), \
+            patch("custom_components.opti_akku.coordinator.time.monotonic", side_effect=lambda: clock[0]):
+        first = await coordinator._async_update_data()
+        assert first["mode"] == mode and first["connection_status"]["status"] == "not_ready"
         for _ in range(20):
             clock[0] += 15
             data = await coordinator._async_update_data()

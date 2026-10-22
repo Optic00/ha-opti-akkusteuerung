@@ -162,6 +162,9 @@ def test_plan_shadow_sensor_records_no_attributes_and_stays_available_while_unkn
     assert sensor.native_value == "netzladen"
     assert sensor.options == ["dynamisch", "pause", "nur_laden", "nur_entladen", "netzladen"]
     assert sensor.translation_key == "plan_shadow"
+    # #165: no instance-level _attr_name (None would mean "device name only").
+    assert "_attr_name" not in vars(sensor) and sensor.has_entity_name
+    assert sensor._attr_name is not None
 
 
 def test_translation_state_keys_are_hassfest_slugs():

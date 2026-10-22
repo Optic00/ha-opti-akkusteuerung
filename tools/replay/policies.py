@@ -1,6 +1,7 @@
 """Mode policies: the real StrategyEngine, and a self-consumption baseline."""
 from __future__ import annotations
 
+import copy
 import datetime as dt
 from dataclasses import dataclass, field
 from typing import Any
@@ -46,6 +47,7 @@ class StepContext:
     forecast_today_kwh: float | None
     forecast_tomorrow_kwh: float | None
     forecast_remaining_kwh: float | None
+    load_day_kwh: float | None = None  # climatological daily load (previous month), for the profile denominator
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,17 @@ class Decision:
     ok: bool = True
     target_soc: float | None = None
     discharge_limit_w: float | None = None  # only planner policies set it
+    extra: dict[str, Any] = field(default_factory=dict)  # observed internal states (scores, horizon)
+
+
+# Internal engine states copied into the step records for stability metrics.
+OBSERVED_STATES = {
+    "score": "sensor.opti_forecast_score",
+    "score_sonnentag": "sensor.opti_forecast_score_sonnentag",
+    "horizon_long": "binary_sensor.opti_peak_horizont_lang",
+}
+DAILY_LOAD_STATISTIC = "sensor.opti_house_consumption_24h_w"
+HOUSE_DAILY_MODES = ("engine", "lastprofil")
 
 
 class SelfConsumptionPolicy:
@@ -84,13 +97,24 @@ class StrategyPolicy:
     battery_temp_c: float = 25.0
     name: str = "strategy"
     resources: dict | None = None  # overrides strategy_ref (tests, patched variants)
+    house_daily: str = "engine"  # "lastprofil": 24-h load statistic replaced by the previous month's mean daily load
+    sample_interval_s: float = 900.0  # raster of the long-window statistics = simulation step (live: 60 s)
 
     def __post_init__(self) -> None:
+        if self.house_daily not in HOUSE_DAILY_MODES:
+            raise ValueError(f"Unknown house_daily mode: {self.house_daily}")
         self._engine_module = load_engine_module()
         self._injected = self.resources is not None
         if self.resources is None:
             self.resources = load_strategy(self.strategy_ref)
-        self.engine = self._engine_module.StrategyEngine(self.resources)
+        # The engine samples once per evaluation step here, not once a minute as
+        # live: rastered statistics get the step as interval so their expected
+        # sample count (and with it coverage_ok) matches the simulation cadence.
+        self._engine_resources = copy.deepcopy(self.resources)
+        for definition in self._engine_resources.get("statistics", []):
+            if definition.get("sample_interval"):
+                definition["sample_interval"] = {"seconds": self.sample_interval_s}
+        self.engine = self._engine_module.StrategyEngine(self._engine_resources)
         self.steps = 0
         self.error_steps = 0
         self.charge_limit_unknown_steps = 0
@@ -120,6 +144,11 @@ class StrategyPolicy:
             "sun.sun": sun_state,
         }
         attributes: dict[str, dict] = {"sun.sun": sun_attrs}
+        if self.house_daily == "lastprofil" and context.load_day_kwh is not None:
+            # Variant C: the learned profile's daily demand stands in for the 24-h statistic.
+            states[DAILY_LOAD_STATISTIC] = round(context.load_day_kwh / 24 * 1000)
+            attributes[DAILY_LOAD_STATISTIC] = {"coverage_ok": True, "sample_coverage_ratio": 1.0,
+                                                "age_coverage_ratio": 1.0, "max_gap_seconds": 0, "sample_count": 24}
         if context.forecast_today_kwh is not None:
             states["sensor.opti_forecast_today_kwh"] = round(context.forecast_today_kwh, 3)
             states["sensor.opti_forecast_tomorrow_kwh"] = round(context.forecast_tomorrow_kwh or 0.0, 3)
@@ -151,11 +180,12 @@ class StrategyPolicy:
         return Decision(
             mode, result.decision_id, result.reason, limit, ok,
             _number(result.states.get("sensor.opti_target_soc")),
+            extra={key: result.states.get(entity) for key, entity in OBSERVED_STATES.items()},
         )
 
     def reset(self) -> None:
         """Fresh engine state at a measurement block boundary (like a cold start)."""
-        self.engine = self._engine_module.StrategyEngine(self.resources)
+        self.engine = self._engine_module.StrategyEngine(self._engine_resources)
         self.resets += 1
 
     def summary(self) -> dict[str, Any]:
@@ -172,6 +202,7 @@ class StrategyPolicy:
             "block_restarts": self.resets,
             "sun_source": self.sun.source,
             "battery_temp_c": self.battery_temp_c,
+            "house_daily": self.house_daily,
         }
 
 

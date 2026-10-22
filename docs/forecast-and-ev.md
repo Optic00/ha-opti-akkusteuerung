@@ -206,6 +206,39 @@ weiterhin nur bei Score ≤ 1 lang. Die Abschaltschwelle (Score ≥ 3) wirkt ers
 wieder nach Sonnenaufgang. Ein Neueintrag ohne Vorzustand startet nachts wie
 bisher.
 
+Morgen- und Sonnentag-Score teilen die Tagesprognose seit Issue #124 durch den
+Tagesbedarf statt durch die auf 24 Stunden hochgerechnete letzte Stunde. Die
+Engine führt dafür ein 24-Stunden-Mittel der Last im Minutenraster
+(`sensor.opti_house_consumption_24h_w`, mit EV-Option
+`sensor.opti_forecast_house_24h_w`) aus derselben Quelle wie die
+60-Minuten-Kette: in den Anlagenmodi die um ausgeschlossene Verbraucher
+bereinigte Basislast, im Legacy-Modus die Hauslast. Das Mittel bildet den
+Nenner, sobald es belastbar ist (`coverage_ok`: mindestens die Hälfte der
+erwarteten Minutensamples im Fenster und keine Lücke über zwei Stunden,
+einschließlich der Zeit seit dem letzten Sample). Davor, nach einem Neustart
+ohne gespeicherte Historie, nach einer längeren Messlücke oder bei ungültiger
+EV-bereinigter Last gilt die bisherige 60-Minuten-Hochrechnung. Die
+konfigurierte Mindestlast (`forecast_min_load_w`) begrenzt den Nenner wie in
+der 60-Minuten-Kette nach unten. Es gibt keinen Kalibrierfaktor: Score 1
+bedeutet weiterhin, dass die Prognose weniger als 15 % des Tagesbedarfs
+deckt, Score 3 mindestens 25 %. Die Attribute `load_source`,
+`tagesmittel_24h_w` und `tagesbedarf_w` der beiden Scores zeigen, welche Last
+gerade im Nenner steht.
+
+Der Nenner ändert sich nachts damit nur noch langsam; mit ihm ändern sich auch
+die Reserve-Zweige (`Score < 3`) und `binary_sensor.opti_pv_reichtag` (10/9),
+die weiterhin direkt am Score hängen. Der Nacht-Latch schützt ausschließlich
+den bereits langen Peak-Horizont und bleibt als Rückfall für die
+Hochrechnungsphase bestehen. Im Replay einer Referenzanlage (September 2025 bis
+Oktober 2026, beide Prognosemodi) sanken die nächtlichen Umschaltungen des
+langen Horizonts von 21 auf 5 und die nächtlichen Score-Kippstellen an der
+Schwelle 3 von 176 auf 47 bei gleichen Nettokosten (±0,2 EUR); der Anteil
+der Nachtschritte mit Score unter 3 stieg von 13,6 auf 18,2 %, weil das
+Tagesmittel über der reinen Nachtlast liegt. Für die 24-Stunden-Statistiken
+speichert die Engine stündliche Aggregate (Erstes/Letztes Sample, Summe,
+Anzahl, größte Lücke) statt der Minutensamples; Mittel und Abdeckung werden
+daraus nach einem Neustart rekonstruiert.
+
 Für bereits als Peak klassifizierte Zeitfenster über 60 ct/kWh kommt ein
 zusätzlicher Extrempreispuffer hinzu. Er beträgt
 `0,25 × clamp((Preis - 60) / 40, 0, 1)` der bisherigen Lastannahme: bis

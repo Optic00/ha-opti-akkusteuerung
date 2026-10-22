@@ -28,6 +28,14 @@ Policies:
 - `strategy[@ref|@pfad]`: echte Engine mit `strategy.json` aus dem Arbeitsbaum,
   einem Git-Ref (`git show <ref>:custom_components/opti_akku/resources/strategy.json`)
   oder einer Datei. Mehrere Refs lassen sich in einem `compare` nebeneinander stellen.
+  `strategy+lastprofil[@…]` ersetzt die 24-h-Laststatistik der Engine
+  (`sensor.opti_house_consumption_24h_w`) durch das mittlere Tagesprofil des
+  Vormonats (Summe der Stundenmittel, volle Abdeckung) als groben Stellvertreter
+  für ein gelerntes Lastprofil; fehlt der Vormonat, bleibt die Engine-Statistik
+  (kein Zukunftswissen aus dem laufenden Monat). Ein echtes Online-Profil mit
+  Tag-/Nachtverhältnis bildet das nicht ab. Rastergestützte Statistiken
+  (`sample_interval`) bekommen den Simulationsschritt als Raster, damit ihre
+  Abdeckung (`coverage_ok`) zur Schrittweite passt.
 - `oracle[@hold|@value]`: perfekte Voraussicht je Messblock mit dem Planer-Kern
   (`custom_components/opti_akku/planner.py`, DP über die gespeicherte Energie).
   `hold` (Standard) verlangt am Blockende mindestens den Start-SoC, `value`
@@ -58,6 +66,14 @@ der vollen Prognose netzlädt). Der Bericht enthält unter „Lücke zum Oracle�
 Nettokosten je Policy minus Oracle, den Vorteil gegenüber Eigenverbrauch und
 unter „Robustheit“ Verschleiß (entladene kWh × `--wear-ct`), Netzladung,
 End-SoC und schlechte Tage (> 0,5 EUR teurer als Eigenverbrauch) je Saison.
+
+Jeder Schritt der Engine-Policies trägt zusätzlich `night` (Sonne unter dem
+Horizont), `score` (`sensor.opti_forecast_score`), `score_sonnentag` und
+`horizon_long` (`binary_sensor.opti_peak_horizont_lang`). Der Bericht fasst sie
+unter „Score-Stabilität“ zusammen: Nächte, Horizont-Umschaltungen und
+Score-Kipp-Punkte (Schwelle 3) zwischen aufeinanderfolgenden Nachtschritten,
+Anteile Score < 3 / ≤ 1 / ≥ 9 nachts, die nächtliche Score-Verteilung 0..10 und
+die Schritte in Reserve-Zweigen (`reserve_*`, `negative_price`).
 
 `mapping.json` ordnet Größen den Statistik-Entitäten zu (`change` für Zähler,
 `mean`/`min`/`max` für SoC und Preis; `pv_kwh` darf mehrere Zähler summieren,

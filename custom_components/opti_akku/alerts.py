@@ -34,12 +34,18 @@ MESSAGES = {
 # night standby with an empty battery. Documented codes for 33003 are only
 # 235 = grid-parallel operation, 1463 = backup, 1469 = shutting down,
 # 2119 = derating and 16777213 = information not available
-# (ha-modbus-akku-adapter/docs/modbus-register-referenz.md:57). No standby
-# code is documented anywhere, so this set ships EMPTY and the night-standby
-# exception below stays inactive. Add the code from the ``inverter_status``
-# attribute of an affected user's readiness sensor history (#103) once it is
-# confirmed; never guess one. Unknown codes keep raising the connection alert.
-SMA_STANDBY_STATUS_CODES: frozenset[int] = frozenset()
+# (ha-modbus-akku-adapter/docs/modbus-register-referenz.md:57). An STP SE with
+# an empty battery and no PV at night reports 16777213 in 33003 (read directly
+# from the inverter by the reporter of #103; 235 in normal operation). Only
+# that confirmed code counts, and only under the night/empty-battery conditions
+# checked below; any other code keeps raising the connection alert.
+SMA_STANDBY_STATUS_CODES: frozenset[int] = frozenset({16777213})
+# Largest PV or battery power (W) still consistent with an idle inverter.
+STANDBY_IDLE_W = 50.0
+# Only these effective modes expect nothing from an empty battery at night; an
+# idle device under any other mode (grid charging, manual presets) or an
+# unknown/missing mode is a failure, never a standby (fail closed).
+STANDBY_IDLE_MODES = frozenset({"Akku Dynamisch", "Akku nur Laden", "Akku nur Entladen", "Akku Pause", "Beobachtung"})
 
 
 def night_standby(data) -> bool:
@@ -55,8 +61,16 @@ def night_standby(data) -> bool:
         return False
     if connection.get("inverter_status") not in SMA_STANDBY_STATUS_CODES:
         return False
+    if data.get("mode") not in STANDBY_IDLE_MODES:
+        return False
     states = data.get("states", {})
     if not data.get("online", False) or not isinstance(states, Mapping) or states.get("sun.sun") != "below_horizon":
+        return False
+    # 16777213 only means "no information"; demand telemetry that fits an idle
+    # device (no PV, no battery flow) so a fault with the same code and any
+    # activity still alerts. Missing telemetry fails closed.
+    pv, battery = finite(states.get("sensor.opti_pv_generation_w")), finite(states.get("sensor.opti_battery_power_w"))
+    if pv is None or battery is None or pv > STANDBY_IDLE_W or abs(battery) > STANDBY_IDLE_W:
         return False
     if states.get("binary_sensor.opti_minsoc_schutz_aktiv") == "on":
         return True

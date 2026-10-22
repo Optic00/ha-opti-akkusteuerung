@@ -440,8 +440,14 @@ unbekanntem Sonnenstand oder weiteren Quellenfehlern gilt die Meldefrist von
 
 Meldet ein erreichbarer Wechselrichter nachts `not_ready` mit einem als
 Standby belegten Rohstatus, während der SoC bei oder unter MinSOC liegt oder
-der MinSOC-Schutz noch hält, ist das ein normaler Standby mit leerem Akku
-(#103), keine Störung. Es entstehen dann weder HA-Störmeldung noch Push, und
+der MinSOC-Schutz noch hält und weder PV noch Akku mehr als 50 W liefern,
+wertet Opti Akku das als Standby mit leerem Akku (#103), nicht als Störung.
+Fordert die Strategie in dieser Zeit Netzladen an, gilt die Ausnahme nicht:
+Ein stillstehendes Gerät wäre dann ein Fehler, und das Ladefenster darf
+nicht unbemerkt verstreichen.
+Sicher ist das nicht: Der Code bedeutet bei SMA nur „Information liegt nicht
+vor“. Ein Fehler, der denselben Code bei stillstehendem Gerät meldet, bliebe
+bis zum Sonnenaufgang oder bis zur nächsten Aktivität verdeckt. Es entstehen dann weder HA-Störmeldung noch Push, und
 der Schreib-Watchdog zählt diese Zeit nicht als Schreibstillstand. Der
 Diagnosesensor **Wechselrichter-Bereitschaft** bleibt auf `not_ready` und
 zeigt zusätzlich das Attribut `standby: night_empty` neben dem rohen
@@ -451,11 +457,11 @@ Tageslicht, ein nicht leerer Akku oder ein nicht belegter Rohstatus melden
 weiterhin nach 60 Sekunden.
 
 Als Standby belegte Codes stehen in `SMA_STANDBY_STATUS_CODES`
-(`alerts.py`). Für Register 33003 sind bisher nur 235 (Netzparallelbetrieb),
-1463 (Backup), 1469 (Herunterfahren), 2119 (Abregelung) und 16777213
-(Information liegt nicht vor) belegt, kein Standby-Code. Die Liste ist daher
-leer und die Ausnahme inaktiv, bis der Code aus dem Verlauf des Attributs
-`inverter_status` eines betroffenen Geräts bestätigt und nachgetragen ist.
+(`alerts.py`). Belegt ist bisher nur 16777213: Diesen Wert meldet ein STP SE in
+Register 33003 nachts bei leerem Akku ohne Ertrag, im Normalbetrieb steht dort
+235 (#103). Der Wert bedeutet bei SMA „Information liegt nicht vor“; er gilt
+nur unter den oben genannten Bedingungen als Standby, in jeder anderen Lage
+meldet er weiterhin als Störung.
 
 Ein Neuladen der Integration oder HA-Neustart beginnt eine neue
 Vorfallserkennung. Ein weiterhin vorhandener Quellenfehler kann deshalb nach

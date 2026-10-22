@@ -1168,7 +1168,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # A documented night standby (#103) cannot be written to; its time does
         # not count as "without a successful write". The watchdog resumes
         # counting from the end of the standby.
-        if night_standby({"connection_status": connection, "online": self._online, "states": result.states}):
+        if night_standby({"connection_status": connection, "online": self._online, "states": result.states, "mode": mode}):
             self._write_stall_paused_at = monotonic_now
         stall_reference = self._last_apply or self._write_monitor_since
         if stall_reference is not None and self._write_stall_paused_at is not None:

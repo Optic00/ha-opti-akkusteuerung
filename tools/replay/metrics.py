@@ -121,10 +121,31 @@ class _Accumulator:
         self.soc_end: float | None = None
         self.soc_hours = 0.0
         self.hours = 0.0
+        self.score_hist: dict[int, int] = defaultdict(int)
+        self.score_night_hist: dict[int, int] = defaultdict(int)
+        self.night_steps = 0
+        self.horizon_long_night_steps = 0
+        self.nights = 0
+        self.horizon_switches_night = 0
+        self.score_flips_night = 0
+        self.steps_by_decision: dict[str, int] = defaultdict(int)
 
-    def add(self, record: StepRecord, raw_free: float, grid_charge: float, mode_changed: bool, step_hours: float) -> None:
+    def add(self, record: StepRecord, raw_free: float, grid_charge: float, mode_changed: bool, step_hours: float,
+            stability: "Stability | None" = None) -> None:
         s = self.sums
         self.steps += 1
+        self.steps_by_decision[record.decision_id] += 1
+        if record.score is not None:
+            self.score_hist[record.score] += 1
+        if record.night:
+            self.night_steps += 1
+            if record.score is not None:
+                self.score_night_hist[record.score] += 1
+            self.horizon_long_night_steps += bool(record.horizon_long)
+        if stability is not None:
+            self.nights += stability.night_start
+            self.horizon_switches_night += stability.horizon_switch
+            self.score_flips_night += stability.score_flip
         s["pv_kwh"] += record.pv_kwh
         s["load_kwh"] += record.load_kwh
         s["export_kwh"] += record.export_kwh
@@ -191,6 +212,21 @@ class _Accumulator:
             "daily_net_cost_eur": {day.isoformat(): round(value, 3) for day, value in sorted(self.day_net_cost.items())},
             "mode_changes": self.mode_changes,
             "engine_error_steps": self.error_steps,
+            "steps_by_decision": dict(sorted(self.steps_by_decision.items(), key=lambda item: -item[1])),
+            "score_hist": {str(k): v for k, v in sorted(self.score_hist.items())},
+            "score_night_hist": {str(k): v for k, v in sorted(self.score_night_hist.items())},
+            "score_night_lt3_pct": _share(self.score_night_hist, lambda score: score < 3),
+            "score_night_le1_pct": _share(self.score_night_hist, lambda score: score <= 1),
+            "score_night_ge9_pct": _share(self.score_night_hist, lambda score: score >= 9),
+            "night_steps": self.night_steps,
+            "horizon_long_night_pct": (round(self.horizon_long_night_steps / self.night_steps * 100, 1)
+                                       if self.night_steps else None),
+            "nights": self.nights,
+            "horizon_switches_night": self.horizon_switches_night,
+            "horizon_switches_per_night": (round(self.horizon_switches_night / self.nights, 2)
+                                           if self.nights else None),
+            "score_flips_night": self.score_flips_night,
+            "score_flips_per_night": round(self.score_flips_night / self.nights, 2) if self.nights else None,
             "raw_by_decision": _rounded(self.by_decision),
             "raw_by_mode": _rounded(self.by_mode),
             "raw_by_hour": {str(k): round(v, 2) for k, v in sorted(self.by_hour.items())},
@@ -211,6 +247,26 @@ class _Accumulator:
         }
 
 
+def _share(hist: dict[int, int], predicate) -> float | None:
+    total = sum(hist.values())
+    return round(sum(v for k, v in hist.items() if predicate(k)) / total * 100, 1) if total else None
+
+
+class Stability:
+    """Night-time switching of the internal score / horizon states between consecutive steps."""
+
+    __slots__ = ("night_start", "horizon_switch", "score_flip")
+
+    def __init__(self, previous: StepRecord | None, record: StepRecord) -> None:
+        continuous = previous is not None and record.ts_local - previous.ts_local <= CONTINUITY_GAP
+        self.night_start = record.night and not (continuous and previous.night)
+        both_night = continuous and previous.night and record.night
+        self.horizon_switch = (both_night and previous.horizon_long is not None and record.horizon_long is not None
+                               and previous.horizon_long != record.horizon_long)
+        self.score_flip = (both_night and previous.score is not None and record.score is not None
+                           and (previous.score < 3) != (record.score < 3))
+
+
 def _rounded(values: dict) -> dict:
     return {key: round(value, 2) for key, value in sorted(values.items(), key=lambda item: -item[1])}
 
@@ -228,14 +284,17 @@ def summarize(
     counted = [record for record in records if not record.warmup]
     accumulators: dict[str, _Accumulator] = defaultdict(lambda: _Accumulator(feed_in_ct))
     previous_mode = None
+    previous_record: StepRecord | None = None
     charge_cap_kwh = params.max_charge_w * step_hours / 1000
     for record in counted:
         raw_free = export_free_battery_raw(record, params.maxsoc, charge_cap_kwh)
         grid_charge = max(0.0, record.charge_kwh - max(0.0, record.pv_kwh - record.load_kwh))
         changed = previous_mode is not None and record.mode != previous_mode
         previous_mode = record.mode
+        stability = Stability(previous_record, record)
+        previous_record = record
         for key in period_keys(record.ts_local):
-            accumulators[key].add(record, raw_free, grid_charge, changed, step_hours)
+            accumulators[key].add(record, raw_free, grid_charge, changed, step_hours, stability)
     for day, values in end_of_day_potential(counted, params, step_hours).items():
         for key in period_keys(dt.datetime.combine(day, dt.time())):
             accumulators[key].potential_days[day] = values

@@ -132,3 +132,29 @@ def test_report_lists_policies_per_period_and_patterns():
     assert "- assumptions:" in text and "  - steps_per_hour: 4" in text
     assert "roh nach decision_id: below_target 0.5" in text
     assert "| 2026-03-10 | 0.5 | 0.2 |" in text
+
+
+def test_night_stability_counts_horizon_switches_and_score_flips_per_night():
+    start = dt.datetime(2026, 1, 10, 17, tzinfo=TZ)
+    steps = [  # (night, score, horizon_long)
+        (False, 5, False), (True, 4, False), (True, 2, True), (True, 1, True), (True, 3, False),
+        (False, 3, False), (True, 2, True), (True, 2, True),
+    ]
+    records = []
+    for index, (night, score, horizon) in enumerate(steps):
+        item = record(start + dt.timedelta(minutes=15 * index), soc=40)
+        item.night, item.score, item.horizon_long = night, score, horizon
+        records.append(item)
+    total = summarize(records, params=PARAMS, feed_in_ct=8)["gesamt"]
+    assert total["nights"] == 2
+    assert total["horizon_switches_night"] == 2  # off->on and on->off inside the first night
+    assert total["horizon_switches_per_night"] == 1.0
+    assert total["score_flips_night"] == 2  # 4->2 and 1->3 inside the first night
+    assert total["night_steps"] == 6
+    assert total["score_night_lt3_pct"] == pytest.approx(4 / 6 * 100, abs=0.1)
+    assert total["horizon_long_night_pct"] == pytest.approx(4 / 6 * 100, abs=0.1)
+    assert total["score_hist"] == {"1": 1, "2": 3, "3": 2, "4": 1, "5": 1}
+    assert total["steps_by_decision"] == {"below_target": 8}
+    text = report.render({"strategy@HEAD": {"gesamt": total}}, {})
+    assert "## Score-Stabilität" in text
+    assert "| strategy@HEAD | gesamt | 2 | 2 | 1.00 |" in text

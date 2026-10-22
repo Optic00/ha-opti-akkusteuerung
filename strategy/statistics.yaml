@@ -35,3 +35,35 @@ statistics:
     minutes: 60
   sampling_size: 1500
   precision: 0
+- platform: statistics
+  name: Opti House Consumption 24h W
+  unique_id: opti_house_consumption_24h_w
+  # Same load semantics as the 60-min chain of the coordinator: the base load
+  # without excluded_load_sources in the plant modes, the house load in legacy
+  # mode (where sensor.opti_base_load_raw_w is never supplied).
+  entity_id: sensor.opti_base_load_raw_w
+  fallback_entity_id: sensor.opti_house_consumption_w
+  state_characteristic: mean
+  max_age:
+    hours: 24
+  sample_interval:
+    seconds: 60
+  min_coverage: 0.5
+  max_gap:
+    hours: 2
+  sampling_size: 1500
+  precision: 0
+- platform: statistics
+  name: Opti Forecast House 24h W
+  unique_id: opti_forecast_house_24h_w
+  entity_id: sensor.opti_forecast_house_instant_w
+  state_characteristic: mean
+  max_age:
+    hours: 24
+  sample_interval:
+    seconds: 60
+  min_coverage: 0.5
+  max_gap:
+    hours: 2
+  sampling_size: 1500
+  precision: 0

@@ -44,16 +44,21 @@ def cmd_import(args: argparse.Namespace) -> int:
 
 
 def build_policy(spec: str, plant: dict, sun: SunModel, hours=None, params: BatteryParams | None = None,
-                 forecast_mode: str = "calibrated", planner: dict | None = None):
+                 forecast_mode: str = "calibrated", planner: dict | None = None, steps_per_hour: int = 4):
     """``oracle[@hold|@value]`` and ``rh[@naive|@calibrated]`` need the series and the battery."""
     planner = planner or {}
     if spec == "actual":
         return None
     if spec == "self_consumption":
         return SelfConsumptionPolicy()
-    if spec == "strategy" or spec.startswith("strategy@"):
-        ref = spec.partition("@")[2] or None
-        return StrategyPolicy(plant, ref, sun=sun, name=spec)
+    if spec in ("strategy", "strategy+lastprofil") or spec.startswith(("strategy@", "strategy+lastprofil@")):
+        # ``strategy+lastprofil@ref``: the 24-h load statistic is replaced by the
+        # previous month's mean daily load (stand-in for the learned demand profile).
+        head, _, ref = spec.partition("@")
+        house_daily = "lastprofil" if head.endswith("+lastprofil") else "engine"
+        # The long-window statistics sample once per simulation step.
+        return StrategyPolicy(plant, ref or None, sun=sun, name=spec, house_daily=house_daily,
+                              sample_interval_s=3600.0 / steps_per_hour)
     if spec == "oracle" or spec.startswith("oracle@"):
         terminal = spec.partition("@")[2] or "hold"
         return OraclePolicy(hours, plant, params, wear_ct=planner.get("wear_ct", 3.0), terminal=terminal,
@@ -75,7 +80,7 @@ def build_policy(spec: str, plant: dict, sun: SunModel, hours=None, params: Batt
 def run_policy(spec: str, hours, plant: dict, params: BatteryParams, sun: SunModel, steps_per_hour: int,
                forecast_mode: str = "calibrated", planner: dict | None = None):
     started = time.perf_counter()
-    policy = build_policy(spec, plant, sun, hours, params, forecast_mode, planner)
+    policy = build_policy(spec, plant, sun, hours, params, forecast_mode, planner, steps_per_hour)
     if policy is None:
         records = simulate.run_actual(hours, steps_per_hour)
         info: dict[str, Any] = {}
@@ -199,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run = sub.add_parser("run", help="eine Policy simulieren")
     _add_sim_arguments(p_run)
     p_run.add_argument("--policy", required=True,
-                       help="actual | self_consumption | strategy[@ref|@pfad] | oracle[@hold|@value] | rh[@naive|@calibrated]")
+                       help="actual | self_consumption | strategy[+lastprofil][@ref|@pfad] | oracle[@hold|@value] | rh[@naive|@calibrated]")
     p_run.set_defaults(func=lambda args: _compare(argparse.Namespace(**vars(args), policies=[args.policy])))
 
     p_compare = sub.add_parser("compare", help="mehrere Policies nebeneinander")

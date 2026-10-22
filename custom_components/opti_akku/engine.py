@@ -125,6 +125,10 @@ def _strings(value: Any):
             yield from _strings(item)
 
 
+_BUCKET_SECONDS = 3600
+_MAX_BUCKETS = 48
+
+
 class StrategyEngine:
     """Evaluate a trusted, bundled strategy against timestamped observations.
 
@@ -180,6 +184,9 @@ class StrategyEngine:
         self._derived_attrs: dict[str, dict] = {}
         self._delays: dict[str, dict] = {}
         self._samples: dict[str, list[list[float]]] = {}
+        # Restored hourly aggregates of rastered (long-window) statistics:
+        # [first_ts, last_ts, sum, count, max_gap_s] per bucket, in time order.
+        self._buckets: dict[str, list[list[float]]] = {}
         self._last_evaluation: str | None = None
         self._last_minute: int | None = None
         self._last_daily_increment: str | None = None
@@ -245,14 +252,25 @@ class StrategyEngine:
             if key in self._entities and isinstance(value, dict)
         }
         self._samples = {}
+        bucketed = self._bucketed_statistics()
         for key, samples in snapshot.get("samples", {}).items():
-            if not isinstance(samples, list):
+            if not isinstance(samples, list) or key in bucketed:
                 continue
             self._samples[key] = [
                 [float(row[0]), float(row[1])] for row in samples[-1500:]
                 if isinstance(row, (list, tuple)) and len(row) == 2
                 and _finite(row[0]) and _finite(row[1])
             ]
+        self._buckets = {}
+        for key, buckets in snapshot.get("buckets", {}).items():
+            if not isinstance(buckets, list) or key not in bucketed:
+                continue
+            valid = [
+                [float(item) for item in row] for row in buckets[-_MAX_BUCKETS:]
+                if isinstance(row, (list, tuple)) and len(row) == 5
+                and all(_finite(item) for item in row) and row[0] <= row[1] and row[3] >= 1 and row[4] >= 0
+            ]
+            self._buckets[key] = sorted(valid, key=lambda row: row[0])
         # HA template delays are not evidence of continuity over an outage.
         self._delays = {}
         self._last_evaluation = None
@@ -262,28 +280,36 @@ class StrategyEngine:
 
     def reset_load_statistics(self) -> None:
         """Discard only house-load histories when input semantics change."""
-        for key in ("sensor.opti_house_consumption_60min_w", "sensor.haus_stromverbrauch_60_min"):
+        for key in ("sensor.opti_house_consumption_60min_w", "sensor.haus_stromverbrauch_60_min",
+                    "sensor.opti_house_consumption_24h_w"):
             self._samples.pop(key, None)
+            self._buckets.pop(key, None)
             self._states.pop(key, None)
             self._attributes.pop(key, None)
 
     def reset_score_statistics(self) -> None:
         """Discard EV-adjusted score samples after their source binding changes."""
-        key = "sensor.opti_forecast_house_60min_w"
-        self._samples.pop(key, None)
-        self._states.pop(key, None)
-        self._attributes.pop(key, None)
-        self._derived_states.pop(key, None)
-        self._derived_attrs.pop(key, None)
+        for key in ("sensor.opti_forecast_house_60min_w", "sensor.opti_forecast_house_24h_w"):
+            self._samples.pop(key, None)
+            self._buckets.pop(key, None)
+            self._states.pop(key, None)
+            self._attributes.pop(key, None)
+            self._derived_states.pop(key, None)
+            self._derived_attrs.pop(key, None)
 
     def snapshot(self) -> dict:
         """Return a JSON-serializable snapshot suitable for HA's local Store."""
+        bucketed = self._bucketed_statistics()
         return copy.deepcopy({
             "version": 1,
             "helpers": self._helpers,
             "states": self._derived_states,
             "attributes": self._derived_attrs,
-            "samples": self._samples,
+            # Rastered long windows are stored as hourly aggregates (a few
+            # hundred bytes each) instead of 1440 raw minute samples per save.
+            "samples": {key: rows for key, rows in self._samples.items() if key not in bucketed},
+            "buckets": {key: self._bucketize(key) for key in bucketed
+                        if self._samples.get(key) or self._buckets.get(key)},
             "pending_delays": self._delays,
             "last_evaluation": self._last_evaluation,
             "last_daily_increment": self._last_daily_increment,
@@ -581,28 +607,117 @@ class StrategyEngine:
         capacity = self._get_state("sensor.opti_battery_capacity_kwh")
         return _finite(soc) and -0.1 < float(soc) < 100.1 and _finite(capacity) and float(capacity) > 0
 
+    def _bucketed_statistics(self) -> set[str]:
+        return {
+            f"sensor.{definition['unique_id']}" for definition in self.resources.get("statistics", [])
+            if self._duration(definition.get("sample_interval", 0)) > 0
+        }
+
+    def _bucketize(self, entity: str) -> list[list[float]]:
+        """Hourly aggregates of restored buckets plus the in-memory minute samples."""
+        buckets = {int(row[0] // _BUCKET_SECONDS): list(row) for row in self._buckets.get(entity, [])}
+        for timestamp, value in self._samples.get(entity, []):
+            key = int(timestamp // _BUCKET_SECONDS)
+            bucket = buckets.get(key)
+            if bucket is None:
+                buckets[key] = [timestamp, timestamp, value, 1, 0.0]
+            else:
+                bucket[4] = max(bucket[4], timestamp - bucket[1])
+                bucket[1] = max(bucket[1], timestamp)
+                bucket[2] += value
+                bucket[3] += 1
+        # Persist timestamps and sums unrounded: any rounding of the last sample
+        # can make the next raster sample due early after a restore, and one
+        # extra sample flips the coverage gate at the edge.
+        return [
+            [row[0], row[1], row[2], int(row[3]), row[4]]
+            for _, row in sorted(buckets.items())
+        ][-_MAX_BUCKETS:]
+
+    def _statistic_source(self, definition: dict) -> str:
+        """``fallback_entity_id`` applies only when the primary source is absent, never when it is invalid."""
+        source = definition["entity_id"]
+        fallback = definition.get("fallback_entity_id")
+        return fallback if fallback and source not in self._states else source
+
+    @staticmethod
+    def _max_gap(buckets: list[list[float]], rows: list[list[float]], timestamp: float) -> float:
+        """Largest distance between consecutive samples, including the gap up to ``timestamp``."""
+        gap, previous = 0.0, None
+        for first, last, _, _, inner in buckets:
+            if previous is not None:
+                gap = max(gap, first - previous)
+            gap, previous = max(gap, inner), last
+        for stamp, _ in rows:
+            if previous is not None:
+                gap = max(gap, stamp - previous)
+            previous = stamp
+        return max(gap, timestamp - previous) if previous is not None else float("inf")
+
     def _update_statistics(self, incoming: dict) -> None:
         timestamp = self._now.timestamp()
         for definition in self.resources.get("statistics", []):
             entity = f"sensor.{definition['unique_id']}"
             if entity in incoming:
                 continue
-            source = definition["entity_id"]
+            source = self._statistic_source(definition)
             max_age = self._duration(definition["max_age"])
-            rows = self._samples.get(entity, [])
-            rows = [row for row in rows if timestamp - max_age <= row[0] <= timestamp]
+            # Optional raster: long windows (24 h) keep one sample per interval so
+            # the sampling_size cap never shortens the window silently at the
+            # 15-second evaluation cadence. Short windows sample every evaluation.
+            sample_interval = self._duration(definition.get("sample_interval", 0))
+            rows = [row for row in self._samples.get(entity, []) if timestamp - max_age <= row[0] <= timestamp]
+            # A restored bucket counts only while it lies entirely inside the
+            # window; a bucket whose first sample already expired would keep
+            # expired samples in mean and coverage (conservative at the edge).
+            buckets = [
+                row for row in self._buckets.get(entity, [])
+                if timestamp - max_age <= row[0] and row[1] <= timestamp
+            ] if sample_interval > 0 else []
             value = self._get_state(source)
-            invalid_score_load = entity == "sensor.opti_forecast_house_60min_w" and not _finite(value)
-            if _finite(value) and (not rows or rows[-1][0] != timestamp):
+            invalid_score_load = source == "sensor.opti_forecast_house_instant_w" and not _finite(value)
+            last = rows[-1][0] if rows else (buckets[-1][1] if buckets else None)
+            # Tolerate float noise in the cadence (replay steps of 3600/n s) without
+            # letting a 15 s live cycle sample early on a 60 s raster.
+            tolerance = min(1.0, sample_interval / 10) if sample_interval > 0 else 0.0
+            due = last is None or (last != timestamp and timestamp - last >= sample_interval - tolerance)
+            if _finite(value) and due:
                 rows.append([timestamp, float(value)])
             rows = rows[-definition.get("sampling_size", 1500):]
             self._samples[entity] = rows
-            mean = statistics.mean(row[1] for row in rows) if rows and not invalid_score_load else None
+            if sample_interval > 0:
+                self._buckets[entity] = buckets
+            count = len(rows) + sum(int(row[3]) for row in buckets)
+            total = sum(row[1] for row in rows) + sum(row[2] for row in buckets)
+            mean = total / count if count and not invalid_score_load else None
             self._states[entity] = (
                 _state(round(mean, definition.get("precision", 0)))
                 if mean is not None else "unavailable"
             )
-            self._attributes[entity] = {"sample_count": len(rows), "max_age_seconds": max_age}
+            first = buckets[0][0] if buckets else (rows[0][0] if rows else None)
+            last = rows[-1][0] if rows else (buckets[-1][1] if buckets else None)
+            # age_coverage_ratio mirrors HA's statistics platform (span of the
+            # kept samples relative to max_age); it says nothing about gaps.
+            span = (last - first) / max_age if count > 1 and max_age > 0 else 0.0
+            attributes: dict[str, Any] = {
+                "sample_count": count, "max_age_seconds": max_age,
+                "age_coverage_ratio": round(min(span, 1.0), 3),
+            }
+            if sample_interval > 0:
+                # Real measurement coverage: share of the expected rastered
+                # samples and the largest gap (incl. the one up to now).
+                coverage = min(count * sample_interval / max_age, 1.0) if max_age > 0 else 0.0
+                gap = self._max_gap(buckets, rows, timestamp)
+                allowed_gap = self._duration(definition.get("max_gap", 0))
+                attributes.update({
+                    "sample_coverage_ratio": round(coverage, 3),
+                    "max_gap_seconds": round(gap) if gap != float("inf") else None,
+                    "coverage_ok": bool(
+                        count and coverage >= float(definition.get("min_coverage", 0))
+                        and (allowed_gap <= 0 or gap <= allowed_gap)
+                    ),
+                })
+            self._attributes[entity] = attributes
 
     def _update_balancing(self) -> None:
         # The original action tree remains the oracle; this scheduler supplies

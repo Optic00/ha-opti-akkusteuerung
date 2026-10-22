@@ -49,6 +49,10 @@ class StepRecord:
     engine_ok: bool
     warmup: bool = False
     discharge_limit_w: float | None = None
+    night: bool = False  # sun below the horizon at the step (sun model)
+    score: int | None = None  # sensor.opti_forecast_score
+    score_sonnentag: int | None = None  # sensor.opti_forecast_score_sonnentag
+    horizon_long: bool | None = None  # binary_sensor.opti_peak_horizont_lang
 
 
 @dataclass
@@ -87,6 +91,20 @@ def climatology(hours: list[Hour]) -> dict[tuple[int, int], list[float]]:
         key = (hour.ts_local.year, hour.ts_local.month)
         sums.setdefault(key, [0.0] * 24)[hour.ts_local.hour] += hour.pv_kwh
     return {key: [v / total if (total := sum(values)) > 0 else 0.0 for v in values] for key, values in sums.items()}
+
+
+def load_day_climatology(hours: list[Hour]) -> dict[tuple[int, int], float]:
+    """Mean daily load (kWh) per (year, month): sum of the mean load per local hour of day."""
+    sums: dict[tuple[int, int], list[float]] = {}
+    counts: dict[tuple[int, int], list[int]] = {}
+    for hour in hours:
+        if hour.load_kwh is None:
+            continue
+        key = (hour.ts_local.year, hour.ts_local.month)
+        sums.setdefault(key, [0.0] * 24)[hour.ts_local.hour] += hour.load_kwh
+        counts.setdefault(key, [0] * 24)[hour.ts_local.hour] += 1
+    return {key: sum(s / c for s, c in zip(values, counts[key], strict=True) if c)
+            for key, values in sums.items()}
 
 
 def previous_month(key: tuple[int, int]) -> tuple[int, int]:
@@ -141,6 +159,8 @@ def run(
         raise ValueError(f"Unknown forecast mode: {forecast_mode}")
     tables = day_tables(hours)
     profiles = climatology(hours) if forecast_mode == "naive" else {}
+    load_days = load_day_climatology(hours)
+    sun = getattr(policy, "sun", None)
     index_in_day: dict[int, int] = {}
     counter: dict[dt.date, int] = {}
     for position, hour in enumerate(hours):
@@ -167,6 +187,8 @@ def run(
             start_utc = hour.ts_local.astimezone(dt.UTC)
             month_key = (hour.ts_local.year, hour.ts_local.month)
             profile = profiles.get(previous_month(month_key)) or profiles.get(month_key) or [0.0] * 24
+            # Previous month only: the running month would be future knowledge.
+            load_day = load_days.get(previous_month(month_key))
             for sub in range(steps_per_hour):
                 fraction = sub / steps_per_hour
                 now = (start_utc + dt.timedelta(hours=fraction)).astimezone(hour.ts_local.tzinfo)
@@ -181,8 +203,10 @@ def run(
                     forecast_today_kwh=hour.forecast_today_kwh,
                     forecast_tomorrow_kwh=hour.forecast_tomorrow_kwh,
                     forecast_remaining_kwh=remaining,
+                    load_day_kwh=load_day,
                 )
                 decision: Decision = policy.decide(context)
+                extra = decision.extra
                 flows = battery.step(decision.mode, soc, pv_kwh, load_kwh, step_h, params, decision.charge_limit_w,
                                      decision.discharge_limit_w)
                 records.append(StepRecord(
@@ -191,6 +215,10 @@ def run(
                     soc, flows.soc_after, hour.price_ct, decision.charge_limit_w, decision.target_soc, decision.ok,
                     warmup=block_number > 0 and now < warmup_until,
                     discharge_limit_w=decision.discharge_limit_w,
+                    night=sun.state(now)[0] == "below_horizon" if sun is not None else False,
+                    score=_int_or_none(extra.get("score")),
+                    score_sonnentag=_int_or_none(extra.get("score_sonnentag")),
+                    horizon_long=_on_off(extra.get("horizon_long")),
                 ))
                 soc = flows.soc_after
                 factor = 1000 / step_h
@@ -222,6 +250,17 @@ def run_actual(hours: list[Hour], steps_per_hour: int = 4) -> list[StepRecord]:
                 soc, soc, hour.price_ct, None, None, True,
             ))
     return records
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _on_off(value: Any) -> bool | None:
+    return {"on": True, "off": False}.get(value)
 
 
 _COLUMNS = [f.name for f in fields(StepRecord)]

@@ -1577,6 +1577,38 @@ def test_missing_score_on_is_no_hysteresis_state_with_the_daily_mean():
     assert "an stammte aus fehlendem Score" in back.attributes[HORIZON]["branch"]
 
 
+def test_real_score_after_a_gap_turns_the_origin_into_a_hysteresis_state():
+    # A score <= 1 after a gap makes the "on" real; from then on the normal
+    # hysteresis holds it until the score reaches 3.
+    now = dt.datetime(2026, 10, 22, 0, 5, tzinfo=TZ)
+    engine = _restored_engine(now, **{DAILY: _daily_load_buckets(now, 500)})
+    gap = _night_horizon_states(500, 2.4)
+    gap["sensor.opti_forecast_today_kwh"] = "unavailable"
+    assert evaluate(engine, gap, _OCT_NIGHT_ATTRS, now).attributes[HORIZON]["an_quelle"] == "score_fehlt"
+    low = evaluate(engine, _night_horizon_states(500, 1.0), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=1))
+    assert (low.states[SUNNY], low.states[HORIZON]) == ("1", "on")
+    assert low.attributes[HORIZON]["an_quelle"] == "score"
+    held = evaluate(engine, _night_horizon_states(500, 2.4), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=2))
+    assert (held.states[SUNNY], held.states[HORIZON]) == ("2", "on")
+
+
+def test_missing_score_on_does_not_hold_during_the_day():
+    engine = StrategyEngine()
+    now = dt.datetime(2026, 7, 27, 12, 0, tzinfo=TZ)
+    day_attrs = {"sun.sun": {"next_rising": "2026-07-28T05:46:00+02:00",
+                             "next_setting": "2026-07-27T21:00:00+02:00"}}
+    gap = _night_horizon_states(530, sun="above_horizon")
+    gap["sensor.opti_forecast_tomorrow_kwh"] = "unavailable"
+    missing = evaluate(engine, gap, day_attrs, now)
+    assert missing.states[HORIZON] == "on"
+    assert missing.attributes[HORIZON]["an_quelle"] == "score_fehlt"
+    states = _night_horizon_states(530, sun="above_horizon")
+    states["sensor.opti_forecast_tomorrow_kwh"] = 2.5
+    back = evaluate(engine, states, day_attrs, now + dt.timedelta(minutes=1))
+    assert (back.states[SUNNY], back.states[HORIZON]) == ("2", "off")
+    assert "an stammte aus fehlendem Score" in back.attributes[HORIZON]["branch"]
+
+
 def test_restored_long_horizon_without_source_attribute_keeps_the_legacy_night_hold():
     # Snapshots from before #155 carry no an_quelle; their "on" counts as a real state.
     now = dt.datetime(2026, 10, 22, 0, 5, tzinfo=TZ)

@@ -433,6 +433,57 @@ im lokalen Speicher der Integration in Home Assistant. Daraus lässt sich
 abschätzen, wie viel Ladung eine zuschaltbare Regel in das Fenster verschieben
 würde, bevor sie Schreibrechte bekommt.
 
+### Schattenvergleich: Peak-Rangfolge für L1 und L2
+
+Peak-Leiter L1 entlädt in jedem Slot mit Preisniveau `VERY_EXPENSIVE`. Das
+Niveau ist nur ein Perzentil über heute und morgen. Bei wenig Inhalt kann L1 den
+Akku deshalb an einer Abendspitze leeren, obwohl vor dem nächsten Nachladen eine
+teurere Morgenspitze folgt. Die Diagnose-Entität `sensor.opti_peak_rank`
+(standardmäßig deaktiviert) prüft in jedem Zyklus, ob eine Preisrangfolge die
+Energie stattdessen zurückhalten würde. Sie steuert nichts; die Entladefreigabe
+von L1 und L2 bleibt unverändert.
+
+Berücksichtigt werden der laufende Slot und die kommenden Peak-Slots bis zum
+nächsten belastbaren Nachladen. Peak-Slots sind wie bei
+`sensor.opti_peak_reserve_soc` Slots mit Midrank-Perzentil ab 0,6 und mindestens
+`opti_peak_min_aufschlag_ct` über dem Tiefstpreis im Horizont. Die Grenze ist
+das Ende des PV-Horizonts der Peak-Reserve (`horizont_ende`) oder, falls früher
+und `opti_prognose_netzladen` eingeschaltet ist, der erste spätere Slot, in dem
+die Strategie aus dem Netz laden würde: Peak-Vorladen mit
+`opti_netzlade_spread_ct` Abstand zum Durchschnitt der folgenden Peak-Slots im
+Ladefenster oder ein Preis unter der Einspeisevergütung bei Prognose-Score
+unter 3. Wie im Template gilt dabei die Sicht ab Beginn der vollen Stunde
+dieses Slots; ein Nachladen nach dem letzten Peak-Slot zählt nicht. Die
+Peak-Einstufung selbst stammt aus der aktuellen Sicht. Die Grenze gilt auch bei
+leerem Akku, weil Netzladen seit #154 vor dem MinSOC-Schutz Vorrang hat. Wie viel
+dabei nachgeladen wird, bildet der Vergleich nicht ab.
+
+Jeder Slot bekommt die erwartete Hauslast aus dem Peak-Lastprofil
+(`sensor.opti_peak_load_profile`), ersatzweise `opti_peak_verbrauch_kw`. Der
+nutzbare Inhalt über dem Mindest-SoC mit 90 % Entladewirkungsgrad wird vom
+teuersten Slot abwärts verteilt; `threshold_price_ct` ist der Preis des letzten
+bedienten Slots. Liegt der laufende Slot unter den bedienten, lautet das Urteil
+während L1 oder L2 `discharge`, sonst `hold`. Bei jeder anderen Entscheidung
+lautet es `not_peak`; `rank_discharges` zeigt dann trotzdem das Ergebnis der
+Rangfolge. `reason` begründet das Urteil, `refill_at` und `refill_kind`
+(`pv_horizon`, `grid_precharge`, `grid_below_feed_in`) nennen die Grenze.
+Tagsüber wählen L1 und L2 bei PV-Überschuss `Akku Dynamisch` statt
+`Akku nur Entladen`; auch dann entlädt der Akku bei Defizit, das Urteil gilt
+also für beide Modi. `strategy_mode` nennt den gewählten Modus, damit sich die
+Summen später nach Tag und Abend trennen lassen. Verbrauch zwischen den Peak-Slots ist nicht modelliert, und das Urteil hat keine
+Hysterese.
+
+Unter `totals` werden zeitgewichtet summiert: Sekunden mit L1 oder L2
+(`peak_seconds`), davon mit Urteil `discharge` und `hold`, sowie die in beiden
+Fällen tatsächlich entladene Energie. `discharged_while_hold_kwh` ist also die
+Energie, die die Rangfolge für spätere, teurere Slots zurückgehalten hätte.
+Lücken über 90 Sekunden und der erste Durchlauf nach einem Neustart zählen
+nicht; ein geänderter Mindest-SoC, Spread, Mindestaufschlag, eine geänderte
+Einspeisevergütung, ein geänderter Ersatzwert `opti_peak_verbrauch_kw` oder ein
+umgeschaltetes Netzladen starten die Summen neu. Das gelernte Lastprofil ändert
+sich laufend und setzt die Summen nicht zurück.
+Die Summen liegen nur im lokalen Speicher der Integration.
+
 ### Passiver Energierestwert
 
 Wenn Bedarfsprofil und Arbitrage-Anzeige eingeschaltet sind, ergänzt die

@@ -260,7 +260,7 @@ class PeakRankShadow:
                     return
             assumptions = saved.get("assumptions")
             if assumptions is not None and (
-                not isinstance(assumptions, list) or len(assumptions) != 5
+                not isinstance(assumptions, list) or len(assumptions) != 6
                 or any(item is not None and not isinstance(item, bool) and _number(item) is None
                        for item in assumptions)
             ):

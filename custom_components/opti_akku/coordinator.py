@@ -1365,7 +1365,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             assumptions = [settings.get(name) for name in (
                 "input_number.minsoc", "input_number.opti_netzlade_spread_ct",
                 "input_number.opti_peak_min_aufschlag_ct", "input_number.opti_einspeiseverguetung_ct",
-                "input_boolean.opti_prognose_netzladen")]
+                "input_boolean.opti_prognose_netzladen", "input_number.opti_peak_verbrauch_kw")]
             check["totals"] = self._peak_rank.observe(
                 now, check, assumptions, states.get("sensor.opti_battery_power_w"))
         except Exception as err:  # Observation only; never affects the decision.

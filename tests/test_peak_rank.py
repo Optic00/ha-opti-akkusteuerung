@@ -199,10 +199,13 @@ def test_unusable_inputs(overrides, status, detail):
 def test_invalid_profile_values_fall_back_to_fixed_load():
     bad = {key: -5 for key in MORNING_LOAD}
     # 0.8 kW for the morning peak needs only 1.0 kWh, the evening is served.
-    assert check(load_hours=bad)["verdict"] == "discharge"
+    result = check(load_hours=bad)
+    assert result["verdict"] == "discharge"
+    # Same demand as without any profile, not a zero load.
+    assert result["demand_kwh"] == check(load_hours={})["demand_kwh"] > check(fallback_load_kw=0.4, load_hours={})["demand_kwh"]
 
 
-ASSUMPTIONS = [5, 10, 5, 7, True]
+ASSUMPTIONS = [5, 10, 5, 7, True, 0.8]
 
 
 def test_shadow_counts_hold_time_and_discharged_energy():
@@ -232,7 +235,7 @@ def test_shadow_skips_gaps_and_restarts_on_new_assumptions():
     assert totals["ready_seconds"] == 0
     shadow.observe(start + timedelta(seconds=260), check(), ASSUMPTIONS, -2000)
     assert shadow.data["hold_seconds"] == 60
-    totals = shadow.observe(start + timedelta(seconds=320), check(), [5, 12, 5, 7, True], -2000)
+    totals = shadow.observe(start + timedelta(seconds=320), check(), [5, 12, 5, 7, True, 0.8], -2000)
     assert totals["ready_seconds"] == 0 and totals["started_at"] == (start + timedelta(seconds=320)).isoformat()
 
 

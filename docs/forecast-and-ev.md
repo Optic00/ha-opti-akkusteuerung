@@ -479,7 +479,9 @@ Fällen tatsächlich entladene Energie. `discharged_while_hold_kwh` ist also die
 Energie, die die Rangfolge für spätere, teurere Slots zurückgehalten hätte.
 Lücken über 90 Sekunden und der erste Durchlauf nach einem Neustart zählen
 nicht; ein geänderter Mindest-SoC, Spread, Mindestaufschlag, eine geänderte
-Einspeisevergütung oder ein umgeschaltetes Netzladen starten die Summen neu.
+Einspeisevergütung, ein geänderter Ersatzwert `opti_peak_verbrauch_kw` oder ein
+umgeschaltetes Netzladen starten die Summen neu. Das gelernte Lastprofil ändert
+sich laufend und setzt die Summen nicht zurück.
 Die Summen liegen nur im lokalen Speicher der Integration.
 
 ### Passiver Energierestwert

@@ -3382,6 +3382,23 @@ async def test_peak_rank_receives_decision_and_settings(coordinator):
         coordinator.settings["input_boolean.opti_prognose_netzladen"] is True)
 
 
+async def test_peak_rank_verdict_never_changes_the_command(coordinator):
+    coordinator.write_enabled = True
+
+    def fake_check(**kwargs):
+        return {"status": "ready", "verdict": "hold", "rank_discharges": False,
+                "observation_only": True, "controls_battery": False}
+
+    with patch("custom_components.opti_akku.coordinator.peak_rank_check", side_effect=fake_check):
+        data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_peak_rank"] == "hold"
+    assert data["decision_id"] == data["reason_details"]["decision_id"]
+    coordinator.device.async_apply.assert_awaited_once()
+    assert coordinator.device.async_apply.await_args.args[0] == data["mode"]
+    assert coordinator._stored_data()["peak_rank"]["assumptions"][-1] == (
+        coordinator.settings["input_number.opti_peak_verbrauch_kw"])
+
+
 async def test_peak_rank_error_never_stops_the_update(coordinator):
     with patch("custom_components.opti_akku.coordinator.peak_rank_check",
                side_effect=RuntimeError("boom")):

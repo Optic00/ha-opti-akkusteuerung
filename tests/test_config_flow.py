@@ -870,6 +870,8 @@ async def test_huawei_options_reconnect_keeps_shadow_immutable(hass):
         result["flow_id"], form_values(result, {"grid_power_w": SOURCES["pv_power_w"]})
     )
     assert result["errors"] == {"base": "huawei_device_unavailable"}
+    # The Huawei form has its own step so labels and errors resolve in the options flow.
+    assert result["step_id"] == "huawei_connection"
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], form_values(result)
     )
@@ -884,6 +886,24 @@ async def test_huawei_options_reconnect_keeps_shadow_immutable(hass):
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.data["shadow_mode"] is True
     assert "host" not in entry.data
+
+
+def test_huawei_connection_options_step_is_translated():
+    """Every field and error of the Huawei options form has a label in each translation."""
+    import json
+    from pathlib import Path
+
+    from custom_components.opti_akku.config_flow import HUAWEI_OPTIONAL_ROLES, HUAWEI_REQUIRED_ROLES
+
+    root = Path(__file__).resolve().parents[1] / "custom_components" / "opti_akku"
+    fields = {"huawei_device_id", *HUAWEI_REQUIRED_ROLES, *HUAWEI_OPTIONAL_ROLES, "grid_positive"}
+    errors = {"huawei_device_unavailable", "huawei_required_data", "huawei_temperature_required", "already_configured"}
+    for path in (root / "strings.json", *sorted((root / "translations").glob("*.json"))):
+        options = json.loads(path.read_text(encoding="utf-8"))["options"]
+        step = options["step"]["huawei_connection"]
+        assert step["title"] and step["description"], path.name
+        assert fields <= set(step["data"]), f"{path.name}: {fields - set(step['data'])}"
+        assert errors <= set(options["error"]), f"{path.name}: {errors - set(options['error'])}"
 
 
 async def test_huawei_duplicate_role_entity_returns_form_error(hass):

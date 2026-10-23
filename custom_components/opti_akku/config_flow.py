@@ -1404,7 +1404,7 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
             schema[marker] = EntitySelector(EntitySelectorConfig(integration=BACKEND_HUAWEI, domain="sensor"))
         schema[vol.Required("grid_positive", default=self._connection.get("grid_positive", "export"))] = SelectSelector(
             SelectSelectorConfig(options=["export", "import"], translation_key="grid_positive"))
-        return self.async_show_form(step_id="connection", errors=errors, data_schema=vol.Schema(schema))
+        return self.async_show_form(step_id="huawei_connection", errors=errors, data_schema=vol.Schema(schema))
 
     async def _finish(self):
         if dict(self._entry.options) != self._original_options or dict(self._entry.data) != self._original_data:

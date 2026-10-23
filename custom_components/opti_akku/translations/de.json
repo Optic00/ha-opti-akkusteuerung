@@ -427,6 +427,21 @@
           "profile": "Geräteprofil"
         }
       },
+      "huawei_connection": {
+        "title": "Huawei-Verbindung",
+        "description": "Huawei-Solar-Gerät und Messwerte neu zuordnen. Die neue Zuordnung wird ausschließlich lesend geprüft. Änderungen entziehen die bisherige Schreibbestätigung; zugeordnete Aktoren bleiben nur beim selben Gerät erhalten. Der Shadow-Modus ist unveränderlich. Erst Prüfen und speichern übernimmt die Verbindung.",
+        "data": {
+          "huawei_device_id": "Huawei-Wechselrichter",
+          "soc": "Akkuladestand",
+          "battery_capacity_kwh": "Akkukapazität",
+          "battery_power_w": "Akkuleistung",
+          "pv_power_w": "PV-Ausgangsleistung",
+          "grid_power_w": "Netzleistung",
+          "battery_temp": "Akkutemperatur (optional)",
+          "pv_generation_w": "PV-Eingangsleistung (optional)",
+          "grid_positive": "Positive Netzleistung bedeutet"
+        }
+      },
       "sources": {
         "title": "Anlage und Messwerte",
         "description": "Die native Anlagenbilanz ist für neue SMA-Anlagen empfohlen und erfordert die Bestätigung, dass der Netzzähler alle gewählten Verbraucher und Erzeuger erfasst. Wähle weitere Wechselrichter als AC-Werte, keine DC-Strings. Wähle bei Bedarf den Hausverbrauch der Gesamtanlage in W oder kW. PV-Sensoren überschreiben gelesene SMA-Werte. Externer Hausverbrauch muss ein ungeglätteter Gesamtwert sein. Ausgenommene Verbraucher beeinflussen nur das Lastprofil. Legacy erhält bei Importen und vorhandenen Einträgen die bisherige Berechnung. Die Mindestgrundlast gilt nur für die Prognose. Im Bilanzmodus wird die native AC-Leistung verwendet; eine alternative Hybrid-AC-Quelle ist dort nicht zulässig. Nur bereits oben ausgeschlossene Lasten auswählen, die unveränderte 0 W nicht regelmäßig melden und Verbindungsausfälle zuverlässig als nicht verfügbar kennzeichnen. Bei einer positiven Altersgrenze gilt diese Ausnahme nur für exakt 0 W bzw. 0 kW; positive Leistungen werden weiter auf Aktualität geprüft. Mit Altersgrenze 0 gilt stattdessen die HA-Verfügbarkeit für alle externen Leistungsquellen einschließlich der Wärmepumpen-Leistung im Bedarfsprofil sowie für die Ruhe-Zellspreizung. Änderungen bleiben ein Entwurf, bis du im Menü Prüfen und speichern abschließt.",
@@ -702,6 +717,8 @@
       "stop_writes_before_strategy_change": "Vor dem Ein- oder Ausschalten der Strategie zuerst Schreibzugriffe ausschalten.",
       "huawei_write_access_missing": "Die benötigten Huawei-Aktoren oder Aktionen fehlen, sind nicht verfügbar oder gehören nicht zum gewählten Batterie-Wechselrichter.",
       "huawei_cutoff_soc_unsupported": "Der maximale Ladestand liegt außerhalb der Huawei-Netzladeabschaltung (typisch 20–100 %).",
+      "huawei_required_data": "Huawei-Pflichtmesswerte fehlen, sind veraltet, ungültig oder haben eine nicht unterstützte Einheit.",
+      "huawei_device_unavailable": "Das Huawei-Gerät muss genau einem geladenen Huawei-Solar-Eintrag gehören.",
       "demand_water_pair": "Ist- und Solltemperatur gemeinsam auswählen.",
       "demand_heat_meter": "Einen getrennten elektrischen Wärmepumpenzähler auswählen.",
       "demand_ev_power": "Vor dem EV-Abzug mindestens eine eigene EV-Leistungsquelle mit zugehörigem Ladestatus konfigurieren.",

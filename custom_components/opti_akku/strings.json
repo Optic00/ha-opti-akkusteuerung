@@ -427,6 +427,21 @@
           "profile": "Device profile"
         }
       },
+      "huawei_connection": {
+        "title": "Huawei connection",
+        "description": "Reassign the Huawei Solar device and its measurements. The new mapping is checked read-only. Changes clear the previous writer confirmation; mapped controls are kept only for the same device. Shadow mode cannot be changed. Apply using Review and save.",
+        "data": {
+          "huawei_device_id": "Huawei inverter device",
+          "soc": "Battery state of charge",
+          "battery_capacity_kwh": "Battery capacity",
+          "battery_power_w": "Battery power",
+          "pv_power_w": "PV output power",
+          "grid_power_w": "Grid power",
+          "battery_temp": "Battery temperature (optional)",
+          "pv_generation_w": "PV input power (optional)",
+          "grid_positive": "Positive grid power means"
+        }
+      },
       "sources": {
         "title": "System and measurements",
         "description": "Native plant balance is recommended for new SMA installations and requires confirmation that the grid meter covers all selected loads and generators. Select additional inverter AC outputs, never DC strings. Select whole-home consumption in W or kW where needed. Optional PV sources override SMA measurements. External house consumption must be an unsmoothed total. Excluded loads affect the forecast profile independently of EV locking. Legacy preserves the previous calculation for imports and existing entries. The minimum applies only to the forecast. Balance mode uses native AC power; an alternative hybrid AC source is not allowed in this mode. Select only loads already excluded above that do not report unchanged zero power regularly and reliably become unavailable on connection loss. With a positive age limit, this exception applies only to exactly 0 W or 0 kW; positive power still requires a recent report. With age limit 0, HA availability applies to external power sources, heat-pump power in the demand profile and resting cell spread instead. Changes remain a draft until you complete Review and save in the menu.",
@@ -702,6 +717,8 @@
       "stop_writes_before_strategy_change": "Turn off write permission before enabling or disabling the strategy.",
       "huawei_write_access_missing": "Required Huawei controls/actions are missing, unavailable or do not belong to the selected battery inverter.",
       "huawei_cutoff_soc_unsupported": "Maximum charge level is outside the Huawei grid-charge cutoff range (typically 20–100%).",
+      "huawei_required_data": "Required Huawei measurements are missing, stale, invalid or use unsupported units.",
+      "huawei_device_unavailable": "The Huawei device must belong to exactly one loaded Huawei Solar entry.",
       "demand_water_pair": "Select actual and target water temperature together.",
       "demand_heat_meter": "Select a separate heat pump electrical meter.",
       "demand_ev_power": "Configure at least one distinct EV power source with its charging state before subtracting EV load.",

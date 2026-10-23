@@ -148,6 +148,23 @@ async def test_latch_transitions_are_persisted_immediately(coordinator):
         assert not any(call.args[1] == 0 for call in delayed.call_args_list)
 
 
+async def test_horizon_origin_change_is_persisted_immediately(coordinator):
+    """Restore reads an_quelle back as previous state (#155); its change must not wait a minute."""
+    horizon = "binary_sensor.opti_peak_horizont_lang"
+    with patch.object(coordinator._store, "async_delay_save") as delayed:
+        data = await coordinator._async_update_data()  # no forecast source: score missing
+        assert data["states"][horizon] == "on"
+        assert data["attributes"][horizon]["an_quelle"] == "score_fehlt"
+        delayed.reset_mock()
+        await coordinator._async_update_data()
+        assert not any(call.args[1] == 0 for call in delayed.call_args_list)
+        # Same on state, different origin in the last saved snapshot -> immediate write.
+        coordinator._engine_snapshot["attributes"][horizon]["an_quelle"] = "score"
+        delayed.reset_mock()
+        await coordinator._async_update_data()
+        assert any(call.args[1] == 0 for call in delayed.call_args_list)
+
+
 async def test_minsoc_latch_survives_a_crash_right_after_it_latched(hass, entry):
     """Saved off, SoC 10 -> on, recovery to 11, crash: restore at 11 must stay on until 13."""
     before = OptiCoordinator(hass, entry, device(), StrategyEngine())

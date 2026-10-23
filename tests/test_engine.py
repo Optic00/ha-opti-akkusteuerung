@@ -1552,6 +1552,20 @@ def test_missing_score_turns_long_but_does_not_latch_at_night():
     assert back.attributes[HORIZON]["an_quelle"] == "score"
 
 
+def test_score_gap_keeps_a_real_long_horizon_in_the_hysteresis():
+    now = dt.datetime(2026, 10, 22, 0, 5, tzinfo=TZ)
+    engine = _restored_engine(now, **{DAILY: _daily_load_buckets(now, 500)})
+    assert evaluate(engine, _night_horizon_states(500, 1.0), _OCT_NIGHT_ATTRS, now).states[HORIZON] == "on"
+    gap = _night_horizon_states(500, 2.4)
+    gap["sensor.opti_forecast_today_kwh"] = "unavailable"
+    missing = evaluate(engine, gap, _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=1))
+    assert missing.states[HORIZON] == "on"
+    assert missing.attributes[HORIZON]["an_quelle"] == "score"
+    assert "echter Vorzustand an" in missing.attributes[HORIZON]["branch"]
+    back = evaluate(engine, _night_horizon_states(500, 2.4), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=2))
+    assert (back.states[SUNNY], back.states[HORIZON]) == ("2", "on")
+
+
 def test_missing_score_on_is_no_hysteresis_state_with_the_daily_mean():
     now = dt.datetime(2026, 10, 22, 0, 5, tzinfo=TZ)
     engine = _restored_engine(now, **{DAILY: _daily_load_buckets(now, 500)})

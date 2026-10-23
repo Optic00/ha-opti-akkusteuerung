@@ -201,8 +201,10 @@ Schaltschwellen mit kurzem Horizont; ein vorhandener langer Horizont bleibt
 in diesem Bereich erhalten. Ein fehlender Score wählt weiterhin 36 Stunden.
 Dieses „an“ zählt aber nicht als Vorzustand: Kehrt der Score zurück, gilt die
 Einstiegsregel wie bei einem Neueintrag, und der Horizont hält weder in der
-Hysterese noch nachts. Das Attribut `an_quelle` (`score` oder `score_fehlt`)
-zeigt, woher der Zustand stammt.
+Hysterese noch nachts. Ein bereits aus einem gültigen Score stammendes „an“
+behält seine Herkunft auch über eine Score-Lücke. Das Attribut `an_quelle`
+(`score` oder `score_fehlt`) zeigt, woher der Zustand stammt; ein Wechsel wird
+wie ein Zustandswechsel sofort gespeichert.
 Rechnet der Sonnentag-Score noch mit der 60-Minuten-Hochrechnung
 (`load_source` = `legacy_60min_extrapolation`), schwankt er nachts
 (`sun.sun` unter dem Horizont) nur mit der Hauslast, die Prognose selbst

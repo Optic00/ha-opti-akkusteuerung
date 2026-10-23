@@ -186,7 +186,8 @@ template_blocks:
          (load_source tagesmittel_24h) gilt nachts dieselbe Hysterese wie
          tagsueber (#155). Ein "an", das nur aus einem fehlenden Score kam
          (an_quelle score_fehlt), zaehlt nicht als Vorzustand: es haelt weder
-         nachts noch in der Hysterese. Ohne Vorzustand (Neueintrag, #125)
+         nachts noch in der Hysterese. Ein echtes "an" behaelt seine Herkunft
+         auch ueber eine Score-Luecke. Ohne Vorzustand (Neueintrag, #125)
          bleibt die bisherige Einstiegsregel. #}
       {% set war_an = this is defined and this.state == 'on' %} {% set alt = this.attributes if this is defined and this.attributes is mapping else {} %} {% set an_echt = war_an and alt.get('an_quelle', 'score') != 'score_fehlt' %} {% set hat_vorzustand = this is defined and this.state in ['on', 'off'] %} {% set nacht = is_state('sun.sun', 'below_horizon') %} {% set nacht_halt = state_attr('sensor.opti_forecast_score_sonnentag', 'load_source') != 'tagesmittel_24h' %} {% set score = states('sensor.opti_forecast_score_sonnentag') | float(none) %} {% if score is none %}
         {{ true }}
@@ -197,10 +198,11 @@ template_blocks:
       {% endif %}
     attributes:
       an_quelle: |
-        {{ 'score_fehlt' if states('sensor.opti_forecast_score_sonnentag') | float(none) is none else 'score' }}
+        {# Eine Score-Luecke entwertet kein echtes "an": die Herkunft bleibt score. #}
+        {% set war_an = this is defined and this.state == 'on' %} {% set alt = this.attributes if this is defined and this.attributes is mapping else {} %} {% set an_echt = war_an and alt.get('an_quelle', 'score') != 'score_fehlt' %} {{ 'score_fehlt' if states('sensor.opti_forecast_score_sonnentag') | float(none) is none and not an_echt else 'score' }}
       branch: |
         {% set war_an = this is defined and this.state == 'on' %} {% set alt = this.attributes if this is defined and this.attributes is mapping else {} %} {% set an_echt = war_an and alt.get('an_quelle', 'score') != 'score_fehlt' %} {% set hat_vorzustand = this is defined and this.state in ['on', 'off'] %} {% set nacht = is_state('sun.sun', 'below_horizon') %} {% set nacht_halt = state_attr('sensor.opti_forecast_score_sonnentag', 'load_source') != 'tagesmittel_24h' %} {% set roh = states('sensor.opti_forecast_score_sonnentag') %} {% set score = roh | float(none) %} {% if score is none %}
-          Score={{ roh }} fehlt -> an (36 h, haelt nicht als Vorzustand)
+          Score={{ roh }} fehlt -> an (36 h{{ ', echter Vorzustand an' if an_echt else ', haelt nicht als Vorzustand' }})
         {% elif nacht and hat_vorzustand and nacht_halt and an_echt %}
           Score={{ roh }} -> Nacht: Vorzustand an gehalten (60-min-Nenner, Hysterese erst nach Sonnenaufgang)
         {% elif score <= 1 %}

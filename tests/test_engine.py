@@ -1513,6 +1513,70 @@ def test_night_scores_use_daily_mean_once_coverage_is_real():
     assert horizons == ["on", "on", "on"]
 
 
+_OCT_NIGHT_ATTRS = {"sun.sun": {"next_rising": "2026-10-22T07:50:00+02:00",
+                                "next_setting": "2026-10-22T18:20:00+02:00"}}
+
+
+def test_daily_mean_night_uses_the_day_hysteresis():
+    # Issue #155 (tatec22, 22.10.): a long horizon from the evening must not
+    # survive the night when the daily mean puts the sun-day score at 8.
+    now = dt.datetime(2026, 10, 22, 0, 5, tzinfo=TZ)
+    engine = _restored_engine(now, **{DAILY: _daily_load_buckets(now, 500)})
+    # 12 kWh daily demand: 1.0 kWh -> score 1, 2.4 kWh -> 2, 9.6 kWh -> 8.
+    first = evaluate(engine, _night_horizon_states(500, 1.0), _OCT_NIGHT_ATTRS, now)
+    assert first.attributes[SUNNY]["load_source"] == "tagesmittel_24h"
+    assert (first.states[SUNNY], first.states[HORIZON]) == ("1", "on")
+    held = evaluate(engine, _night_horizon_states(500, 2.4), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=1))
+    assert (held.states[SUNNY], held.states[HORIZON]) == ("2", "on")
+    assert "Nacht" not in held.attributes[HORIZON]["branch"]
+    sunny = evaluate(engine, _night_horizon_states(500, 9.6), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=2))
+    assert (sunny.states[SUNNY], sunny.states[HORIZON]) == ("8", "off")
+    assert "aus >= 3" in sunny.attributes[HORIZON]["branch"]
+
+
+def test_missing_score_turns_long_but_does_not_latch_at_night():
+    now = dt.datetime(2026, 10, 22, 0, 5, tzinfo=TZ)
+    engine = StrategyEngine()  # 60-min extrapolation keeps the night hold for real states
+    assert evaluate(engine, _night_horizon_states(500, 9.6), _OCT_NIGHT_ATTRS, now).states[HORIZON] == "off"
+    gap = _night_horizon_states(500, 9.6)
+    gap["sensor.opti_forecast_today_kwh"] = "unavailable"
+    missing = evaluate(engine, gap, _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=1))
+    assert missing.states[HORIZON] == "on"  # conservative 36 h while the score is missing
+    assert missing.attributes[HORIZON]["an_quelle"] == "score_fehlt"
+    restored = StrategyEngine()
+    restored.restore(engine.snapshot())  # e.g. an HA restart right after the gap
+    back = evaluate(restored, _night_horizon_states(500, 2.4), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=2))
+    assert back.attributes[SUNNY]["load_source"] == "legacy_60min_extrapolation"
+    assert (back.states[SUNNY], back.states[HORIZON]) == ("2", "off")
+    assert "fehlendem Score nicht gehalten" in back.attributes[HORIZON]["branch"]
+    assert back.attributes[HORIZON]["an_quelle"] == "score"
+
+
+def test_missing_score_on_is_no_hysteresis_state_with_the_daily_mean():
+    now = dt.datetime(2026, 10, 22, 0, 5, tzinfo=TZ)
+    engine = _restored_engine(now, **{DAILY: _daily_load_buckets(now, 500)})
+    gap = _night_horizon_states(500, 2.4)
+    gap["sensor.opti_forecast_today_kwh"] = "unavailable"
+    assert evaluate(engine, gap, _OCT_NIGHT_ATTRS, now).states[HORIZON] == "on"
+    back = evaluate(engine, _night_horizon_states(500, 2.4), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=1))
+    assert (back.states[SUNNY], back.states[HORIZON]) == ("2", "off")
+    assert "an stammte aus fehlendem Score" in back.attributes[HORIZON]["branch"]
+
+
+def test_restored_long_horizon_without_source_attribute_keeps_the_legacy_night_hold():
+    # Snapshots from before #155 carry no an_quelle; their "on" counts as a real state.
+    now = dt.datetime(2026, 10, 22, 0, 5, tzinfo=TZ)
+    engine = StrategyEngine()
+    assert evaluate(engine, _night_horizon_states(500, 1.0), _OCT_NIGHT_ATTRS, now).states[HORIZON] == "on"
+    snapshot = engine.snapshot()
+    snapshot["attributes"][HORIZON].pop("an_quelle")
+    restored = StrategyEngine()
+    restored.restore(snapshot)
+    held = evaluate(restored, _night_horizon_states(500, 9.6), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=1))
+    assert (held.states[SUNNY], held.states[HORIZON]) == ("8", "on")
+    assert "Nacht: Vorzustand an gehalten" in held.attributes[HORIZON]["branch"]
+
+
 @pytest.mark.parametrize("history", [
     pytest.param({"hours": 11}, id="under_half_a_day"),
     pytest.param({"hours": 14, "gap_at_hours": 7, "gap_hours": 2.5}, id="gap_over_two_hours"),

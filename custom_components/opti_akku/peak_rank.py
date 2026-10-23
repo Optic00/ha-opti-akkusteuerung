@@ -128,6 +128,7 @@ def peak_rank_check(
     minsoc: Any,
     decision_id: Any,
     peak_reserve_active: bool,
+    strategy_mode: Any = None,
     grid_charging: bool,
     spread_ct: Any,
     feed_in_ct: Any,
@@ -210,6 +211,9 @@ def peak_rank_check(
         "status": "ready",
         "verdict": verdict,
         "strategy_decision": strategy,
+        # L1/L2 pick "Akku Dynamisch" by day with PV surplus; it still
+        # discharges on deficit, so the verdict applies to both modes.
+        "strategy_mode": strategy_mode if strategy is not None and isinstance(strategy_mode, str) else None,
         "rank_discharges": rank_discharges,
         "reason": reason,
         "current_price_ct": round(current_price, 2),

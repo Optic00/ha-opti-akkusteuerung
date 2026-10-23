@@ -3375,6 +3375,7 @@ async def test_peak_rank_receives_decision_and_settings(coordinator):
         data = await coordinator._async_update_data()
     assert data["states"]["sensor.opti_peak_rank"] == "hold"
     assert captured["decision_id"] == data["decision_id"]
+    assert captured["strategy_mode"] == data["engine_requested_mode"]
     assert captured["minsoc"] == coordinator.settings["input_number.minsoc"]
     assert captured["spread_ct"] == coordinator.settings["input_number.opti_netzlade_spread_ct"]
     assert captured["grid_charging"] is (

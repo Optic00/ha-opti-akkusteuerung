@@ -454,9 +454,9 @@ die Strategie aus dem Netz laden würde: Peak-Vorladen mit
 Ladefenster oder ein Preis unter der Einspeisevergütung bei Prognose-Score
 unter 3. Wie im Template gilt dabei die Sicht ab Beginn der vollen Stunde
 dieses Slots; ein Nachladen nach dem letzten Peak-Slot zählt nicht. Die
-Peak-Einstufung selbst stammt aus der aktuellen Sicht. Diese Grenze setzt voraus, dass Netzladen auch an oder unter dem
-Mindest-SoC Vorrang hat (#154). Wie viel dabei nachgeladen wird, bildet der
-Vergleich nicht ab.
+Peak-Einstufung selbst stammt aus der aktuellen Sicht. Die Grenze gilt auch bei
+leerem Akku, weil Netzladen seit #154 vor dem MinSOC-Schutz Vorrang hat. Wie viel
+dabei nachgeladen wird, bildet der Vergleich nicht ab.
 
 Jeder Slot bekommt die erwartete Hauslast aus dem Peak-Lastprofil
 (`sensor.opti_peak_load_profile`), ersatzweise `opti_peak_verbrauch_kw`. Der
@@ -467,7 +467,10 @@ während L1 oder L2 `discharge`, sonst `hold`. Bei jeder anderen Entscheidung
 lautet es `not_peak`; `rank_discharges` zeigt dann trotzdem das Ergebnis der
 Rangfolge. `reason` begründet das Urteil, `refill_at` und `refill_kind`
 (`pv_horizon`, `grid_precharge`, `grid_below_feed_in`) nennen die Grenze.
-Verbrauch zwischen den Peak-Slots ist nicht modelliert, und das Urteil hat keine
+Tagsüber wählen L1 und L2 bei PV-Überschuss `Akku Dynamisch` statt
+`Akku nur Entladen`; auch dann entlädt der Akku bei Defizit, das Urteil gilt
+also für beide Modi. `strategy_mode` nennt den gewählten Modus, damit sich die
+Summen später nach Tag und Abend trennen lassen. Verbrauch zwischen den Peak-Slots ist nicht modelliert, und das Urteil hat keine
 Hysterese.
 
 Unter `totals` werden zeitgewichtet summiert: Sekunden mit L1 oder L2

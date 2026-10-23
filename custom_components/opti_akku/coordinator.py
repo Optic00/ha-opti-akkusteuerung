@@ -1355,6 +1355,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 surcharge_ct=settings.get("input_number.opti_peak_min_aufschlag_ct"),
                 soc=states.get("sensor.opti_soc"), capacity_kwh=states.get("sensor.opti_battery_capacity_kwh"),
                 minsoc=settings.get("input_number.minsoc"), decision_id=data.get("decision_id"),
+                strategy_mode=data.get("engine_requested_mode"),
                 peak_reserve_active=states.get("binary_sensor.opti_peak_reserve_aktiv") == "on",
                 grid_charging=settings.get("input_boolean.opti_prognose_netzladen") is True,
                 spread_ct=settings.get("input_number.opti_netzlade_spread_ct"),

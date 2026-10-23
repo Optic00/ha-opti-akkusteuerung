@@ -167,6 +167,12 @@ def test_l2_is_judged_like_l1():
     assert check(decision_id="peak_l2")["verdict"] == "hold"
 
 
+def test_daytime_dynamic_mode_keeps_the_verdict_and_reports_the_mode():
+    result = check(strategy_mode="Akku Dynamisch")
+    assert (result["verdict"], result["strategy_mode"]) == ("hold", "Akku Dynamisch")
+    assert check(decision_id="reserve_low", strategy_mode="Akku nur Laden")["strategy_mode"] is None
+
+
 def test_no_usable_energy_holds():
     result = check(soc=5)
     assert result["verdict"] == "hold"

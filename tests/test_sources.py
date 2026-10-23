@@ -363,7 +363,7 @@ def test_event_based_power_still_requires_a_real_report_timestamp(timestamp):
 def test_power_opt_in_does_not_disable_other_source_age_limits():
     options = {"source_max_age": 0, "sources": {
         "forecast_today": "sensor.forecast", "price_current": "sensor.price"}}
-    external = {"sensor.forecast": state(50, "kWh", age=21601),
+    external = {"sensor.forecast": state(50, "kWh", age=43201),
                 "sensor.price": state(.3, "EUR/kWh", age=7201)}
     _, _, errors = build_inputs({}, options, external, NOW)
     assert errors == dict.fromkeys(options["sources"], "missing_or_stale")

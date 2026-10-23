@@ -127,6 +127,12 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
         "roles": ["forecast_today", "other", "plant"],
         "codes": {"invalid_value": 2, "missing_or_stale": 1},
     }
+    assert result["health"]["standby"] is None
+    entry.runtime_data.data["connection_status"] = {"status": "not_ready", "standby": "night_empty",
+                                                    "inverter_status": 303}
+    result = await async_get_config_entry_diagnostics(hass, entry)
+    assert result["health"]["standby"] == "night_empty"
+    assert result["connection"]["status"] == "not_ready"
     assert result["features"] == {
         "demand_forecast": "ready",
         "ev_preparation": "away",

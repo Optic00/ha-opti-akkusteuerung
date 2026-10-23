@@ -43,7 +43,7 @@ from .const import (
 )
 from .sma import MODEL_NAMES, MODEL_POWER_W, SmaDevice, UnsupportedDeviceError, ac_surplus_suggestion_w
 from .device import DeviceError
-from .source_quality import measurement_max_age, reported_recently
+from .source_quality import DEFAULT_FORECAST_MAX_AGE, measurement_max_age, reported_recently
 
 CONF_UNIT_ID = "unit_id"
 CONF_PROFILE = "profile"
@@ -129,7 +129,7 @@ def _sources_schema(defaults: dict[str, Any], section: str, *, shadow_mode: bool
         schema[vol.Required("price_unit", default=defaults.get("price_unit", "EUR/kWh"))] = SelectSelector(
             SelectSelectorConfig(options=["EUR/kWh", "ct/kWh"]))
     elif section == "advanced":
-        for key, default in (("forecast_max_age", 21600), ("price_max_age", 7200)):
+        for key, default in (("forecast_max_age", DEFAULT_FORECAST_MAX_AGE), ("price_max_age", 7200)):
             minimum = 60 if key == "price_max_age" and defaults.get("price_provider") == "tibber" else 1
             selector = NumberSelector(NumberSelectorConfig(min=minimum, max=86400, mode=NumberSelectorMode.BOX))
             schema[vol.Required(key, default=defaults.get(key, default))] = vol.All(selector, vol.Coerce(int))

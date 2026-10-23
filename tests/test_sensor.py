@@ -49,7 +49,7 @@ def test_state_sensor_explanation_stays_out_of_recorder():
 
     assert sensor._unrecorded_attributes == frozenset({"branch"})
     from custom_components.opti_akku.binary_sensor import OptiAkkuStateBinarySensor
-    assert OptiAkkuStateBinarySensor._unrecorded_attributes == frozenset({"branch"})
+    assert OptiAkkuStateBinarySensor._unrecorded_attributes == frozenset({"branch", "stand"})
 
 
 def test_forecast_tomorrow_rejects_missing_or_unavailable_values():
@@ -138,3 +138,50 @@ async def test_existing_forecast_disablement_and_id_survive_platform_setup(
     assert registry.async_get_entity_id("sensor", DOMAIN, unique_id) == existing.entity_id
     assert registry.async_get(existing.entity_id).disabled_by is disabled_by
     assert hass.states.get(existing.entity_id) is None
+
+
+def test_plan_shadow_sensor_records_no_attributes_and_stays_available_while_unknown():
+    from homeassistant.const import MATCH_ALL
+    from custom_components.opti_akku.sensor import OptiAkkuPlanShadowSensor
+
+    key = "sensor.opti_plan_shadow"
+    coordinator = Mock()
+    coordinator.data = {"states": {key: "unknown"}, "metadata": {key: {"name": "Schattenplaner Horizont"}},
+                        "attributes": {key: {"status": "data_missing", "detail": "price_series"}}}
+    coordinator.last_update_success = True
+    coordinator.shadow_mode = False
+    entry = MockConfigEntry(domain="opti_akku", title="Opti Test", data={"profile": "sma_stp_se"})
+    entry.runtime_data = coordinator
+    sensor = OptiAkkuPlanShadowSensor(entry, key)
+
+    assert sensor._unrecorded_attributes == frozenset({MATCH_ALL})
+    assert sensor.entity_registry_enabled_default is False
+    assert sensor.native_value is None and sensor.available is True
+    assert sensor.extra_state_attributes["detail"] == "price_series"
+    coordinator.data["states"][key] = "Akku Netzladen"
+    assert sensor.native_value == "netzladen"
+    assert sensor.options == ["dynamisch", "pause", "nur_laden", "nur_entladen", "netzladen"]
+    assert sensor.translation_key == "plan_shadow"
+    # #165: the generated name must be gone so has_entity_name + translation_key
+    # name the entity (a leftover None would mean "device name only").
+    assert sensor.has_entity_name
+    with pytest.raises(AttributeError):
+        getattr(sensor, "_attr_name")  # noqa: B009 - the attribute must be absent, not None
+
+
+def test_translation_state_keys_are_hassfest_slugs():
+    import json
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "custom_components" / "opti_akku"
+    pattern = re.compile(r"^[a-z0-9-_]+$")
+    checked = 0
+    for path in (root / "strings.json", *sorted((root / "translations").glob("*.json"))):
+        entities = json.loads(path.read_text()).get("entity", {})
+        for platform in entities.values():
+            for definition in platform.values():
+                for key in definition.get("state", {}):
+                    assert pattern.match(key), f"{path.name}: state key {key!r} is not a slug"
+                    checked += 1
+    assert checked >= 15

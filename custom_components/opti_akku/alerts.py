@@ -10,6 +10,8 @@ from homeassistant.components import persistent_notification
 from homeassistant.core import callback
 from homeassistant.util import dt as dt_util
 
+from .sources import finite
+
 _LOGGER = logging.getLogger(__name__)
 PRICE_STARTUP_GRACE_SECONDS = 360
 PRICE_SOURCE_KEYS = {"price_current", "price_series"}
@@ -26,6 +28,54 @@ MESSAGES = {
     "control": ("Strategie aktiv, aber Schreibfreigabe aus: Opti Akku steuert den Akku nicht. Bei einem absichtlich lesenden 24-Stunden-Vergleich ist das erwartet; die Strategie dafür eingeschaltet lassen. Andernfalls die Schreibfreigabe prüfen.", "Strategy active but writes disabled: Opti Akku is not controlling the battery. This is expected during an intentional read-only 24-hour comparison; keep the strategy enabled for that comparison. Otherwise, check write permission."),
     "prices": ("Tibber-Preisabruf fehlgeschlagen; Cache gilt nur bis zu seiner ursprünglichen Ablaufzeit", "Tibber price fetch failed; cached prices keep their original expiry"),
 }
+
+
+# Raw Operation.RunStt codes (register 33003) that are documented as a normal
+# night standby with an empty battery. Documented codes for 33003 are only
+# 235 = grid-parallel operation, 1463 = backup, 1469 = shutting down,
+# 2119 = derating and 16777213 = information not available
+# (ha-modbus-akku-adapter/docs/modbus-register-referenz.md:57). An STP SE with
+# an empty battery and no PV at night reports 16777213 in 33003 (read directly
+# from the inverter by the reporter of #103; 235 in normal operation). Only
+# that confirmed code counts, and only under the night/empty-battery conditions
+# checked below; any other code keeps raising the connection alert.
+SMA_STANDBY_STATUS_CODES: frozenset[int] = frozenset({16777213})
+# Largest PV or battery power (W) still consistent with an idle inverter.
+STANDBY_IDLE_W = 50.0
+# Only these effective modes expect nothing from an empty battery at night; an
+# idle device under any other mode (grid charging, manual presets) or an
+# unknown/missing mode is a failure, never a standby (fail closed).
+STANDBY_IDLE_MODES = frozenset({"Akku Dynamisch", "Akku nur Laden", "Akku nur Entladen", "Akku Pause", "Beobachtung"})
+
+
+def night_standby(data) -> bool:
+    """SMA hybrid inverters report not_ready at night with an empty battery (#103).
+
+    The device is reachable, its raw status is a documented standby code, the
+    sun is down and the SoC sits at or under MinSOC (or inside its exit band
+    via the latch). That is a normal standby, not an incident; writes stay
+    blocked by the readiness gate regardless.
+    """
+    connection = data.get("connection_status", {})
+    if not isinstance(connection, Mapping) or connection.get("status") != "not_ready":
+        return False
+    if connection.get("inverter_status") not in SMA_STANDBY_STATUS_CODES:
+        return False
+    if data.get("mode") not in STANDBY_IDLE_MODES:
+        return False
+    states = data.get("states", {})
+    if not data.get("online", False) or not isinstance(states, Mapping) or states.get("sun.sun") != "below_horizon":
+        return False
+    # 16777213 only means "no information"; demand telemetry that fits an idle
+    # device (no PV, no battery flow) so a fault with the same code and any
+    # activity still alerts. Missing telemetry fails closed.
+    pv, battery = finite(states.get("sensor.opti_pv_generation_w")), finite(states.get("sensor.opti_battery_power_w"))
+    if pv is None or battery is None or pv > STANDBY_IDLE_W or abs(battery) > STANDBY_IDLE_W:
+        return False
+    if states.get("binary_sensor.opti_minsoc_schutz_aktiv") == "on":
+        return True
+    soc, minsoc = finite(states.get("sensor.opti_soc")), finite(states.get("input_number.minsoc"))
+    return soc is not None and minsoc is not None and soc <= minsoc
 
 
 class HealthAlerts:
@@ -110,6 +160,10 @@ class HealthAlerts:
         states = data.get("states", {})
         writing = data.get("write_enabled", False)
         recovering = data.get("connection_status", {}).get("status") in ("offline", "recovering", "not_ready")
+        standby = night_standby(data)
+        if standby:
+            # Informational only: the raw inverter_status stays beside it for the history.
+            data["connection_status"] = {**data["connection_status"], "standby": "night_empty"}
         night_pv_only = (
             set(source_errors) == {"pv_generation"}
             and states.get("sun.sun") == "below_horizon"
@@ -121,7 +175,7 @@ class HealthAlerts:
         }
         problems = {
             "pause": data.get("pause_pending") is True,
-            "connection": not data.get("online", False) or recovering,
+            "connection": not data.get("online", False) or (recovering and not standby),
             "block": writing and states.get("binary_sensor.opti_block_violation") == "on",
             "write": writing and (
                 states.get("binary_sensor.opti_write_stalled") == "on"

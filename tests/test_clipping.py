@@ -83,7 +83,7 @@ def test_without_limit_the_estimate_is_off(limit):
     (state([slot(12, 0, 12.5)], value="unavailable"), "no_forecast"),
     (state(None), "no_detail"),
     (state([]), "no_detail"),
-    (state([slot(12, 0, 12.5)], reported=NOW - timedelta(hours=7)), "stale"),
+    (state([slot(12, 0, 12.5)], reported=NOW - timedelta(hours=13)), "stale"),
     (state([slot(12, 0, 12.5)], reported=None), "invalid"),
     (state([{"period_start": "2026-07-15T12:00:00", "pv_estimate": 1, "pv_estimate10": 1, "pv_estimate90": 1}]), "invalid"),
     (state([{**slot(12, 0, 12.5), "pv_estimate90": None}]), "invalid"),
@@ -100,6 +100,13 @@ def test_unusable_forecasts_are_reported_not_guessed(source, status):
 def test_duplicate_identical_rows_are_accepted():
     value, _ = run(state([slot(12, 0, 12.5), slot(12, 0, 12.5)]))
     assert value == 1.5
+
+
+def test_default_age_limit_is_twelve_hours_and_the_option_overrides_it():
+    aged = state([slot(12, 0, 12.5)], reported=NOW - timedelta(seconds=30000))
+    assert run(aged)[0] == 1.5
+    assert run(aged, max_age=21600) == ("unavailable", {"observation_only": True, "controls_battery": False,
+                                                        "limit_w": 9500, "status": "stale"})
 
 
 def test_zero_max_age_accepts_old_forecasts():

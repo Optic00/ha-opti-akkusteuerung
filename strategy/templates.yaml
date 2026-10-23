@@ -50,6 +50,25 @@ template_blocks:
                + states('sensor.opti_battery_power_w')|float(0)] | max | round(0) }}
       grenze_ein_w: '{{ states(''input_number.akkusteuerung_wr_ac_ueberschuss_grenze'') }}'
       hysterese_w: 300
+  - unique_id: opti_pv_spitze
+    name: Opti PV Spitze
+    icon: mdi:weather-sunny-alert
+    # Mode-independent latch of the PV peak release for opti_charge_power_w and the
+    # coordinator. No availability gate: every evaluation recomputes it, and
+    # invalid core data (export/import/battery power, temperature, SoC) or a
+    # disabled PV surplus charging switch turn it off at once and drop the timer.
+    # Entry: SoC < 85 % and net surplus before the battery > 200 W. Hold until
+    # SoC >= 87 %; without surplus it drops only after 60 s continuously without
+    # surplus (kein_ueberschuss_seit), so short dips cause no write sequences.
+    # The latch counts only when computed in an immediately preceding evaluation
+    # (stand <= 90 s, no backward clock): after restore/restart it needs a fresh entry.
+    state: |
+      {% set soc = states('sensor.opti_soc') | float(none) %} {% set temp = states('sensor.opti_battery_temp') | float(none) %} {% set messwerte_ok = has_value('sensor.opti_grid_export_w') and has_value('sensor.opti_grid_import_w') and has_value('sensor.opti_battery_power_w') and soc is not none and temp is not none %} {% set netto = states('sensor.opti_grid_export_w')|float(0) - states('sensor.opti_grid_import_w')|float(0) + states('sensor.opti_battery_power_w')|float(0) %} {% set alt = this.attributes if this is defined else {} %} {% set stand = alt.get('stand') | as_datetime %} {% set frisch = stand is not none and stand <= now() and (now() - stand).total_seconds() <= 90 %} {% set war_frei = frisch and this is defined and this.state == 'on' %} {% set seit = (alt.get('kein_ueberschuss_seit') | as_datetime) if frisch else none %} {% set seit = seit if seit is not none and seit <= now() else none %} {% set kein_seit = none if netto > 0 else (seit if seit is not none else now()) %} {% set grund_ok = messwerte_ok and is_state('input_boolean.opti_pv_ueberschuss_ladung', 'on') and temp > 0 and temp < 45 and not is_state('input_boolean.opti_manuelle_ladegrenze', 'on') and soc < 87 %} {% set einstieg = grund_ok and soc < 85 and netto > 200 %} {% set halten = grund_ok and war_frei and (netto > 0 or (now() - kein_seit).total_seconds() < 60) %} {% set pv_spitze = einstieg or halten %} {{ pv_spitze }}
+    attributes:
+      kein_ueberschuss_seit: |
+        {% set soc = states('sensor.opti_soc') | float(none) %} {% set temp = states('sensor.opti_battery_temp') | float(none) %} {% set messwerte_ok = has_value('sensor.opti_grid_export_w') and has_value('sensor.opti_grid_import_w') and has_value('sensor.opti_battery_power_w') and soc is not none and temp is not none %} {% set netto = states('sensor.opti_grid_export_w')|float(0) - states('sensor.opti_grid_import_w')|float(0) + states('sensor.opti_battery_power_w')|float(0) %} {% set alt = this.attributes if this is defined else {} %} {% set stand = alt.get('stand') | as_datetime %} {% set frisch = stand is not none and stand <= now() and (now() - stand).total_seconds() <= 90 %} {% set war_frei = frisch and this is defined and this.state == 'on' %} {% set seit = (alt.get('kein_ueberschuss_seit') | as_datetime) if frisch else none %} {% set seit = seit if seit is not none and seit <= now() else none %} {% set kein_seit = none if netto > 0 else (seit if seit is not none else now()) %} {% set grund_ok = messwerte_ok and is_state('input_boolean.opti_pv_ueberschuss_ladung', 'on') and temp > 0 and temp < 45 and not is_state('input_boolean.opti_manuelle_ladegrenze', 'on') and soc < 87 %} {% set einstieg = grund_ok and soc < 85 and netto > 200 %} {% set halten = grund_ok and war_frei and (netto > 0 or (now() - kein_seit).total_seconds() < 60) %} {% set pv_spitze = einstieg or halten %} {{ kein_seit.isoformat() if (pv_spitze and kein_seit is not none) else '' }}
+      # Timestamp of this computation; excluded from the Recorder (binary_sensor.py).
+      stand: "{{ now().isoformat() }}"
   - unique_id: opti_ueberschuss_veto_aktiv
     name: Opti Ueberschuss Veto Aktiv
     icon: mdi:battery-plus-variant
@@ -160,17 +179,28 @@ template_blocks:
     name: Opti Peak Horizont Lang
     icon: mdi:timer-sand
     state: |
-      {% set war_an = this is defined and this.state == 'on' %} {% set score = states('sensor.opti_forecast_score_sonnentag') | float(none) %} {% if score is none %}
+      {# Issue #124: nachts schwankt der Sonnentag-Score nur mit der Hauslast
+         (Prognose konstant). Ein vorhandener Horizont wird daher bei
+         sun.sun below_horizon nie abgeschaltet; die Hysterese greift erst
+         nach Sonnenaufgang. Ohne Vorzustand (Neueintrag, #125) bleibt die
+         bisherige Einstiegsregel. #}
+      {% set war_an = this is defined and this.state == 'on' %} {% set hat_vorzustand = this is defined and this.state in ['on', 'off'] %} {% set nacht = is_state('sun.sun', 'below_horizon') %} {% set score = states('sensor.opti_forecast_score_sonnentag') | float(none) %} {% if score is none %}
         {{ true }}
+      {% elif nacht and hat_vorzustand %}
+        {{ war_an or score <= 1 }}
       {% else %}
         {{ score <= 1 or (score < 3 and war_an) }}
       {% endif %}
     attributes:
       branch: |
-        {% set war_an = this is defined and this.state == 'on' %} {% set roh = states('sensor.opti_forecast_score_sonnentag') %} {% set score = roh | float(none) %} {% if score is none %}
+        {% set war_an = this is defined and this.state == 'on' %} {% set hat_vorzustand = this is defined and this.state in ['on', 'off'] %} {% set nacht = is_state('sun.sun', 'below_horizon') %} {% set roh = states('sensor.opti_forecast_score_sonnentag') %} {% set score = roh | float(none) %} {% if score is none %}
           Score={{ roh }} fehlt -> an (36 h)
+        {% elif nacht and hat_vorzustand and war_an %}
+          Score={{ roh }} -> Nacht: Vorzustand an gehalten (Hysterese erst nach Sonnenaufgang)
         {% elif score <= 1 %}
           Score={{ roh }} -> an (36 h, ein <= 1)
+        {% elif nacht and hat_vorzustand %}
+          Score={{ roh }} -> Nacht: Vorzustand aus gehalten (ein <= 1)
         {% elif score >= 3 %}
           Score={{ roh }} -> aus (Sonnenaufgang + Puffer, aus >= 3)
         {% else %}
@@ -182,7 +212,9 @@ template_blocks:
     name: Opti Forecast Score
     state_class: measurement
     availability: |
-      {% set setting = state_attr('sun.sun', 'next_setting') %} {% set nach_sunset = setting is not none and (setting | as_datetime | as_local).date() != now().date() %} {% set rising = state_attr('sun.sun', 'next_rising') %} {% set vor_aufgang = rising is not none and (rising | as_datetime | as_local).date() == now().date() %} {{ (not is_state('input_boolean.opti_score_house_includes_ev', 'on') or has_value('sensor.opti_house_consumption_w')) and ((nach_sunset and has_value('sensor.opti_forecast_score_tomorrow'))
+      {# Ohne gueltigen Hausverbrauch kein Score: der 60-min-Fallback endet sonst
+         bei float(400) und rechnet mit einer erfundenen Last (wie Sonnentag-Score). #}
+      {% set setting = state_attr('sun.sun', 'next_setting') %} {% set nach_sunset = setting is not none and (setting | as_datetime | as_local).date() != now().date() %} {% set rising = state_attr('sun.sun', 'next_rising') %} {% set vor_aufgang = rising is not none and (rising | as_datetime | as_local).date() == now().date() %} {{ has_value('sensor.opti_house_consumption_w') and ((nach_sunset and has_value('sensor.opti_forecast_score_tomorrow'))
          or (vor_aufgang and has_value('sensor.opti_forecast_score_sonnentag'))
          or (has_value('sensor.opti_forecast_remaining_today_kwh')
              and has_value('sensor.opti_forecast_effective_remaining_kwh')
@@ -212,7 +244,14 @@ template_blocks:
     availability: |
       {{ has_value('sensor.opti_forecast_tomorrow_kwh') and has_value('sensor.opti_house_consumption_w') }}
     state: |
-      {% set hausverbrauch = states('sensor.opti_forecast_house_60min_w')|float(states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(none))) if is_state('input_boolean.opti_score_house_includes_ev', 'on') else states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %} {% set verbrauch_w = [hausverbrauch, 1]|max %} {% set denom_kwh = verbrauch_w * 24 / 1000 %} {% set median_t = states('sensor.opti_forecast_tomorrow_kwh')|float(0) %} {% set p10_raw_t = state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(median_t) %} {% set p10_t = p10_raw_t if p10_raw_t > 0 else median_t %} {# Forecast-Optimismus (Feature #30) jetzt auch fuer den Morgen-Score:
+      {% set hausverbrauch = states('sensor.opti_forecast_house_60min_w')|float(states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(none))) if is_state('input_boolean.opti_score_house_includes_ev', 'on') else states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %} {# Issue #124: Tagesbedarf statt letzter Stunde. Das 24-h-Mittel der Last
+         (gleiche Quelle wie die 60-min-Kette) ersetzt die 60-min-Hochrechnung,
+         sobald die Statistik belastbar ist (coverage_ok: >= 50 % der
+         Minutensamples, groesste Luecke <= 2 h); davor und ohne Statistik gilt
+         die bisherige Rechnung. Die konfigurierte Mindestlast gilt wie in der
+         60-min-Kette auch fuer das Tagesmittel. Kein Kalibrierfaktor: der Score
+         ist der Anteil der Prognose am echten Tagesbedarf. #}
+      {% set tag_entity = 'sensor.opti_forecast_house_24h_w' if is_state('input_boolean.opti_score_house_includes_ev', 'on') else 'sensor.opti_house_consumption_24h_w' %} {% set tag_w = states(tag_entity)|float(none) if state_attr(tag_entity, 'coverage_ok') == true else none %} {% set mindestlast_w = [0, [5000, state_attr('sensor.opti_house_raw_w', 'forecast_min_load_w')|float(0)]|min]|max %} {% set hausverbrauch = [tag_w, mindestlast_w]|max if tag_w is not none else hausverbrauch %} {% set verbrauch_w = [hausverbrauch, 1]|max %} {% set denom_kwh = verbrauch_w * 24 / 1000 %} {% set median_t = states('sensor.opti_forecast_tomorrow_kwh')|float(0) %} {% set p10_raw_t = state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(none) %} {# P10 = 0 ist ein gueltiger, pessimistischer Wert; nur fehlend/ungueltig faellt auf den Median #} {% set p10_t = p10_raw_t if p10_raw_t is not none and p10_raw_t >= 0 else median_t %} {# Forecast-Optimismus (Feature #30) jetzt auch fuer den Morgen-Score:
          gleicher alpha-Blend wie opti_forecast_effective_remaining_kwh, damit
          EIN Regler konsistent Tag- UND Nacht-Pfad steuert. alpha=0 ->
          min(median, P10), bit-identisch zum alten Verhalten. Wichtig, weil der
@@ -224,7 +263,13 @@ template_blocks:
         }}'
       median_kwh: '{{ states(''sensor.opti_forecast_tomorrow_kwh'')|float(0)|round(2) }}'
       p10_kwh: |
-        {% set m = states('sensor.opti_forecast_tomorrow_kwh')|float(0) %} {% set p = state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(m) %} {{ (p if p > 0 else m)|round(2) }}
+        {% set m = states('sensor.opti_forecast_tomorrow_kwh')|float(0) %} {% set p = state_attr('sensor.opti_forecast_tomorrow_kwh','estimate10')|float(none) %} {{ (p if p is not none and p >= 0 else m)|round(2) }}
+      load_source: |
+        {% set tag_entity = 'sensor.opti_forecast_house_24h_w' if is_state('input_boolean.opti_score_house_includes_ev', 'on') else 'sensor.opti_house_consumption_24h_w' %} {{ 'tagesmittel_24h' if state_attr(tag_entity, 'coverage_ok') == true and has_value(tag_entity) else 'legacy_60min_extrapolation' }}
+      tagesmittel_24h_w: |
+        {% set tag_entity = 'sensor.opti_forecast_house_24h_w' if is_state('input_boolean.opti_score_house_includes_ev', 'on') else 'sensor.opti_house_consumption_24h_w' %} {{ states(tag_entity)|float(none) if state_attr(tag_entity, 'coverage_ok') == true else none }}
+      tagesbedarf_w: |
+        {% set tag_entity = 'sensor.opti_forecast_house_24h_w' if is_state('input_boolean.opti_score_house_includes_ev', 'on') else 'sensor.opti_house_consumption_24h_w' %} {% set tag_w = states(tag_entity)|float(none) if state_attr(tag_entity, 'coverage_ok') == true else none %} {% set mindestlast_w = [0, [5000, state_attr('sensor.opti_house_raw_w', 'forecast_min_load_w')|float(0)]|min]|max %} {{ ([tag_w, mindestlast_w]|max)|round(0) if tag_w is not none else (states('sensor.opti_forecast_house_60min_w')|float(states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(none))) if is_state('input_boolean.opti_score_house_includes_ev', 'on') else states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(none))) }}
   - unique_id: opti_forecast_score_sonnentag
     name: Opti Forecast Score Sonnentag
     state_class: measurement
@@ -238,12 +283,25 @@ template_blocks:
       {% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {% set quelle = 'sensor.opti_forecast_today_kwh'
                       if rise is not none and rise.date() == now().date()
                       else 'sensor.opti_forecast_tomorrow_kwh' %}
-      {% set hausverbrauch = states('sensor.opti_forecast_house_60min_w')|float(states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(none))) if is_state('input_boolean.opti_score_house_includes_ev', 'on') else states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %} {% set verbrauch_w = [hausverbrauch, 1]|max %} {% set denom_kwh = verbrauch_w * 24 / 1000 %} {% set median = states(quelle)|float(0) %} {% set p10_raw = state_attr(quelle, 'estimate10')|float(median) %} {% set p10 = p10_raw if p10_raw > 0 else median %} {% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus')|float(0)]|min]|max) / 100 %} {% set blended = alpha * median + (1 - alpha) * p10 %} {% set prognose = [median, blended]|min %} {{ (([ [prognose / denom_kwh, 1]|min, 0]|max) * 10)|round(0)|int }}
+      {% set hausverbrauch = states('sensor.opti_forecast_house_60min_w')|float(states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(none))) if is_state('input_boolean.opti_score_house_includes_ev', 'on') else states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(400)) %} {# Issue #124: Tagesbedarf statt letzter Stunde. Das 24-h-Mittel der Last
+         (gleiche Quelle wie die 60-min-Kette) ersetzt die 60-min-Hochrechnung,
+         sobald die Statistik belastbar ist (coverage_ok: >= 50 % der
+         Minutensamples, groesste Luecke <= 2 h); davor und ohne Statistik gilt
+         die bisherige Rechnung. Die konfigurierte Mindestlast gilt wie in der
+         60-min-Kette auch fuer das Tagesmittel. Kein Kalibrierfaktor: der Score
+         ist der Anteil der Prognose am echten Tagesbedarf. #}
+      {% set tag_entity = 'sensor.opti_forecast_house_24h_w' if is_state('input_boolean.opti_score_house_includes_ev', 'on') else 'sensor.opti_house_consumption_24h_w' %} {% set tag_w = states(tag_entity)|float(none) if state_attr(tag_entity, 'coverage_ok') == true else none %} {% set mindestlast_w = [0, [5000, state_attr('sensor.opti_house_raw_w', 'forecast_min_load_w')|float(0)]|min]|max %} {% set hausverbrauch = [tag_w, mindestlast_w]|max if tag_w is not none else hausverbrauch %} {% set verbrauch_w = [hausverbrauch, 1]|max %} {% set denom_kwh = verbrauch_w * 24 / 1000 %} {% set median = states(quelle)|float(0) %} {% set p10_raw = state_attr(quelle, 'estimate10')|float(none) %} {% set p10 = p10_raw if p10_raw is not none and p10_raw >= 0 else median %} {% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus')|float(0)]|min]|max) / 100 %} {% set blended = alpha * median + (1 - alpha) * p10 %} {% set prognose = [median, blended]|min %} {{ (([ [prognose / denom_kwh, 1]|min, 0]|max) * 10)|round(0)|int }}
     attributes:
       quelle: |
         {% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {{ 'sensor.opti_forecast_today_kwh'
            if rise is not none and rise.date() == now().date()
            else 'sensor.opti_forecast_tomorrow_kwh' }}
+      load_source: |
+        {% set tag_entity = 'sensor.opti_forecast_house_24h_w' if is_state('input_boolean.opti_score_house_includes_ev', 'on') else 'sensor.opti_house_consumption_24h_w' %} {{ 'tagesmittel_24h' if state_attr(tag_entity, 'coverage_ok') == true and has_value(tag_entity) else 'legacy_60min_extrapolation' }}
+      tagesmittel_24h_w: |
+        {% set tag_entity = 'sensor.opti_forecast_house_24h_w' if is_state('input_boolean.opti_score_house_includes_ev', 'on') else 'sensor.opti_house_consumption_24h_w' %} {{ states(tag_entity)|float(none) if state_attr(tag_entity, 'coverage_ok') == true else none }}
+      tagesbedarf_w: |
+        {% set tag_entity = 'sensor.opti_forecast_house_24h_w' if is_state('input_boolean.opti_score_house_includes_ev', 'on') else 'sensor.opti_house_consumption_24h_w' %} {% set tag_w = states(tag_entity)|float(none) if state_attr(tag_entity, 'coverage_ok') == true else none %} {% set mindestlast_w = [0, [5000, state_attr('sensor.opti_house_raw_w', 'forecast_min_load_w')|float(0)]|min]|max %} {{ ([tag_w, mindestlast_w]|max)|round(0) if tag_w is not none else (states('sensor.opti_forecast_house_60min_w')|float(states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(none))) if is_state('input_boolean.opti_score_house_includes_ev', 'on') else states('sensor.opti_house_consumption_60min_w')|float(states('sensor.opti_house_consumption_w')|float(none))) }}
   - unique_id: opti_forecast_effective_remaining_kwh
     name: Opti Forecast Effective Remaining kWh
     unit_of_measurement: kWh
@@ -251,14 +309,14 @@ template_blocks:
     availability: |
       {{ has_value('sensor.opti_forecast_remaining_today_kwh') }}
     state: |
-      {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %} {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(median) %} {% set p10 = p10_raw if p10_raw > 0 else median %} {% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus') | float(0)] | min] | max) / 100 %} {% set blended = alpha * median + (1 - alpha) * p10 %} {# Roh, NICHT gerundet: haelt alpha=0 bit-identisch zum alten
+      {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %} {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(none) %} {# P10 = 0 ist ein gueltiger, pessimistischer Wert; nur fehlend/ungueltig faellt auf den Median #} {% set p10 = p10_raw if p10_raw is not none and p10_raw >= 0 else median %} {% set alpha = ([0, [100, states('input_number.opti_forecast_optimismus') | float(0)] | min] | max) / 100 %} {% set blended = alpha * median + (1 - alpha) * p10 %} {# Roh, NICHT gerundet: haelt alpha=0 bit-identisch zum alten
          min(median, P10) und vermeidet einen Rundungs-Kipp an den
          Ziel-SoC-Stufengrenzen. Anzeige-Rundung nur in den Attributen. #}
       {{ [median, blended] | min }}
     attributes:
       median_kwh: '{{ states(''sensor.opti_forecast_remaining_today_kwh'') | float(0) | round(3) }}'
       p10_kwh: |
-        {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %} {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(median) %} {{ (p10_raw if p10_raw > 0 else median) | round(3) }}
+        {% set median = states('sensor.opti_forecast_remaining_today_kwh') | float(0) %} {% set p10_raw = state_attr('sensor.opti_forecast_remaining_today_kwh', 'estimate10') | float(none) %} {{ (p10_raw if p10_raw is not none and p10_raw >= 0 else median) | round(3) }}
       alpha: '{{ ([0, [100, states(''input_number.opti_forecast_optimismus'') | float(0)] | min] | max)
         / 100 }}'
   - unique_id: opti_target_soc
@@ -440,6 +498,16 @@ template_blocks:
           {% set c = [max_helper, c] | min if soc >= 97 else max_helper %}
         {% endif %}
         {% set ladeleistung = [c * temp_faktor, max_helper] | min %}
+        {# PV-Spitzen: die prognose-/SoC-abhaengige Drossel loesen, solange echter
+           Netto-Ueberschuss vor dem Akku ins Netz ginge. Latch, Entprellung und
+           Fail-closed liegen in binary_sensor.opti_pv_spitze; hier nur das
+           Modus-Gate: PV-Lademodi (Vorschau Dynamisch/nur Laden) und nie im
+           aktiven Netzladen, damit Netzladen nicht mit Maximalleistung aus dem
+           Netz zieht. Temperatur-, Balancing- und Max.-Ladeleistungs-Grenzen
+           bleiben unberuehrt. #}
+        {% set pv_modus = states('sensor.opti_strategie_vorschau') in ['Akku Dynamisch', 'Akku nur Laden'] and not is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') %}
+        {% set drossel_frei = is_state('binary_sensor.opti_pv_spitze', 'on') and pv_modus %}
+        {% if drossel_frei %}{% set ladeleistung = max_helper %}{% endif %}
         {# Balancing-spezifischer Vollladungs-Taper: nur zusaetzlich deckeln,
            niemals den regulaeren SoC-/Temperatur-Taper erhoehen. #}
         {% if balancing and soc >= 96 %}
@@ -451,6 +519,9 @@ template_blocks:
         {{ ladeleistung | round(0) }}
       {% endif %}
     attributes:
+      # PV peak release applied to this value (latch: binary_sensor.opti_pv_spitze).
+      drossel_frei: |
+        {% set pv_modus = states('sensor.opti_strategie_vorschau') in ['Akku Dynamisch', 'Akku nur Laden'] and not is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') %} {{ is_state('binary_sensor.opti_pv_spitze', 'on') and pv_modus }}
       # Same steps as the state, as readable text (issue #129). The parity test
       # in tests/test_engine.py keeps the final value equal to the state.
       branch: |
@@ -501,6 +572,14 @@ template_blocks:
           {% set ladeleistung = [c * temp_faktor, max_helper] | min %}
           {% if c * temp_faktor > max_helper %}
             {% set schritte = schritte + ['Obergrenze Max. Ladeleistung ' ~ (max_helper | round(0) | int) ~ ' W'] %}
+          {% endif %}
+          {% set pv_modus = states('sensor.opti_strategie_vorschau') in ['Akku Dynamisch', 'Akku nur Laden'] and not is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') %}
+          {% set drossel_frei = is_state('binary_sensor.opti_pv_spitze', 'on') and pv_modus %}
+          {% if drossel_frei %}
+            {% set ladeleistung = max_helper %}
+            {% set netto = states('sensor.opti_grid_export_w')|float(0) - states('sensor.opti_grid_import_w')|float(0) + states('sensor.opti_battery_power_w')|float(0) %}
+            {% set seit = state_attr('binary_sensor.opti_pv_spitze', 'kein_ueberschuss_seit') | as_datetime %}
+            {% set schritte = schritte + ['PV-Spitze: Netto-Überschuss ' ~ (netto | round(0) | int) ~ ' W' ~ ((' (gehalten, ohne Überschuss seit ' ~ ((now() - seit).total_seconds() | round(0) | int) ~ ' s)') if seit is not none else (' (gehalten)' if not (soc < 85 and netto > 200) else '')) ~ ' → Drossel gelöst, Max. Ladeleistung ' ~ (max_helper | round(0) | int) ~ ' W'] %}
           {% endif %}
           {% if balancing and soc >= 96 and ladeleistung > cap * 0.02 %}
             {% set ladeleistung = cap * 0.02 %}
@@ -666,7 +745,7 @@ template_blocks:
          dasselbe tun statt mit dem Default 95 weiterzurechnen. #}
       {% set hv_maxsoc = is_number(states('input_number.maxsoc')) %} {% set deckel_band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
             and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maxsoc else 0 %}
-      {% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %} {% if soc >= 0 and soc <= minsoc %}Akku nur Laden {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Akku Netzladen {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen {%- elif is_state('binary_sensor.opti_minsoc_schutz_aktiv','on') and is_state('sensor.opti_balancing_watchdog','netz') %}Akku Netzladen {%- elif is_state('binary_sensor.opti_minsoc_schutz_aktiv','on') and not is_state('sensor.opti_balancing_watchdog','netz') %}Akku nur Laden {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' and not ev and not is_state('binary_sensor.opti_extreme_price_hold','on') %}Akku nur Entladen {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev and not is_state('binary_sensor.opti_extreme_price_hold','on') %}Akku nur Entladen {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Akku nur Laden {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Akku Netzladen {%- elif hv_maxsoc and soc >= 0 and soc >= maxsoc - deckel_band %}{% if aktiv or ev %}Akku Pause{% else %}Akku nur Entladen{% endif %} {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}Akku nur Laden {# EV-Schnelllade-Sperre: nach den Lade-Zweigen, vor allen Zweigen,
+      {% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %} {% if prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Akku Netzladen {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Akku Netzladen {%- elif soc >= 0 and soc <= minsoc %}Akku nur Laden {%- elif is_state('binary_sensor.opti_minsoc_schutz_aktiv','on') and is_state('sensor.opti_balancing_watchdog','netz') %}Akku Netzladen {%- elif is_state('binary_sensor.opti_minsoc_schutz_aktiv','on') and not is_state('sensor.opti_balancing_watchdog','netz') %}Akku nur Laden {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' and not ev and not is_state('binary_sensor.opti_extreme_price_hold','on') %}{% if ueb and day and hv_maxsoc and soc < maxsoc - deckel_band %}Akku Dynamisch{% else %}Akku nur Entladen{% endif %} {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev and not is_state('binary_sensor.opti_extreme_price_hold','on') %}{% if ueb and day and hv_maxsoc and soc < maxsoc - deckel_band %}Akku Dynamisch{% else %}Akku nur Entladen{% endif %} {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Akku nur Laden {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Akku Netzladen {%- elif hv_maxsoc and soc >= 0 and soc >= maxsoc - deckel_band %}{% if aktiv or ev %}Akku Pause{% else %}Akku nur Entladen{% endif %} {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}Akku nur Laden {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}Akku nur Laden {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}Akku nur Laden {# EV-Schnelllade-Sperre: nach den Lade-Zweigen, vor allen Zweigen,
          die Dynamisch/Entladen liefern koennen (inkl. Akku voll). Sperr-
          Modus 'Akku nur Laden' = reine Entladesperre, PV-Laden bleibt. #}
       {%- elif ev %}Akku nur Laden {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}Akku Dynamisch {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}Akku Dynamisch {%- elif soc > 99 %}Akku Dynamisch {%- elif is_state('binary_sensor.opti_extreme_price_hold','on') %}Akku nur Laden {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and soc <= ve_res + band and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Akku nur Laden {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Akku nur Laden {# Ueberschuss-Veto (2026-08-15/16): knapper Resttag und laufender
@@ -696,7 +775,7 @@ template_blocks:
            dasselbe tun statt mit dem Default 95 weiterzurechnen. #}
         {% set hv_maxsoc = is_number(states('input_number.maxsoc')) %} {% set deckel_band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
               and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maxsoc else 0 %}
-        {% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %} {% if soc >= 0 and soc <= minsoc %}MinSOC-Schutz (SoC<={{minsoc}}) {%- elif prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct) {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%) {%- elif is_state('binary_sensor.opti_minsoc_schutz_aktiv','on') and is_state('sensor.opti_balancing_watchdog','netz') %}Balancing-Watchdog (Netz-Vollladung) {%- elif is_state('binary_sensor.opti_minsoc_schutz_aktiv','on') and not is_state('sensor.opti_balancing_watchdog','netz') %}MinSOC-Schutz (Halten bis {{ '%g'|format(state_attr('binary_sensor.opti_minsoc_schutz_aktiv','release_soc')) }}%) {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' and not ev and not is_state('binary_sensor.opti_extreme_price_hold','on') %}Peak-Leiter L1 (VE entladen) {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev and not is_state('binary_sensor.opti_extreme_price_hold','on') %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%) {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Balancing-Watchdog (PV-Vollladung) {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Balancing-Watchdog (Netz-Vollladung) {%- elif hv_maxsoc and soc >= 0 and soc >= maxsoc - deckel_band %}Ladedeckel (maxsoc erreicht{% if aktiv %}; Peak-Reserve halten{% elif ev %}; EV-Entladesperre{% endif %}) {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht) {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL) {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}SOC<15 Notfall {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}SOC<45 sehr guenstig {%- elif ev %}EV-Sperre (Schnellladung, Entladesperre) {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}70% Ueberschuss (tag, entprellt) {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}AC Ueberschuss (tag, entprellt) {%- elif soc > 99 %}Akku voll {%- elif is_state('binary_sensor.opti_extreme_price_hold','on') %}Extrempreis-Reserve (Restbedarf fuer Spitzen ueber 60 ct/kWh) {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and soc <= ve_res + band and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%, Spread {{(ve_avg - cur)|round(1)}}ct) {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%) {%- elif ueb and day and veto and hv_maxsoc and soc >= 0 and soc < maxsoc %}Ueberschuss-Veto ({{ state_attr('binary_sensor.opti_ueberschuss_veto_aktiv','export_ohne_akku_w') }}W Export sticht Ziel-SoC {{target}}%) {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag) {%- elif soc > target + (0 if is_state('input_select.akkusteuerung_modus','Akku nur Entladen') else H) %}ueber Ziel-SoC {%- elif soc >= 0 and not has_value('sensor.opti_price_level')
+        {% set veto = is_state('binary_sensor.opti_ueberschuss_veto_aktiv','on') %} {% if prog and hv_cur and hv_s and s < 3 and soc >= 0 and soc < states('input_number.maxsoc')|float(95) - stopband and cur < eeg and fenster %}Negativpreis-Laden ({{cur}}ct < EEG {{eeg}}ct) {%- elif prog and aktiv and hv_cur and soc >= 0 and soc < ges_res - stopband and avg is not none and (avg - cur) >= spread and fenster %}Peak-Vorladen (Spread {{(avg - cur)|round(1)}}ct, bis {{ges_res}}%) {%- elif soc >= 0 and soc <= minsoc %}MinSOC-Schutz (SoC<={{minsoc}}) {%- elif is_state('binary_sensor.opti_minsoc_schutz_aktiv','on') and is_state('sensor.opti_balancing_watchdog','netz') %}Balancing-Watchdog (Netz-Vollladung) {%- elif is_state('binary_sensor.opti_minsoc_schutz_aktiv','on') and not is_state('sensor.opti_balancing_watchdog','netz') %}MinSOC-Schutz (Halten bis {{ '%g'|format(state_attr('binary_sensor.opti_minsoc_schutz_aktiv','release_soc')) }}%) {%- elif aktiv and soc >= 0 and price == 'VERY_EXPENSIVE' and not ev and not is_state('binary_sensor.opti_extreme_price_hold','on') %}Peak-Leiter L1 (VE entladen{% if ueb and day and hv_maxsoc and soc < maxsoc - deckel_band %}, PV-Laden frei{% endif %}) {%- elif aktiv and soc >= 0 and price == 'EXPENSIVE' and soc > ve_res + band and not ev and not is_state('binary_sensor.opti_extreme_price_hold','on') %}Peak-Leiter L2 (EXP entladen, ueber VE-Reserve {{ve_res}}%{% if ueb and day and hv_maxsoc and soc < maxsoc - deckel_band %}, PV-Laden frei{% endif %}) {%- elif is_state('sensor.opti_balancing_watchdog','pv') %}Balancing-Watchdog (PV-Vollladung) {%- elif is_state('sensor.opti_balancing_watchdog','netz') %}Balancing-Watchdog (Netz-Vollladung) {%- elif hv_maxsoc and soc >= 0 and soc >= maxsoc - deckel_band %}Ladedeckel (maxsoc erreicht{% if aktiv %}; Peak-Reserve halten{% elif ev %}; EV-Entladesperre{% endif %}) {%- elif prog and win and hv_s and hv_st and soc < 20 and s < 3 and st < 3 and p_e %}SOC<20 Prognose (heute+morgen schlecht) {%- elif prog and hv_s and hv_st and soc < 75 and s < 3 and st < 3 and p_n %}SOC<75 Prognose (Preis bis NORMAL) {%- elif prog and win and hv_s and hv_st and soc < 80 and s < 3 and st < 3 and p_e %}SOC<80 Wintermodus {%- elif prog and hv_s and soc < 15 and s < 3 and p_e %}SOC<15 Notfall {%- elif prog and hv_s and soc < 45 and s < 3 and p_c %}SOC<45 sehr guenstig {%- elif ev %}EV-Sperre (Schnellladung, Entladesperre) {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_70_aktiv','on') and soc < 100 %}70% Ueberschuss (tag, entprellt) {%- elif ueb and day and is_state('binary_sensor.opti_ueberschuss_ac_aktiv','on') and soc < 100 %}AC Ueberschuss (tag, entprellt) {%- elif soc > 99 %}Akku voll {%- elif is_state('binary_sensor.opti_extreme_price_hold','on') %}Extrempreis-Reserve (Restbedarf fuer Spitzen ueber 60 ct/kWh) {%- elif aktiv and hv_cur and soc >= 0 and price == 'EXPENSIVE' and soc <= ve_res + band and ve_avg is not none and (ve_avg - cur) >= halte_spread %}Peak-Leiter L3 (halten fuer VE, Reserve {{ve_res}}%, Spread {{(ve_avg - cur)|round(1)}}ct) {%- elif aktiv and soc >= 0 and p_n and soc <= ges_res + band %}Peak-Leiter L4 (halten fuer Peaks, Reserve {{ges_res}}%) {%- elif ueb and day and veto and hv_maxsoc and soc >= 0 and soc < maxsoc %}Ueberschuss-Veto ({{ state_attr('binary_sensor.opti_ueberschuss_veto_aktiv','export_ohne_akku_w') }}W Export sticht Ziel-SoC {{target}}%) {%- elif soc > minsoc and soc < target - H and day %}dyn bis Ziel (tag) {%- elif soc > target + (0 if is_state('input_select.akkusteuerung_modus','Akku nur Entladen') else H) %}ueber Ziel-SoC {%- elif soc >= 0 and not has_value('sensor.opti_price_level')
            %}Preisniveau fehlt (Dynamisch)
         {%- elif soc >= 0 %}Default (Nacht/keine Aktion) {%- else %}opti_soc fehlt{% endif %}
       ist_modus: '{{ states(''input_select.akkusteuerung_modus'') }}'

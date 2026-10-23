@@ -143,20 +143,6 @@ strategy:
   actions:
   - alias: Zwischen Speicherszenarien wählen
     choose:
-    - alias: 'Modus ''nur Laden'' (Entladesperre): MinSOC-Schutz, SOC an oder unter MinSOC (tag+nacht)'
-      conditions:
-      - condition: template
-        value_template: |-
-          {% set soc = states('sensor.opti_soc') | float(none) %}
-          {% set minimum = states('input_number.minsoc') | float(none) %}
-          {{ is_number(soc) and is_number(minimum) and soc <= minimum }}
-      sequence:
-      - action: input_select.select_option
-        decision_id: minimum_soc
-        data:
-          option: Akku nur Laden
-        target:
-          entity_id: input_select.akkusteuerung_modus
     - alias: 'Modus ''Netzladen'': Preis unter Einspeiseverguetung, Prognose schlecht (tag+nacht)'
       conditions:
       - condition: state
@@ -204,6 +190,20 @@ strategy:
           option: Akku Netzladen
         target:
           entity_id: input_select.akkusteuerung_modus
+    - alias: 'Modus ''nur Laden'' (Entladesperre): MinSOC-Schutz, SOC an oder unter MinSOC (tag+nacht)'
+      conditions:
+      - condition: template
+        value_template: |-
+          {% set soc = states('sensor.opti_soc') | float(none) %}
+          {% set minimum = states('input_number.minsoc') | float(none) %}
+          {{ is_number(soc) and is_number(minimum) and soc <= minimum }}
+      sequence:
+      - action: input_select.select_option
+        decision_id: minimum_soc
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
     - alias: 'Netz-Balancing im MinSOC-Halteband: Laden statt Peak-Entladung'
       conditions:
       - condition: state
@@ -233,7 +233,7 @@ strategy:
           option: Akku nur Laden
         target:
           entity_id: input_select.akkusteuerung_modus
-    - alias: 'Peak-Leiter L1 ''nur Entladen'': Preisspitze VERY_EXPENSIVE'
+    - alias: 'Peak-Leiter L1 ''nur Entladen'' (tagsueber Dynamisch fuer PV-Laden): Preisspitze VERY_EXPENSIVE'
       conditions:
       - condition: template
         value_template: "{{ not is_state('binary_sensor.opti_extreme_price_hold', 'on') }}"
@@ -254,10 +254,21 @@ strategy:
       - action: input_select.select_option
         decision_id: peak_l1
         data:
-          option: Akku nur Entladen
+          option: |-
+            {% set maximum = states('input_number.maxsoc')|float(95) %} {% set band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
+                and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maximum else 0 %}
+            {# Tagsueber PV-Ueberschuss laden statt einspeisen: Dynamisch entlaedt bei
+               Defizit wie 'nur Entladen', sperrt aber das Laden nicht. #}
+            {{ 'Akku Dynamisch'
+               if is_state('input_boolean.opti_pv_ueberschuss_ladung', 'on')
+                  and is_state('sun.sun', 'above_horizon')
+                  and has_value('sensor.opti_soc')
+                  and is_number(states('input_number.maxsoc'))
+                  and (states('sensor.opti_soc') | float) < maximum - band
+               else 'Akku nur Entladen' }}
         target:
           entity_id: input_select.akkusteuerung_modus
-    - alias: 'Peak-Leiter L2 ''nur Entladen'': EXPENSIVE, SoC ueber VE-Reserve'
+    - alias: 'Peak-Leiter L2 ''nur Entladen'' (tagsueber Dynamisch fuer PV-Laden): EXPENSIVE, SoC ueber VE-Reserve'
       conditions:
       - condition: template
         value_template: "{{ not is_state('binary_sensor.opti_extreme_price_hold', 'on') }}"
@@ -280,7 +291,18 @@ strategy:
       - action: input_select.select_option
         decision_id: peak_l2
         data:
-          option: Akku nur Entladen
+          option: |-
+            {% set maximum = states('input_number.maxsoc')|float(95) %} {% set band = 3 if is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
+                and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc')|float(-1) == maximum else 0 %}
+            {# Tagsueber PV-Ueberschuss laden statt einspeisen: Dynamisch entlaedt bei
+               Defizit wie 'nur Entladen', sperrt aber das Laden nicht. #}
+            {{ 'Akku Dynamisch'
+               if is_state('input_boolean.opti_pv_ueberschuss_ladung', 'on')
+                  and is_state('sun.sun', 'above_horizon')
+                  and has_value('sensor.opti_soc')
+                  and is_number(states('input_number.maxsoc'))
+                  and (states('sensor.opti_soc') | float) < maximum - band
+               else 'Akku nur Entladen' }}
         target:
           entity_id: input_select.akkusteuerung_modus
     - alias: 'Modus ''nur Laden'' (Balancing-Watchdog): tagsueber PV-Vollladung fuers BMS-Balancing'

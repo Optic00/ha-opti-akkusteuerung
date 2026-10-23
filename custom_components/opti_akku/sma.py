@@ -68,6 +68,7 @@ SETTLING_SECONDS = 330
 SETTLING_CHARGE_W = 500
 REGISTER_GAP_SECONDS = 0.5
 COMMAND_DELAY_SECONDS = 2.0
+DISARM_TIMEOUT_SECONDS = 3.0
 BMS_TRANSACTION_SECONDS = 9.0
 STATUS_MAX_AGE_SECONDS = 30.0
 
@@ -148,6 +149,11 @@ class SmaDevice:
         self._status: int | None = None
         self._status_at: float | None = None
         self._dynamic_since: float | None = None
+        # A positive 40149 (fast discharge) survives 803 and would discharge for
+        # the 2 s after a later 802 until the new setpoint lands.
+        self._discharge_setpoint_armed = False
+        # True only after an acknowledged 802 with no 803 attempted since.
+        self._rail_confirmed = False
         self.last_write: datetime | None = None
         self.last_write_values: dict[str, Any] | None = None
         self.last_mode: str | None = None
@@ -357,7 +363,11 @@ class SmaDevice:
         if self._read_only:
             self.blocked_write_attempts += 1
             raise PermissionError("Shadow device cannot write Modbus registers")
+        if address == 40151:
+            self._rail_confirmed = False
         await self.unit.write_registers(address, encode_s32(value))
+        if address == 40151 and value == 802:
+            self._rail_confirmed = True
         if self._write_trace is not None:
             self._write_trace.append((address, value))
             self._last_acknowledged_write_at = datetime.now(UTC)
@@ -386,17 +396,30 @@ class SmaDevice:
 
     async def _cleanup(self) -> None:
         """Best-effort conservative pause; status gate still applies to cleanup."""
-        async with asyncio.timeout(12):
+        # The optional setpoint clear gets its own slice so the pause keeps 12 s.
+        async with asyncio.timeout(12 + DISARM_TIMEOUT_SECONDS):
             # The failed transaction may have aged the cached status past its
             # limit; judge cleanup by a fresh read, not by that leftover.
             await self._read_status()
             self._ensure_status()
+            if self._discharge_setpoint_armed and self._rail_confirmed:
+                try:
+                    async with asyncio.timeout(DISARM_TIMEOUT_SECONDS):
+                        await self._disarm_discharge_setpoint()
+                except Exception:  # noqa: BLE001 - the pause below matters more
+                    pass
             await self._write(40151, 803)
             await self._sleep(REGISTER_GAP_SECONDS)
             await self._bms((0, 0, 0, 0), 303, self._ensure_status)
         self.last_mode = PAUSE
         self.last_write = datetime.now(UTC)
         self._dynamic_since = None
+
+    async def _disarm_discharge_setpoint(self) -> None:
+        # Reference sequence 802 -> 40149 -> 803: clear it while 802 is active.
+        await self._write(40149, 0)
+        await self._sleep(REGISTER_GAP_SECONDS)
+        self._discharge_setpoint_armed = False
 
     async def _protected_cleanup(self) -> str | None:
         # Keep the serialization lock until cleanup has actually ended, even if
@@ -457,6 +480,16 @@ class SmaDevice:
                 else:
                     self._dynamic_since = None
 
+                # Only clear under a confirmed 802; 40149 under 803 is unverified.
+                if (
+                    self._discharge_setpoint_armed
+                    and mode != FAST_DISCHARGE
+                    and self._rail_confirmed
+                ):
+                    guard()
+                    touched = True
+                    await self._disarm_discharge_setpoint()
+                    guard()
                 # Unknown start state may still have an old 802 rail active.
                 # CmpBMS writes during 802 are discarded: deactivate it FIRST.
                 # AUTO has no explicit power setpoint: its current limits must
@@ -483,7 +516,11 @@ class SmaDevice:
                             GRID_CHARGE: -p["charge_power_w"],
                             CHARGE_02C: -p["power_02c_w"],
                         }[mode]
+                        if power > 0:
+                            self._discharge_setpoint_armed = True
                         await self._write(40149, power)
+                        if power <= 0:
+                            self._discharge_setpoint_armed = False
                     guard()
                 else:
                     target = p["charge_power_w"]

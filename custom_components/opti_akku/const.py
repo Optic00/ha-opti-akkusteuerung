@@ -1,6 +1,8 @@
 """Constants and the user-facing data-source contract."""
 from homeassistant.const import Platform
 
+from .source_quality import DEFAULT_FORECAST_MAX_AGE
+
 DOMAIN = "opti_akku"
 NAME = "Opti Akku"
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.NUMBER, Platform.SWITCH, Platform.SELECT, Platform.BUTTON]
@@ -34,4 +36,4 @@ EV_SOURCE_KEYS = (
     "ev1_mode", "ev1_charging", "ev1_smart_cost", "ev1_power",
     "ev2_mode", "ev2_charging", "ev2_smart_cost", "ev2_power",
 )
-DEFAULT_OPTIONS = {"sources": {}, "settings": {}, "price_unit": "EUR/kWh", "source_max_age": 900, "forecast_max_age": 21600, "price_max_age": 7200, "single_writer_confirmed": False, "single_inverter": False}
+DEFAULT_OPTIONS = {"sources": {}, "settings": {}, "price_unit": "EUR/kWh", "source_max_age": 900, "forecast_max_age": DEFAULT_FORECAST_MAX_AGE, "price_max_age": 7200, "single_writer_confirmed": False, "single_inverter": False}

@@ -144,13 +144,15 @@ def test_omitted_source_does_not_reuse_persisted_value_and_recovers():
     assert evaluate(engine, now=NOW + dt.timedelta(seconds=60)).mode == "Akku Dynamisch"
 
 
-def test_minsoc_precedes_price_and_forecast_rules():
-    result = evaluate(states=measurements(**{
-        SOC: 5, "sensor.opti_price_current_ct_kwh": -10,
-        "sensor.opti_forecast_remaining_today_kwh": 0,
-    }))
+def test_minsoc_precedes_forecast_rules_but_not_grid_charging():
+    states = {SOC: 5, "sensor.opti_forecast_remaining_today_kwh": 0}
+    result = evaluate(states=measurements(**states))
     assert result.mode == "Akku nur Laden"
     assert result.reason.startswith("MinSOC")
+    # Issue #154: grid charging never discharges, so it may run at the floor.
+    result = evaluate(states=measurements(**states, **{"sensor.opti_price_current_ct_kwh": -10}))
+    assert result.mode == "Akku Netzladen"
+    assert result.decision_id == "negative_price"
 
 
 @pytest.mark.parametrize("minimum", [0, 5, 10])
@@ -911,6 +913,68 @@ def test_fresh_peak_horizon_score_two_starts_short_but_missing_score_starts_long
     assert evaluate(StrategyEngine(), states, attrs, now).states["binary_sensor.opti_peak_horizont_lang"] == "on"
 
 
+def _night_horizon_states(load_w, forecast_kwh=2.5, sun="below_horizon"):
+    # Issue #124: with a constant forecast of 2.5 kWh the sun-day score is
+    # 1 at 700 W, 3 at 407 W and 2 at 530 W house load.
+    return measurements(**{
+        "sun.sun": sun,
+        "sensor.opti_house_consumption_w": load_w,
+        "sensor.opti_house_consumption_60min_w": load_w,
+        "sensor.opti_forecast_today_kwh": forecast_kwh,
+    })
+
+
+_NIGHT_ATTRS = {"sun.sun": {"next_rising": "2026-07-27T05:45:00+02:00",
+                            "next_setting": "2026-07-27T21:00:00+02:00"}}
+
+
+def test_peak_horizon_night_latch_ignores_load_driven_score_jumps():
+    engine = StrategyEngine()
+    now = dt.datetime(2026, 7, 27, 0, 5, tzinfo=TZ)
+    entity = "binary_sensor.opti_peak_horizont_lang"
+    first = evaluate(engine, _night_horizon_states(700), _NIGHT_ATTRS, now)
+    assert first.states["sensor.opti_forecast_score_sonnentag"] == "1"
+    assert first.states[entity] == "on"
+    second = evaluate(engine, _night_horizon_states(407), _NIGHT_ATTRS, now + dt.timedelta(minutes=1))
+    assert second.states["sensor.opti_forecast_score_sonnentag"] == "3"
+    assert second.states[entity] == "on"
+    assert "Nacht: Vorzustand" in second.attributes[entity]["branch"]
+    third = evaluate(engine, _night_horizon_states(530), _NIGHT_ATTRS, now + dt.timedelta(minutes=2))
+    assert third.states["sensor.opti_forecast_score_sonnentag"] == "2"
+    assert third.states[entity] == "on"
+    restored = StrategyEngine()
+    restored.restore(engine.snapshot())
+    assert evaluate(restored, _night_horizon_states(407), _NIGHT_ATTRS,
+                    now + dt.timedelta(minutes=3)).states[entity] == "on"
+    # A night-time short horizon only becomes long at score <= 1, as before.
+    short = StrategyEngine()
+    assert evaluate(short, _night_horizon_states(530), _NIGHT_ATTRS, now).states[entity] == "off"
+    assert evaluate(short, _night_horizon_states(407), _NIGHT_ATTRS, now + dt.timedelta(minutes=1)).states[entity] == "off"
+    assert evaluate(short, _night_horizon_states(700), _NIGHT_ATTRS, now + dt.timedelta(minutes=2)).states[entity] == "on"
+
+
+def test_peak_horizon_day_hysteresis_still_switches_off_at_score_three():
+    engine = StrategyEngine()
+    now = dt.datetime(2026, 7, 27, 0, 5, tzinfo=TZ)
+    entity = "binary_sensor.opti_peak_horizont_lang"
+    assert evaluate(engine, _night_horizon_states(700), _NIGHT_ATTRS, now).states[entity] == "on"
+    assert evaluate(engine, _night_horizon_states(407), _NIGHT_ATTRS, now + dt.timedelta(minutes=1)).states[entity] == "on"
+    sunrise = dt.datetime(2026, 7, 27, 6, 0, tzinfo=TZ)
+    day_attrs = {"sun.sun": {"next_rising": "2026-07-28T05:46:00+02:00",
+                             "next_setting": "2026-07-27T21:00:00+02:00"}}
+    # After sunrise the sun-day score reads tomorrow's forecast; score 2 is still held.
+    states = _night_horizon_states(530, sun="above_horizon")
+    states["sensor.opti_forecast_tomorrow_kwh"] = 2.5
+    held = evaluate(engine, states, day_attrs, sunrise)
+    assert held.states["sensor.opti_forecast_score_sonnentag"] == "2"
+    assert held.states[entity] == "on"
+    states = _night_horizon_states(407, sun="above_horizon")
+    states["sensor.opti_forecast_tomorrow_kwh"] = 2.5
+    released = evaluate(engine, states, day_attrs, sunrise + dt.timedelta(minutes=1))
+    assert released.states["sensor.opti_forecast_score_sonnentag"] == "3"
+    assert released.states[entity] == "off"
+
+
 def test_ev_score_statistic_is_separate_and_invalid_sample_hides_history():
     engine = StrategyEngine()
     states = measurements(**{"sensor.opti_house_consumption_w": 2200,
@@ -977,6 +1041,74 @@ def test_forecast_optimism_blend_drives_current_and_tomorrow_scores():
     result = evaluate(states=states, attributes=attrs)
     assert float(result.states["sensor.opti_forecast_effective_remaining_kwh"]) == 15
     assert result.attributes["sensor.opti_forecast_score_tomorrow"]["alpha"] == 0.5
+
+
+@pytest.mark.parametrize("p10,expected", [
+    (0, "0"),        # a true P10 of zero is pessimistic, not "missing"
+    (0.001, "0"),    # tiny positive P10 behaves as before
+    (None, "10"),    # missing attribute falls back to the median
+    (-1, "10"),      # invalid (negative) attribute falls back to the median
+    ("abc", "10"),   # non-numeric attribute falls back to the median
+])
+def test_zero_p10_counts_as_valid_for_tomorrow_and_sun_day_scores(p10, expected):
+    states = measurements(**{"sensor.opti_forecast_tomorrow_kwh": 20, "input_number.opti_forecast_optimismus": 0})
+    attrs = solar_attrs()
+    if p10 is not None:
+        attrs["sensor.opti_forecast_tomorrow_kwh"] = {"estimate10": p10}
+    result = evaluate(states=states, attributes=attrs)
+    assert result.states["sensor.opti_forecast_score_tomorrow"] == expected
+    assert result.states["sensor.opti_forecast_score_sonnentag"] == expected
+    assert float(result.attributes["sensor.opti_forecast_score_tomorrow"]["p10_kwh"]) == (
+        20 if p10 in (None, -1, "abc") else round(p10, 2))
+
+
+def test_day_score_is_unavailable_without_house_load_instead_of_assuming_400_w():
+    states = measurements(**{"sensor.opti_house_consumption_w": "unavailable",
+                             "sensor.opti_house_consumption_60min_w": "unavailable"})
+    result = evaluate(states=states)
+    assert result.states["sensor.opti_forecast_score"] == "unavailable"
+    assert result.states["sensor.opti_forecast_score_sonnentag"] == "unavailable"
+    states["sensor.opti_house_consumption_w"] = 400
+    assert evaluate(states=states).states["sensor.opti_forecast_score"] == "10"
+
+
+def test_minimum_discharge_price_is_display_only():
+    """The tariff margin feeds one sensor; no decision branch or template reads it."""
+    resources = load_resources()
+    text = json.dumps(resources["strategy"])
+    assert "opti_mindestentladepreis_ct_kwh" not in text.replace(
+        '"sensor.opti_mindestentladepreis_ct_kwh"', "")  # only the trigger entity list
+    others = json.dumps({key: value for key, value in resources.items() if key != "strategy"})
+    assert others.count("opti_mindestentladepreis_ct_kwh") == 1  # the sensor definition itself
+    for soc, price in ((50, 10), (50, 60), (20, 35), (90, 5)):
+        base = measurements(**{SOC: soc, "sensor.opti_price_current_ct_kwh": price,
+                               "input_number.ladepreis": 0.2})
+        cheap = evaluate(states={**base, "input_number.mindestpreisdifferenz_lade_entladepreis": 0})
+        dear = evaluate(states={**base, "input_number.mindestpreisdifferenz_lade_entladepreis": 0.3})
+        assert (cheap.mode, cheap.reason) == (dear.mode, dear.reason)
+        assert float(cheap.states["sensor.opti_mindestentladepreis_ct_kwh"]) == 20
+        assert float(dear.states["sensor.opti_mindestentladepreis_ct_kwh"]) == 50
+
+
+def test_zero_p10_drives_effective_remaining_target_soc_and_preview():
+    """Median 20, P10 0, optimism 0: effectively nothing is left, not 20 kWh."""
+    states = measurements(**{"sensor.opti_forecast_remaining_today_kwh": 20,
+                             "input_number.opti_forecast_optimismus": 0})
+    attrs = solar_attrs()
+    attrs["sensor.opti_forecast_remaining_today_kwh"] = {"estimate10": 0}
+    pessimistic = evaluate(states=states, attributes=attrs)
+    assert float(pessimistic.states["sensor.opti_forecast_effective_remaining_kwh"]) == 0
+    assert float(pessimistic.attributes["sensor.opti_forecast_effective_remaining_kwh"]["p10_kwh"]) == 0
+    empty = evaluate(states=measurements(**{"sensor.opti_forecast_remaining_today_kwh": 0,
+                                            "input_number.opti_forecast_optimismus": 0}))
+    assert pessimistic.states[TARGET] == empty.states[TARGET]
+    assert pessimistic.states["sensor.opti_forecast_score"] == empty.states["sensor.opti_forecast_score"]
+    assert (pessimistic.mode, pessimistic.reason) == (empty.mode, empty.reason)
+    assert pessimistic.states["sensor.opti_strategie_vorschau"] == pessimistic.mode
+    assert pessimistic.attributes["sensor.opti_strategie_vorschau"]["grund"] == pessimistic.reason
+    optimistic = evaluate(states=states, attributes=solar_attrs())  # attribute missing -> median
+    assert float(optimistic.states["sensor.opti_forecast_effective_remaining_kwh"]) == 20
+    assert float(optimistic.states[TARGET]) < float(pessimistic.states[TARGET])
 
 
 def test_clock_going_backwards_restarts_pending_delay():
@@ -1295,3 +1427,301 @@ def test_extreme_buffer_can_extend_only_authorized_peak_precharge(price, grid_en
     assert (result.decision_id == "peak_precharge") is charging
     assert (result.mode == "Akku Netzladen") is charging
     assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+
+
+def _daily_load_buckets(now, load_w, hours=12.0, interval_s=60, gap_at_hours=None, gap_hours=0.0):
+    """Hourly snapshot buckets of a constant load ending one interval before ``now``.
+
+    ``gap_at_hours``/``gap_hours`` punch a measurement gap into the history.
+    """
+    end = now.timestamp() - interval_s
+    count = int(hours * 3600 / interval_s)
+    stamps = [end - (count - 1 - index) * interval_s for index in range(count)]
+    if gap_at_hours is not None:
+        gap_start = end - gap_at_hours * 3600
+        stamps = [stamp for stamp in stamps if not gap_start <= stamp < gap_start + gap_hours * 3600]
+    buckets: dict[int, list] = {}
+    for stamp in stamps:
+        bucket = buckets.get(int(stamp // 3600))
+        if bucket is None:
+            buckets[int(stamp // 3600)] = [stamp, stamp, float(load_w), 1, 0.0]
+        else:
+            bucket[4] = max(bucket[4], stamp - bucket[1])
+            bucket[1], bucket[2], bucket[3] = stamp, bucket[2] + load_w, bucket[3] + 1
+    return [row for _, row in sorted(buckets.items())]
+
+
+def _restored_engine(now, **histories):
+    engine = StrategyEngine()
+    engine.restore({"version": 1, "buckets": histories})
+    return engine
+
+
+DAILY = "sensor.opti_house_consumption_24h_w"
+DAILY_EV = "sensor.opti_forecast_house_24h_w"
+SUNNY = "sensor.opti_forecast_score_sonnentag"
+HORIZON = "binary_sensor.opti_peak_horizont_lang"
+
+
+def test_statistics_sample_interval_rasters_samples_and_reports_coverage():
+    engine = StrategyEngine()
+    for offset_s, load_w in ((0, 400), (15, 800), (30, 800), (60, 800), (3600, 1000)):
+        result = evaluate(engine, measurements(**{"sensor.opti_house_consumption_w": load_w}),
+                          now=NOW + dt.timedelta(seconds=offset_s))
+    snapshot = engine.snapshot()
+    assert DAILY not in snapshot["samples"]  # rastered windows are stored as hourly buckets only
+    assert snapshot["buckets"][DAILY] == [
+        [round(NOW.timestamp()), round(NOW.timestamp()) + 60, 1200.0, 2, 60],
+        [round(NOW.timestamp()) + 3600, round(NOW.timestamp()) + 3600, 1000.0, 1, 0],
+    ]  # 15 s and 30 s fell inside the 60 s raster
+    assert float(result.states[DAILY]) == pytest.approx(733, abs=1)
+    attrs = result.attributes[DAILY]
+    assert attrs["sample_count"] == 3
+    assert attrs["age_coverage_ratio"] == pytest.approx(3600 / 86400, abs=0.001)
+    assert attrs["sample_coverage_ratio"] == pytest.approx(3 / 1440, abs=0.001)
+    assert attrs["max_gap_seconds"] == 3540
+    assert attrs["coverage_ok"] is False
+    # The 60-minute statistic keeps sampling every evaluation and stays raw in the snapshot.
+    assert len(snapshot["samples"]["sensor.opti_house_consumption_60min_w"]) == 5
+    assert "coverage_ok" not in result.attributes["sensor.opti_house_consumption_60min_w"]
+
+
+def test_night_scores_use_daily_mean_once_coverage_is_real():
+    # Issue #124 (tatec22): forecast 2.48 kWh, house load 700 -> 407 -> 530 W at night.
+    now = dt.datetime(2026, 7, 27, 0, 5, tzinfo=TZ)
+    legacy = StrategyEngine()
+    seen = []
+    for minute, load_w in enumerate((700, 407, 530)):
+        result = evaluate(legacy, _night_horizon_states(load_w, 2.48), _NIGHT_ATTRS, now + dt.timedelta(minutes=minute))
+        seen.append(result.states[SUNNY])
+        assert result.attributes[SUNNY]["load_source"] == "legacy_60min_extrapolation"
+    assert seen == ["1", "3", "2"]  # 60-min extrapolation: the base load alone flips the score
+
+    engine = _restored_engine(now, **{DAILY: _daily_load_buckets(now, 700)})
+    seen, horizons = [], []
+    for minute, load_w in enumerate((700, 407, 530)):
+        result = evaluate(engine, _night_horizon_states(load_w, 2.48), _NIGHT_ATTRS, now + dt.timedelta(minutes=minute))
+        seen.append(result.states[SUNNY])
+        horizons.append(result.states[HORIZON])
+        for score in (SUNNY, "sensor.opti_forecast_score_tomorrow"):
+            assert result.attributes[score]["load_source"] == "tagesmittel_24h"
+            assert float(result.attributes[score]["tagesmittel_24h_w"]) == pytest.approx(700, abs=1)
+            assert float(result.attributes[score]["tagesbedarf_w"]) == pytest.approx(700, abs=1)
+        assert result.attributes[DAILY]["coverage_ok"] is True
+    # 2.48 kWh / (0.7 kW x 24 h) = 15 % -> score 1 regardless of the current hour's load.
+    assert seen == ["1", "1", "1"]
+    assert horizons == ["on", "on", "on"]
+
+
+@pytest.mark.parametrize("history", [
+    pytest.param({"hours": 11}, id="under_half_a_day"),
+    pytest.param({"hours": 14, "gap_at_hours": 7, "gap_hours": 2.5}, id="gap_over_two_hours"),
+    pytest.param({"hours": 12, "interval_s": 12 * 3600 - 60}, id="two_samples_twelve_hours_apart"),
+])
+def test_unreliable_daily_mean_keeps_the_legacy_extrapolation(history):
+    now = dt.datetime(2026, 7, 27, 0, 5, tzinfo=TZ)
+    engine = _restored_engine(now, **{DAILY: _daily_load_buckets(now, 700, **history)})
+    result = evaluate(engine, _night_horizon_states(407, 2.48), _NIGHT_ATTRS, now)
+    assert result.attributes[DAILY]["coverage_ok"] is False
+    assert result.attributes[SUNNY]["load_source"] == "legacy_60min_extrapolation"
+    assert result.states[SUNNY] == "3"
+
+
+def test_gap_up_to_now_counts_against_the_daily_mean():
+    now = dt.datetime(2026, 7, 27, 0, 5, tzinfo=TZ)
+    engine = _restored_engine(now - dt.timedelta(hours=3), **{DAILY: _daily_load_buckets(now - dt.timedelta(hours=3), 700, hours=14)})
+    result = evaluate(engine, _night_horizon_states(407, 2.48), _NIGHT_ATTRS, now)
+    assert result.attributes[DAILY]["max_gap_seconds"] == pytest.approx(3 * 3600 + 60, abs=1)
+    assert result.attributes[DAILY]["coverage_ok"] is False
+    assert result.states[SUNNY] == "3"
+
+
+def test_daily_mean_samples_the_base_load_like_the_sixty_minute_chain():
+    # 2200 W house load, 700 W base load (excluded EV charger), 6 kWh forecast: score 4 before and after.
+    now = dt.datetime(2026, 7, 27, 0, 5, tzinfo=TZ)
+    states = _night_horizon_states(2200, 6.0)
+    states["sensor.opti_base_load_raw_w"] = 700
+    states["sensor.opti_house_consumption_60min_w"] = 700  # supplied by the coordinator in the plant modes
+    fresh = StrategyEngine()
+    assert evaluate(fresh, states, _NIGHT_ATTRS, now).states[SUNNY] == "4"
+    assert fresh.snapshot()["buckets"][DAILY][0][2] == 700.0  # sampled the base load, not the house load
+    engine = _restored_engine(now, **{DAILY: _daily_load_buckets(now, 700)})
+    result = evaluate(engine, states, _NIGHT_ATTRS, now)
+    assert result.attributes[SUNNY]["load_source"] == "tagesmittel_24h"
+    assert result.states[SUNNY] == "4"
+    # Legacy plants never supply the base load: the house load is the fallback source.
+    legacy = StrategyEngine()
+    evaluate(legacy, _night_horizon_states(2200, 6.0), _NIGHT_ATTRS, now)
+    assert legacy.snapshot()["buckets"][DAILY][0][2] == 2200.0
+    # An unavailable primary source yields no sample instead of silently mixing semantics.
+    states["sensor.opti_base_load_raw_w"] = "unavailable"
+    unavailable = StrategyEngine()
+    evaluate(unavailable, states, _NIGHT_ATTRS, now)
+    assert DAILY not in unavailable.snapshot()["buckets"]
+
+
+def test_configured_minimum_load_applies_to_the_daily_mean():
+    now = dt.datetime(2026, 7, 27, 0, 5, tzinfo=TZ)
+    engine = _restored_engine(now, **{DAILY: _daily_load_buckets(now, 100)})
+    states = _night_horizon_states(100, 2.48)
+    attrs = {**_NIGHT_ATTRS, "sensor.opti_house_raw_w": {"forecast_min_load_w": 1000}}
+    result = evaluate(engine, states, attrs, now)
+    assert float(result.attributes[SUNNY]["tagesmittel_24h_w"]) == pytest.approx(100, abs=1)
+    assert float(result.attributes[SUNNY]["tagesbedarf_w"]) == 1000
+    assert result.states[SUNNY] == "1"  # 2.48 / 24 kWh; without the floor it would be 10
+    assert result.states["binary_sensor.opti_pv_reichtag"] == "off"
+    without_floor = evaluate(_restored_engine(now, **{DAILY: _daily_load_buckets(now, 100)}), states, _NIGHT_ATTRS, now)
+    assert without_floor.states[SUNNY] == "10"
+
+
+def test_ev_option_uses_the_ev_adjusted_daily_mean_and_reset_drops_it():
+    now = dt.datetime(2026, 7, 27, 0, 5, tzinfo=TZ)
+    engine = _restored_engine(now, **{DAILY: _daily_load_buckets(now, 2200), DAILY_EV: _daily_load_buckets(now, 700)})
+    states = _night_horizon_states(2200, 2.48)
+    states.update({"sensor.opti_forecast_house_instant_w": 700,
+                   "input_boolean.opti_score_house_includes_ev": "on"})
+    result = evaluate(engine, states, _NIGHT_ATTRS, now)
+    assert result.states[SUNNY] == "1"
+    assert float(result.attributes[SUNNY]["tagesmittel_24h_w"]) == pytest.approx(700, abs=1)
+    states["sensor.opti_forecast_house_instant_w"] = "unavailable"
+    invalid = evaluate(engine, states, _NIGHT_ATTRS, now + dt.timedelta(minutes=1))
+    assert invalid.states[DAILY_EV] == "unavailable"
+    assert invalid.attributes[SUNNY]["load_source"] == "legacy_60min_extrapolation"
+    engine.reset_score_statistics()
+    assert DAILY_EV not in engine.snapshot()["buckets"]
+    assert DAILY in engine.snapshot()["buckets"]
+    engine.reset_load_statistics()
+    assert DAILY not in engine.snapshot()["buckets"]
+
+
+def test_daily_statistics_snapshot_stays_small_and_restores_mean_and_coverage():
+    resource = load_resources()
+    resource["template_blocks"] = []
+    resource["balancing_automations"] = []
+    engine = StrategyEngine(resource)
+    # Worst case for the JSON size: sub-second timestamps and fractional loads
+    # are persisted unrounded.
+    start = NOW - dt.timedelta(hours=25) + dt.timedelta(microseconds=999999)
+    for minute in range(25 * 60 + 1):
+        engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500.37 + minute % 7,
+                                        "sensor.opti_forecast_house_instant_w": 300.21 + minute % 5,
+                                        "input_boolean.opti_score_house_includes_ev": "on"}),
+                        solar_attrs(), start + dt.timedelta(minutes=minute))
+    snapshot = engine.snapshot()
+    for entity in (DAILY, DAILY_EV):
+        assert entity not in snapshot["samples"]
+        assert len(snapshot["buckets"][entity]) <= 26
+    extra = json.dumps({key: snapshot["buckets"][key] for key in (DAILY, DAILY_EV)}, indent=2)
+    assert len(extra.encode()) < 8000  # was ~200 kB with 2 x 1440 raw minute samples (HA JSON formatting)
+    assert len(json.dumps(snapshot["samples"]["sensor.opti_house_consumption_60min_w"])) < 2000
+    before = engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), NOW)
+    restored = StrategyEngine(resource)
+    restored.restore(snapshot)
+    after = restored.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), NOW)
+    for entity in (DAILY, DAILY_EV):
+        assert after.states[entity] == before.states[entity]
+        assert after.attributes[entity]["sample_count"] == before.attributes[entity]["sample_count"]
+        assert after.attributes[entity]["coverage_ok"] is True
+        assert after.attributes[entity]["sample_coverage_ratio"] >= 0.99
+    # The raster continues after a restore and later snapshots merge new minutes into the hour buckets.
+    # A restored bucket counts only while it lies entirely inside the window: once
+    # its first sample expires the whole hour drops out (<= 1 h underhang, never
+    # expired samples in mean or coverage). The raster still holds: no new
+    # sample 30 s after the last one, one more a minute later.
+    mid = restored.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), NOW + dt.timedelta(seconds=30))
+    assert mid.attributes[DAILY]["sample_count"] == after.attributes[DAILY]["sample_count"] - 60
+    later = restored.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), NOW + dt.timedelta(seconds=60))
+    assert later.attributes[DAILY]["sample_count"] == mid.attributes[DAILY]["sample_count"] + 1
+    assert later.attributes[DAILY]["sample_coverage_ratio"] >= 0.95
+    assert later.attributes[DAILY]["coverage_ok"] is True
+    merged = restored.snapshot()["buckets"][DAILY]
+    assert len(merged) <= 26 and sum(row[3] for row in merged) == later.attributes[DAILY]["sample_count"]
+
+
+def test_restore_never_reports_more_coverage_than_the_live_engine():
+    """Alternating one hour of samples and one hour of gap must stay gated after a restore."""
+    resource = load_resources()
+    resource["template_blocks"] = []
+    resource["balancing_automations"] = []
+    engine = StrategyEngine(resource)
+    start = NOW - dt.timedelta(hours=26, minutes=30)
+    for minute in range(26 * 60 + 31):
+        # 50 minutes of samples per two hours: ~42 % coverage, gaps of 70 minutes.
+        load = 500 if minute % 120 < 50 else "unavailable"
+        engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": load}), solar_attrs(),
+                        start + dt.timedelta(minutes=minute))
+    live = engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), NOW)
+    restored = StrategyEngine(resource)
+    restored.restore(engine.snapshot())
+    after = restored.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), NOW)
+    assert live.attributes[DAILY]["coverage_ok"] is False
+    assert after.attributes[DAILY]["coverage_ok"] is False
+    assert after.attributes[DAILY]["sample_coverage_ratio"] <= live.attributes[DAILY]["sample_coverage_ratio"]
+    assert after.attributes[DAILY]["sample_count"] <= live.attributes[DAILY]["sample_count"]
+
+
+def test_restore_keeps_sub_second_timestamps_so_no_extra_sample_becomes_due():
+    """719 samples at hh:mm:00.4, evaluated 59.8 s after the last one: live and restored agree."""
+    resource = load_resources()
+    resource["template_blocks"] = []
+    resource["balancing_automations"] = []
+    engine = StrategyEngine(resource)
+    start = NOW - dt.timedelta(hours=12) + dt.timedelta(milliseconds=400)
+    last = start
+    for minute in range(719):
+        last = start + dt.timedelta(minutes=minute)
+        engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), last)
+    snapshot = engine.snapshot()
+    probe = last + dt.timedelta(seconds=59.8)
+    live = engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), probe)
+    restored = StrategyEngine(resource)
+    restored.restore(snapshot)
+    after = restored.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), probe)
+    # Live and restored engines must agree exactly (count, gate, mean); with the
+    # raster tolerance both may take the 59.8 s sample, never only one of them.
+    assert after.attributes[DAILY]["sample_count"] == live.attributes[DAILY]["sample_count"]
+    assert after.attributes[DAILY]["coverage_ok"] is live.attributes[DAILY]["coverage_ok"]
+    assert after.attributes[DAILY]["sample_coverage_ratio"] == live.attributes[DAILY]["sample_coverage_ratio"]
+    assert after.states[DAILY] == live.states[DAILY]
+
+
+@pytest.mark.parametrize("offset_us, probe_s", [(400400, 58.9998), (400000, 59.8), (999999, 59.0)])
+def test_restore_agrees_with_live_at_any_sub_second_offset(offset_us, probe_s):
+    """Rounding the persisted timestamps to any precision shifts the early-sample error, so none is allowed."""
+    resource = load_resources()
+    resource["template_blocks"] = []
+    resource["balancing_automations"] = []
+    engine = StrategyEngine(resource)
+    start = NOW - dt.timedelta(hours=12) + dt.timedelta(microseconds=offset_us)
+    last = start
+    for minute in range(719):
+        last = start + dt.timedelta(minutes=minute)
+        engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), last)
+    snapshot = json.loads(json.dumps(engine.snapshot()))
+    probe = last + dt.timedelta(seconds=probe_s)
+    live = engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), probe)
+    restored = StrategyEngine(resource)
+    restored.restore(snapshot)
+    after = restored.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(), probe)
+    assert after.attributes[DAILY]["sample_count"] == live.attributes[DAILY]["sample_count"]
+    assert after.attributes[DAILY]["coverage_ok"] is live.attributes[DAILY]["coverage_ok"]
+    assert after.states[DAILY] == live.states[DAILY]
+
+
+@pytest.mark.parametrize("steps_per_hour", [7, 11])
+def test_fractional_raster_steps_do_not_lose_samples(steps_per_hour):
+    """Replay cadences of 3600/n s carry float noise; the raster must not skip samples."""
+    resource = load_resources()
+    resource["template_blocks"] = []
+    resource["balancing_automations"] = []
+    for definition in resource["statistics"]:
+        if "sample_interval" in definition:
+            definition["sample_interval"] = {"seconds": 3600 / steps_per_hour}
+    engine = StrategyEngine(resource)
+    start = NOW - dt.timedelta(hours=48)
+    steps = 48 * steps_per_hour
+    for index in range(steps + 1):
+        result = engine.evaluate(measurements(**{"sensor.opti_house_consumption_w": 500}), solar_attrs(),
+                                 start + dt.timedelta(seconds=index * 3600 / steps_per_hour))
+    assert result.attributes[DAILY]["sample_coverage_ratio"] >= 0.99
+    assert result.attributes[DAILY]["coverage_ok"] is True

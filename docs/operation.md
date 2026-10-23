@@ -148,6 +148,34 @@ Hysterese verhindert, dass Viertelstundenpreise mit Schwankungen um bis zu
 umschalten. Ein teurer Slot beendet das Vorladen unabhängig davon, weil der
 Spread zur Spitze dann fehlt.
 
+In teuren und sehr teuren Preisphasen entlädt der Akku bei Hausbedarf. Tagsüber
+setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, solange
+**PV-Überschussladen erlauben** eingeschaltet ist und der Ladedeckel nicht
+erreicht ist. So geht Solarüberschuss während einer Abendspitze in den Akku
+statt ins Netz. Nachts bleibt es bei „Akku nur Entladen“.
+
+Die prognose- und SoC-abhängige Ladedrossel (schonendes Laden an guten Tagen)
+wird bei PV-Spitzen gelöst: Ist **PV-Überschussladen erlauben** eingeschaltet,
+steht die Strategie auf „Akku Dynamisch“ oder „Akku nur Laden“ und gingen mehr
+als 200 W Überschuss vor dem Akku ins Netz (Einspeisung − Netzbezug +
+Akkuleistung), lädt der Akku unter 85 % SoC mit **Max. Ladeleistung**. Die
+Freigabe hält, solange der SoC unter 87 % liegt; verschwindet der Überschuss,
+endet sie erst nach 60 Sekunden durchgehend ohne Überschuss, damit kurze
+Wolkeneinbrüche keine Schreibsequenzen am Wechselrichter auslösen. Den
+Halte-Zustand führt der Binärsensor **Opti PV Spitze** (Attribut
+`kein_ueberschuss_seit`); die geplante Ladeleistung zeigt im Attribut
+`drossel_frei`, ob die Freigabe gerade wirkt. Temperaturgrenzen, Balancing-Taper
+und die manuelle Ladegrenze bleiben davon unberührt und sperren sofort; fehlen
+Einspeise-, Bezugs- oder Akkuleistung, Temperatur oder SoC, fällt der
+Binärsensor sofort auf `off` und verwirft den Timer. Nach einem Neustart oder
+einer Wiederherstellung älter als 90 Sekunden braucht die Freigabe einen neuen
+vollen Einstieg. Ist er jünger, gilt ein wiederhergestellter Halte-Zustand
+weiter, bis die reguläre Rücknahmebedingung erfüllt ist. Im Modus „Akku Netzladen“ gilt die Freigabe nie,
+damit Netzladen nicht mit Maximalleistung aus dem Netz zieht. Schalten
+Arbitrage-Halten oder die Auto-Vorbereitung nachträglich auf „Akku nur Laden“
+oder „Akku Dynamisch“, hebt die Steuerung die Drossel unter denselben
+Bedingungen ebenfalls auf (Hinweis `PV-Spitze` in `charge_power_limits`).
+
 Die eigentliche Steuerung hat drei getrennte Ebenen:
 
 1. Der Schalter **Strategie berechnen** ist die Hauptfreigabe für die Steuerung,
@@ -161,12 +189,23 @@ Die automatische MinSOC-Regel sperrt Entladung bei oder unter dem eingestellten
 Minimum. Nach diesem Eintritt hält sie den Schutz bis drei Prozentpunkte darüber;
 bei engem Abstand zum Maximum wird das Band auf den halben Abstand begrenzt.
 Bei MinSOC 10 % gibt sie also ab 13 % wieder frei. Der eigene Schutzzustand bleibt
-über Neustarts und ungültige SoC-Messungen erhalten. Änderungen der Min-/Max-Grenzen
+über Neustarts und ungültige SoC-Messungen erhalten. Ein Wechsel dieses
+Schutzes (wie auch von PV-Spitze, Ladedeckel und langem Peak-Horizont) wird
+sofort gespeichert; übrige Routinezustände (Zähler, Berichte) schreibt Opti
+Akku einmal pro Minute. Ein geordneter Stopp oder HA-Neustart speichert
+sofort, ein harter Absturz verliert höchstens die letzte Minute davon.
+Bewusste Aktionen wie Schreibfreigabe, Einstellungen oder Pause speichern
+weiterhin direkt. Änderungen der Min-/Max-Grenzen
 setzen den Haltezustand zurück; liegt der SoC über dem neuen Minimum, wird
 der Schutz freigegeben. Andere Gründe für „Akku nur Laden“ aktivieren ihn nicht.
-Innerhalb des Haltebandes bleiben zulässiges Peak-Vorladen, Negativpreis-Netzladen
-und Netz-Balancing möglich. Bei oder unter MinSOC behält die bestehende
-Entladesperre Vorrang. Die Schutzregeln der manuellen Modi gelten separat weiter.
+Zulässiges Peak-Vorladen und Netzladen unter der Einspeisevergütung haben auch
+bei oder unter MinSOC Vorrang, denn „Akku Netzladen“ entlädt nicht. Ein leerer
+Akku kann so vor einer Preisspitze günstig nachladen. Meldet der
+Wechselrichter dabei `not_ready` (bei SMA-Hybridgeräten nachts mit leerem Akku
+üblich), wird dieses Netzladen nicht geschrieben: Die Bereitschaftssperre gilt
+unverändert, der Befehl folgt erst nach `ready`. Netz-Balancing ist nur
+innerhalb des Haltebandes möglich; bei oder unter MinSOC behält die
+Entladesperre dort Vorrang. Die Schutzregeln der manuellen Modi gelten separat weiter.
 Der Schutz im Halteband hat wie die harte MinSOC-Regel Vorrang vor der
 PV-Vorbereitung fürs Auto. Dadurch kann der Hausakku während einer Autoladung
 Solarüberschuss aufnehmen, bis die Freigabegrenze erreicht ist.
@@ -399,6 +438,31 @@ Quellenfehler. Der Fehler bleibt in der Diagnose sichtbar. Bei Tageslicht,
 unbekanntem Sonnenstand oder weiteren Quellenfehlern gilt die Meldefrist von
 60 Sekunden weiterhin. Steuerung und andere Alarme ändern sich dadurch nicht.
 
+Meldet ein erreichbarer Wechselrichter nachts `not_ready` mit einem als
+Standby belegten Rohstatus, während der SoC bei oder unter MinSOC liegt oder
+der MinSOC-Schutz noch hält und weder PV noch Akku mehr als 50 W liefern,
+wertet Opti Akku das als Standby mit leerem Akku (#103), nicht als Störung.
+Fordert die Strategie in dieser Zeit Netzladen an, gilt die Ausnahme nicht:
+Ein stillstehendes Gerät wäre dann ein Fehler, und das Ladefenster darf
+nicht unbemerkt verstreichen.
+Sicher ist das nicht: Der Code bedeutet bei SMA nur „Information liegt nicht
+vor“. Ein Fehler, der denselben Code bei stillstehendem Gerät meldet, bliebe
+bis zum Sonnenaufgang oder bis zur nächsten Aktivität verdeckt. Es entstehen dann weder HA-Störmeldung noch Push, und
+der Schreib-Watchdog zählt diese Zeit nicht als Schreibstillstand. Der
+Diagnosesensor **Wechselrichter-Bereitschaft** bleibt auf `not_ready` und
+zeigt zusätzlich das Attribut `standby: night_empty` neben dem rohen
+`inverter_status`; die Diagnose führt den Zustand unter `health.standby`.
+Schreibzugriffe bleiben bis `ready` gesperrt. `offline`, `recovering`,
+Tageslicht, ein nicht leerer Akku oder ein nicht belegter Rohstatus melden
+weiterhin nach 60 Sekunden.
+
+Als Standby belegte Codes stehen in `SMA_STANDBY_STATUS_CODES`
+(`alerts.py`). Belegt ist bisher nur 16777213: Diesen Wert meldet ein STP SE in
+Register 33003 nachts bei leerem Akku ohne Ertrag, im Normalbetrieb steht dort
+235 (#103). Der Wert bedeutet bei SMA „Information liegt nicht vor“; er gilt
+nur unter den oben genannten Bedingungen als Standby, in jeder anderen Lage
+meldet er weiterhin als Störung.
+
 Ein Neuladen der Integration oder HA-Neustart beginnt eine neue
 Vorfallserkennung. Ein weiterhin vorhandener Quellenfehler kann deshalb nach
 erneuten 60 Sekunden wieder melden. Häufige Neustarts können diese Meldungen
@@ -441,9 +505,9 @@ Ladeleistung gewählt hat, zeigen diese Entitäten.
   aktuelle Rechnung eine andere ergäbe.
 - **Geplante Ladeleistung**: Das Attribut `branch` zeigt Prognose-Score,
   SoC-Stufe, manuelle Ladegrenze, Temperaturdrosselung, die Obergrenze
-  **Max. Ladeleistung** und die Balancing-Begrenzung, jeweils nur wenn sie
-  greifen. Der Wert nach „Ergebnis“ ist die geplante Ladeleistung der
-  Strategie, nicht die gemessene.
+  **Max. Ladeleistung**, die PV-Spitzen-Freigabe und die Balancing-Begrenzung,
+  jeweils nur wenn sie greifen. Der Wert nach „Ergebnis“ ist die geplante
+  Ladeleistung der Strategie, nicht die gemessene.
 - **Opti Strategie Vorschau** (standardmäßig deaktiviert): Der Zustand ist der
   Modus, den die Strategie wählen würde. Die Attribute enthalten Grund,
   Ziel-SoC, Scores und Preisniveau.
@@ -452,6 +516,90 @@ Die `branch`-Attribute zeigen nur den aktuellen Stand unter
 **Entwicklerwerkzeuge → Zustände**. Sie werden nicht aufgezeichnet, weil sich
 der Text mit jedem Prozentpunkt SoC ändert. Ein eigenes Entscheidungsprotokoll
 gibt es nicht.
+
+## Planer im Schattenbetrieb
+
+**Opti Schattenplaner Horizont** (`sensor.opti_plan_shadow`, Diagnose,
+standardmäßig deaktiviert) rechnet alle paar Minuten einen Plan über die
+bekannten Strompreise (Rest heute, morgen sobald veröffentlicht, höchstens
+36 h): Wann aus dem Netz laden, wann entladen, wann halten, damit die Kosten
+aus Netzbezug, entgangener Einspeisung und Zyklen über den Horizont minimal
+werden. Eingaben sind SoC, Kapazität und Grenzen der Anlage, die Preisreihe,
+die Solcast-Intervallprognose (konservativ P10, nicht der Median; Idee aus
+Issue #155) und das stündliche Lastprofil der Peak-Reserve, ersatzweise der
+60-Minuten-Hausverbrauch oder der eingestellte Peak-Verbrauch.
+
+Der Planer **steuert nichts**. Er zeigt als Zustand den Modus, den er jetzt
+wählen würde, in der Sprache der Leiter (`Akku Netzladen`, `Akku nur Laden`,
+`Akku Dynamisch`, `Akku nur Entladen`, `Akku Pause`). Fehlen Daten, bleibt
+der Zustand `unknown` und das Attribut `detail` nennt den Grund
+(`price_series`, `pv_forecast_stale`, `horizon_short`, …). Die Attribute
+ändern sich mit jeder Auswertung und werden deshalb nicht aufgezeichnet; nur
+der Zustandsverlauf landet im Recorder.
+
+Zum Auswerten nach einigen Wochen:
+
+- `deviation` und `totals`: Sekunden je Abweichungsart heute (`today`) und
+  seit Beginn (`total`), zeitgewichtet. `planner_grid_charge` heißt: der
+  Planer würde aus dem Netz laden, die Leiter nicht; `planner_hold`: der
+  Planer würde Energie halten, wo die Leiter entlädt; `planner_discharge`
+  umgekehrt; `indifferent`: kein Modus könnte Energie bewegen (Akku leer oder
+  voll), zählt nicht als Abweichung. `today_disagreement_percent` fasst das
+  zusammen. `executable_mode` mit `planned_charge_w`/`planned_discharge_w`
+  ist der Zug, der den Planfluss exakt reproduziert (auch Teilflüsse); der
+  Zustand ist die gröbere Einordnung in die Leiter-Sprache.
+- `expected_saving_eur`: erwartete Ersparnis des Plans gegenüber reinem
+  Eigenverbrauch über den Horizont, mit denselben Prognosen. Das ist keine
+  Ersparnis gegenüber der Leiter; die lässt sich nur im Replay bestimmen.
+- `soc_target_next_hours`: geplanter SoC am Ende der nächsten zwölf Stunden,
+  `first_grid_charge`: Beginn der ersten geplanten Netzladung.
+- `terminal_ct_kwh`: Wert, den der Planer einer am Horizontende noch
+  gespeicherten kWh beimisst (Anteil am mittleren Preis, gedeckelt auf die
+  Kosten einer Nachladung in der günstigsten Stunde).
+
+Die Rechnung läuft in einem Hintergrund-Thread; das Lösen (Hauptplan plus
+Prüfplan der Variante B) hat zusammen ein Budget von 1 s, danach
+`budget_exceeded`. Aufbau der Slots und Auswertung des Plans liegen außerhalb
+(Millisekunden). Neu gerechnet wird höchstens alle zehn Minuten oder sofort,
+wenn Preise, Prognose, Batteriegrenzen oder Planer-Optionen sich ändern;
+reines Lastrauschen unter 50 W löst keinen neuen Plan aus.
+Solange die Entität deaktiviert ist, wird nichts gerechnet und nichts
+gespeichert.
+
+Die Integration speichert Schnappschüsse der PV-Prognose (P10 und Median je
+Stunde, so weit Solcast sie liefert) und der Preisreihe in
+`.storage/opti_akku.<eintrag>.planner_history`, rollierend für 60 Tage. Ein
+Eintrag entsteht nur, wenn sich Prognose oder Preisreihe geändert haben
+(typisch ein Dutzend PV- und ein bis zwei Preis-Einträge am Tag); Zeitachsen
+sind explizit (Startstunde plus Index, Preissegmente mit Rasterlänge), Lücken
+bleiben erhalten. Gemessen im Test: 60 synthetische Tage mit 12 PV- und 2
+Preisänderungen täglich ergeben rund 530 kB im
+eingerückten Store-Format (Zahlenlisten sind als Strings kodiert); gespeichert
+wird gebündelt spätestens 15 min nach einer Änderung. Die Datei bleibt lokal und ist der
+Export für spätere Replays mit damals verfügbaren Prognosen; das Attribut
+`forecast_history` zeigt Umfang, Zeitraum und Lesefehler. Ein defekter
+Speicher stört weder Start noch Steuerung. Mit der Option
+`planner.history_always: true` wird die Historie auch bei deaktivierter
+Entität geschrieben (Standard aus).
+
+Voraussetzung ist eine Solcast-Entität mit `detailedForecast` (halbstündlich)
+oder `detailedHourly`; für das Quantil P10 muss `pv_estimate10` enthalten
+sein, für den Median `pv_estimate`. Eine Stunde zählt nur, wenn ihre
+Intervalle alle 60 Minuten abdecken (beide Halbstunden oder die volle
+Stundenzeile); eine nur halb belegte Stunde ist eine Lücke, an der der
+Planungshorizont endet, statt die halbe Energie zu lesen. Die Prognose muss
+die aktuelle Stunde abdecken; als Alter gilt die letzte Zustandsänderung der
+Entität (Grenze aus **Maximales Alter von Prognosen**, Standard zwölf
+Stunden), was den tatsächlichen Abrufzeitpunkt bei Solcast nur annähert. Fehlt bei aktivem `grid_check_quantile` das Prüfquantil, gibt es
+keine Netzladeempfehlung (`grid_check_p50_missing`).
+
+Ohne Oberfläche einstellbar über die Optionen des Eintrags: `planner.wear_ct_kwh`
+(Zyklenkosten, 3 ct/kWh Entladung), `planner.terminal_factor` (0,8),
+`planner.quantile` (`p10`), `planner.min_benefit_ct` (Variante A: Plan nur,
+wenn sein erwarteter Vorteil gegenüber Eigenverbrauch über den Horizont diesen
+Betrag erreicht, sonst Eigenverbrauch; `plan_source` zeigt es) und
+`planner.grid_check_quantile` (Variante B, z. B. `p50`: Netzladen nur, wenn
+auch der Plan mit dem Median-PV netzlädt; `grid_check` zeigt das Ergebnis).
 
 ## Diagnose herunterladen
 

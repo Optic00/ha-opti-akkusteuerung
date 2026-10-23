@@ -191,11 +191,53 @@ bleiben die Mittelung zeitgewichtet und die konfigurierte Mindestlast erhalten.
 Bei fehlendem Ladestatus, ungültiger Ladeleistung oder einem Abzug größer als
 die Hauslast dient deren gültiger unbereinigter 60-Minuten-Wert als Ersatz,
 sonst die gültige aktuelle Hauslast. Ohne gültige aktuelle Hauslast ist der
-Score nicht verfügbar. Ohne EV-Option gilt weiterhin die bisherige Berechnung.
+Score nicht verfügbar. Das gilt auch ohne EV-Option: Fehlt
+`sensor.opti_house_consumption_w`, sind Tages-, Morgen- und Sonnentag-Score
+nicht verfügbar, statt mit einer erfundenen Last von 400 W zu rechnen.
+Ansonsten gilt ohne EV-Option weiterhin die bisherige Berechnung.
 `reserve_plan` zeigt `sun_day_score`, `long_horizon`, `horizon_reason` und
 `score_load_error`. Ein neuer Eintrag startet bei gültigem Score zwischen den
 Schaltschwellen mit kurzem Horizont; ein vorhandener langer Horizont bleibt
 in diesem Bereich erhalten. Ein fehlender Score wählt weiterhin 36 Stunden.
+Nachts (`sun.sun` unter dem Horizont) schwankt der Sonnentag-Score nur mit
+der Hauslast, die Prognose selbst ändert sich nicht. Ein bereits langer
+Horizont wird deshalb nachts nicht mehr abgeschaltet; ein kurzer wird nachts
+weiterhin nur bei Score ≤ 1 lang. Die Abschaltschwelle (Score ≥ 3) wirkt erst
+wieder nach Sonnenaufgang. Ein Neueintrag ohne Vorzustand startet nachts wie
+bisher.
+
+Morgen- und Sonnentag-Score teilen die Tagesprognose seit Issue #124 durch den
+Tagesbedarf statt durch die auf 24 Stunden hochgerechnete letzte Stunde. Die
+Engine führt dafür ein 24-Stunden-Mittel der Last im Minutenraster
+(`sensor.opti_house_consumption_24h_w`, mit EV-Option
+`sensor.opti_forecast_house_24h_w`) aus derselben Quelle wie die
+60-Minuten-Kette: in den Anlagenmodi die um ausgeschlossene Verbraucher
+bereinigte Basislast, im Legacy-Modus die Hauslast. Das Mittel bildet den
+Nenner, sobald es belastbar ist (`coverage_ok`: mindestens die Hälfte der
+erwarteten Minutensamples im Fenster und keine Lücke über zwei Stunden,
+einschließlich der Zeit seit dem letzten Sample). Davor, nach einem Neustart
+ohne gespeicherte Historie, nach einer längeren Messlücke oder bei ungültiger
+EV-bereinigter Last gilt die bisherige 60-Minuten-Hochrechnung. Die
+konfigurierte Mindestlast (`forecast_min_load_w`) begrenzt den Nenner wie in
+der 60-Minuten-Kette nach unten. Es gibt keinen Kalibrierfaktor: Score 1
+bedeutet weiterhin, dass die Prognose weniger als 15 % des Tagesbedarfs
+deckt, Score 3 mindestens 25 %. Die Attribute `load_source`,
+`tagesmittel_24h_w` und `tagesbedarf_w` der beiden Scores zeigen, welche Last
+gerade im Nenner steht.
+
+Der Nenner ändert sich nachts damit nur noch langsam; mit ihm ändern sich auch
+die Reserve-Zweige (`Score < 3`) und `binary_sensor.opti_pv_reichtag` (10/9),
+die weiterhin direkt am Score hängen. Der Nacht-Latch schützt ausschließlich
+den bereits langen Peak-Horizont und bleibt als Rückfall für die
+Hochrechnungsphase bestehen. Im Replay einer Referenzanlage (September 2025 bis
+Oktober 2026, beide Prognosemodi) sanken die nächtlichen Umschaltungen des
+langen Horizonts von 21 auf 5 und die nächtlichen Score-Kippstellen an der
+Schwelle 3 von 176 auf 47 bei gleichen Nettokosten (±0,2 EUR); der Anteil
+der Nachtschritte mit Score unter 3 stieg von 13,6 auf 18,2 %, weil das
+Tagesmittel über der reinen Nachtlast liegt. Für die 24-Stunden-Statistiken
+speichert die Engine stündliche Aggregate (Erstes/Letztes Sample, Summe,
+Anzahl, größte Lücke) statt der Minutensamples; Mittel und Abdeckung werden
+daraus nach einem Neustart rekonstruiert.
 
 Für bereits als Peak klassifizierte Zeitfenster über 60 ct/kWh kommt ein
 zusätzlicher Extrempreispuffer hinzu. Er beträgt

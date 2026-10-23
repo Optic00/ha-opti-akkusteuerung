@@ -112,6 +112,138 @@ async def test_manual_modes_use_protected_explicit_charge_limit(coordinator, mod
     assert (await coordinator._async_update_data())["mode"] == "Akku Pause"
 
 
+async def test_routine_save_reaches_the_real_store_at_least_once_a_minute(coordinator, hass):
+    """Re-arming a 60 s delay every 15 s cycle would postpone the write forever."""
+    clock = [1000.0]
+    with patch("custom_components.opti_akku.coordinator.time.monotonic", side_effect=lambda: clock[0]), \
+            patch.object(coordinator._store, "_async_write_data", AsyncMock()) as write:
+        for _ in range(40):  # 600 s of 15 s cycles
+            await coordinator._async_update_data()
+            await hass.async_block_till_done()
+            clock[0] += 15
+    assert write.await_count >= 10
+
+
+async def test_latch_transitions_are_persisted_immediately(coordinator):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.minsoc"] = 10
+    with patch.object(coordinator._store, "async_delay_save") as delayed:
+        await coordinator._async_update_data()
+        delayed.reset_mock()
+        coordinator.device.async_read.return_value["sensor.opti_soc"] = 9
+        data = await coordinator._async_update_data()
+        assert data["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "on"
+        assert delayed.call_args.args[1] == 0
+        delayed.reset_mock()
+        coordinator.device.async_read.return_value["sensor.opti_soc"] = 11
+        await coordinator._async_update_data()
+        assert not any(call.args[1] == 0 for call in delayed.call_args_list)
+        # A disabled strategy drops the latch states; that is no transition and
+        # must not force a write on every cycle.
+        delayed.reset_mock()
+        coordinator.strategy_enabled = False
+        for _ in range(3):
+            data = await coordinator._async_update_data()
+            assert data["states"].get("binary_sensor.opti_minsoc_schutz_aktiv") not in ("on", "off")
+        assert not any(call.args[1] == 0 for call in delayed.call_args_list)
+
+
+async def test_minsoc_latch_survives_a_crash_right_after_it_latched(hass, entry):
+    """Saved off, SoC 10 -> on, recovery to 11, crash: restore at 11 must stay on until 13."""
+    before = OptiCoordinator(hass, entry, device(), StrategyEngine())
+    await before.async_restore()
+    saved = {}
+
+    def capture(data_func, delay):
+        if delay == 0:
+            saved.clear()
+            saved.update(deepcopy(data_func()))
+
+    try:
+        before.settings["input_boolean.akku_opti_automatik"] = True
+        before.settings["input_number.minsoc"] = 10
+        before.device.async_read.return_value["sensor.opti_soc"] = 60
+        await before._async_update_data()
+        saved.update(deepcopy(before._stored_data()))
+        assert saved["engine"]["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "off"
+        with patch.object(before._store, "async_delay_save", side_effect=capture):
+            before.device.async_read.return_value["sensor.opti_soc"] = 10
+            assert (await before._async_update_data())["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "on"
+            before.device.async_read.return_value["sensor.opti_soc"] = 11
+            assert (await before._async_update_data())["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "on"
+    finally:
+        await before.async_stop()
+    inverter = device()
+    inverter.async_read.return_value["sensor.opti_soc"] = 11
+    after = OptiCoordinator(hass, entry, inverter, StrategyEngine())
+    with patch.object(after._store, "async_load", AsyncMock(return_value=saved)):
+        await after.async_restore()
+    try:
+        after.settings["input_boolean.akku_opti_automatik"] = True
+        after.settings["input_number.minsoc"] = 10
+        data = await after._async_update_data()
+        assert data["states"]["binary_sensor.opti_minsoc_schutz_aktiv"] == "on"
+        assert data["mode"] == "Akku nur Laden"
+    finally:
+        await after.async_stop()
+
+
+@pytest.mark.parametrize("status,stalled", [(4242, "off"), (9999, "on")])
+async def test_write_watchdog_pauses_only_in_a_documented_night_standby(coordinator, hass, monkeypatch, status, stalled):
+    from custom_components.opti_akku import alerts
+    monkeypatch.setattr(alerts, "SMA_STANDBY_STATUS_CODES", frozenset({4242}))
+    hass.states.async_set("sun.sun", "below_horizon", {"next_rising": "2026-07-27T05:45:00+02:00",
+                                                        "next_setting": "2026-07-27T21:00:00+02:00"})
+    coordinator.write_enabled = True
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.minsoc"] = 10
+    coordinator.device.async_read.return_value["sensor.opti_soc"] = 8
+    coordinator.device.async_read.return_value["sensor.opti_inverter_status"] = status
+    coordinator.device.async_read.return_value["sensor.opti_pv_generation_w"] = 0
+    coordinator.device.async_read.return_value["sensor.opti_battery_power_w"] = 0
+    clock = [100.0]
+    with patch("custom_components.opti_akku.coordinator.time.monotonic", side_effect=lambda: clock[0]):
+        first = await coordinator._async_update_data()
+        assert first["connection_status"]["status"] == "not_ready"
+        for _ in range(20):
+            clock[0] += 15
+            data = await coordinator._async_update_data()
+    assert data["states"]["binary_sensor.opti_write_stalled"] == stalled
+    assert ("write" in coordinator.alerts._active) == (stalled == "on")
+    assert (data["connection_status"].get("standby") == "night_empty") == (stalled == "off")
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+@pytest.mark.parametrize("mode, stalled", [("Akku Netzladen", "on"), ("Akku nur Laden", "off")])
+async def test_write_watchdog_stays_armed_when_grid_charging_is_requested_in_a_night_standby(coordinator, hass, mode, stalled):
+    """An idle device with the standby code is a failure while the strategy wants grid charging."""
+    from custom_components.opti_akku.engine import Evaluation
+    hass.states.async_set("sun.sun", "below_horizon", {"next_rising": "2026-07-27T05:45:00+02:00",
+                                                        "next_setting": "2026-07-27T21:00:00+02:00"})
+    coordinator.write_enabled = True
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.minsoc"] = 10
+    reading = coordinator.device.async_read.return_value
+    reading.update({"sensor.opti_soc": 8, "sensor.opti_inverter_status": 16777213,
+                    "sensor.opti_pv_generation_w": 0, "sensor.opti_battery_power_w": 0})
+
+    def requested(states, attributes, now):
+        return Evaluation(dict(states), dict(attributes), mode, "Testmodus", {}, decision_id="test")
+
+    clock = [100.0]
+    with patch.object(coordinator.engine, "evaluate", side_effect=requested), \
+            patch("custom_components.opti_akku.coordinator.time.monotonic", side_effect=lambda: clock[0]):
+        first = await coordinator._async_update_data()
+        assert first["mode"] == mode and first["connection_status"]["status"] == "not_ready"
+        for _ in range(20):
+            clock[0] += 15
+            data = await coordinator._async_update_data()
+    assert data["states"]["binary_sensor.opti_write_stalled"] == stalled
+    assert ("write" in coordinator.alerts._active) == (stalled == "on")
+    assert (data["connection_status"].get("standby") == "night_empty") == (stalled == "off")
+    coordinator.device.async_apply.assert_not_awaited()
+
+
 async def test_manual_charge_override_is_temporary_even_with_stored_options(coordinator, hass):
     key = "input_boolean.opti_manuelle_ladegrenze"
     await coordinator.async_apply_settings({key: True}, "temporary")
@@ -1588,6 +1720,9 @@ async def test_backward_clock_keeps_coordinator_safety_evaluation(coordinator, h
     hass.config_entries.async_update_entry(coordinator.entry, options={**coordinator.entry.options,
         "plant_mode": "balance", "plant_meter_confirmed": True, "forecast_min_load_w": 0})
     coordinator.write_enabled = True
+    # Without export the PV peak release stays off, so the planned charge power
+    # follows the SoC step and the command signature changes with the SoC below.
+    coordinator.device.async_read.return_value["sensor.opti_grid_export_w"] = 0
     await coordinator._async_update_data()
     coordinator.device.async_apply.reset_mock()
     coordinator.device.async_read.return_value["sensor.opti_soc"] = 1
@@ -3383,3 +3518,177 @@ async def test_refill_comparison_survives_stored_data_restore(coordinator, entry
     assert other._refill_comparison.data["ready_seconds"] == 0
     await restored.async_stop()
     await other.async_stop()
+
+
+@pytest.mark.parametrize("decision_id, mode, expected", [
+    ("peak_l1", "Akku Dynamisch", 0),
+    ("peak_l2", "Akku Dynamisch", 0),
+    ("unknown", "Akku Dynamisch", 0),
+    ("below_target", "Akku Dynamisch", 500),
+])
+async def test_daytime_peak_dynamic_never_forces_grid_charging(
+    coordinator, hass, decision_id, mode, expected
+):
+    from custom_components.opti_akku.engine import Evaluation
+
+    hass.config_entries.async_update_entry(
+        coordinator.entry, data={**coordinator.entry.data, "backend": "sma_modbus"})
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.akkusteuerung_min_ladestaerke"] = 500
+    coordinator.write_enabled = True
+    evaluation = Evaluation(
+        {**active_hold_evaluation().states, "sensor.opti_soc": 53},
+        {}, mode, "Peak-Leiter", {}, decision_id=decision_id)
+    with patch.object(coordinator.engine, "evaluate", return_value=evaluation):
+        data = await coordinator._async_update_data()
+    assert data["mode"] == mode
+    params = coordinator.device.async_apply.await_args.args[1]
+    assert params["min_charge_w"] == expected
+
+
+def enable_plan_shadow(hass, entry):
+    from homeassistant.helpers import entity_registry as er
+    er.async_get(hass).async_get_or_create(
+        "sensor", "opti_akku", f"{entry.entry_id}_sensor.opti_plan_shadow", config_entry=entry)
+
+
+async def test_plan_shadow_is_published_as_observation(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
+    data = await coordinator._async_update_data()
+    attrs = data["attributes"]["sensor.opti_plan_shadow"]
+    assert data["states"]["sensor.opti_plan_shadow"] == "unknown"
+    assert attrs["status"] == "data_missing" and attrs["controls_battery"] is False
+    assert "totals" in attrs and attrs["forecast_history"]["entries"] == 0
+    assert coordinator._stored_data()["planner_shadow"]["version"] == 1
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+async def test_plan_shadow_disabled_entity_computes_and_records_nothing(coordinator, hass, entry):
+    with patch("custom_components.opti_akku.coordinator.PlannerShadow.evaluate") as evaluate, \
+            patch.object(coordinator._planner_history, "record") as record:
+        data = await coordinator._async_update_data()
+    attrs = data["attributes"]["sensor.opti_plan_shadow"]
+    assert data["states"]["sensor.opti_plan_shadow"] == "unknown"
+    assert attrs["status"] == "disabled" and attrs["detail"] == "entity_disabled"
+    evaluate.assert_not_called()
+    record.assert_not_called()
+
+
+async def test_plan_shadow_history_always_records_without_the_entity(coordinator, hass, entry):
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "planner": {"history_always": True}})
+    with patch("custom_components.opti_akku.coordinator.PlannerShadow.evaluate") as evaluate, \
+            patch.object(coordinator._planner_history, "record", return_value=False) as record:
+        data = await coordinator._async_update_data()
+    assert data["attributes"]["sensor.opti_plan_shadow"]["status"] == "disabled"
+    evaluate.assert_not_called()
+    record.assert_called_once()
+
+
+async def test_plan_shadow_runs_the_solver_in_the_executor(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
+    calls = []
+    original = hass.async_add_executor_job
+
+    def spy(func, *args):
+        calls.append(getattr(func, "__name__", str(func)))
+        return original(func, *args)
+
+    with patch.object(hass, "async_add_executor_job", side_effect=spy):
+        await coordinator._async_update_data()
+    assert "evaluate" in calls
+
+
+async def test_history_store_failure_never_blocks_restore(hass, entry):
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    result = OptiCoordinator(hass, entry, device(), engine)
+    with patch.object(result._history_store, "async_load", side_effect=RuntimeError("disk")):
+        await result.async_restore()
+    assert result._planner_history.entries == [] and result._planner_history.error == "RuntimeError"
+    await result.async_stop()
+
+
+async def test_plan_shadow_receives_the_ladder_mode_and_settings(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
+    captured = {}
+
+    def fake_evaluate(self, now, timezone, inputs):
+        captured["inputs"] = inputs
+        return {"status": "ready", "verdict": "Akku Netzladen", "deviation": "planner_grid_charge",
+                "observation_only": True, "controls_battery": False}
+
+    with patch("custom_components.opti_akku.coordinator.PlannerShadow.evaluate", fake_evaluate):
+        data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_plan_shadow"] == "Akku Netzladen"
+    inputs = captured["inputs"]
+    assert inputs.ladder_mode == data["mode"] == "Akku Pause"
+    assert inputs.minsoc == coordinator.settings["input_number.minsoc"]
+    assert inputs.max_charge_w == coordinator.settings["input_number.akkusteuerung_max_ladestaerke"]
+    assert inputs.grid_charging is (coordinator.settings["input_boolean.opti_prognose_netzladen"] is True)
+    assert inputs.quantile == "p10" and inputs.load_source in ("house_consumption_60min", "fixed_setting")
+    assert inputs.pv_status == "no_forecast"
+
+
+async def test_plan_shadow_error_never_stops_the_update(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
+    with patch("custom_components.opti_akku.coordinator.PlannerShadow.evaluate",
+               side_effect=RuntimeError("boom")):
+        data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_plan_shadow"] == "unknown"
+    assert data["attributes"]["sensor.opti_plan_shadow"]["status"] == "error"
+    assert data["mode"] == "Akku Pause"
+
+
+@pytest.mark.parametrize("options,expected", [({}, 43200), ({"forecast_max_age": 21600}, 21600)])
+async def test_forecast_age_option_reaches_planner_negative_hold_and_clipping(coordinator, hass, entry, options, expected):
+    """Issue #103: one configured limit, no fixed 6 h or 12 h checks left behind."""
+    from custom_components.opti_akku.clipping import clipping_forecast
+    from custom_components.opti_akku.demand import pv_intervals
+    from custom_components.opti_akku.planner_shadow import pv_forecast_hourly
+    enable_plan_shadow(hass, entry)
+    now = dt_util.utcnow()
+    start = now.replace(minute=0, second=0, microsecond=0)
+    detail = [{"period_start": (start + timedelta(minutes=30 * i)).isoformat(),
+               "pv_estimate": 2.0, "pv_estimate10": 1.0, "pv_estimate90": 3.0} for i in range(6)]
+    hass.states.async_set("sensor.solcast_today", "40", {"detailedForecast": detail})
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, **options, "sources": {"forecast_today": "sensor.solcast_today"}})
+    coordinator.settings["input_number.akkusteuerung_wr_ac_ueberschuss_grenze"] = 9500
+    with patch("custom_components.opti_akku.coordinator.pv_forecast_hourly", wraps=pv_forecast_hourly) as hourly, \
+            patch("custom_components.opti_akku.coordinator.pv_intervals", wraps=pv_intervals) as intervals, \
+            patch("custom_components.opti_akku.coordinator.clipping_forecast", wraps=clipping_forecast) as clipping:
+        data = await coordinator._async_update_data()
+    assert data["attributes"]["sensor.opti_clipping_forecast_kwh"]["status"] == "ready"
+    assert data["attributes"]["sensor.opti_plan_shadow"].get("detail") != "pv_forecast_stale"
+    assert hourly.call_args.kwargs["max_age"] == expected
+    assert intervals.call_args.kwargs["max_age"] == expected
+    assert clipping.call_args.kwargs["max_age"] == expected
+
+
+async def test_plan_shadow_records_hourly_forecast_history_in_its_own_store(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
+    now = dt_util.utcnow()
+    start = now.replace(minute=0, second=0, microsecond=0)
+    detail = [{"period_start": (start + timedelta(minutes=30 * i)).isoformat(),
+               "pv_estimate": 2.0, "pv_estimate10": 1.0, "pv_estimate90": 3.0} for i in range(6)]
+    hass.states.async_set("sensor.solcast_demand", "40", {"detailedForecast": detail})
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "demand_forecast": {"enabled": True, "sources": {"pv_today": "sensor.solcast_demand"}}})
+    with patch.object(coordinator._history_store, "async_delay_save") as delay_save:
+        data = await coordinator._async_update_data()
+        assert delay_save.call_count == 1
+        await coordinator._async_update_data()
+        assert delay_save.call_count == 1  # one snapshot per hour
+    history = data["attributes"]["sensor.opti_plan_shadow"]["forecast_history"]
+    assert history["entries"] == 1
+    saved = coordinator._planner_history.snapshot()
+    assert saved["entries"][0]["pv"]["p10"] == "1000,1000,1000" and saved["entries"][0]["pv"]["p50"] == "2000,2000,2000"
+    assert "planner_history" not in coordinator._stored_data()
+
+
+def test_expected_load_hours_strips_the_profile_margin_only():
+    from custom_components.opti_akku.coordinator import _expected_load_hours
+    profile = {"hours": {"1": 1200.0, "2": 800.0, "3": "x"}, "margin_percent": 20,
+               "methods": {"1": "measured_profile", "2": "fixed_setting"}}
+    assert _expected_load_hours(profile) == {"1": 1000.0, "2": 800.0}
+    assert _expected_load_hours({"status": "disabled", "hours": {}}) == {}
+    assert _expected_load_hours(None) == {}

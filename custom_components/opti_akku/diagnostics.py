@@ -147,6 +147,9 @@ async def async_get_config_entry_diagnostics(
         "device": _device_summary(data.get("identity")),
         "health": {
             "has_last_error": bool(data.get("last_error")),
+            "standby": data.get("connection_status", {}).get("standby")
+            if isinstance(data.get("connection_status"), Mapping)
+            else None,
             "source_errors": _source_error_summary(data.get("source_errors")),
             "device_error_count": len(data.get("device_errors", {}))
             if isinstance(data.get("device_errors"), Mapping)

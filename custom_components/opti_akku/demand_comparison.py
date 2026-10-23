@@ -55,8 +55,14 @@ def _timestamp(attributes: dict[str, Any], key: str, name: str) -> datetime | No
         return None
 
 
+def _valid_p10(median_kwh: float, p10_kwh: float | None) -> float:
+    """A P10 of zero is a valid pessimistic forecast; only a missing or
+    negative value falls back to the median."""
+    return p10_kwh if p10_kwh is not None and p10_kwh >= 0 else median_kwh
+
+
 def _effective(median_kwh: float, p10_kwh: float | None, alpha: float) -> float:
-    p10 = p10_kwh if p10_kwh is not None and p10_kwh > 0 else median_kwh
+    p10 = _valid_p10(median_kwh, p10_kwh)
     return min(median_kwh, alpha * median_kwh + (1 - alpha) * p10)
 
 
@@ -237,7 +243,7 @@ def _score_block(
         "candidate_score": candidate,
         "score_delta": candidate - active_score if candidate is not None and active_score is not None else None,
         "median_pv_kwh": median_kwh,
-        "p10_pv_kwh": p10_kwh if p10_kwh is not None and p10_kwh > 0 else median_kwh,
+        "p10_pv_kwh": _valid_p10(median_kwh, p10_kwh),
         "effective_pv_kwh": effective,
         "profile_denominator_kwh": denominator,
         "full_day_profile_assumption": full_day_profile_assumption,

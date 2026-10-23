@@ -106,7 +106,8 @@
           "price_provider": "Price source"
         },
         "data_description": {
-          "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades."
+          "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades. The strategy writes this value after grid charging; it is informational and has no control effect.",
+          "mindestpreisdifferenz_lade_entladepreis": "Display only, no control effect: feeds the sensor Opti Mindestentladepreis (reference charging price plus margin). No strategy branch reads it."
         }
       },
       "forecast": {
@@ -483,7 +484,8 @@
           "price_provider": "Price source"
         },
         "data_description": {
-          "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades."
+          "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades. The strategy writes this value after grid charging; it is informational and has no control effect.",
+          "mindestpreisdifferenz_lade_entladepreis": "Display only, no control effect: feeds the sensor Opti Mindestentladepreis (reference charging price plus margin). No strategy branch reads it."
         }
       },
       "forecast": {
@@ -861,16 +863,59 @@
           "superseded": "Command superseded"
         },
         "state_attributes": {
-          "execution_basis": {"name": "Execution basis", "state": {"modbus_write_sequence": "Modbus write sequence", "ha_service_and_entity_checks": "Home Assistant service and entity checks", "unknown": "Unknown"}},
-          "setpoint_readback": {"name": "Setpoint readback", "state": {"not_supported": "Not supported", "not_assessed": "Not assessed", "partial": "Partial", "pending": "Pending"}},
-          "setpoint_readback_limitation": {"name": "Readback limitation", "state": {"bms_and_setpoints_not_read_back": "BMS and setpoint registers are not read back", "tou_schedule_not_independently_read_back": "TOU schedule is not independently read back", "unspecified": "Unspecified"}},
-          "physical_effect": {"name": "Physical effect", "state": {"not_verified": "Not verified"}},
-          "block_observation": {"name": "Direction-block observation", "state": {"not_assessed": "Not assessed", "violation_observed": "Violation observed"}},
-          "observed_battery_power_w": {"name": "Observed battery power (W)"},
-          "battery_power_observed_at": {"name": "Battery power observed at"},
-          "observed_after_execution": {"name": "Observation after adapter execution"},
-          "execution_completed_at": {"name": "Last adapter execution completed"},
-          "safe_phase_completed": {"name": "Conservative phase completed"}
+          "execution_basis": {
+            "name": "Execution basis",
+            "state": {
+              "modbus_write_sequence": "Modbus write sequence",
+              "ha_service_and_entity_checks": "Home Assistant service and entity checks",
+              "unknown": "Unknown"
+            }
+          },
+          "setpoint_readback": {
+            "name": "Setpoint readback",
+            "state": {
+              "not_supported": "Not supported",
+              "not_assessed": "Not assessed",
+              "partial": "Partial",
+              "pending": "Pending"
+            }
+          },
+          "setpoint_readback_limitation": {
+            "name": "Readback limitation",
+            "state": {
+              "bms_and_setpoints_not_read_back": "BMS and setpoint registers are not read back",
+              "tou_schedule_not_independently_read_back": "TOU schedule is not independently read back",
+              "unspecified": "Unspecified"
+            }
+          },
+          "physical_effect": {
+            "name": "Physical effect",
+            "state": {
+              "not_verified": "Not verified"
+            }
+          },
+          "block_observation": {
+            "name": "Direction-block observation",
+            "state": {
+              "not_assessed": "Not assessed",
+              "violation_observed": "Violation observed"
+            }
+          },
+          "observed_battery_power_w": {
+            "name": "Observed battery power (W)"
+          },
+          "battery_power_observed_at": {
+            "name": "Battery power observed at"
+          },
+          "observed_after_execution": {
+            "name": "Observation after adapter execution"
+          },
+          "execution_completed_at": {
+            "name": "Last adapter execution completed"
+          },
+          "safe_phase_completed": {
+            "name": "Conservative phase completed"
+          }
         }
       },
       "pause_pending": {
@@ -937,7 +982,9 @@
           "command_confirmation": {
             "name": "Command status"
           },
-          "execution_completed_at": {"name": "Last adapter execution completed"},
+          "execution_completed_at": {
+            "name": "Last adapter execution completed"
+          },
           "last_confirmed_command_at": {
             "name": "Not populated (legacy field)"
           },
@@ -1021,54 +1068,150 @@
       "arbitrage_estimate": {
         "name": "Battery arbitrage and residual value",
         "state_attributes": {
-          "status": {"name": "Status"},
-          "minimum_high_price_ct_kwh": {"name": "Minimum higher price (ct/kWh)"},
-          "charge_price_ct_kwh": {"name": "Assumed charging price (ct/kWh)"},
-          "throughput_cost_ct_kwh": {"name": "Cost per kWh battery throughput"},
-          "cycle_cost_floor_ct_kwh": {"name": "Cycle cost and margin floor (ct/kWh)"},
-          "degradation_value_eur": {"name": "Assumed lifetime degradation value (EUR)"},
-          "battery_price_eur": {"name": "Battery price share (EUR)"},
-          "degradation_percent": {"name": "Assumed value loss (%)"},
-          "cycles": {"name": "Assumed cycles"},
-          "usable_capacity_kwh": {"name": "Usable capacity (kWh)"},
-          "charge_efficiency": {"name": "Charge efficiency"},
-          "discharge_efficiency": {"name": "Discharge efficiency"},
-          "margin_ct": {"name": "Additional margin (ct/kWh)"},
-          "formula": {"name": "Formula"},
-          "terminal_value_status": {"name": "Residual-value status"},
-          "terminal_value_reason": {"name": "Residual-value basis"},
-          "terminal_value_horizon_end": {"name": "Forecast horizon end"},
-          "terminal_value_window_hours": {"name": "Covered forecast hours"},
-          "terminal_value_forecast_coverage_percent": {"name": "Forecast coverage (%)"},
-          "terminal_value_price_coverage_percent": {"name": "Price coverage (%)"},
-          "terminal_value_residual_load_kwh": {"name": "Residual load in horizon (kWh)"},
-          "terminal_value_valued_load_kwh": {"name": "Economically valued residual load (kWh)"},
-          "terminal_value_ac_capacity_kwh": {"name": "Usable AC battery energy (kWh)"},
-          "terminal_value_curve_knee_kwh": {"name": "Residual-value curve knee (kWh)"},
-          "terminal_value_first_marginal_ct_kwh": {"name": "Highest marginal value (ct/kWh)"},
-          "terminal_value_full_marginal_ct_kwh": {"name": "Marginal value at full battery (ct/kWh)"},
-          "terminal_value_full_battery_eur": {"name": "Value of full usable battery (EUR)"},
-          "terminal_value_current_ac_kwh": {"name": "Current usable AC energy (kWh)"},
-          "terminal_value_current_battery_eur": {"name": "Value of current stored energy (EUR)"},
-          "terminal_value_current_marginal_ct_kwh": {"name": "Current marginal energy value (ct/kWh)"},
-          "terminal_value_current_soc": {"name": "Residual-value SOC (%)"},
-          "terminal_value_battery_capacity_kwh": {"name": "Residual-value capacity (kWh)"},
-          "terminal_value_minimum_soc": {"name": "Residual-value minimum SOC (%)"},
-          "terminal_value_maximum_soc": {"name": "Residual-value maximum SOC (%)"},
-          "terminal_value_issued_at": {"name": "Residual-value calculation time"},
-          "terminal_value_method": {"name": "Residual-value method"},
-          "terminal_value_controls_battery": {"name": "Residual value controls battery"},
-          "hold_enabled": {"name": "Discharge hold enabled"},
-          "hold_status": {"name": "Discharge hold status"},
-          "hold_current_net_ct_kwh": {"name": "Current energy value after cost (ct/kWh)"},
-          "hold_future_marginal_ct_kwh": {"name": "Future marginal value (ct/kWh)"},
-          "hold_advantage_ct_kwh": {"name": "Holding advantage (ct/kWh)"},
-          "hold_required_margin_ct_kwh": {"name": "Required margin (ct/kWh)"},
-          "hold_switch_threshold_ct_kwh": {"name": "Current switching threshold (ct/kWh)"},
-          "hold_would_control_battery": {"name": "Would control battery"},
-          "hold_controls_battery": {"name": "Discharge hold controls battery"},
-          "informational_only": {"name": "Informational only"},
-          "controls_battery": {"name": "Controls battery"}
+          "status": {
+            "name": "Status"
+          },
+          "minimum_high_price_ct_kwh": {
+            "name": "Minimum higher price (ct/kWh)"
+          },
+          "charge_price_ct_kwh": {
+            "name": "Assumed charging price (ct/kWh)"
+          },
+          "throughput_cost_ct_kwh": {
+            "name": "Cost per kWh battery throughput"
+          },
+          "cycle_cost_floor_ct_kwh": {
+            "name": "Cycle cost and margin floor (ct/kWh)"
+          },
+          "degradation_value_eur": {
+            "name": "Assumed lifetime degradation value (EUR)"
+          },
+          "battery_price_eur": {
+            "name": "Battery price share (EUR)"
+          },
+          "degradation_percent": {
+            "name": "Assumed value loss (%)"
+          },
+          "cycles": {
+            "name": "Assumed cycles"
+          },
+          "usable_capacity_kwh": {
+            "name": "Usable capacity (kWh)"
+          },
+          "charge_efficiency": {
+            "name": "Charge efficiency"
+          },
+          "discharge_efficiency": {
+            "name": "Discharge efficiency"
+          },
+          "margin_ct": {
+            "name": "Additional margin (ct/kWh)"
+          },
+          "formula": {
+            "name": "Formula"
+          },
+          "terminal_value_status": {
+            "name": "Residual-value status"
+          },
+          "terminal_value_reason": {
+            "name": "Residual-value basis"
+          },
+          "terminal_value_horizon_end": {
+            "name": "Forecast horizon end"
+          },
+          "terminal_value_window_hours": {
+            "name": "Covered forecast hours"
+          },
+          "terminal_value_forecast_coverage_percent": {
+            "name": "Forecast coverage (%)"
+          },
+          "terminal_value_price_coverage_percent": {
+            "name": "Price coverage (%)"
+          },
+          "terminal_value_residual_load_kwh": {
+            "name": "Residual load in horizon (kWh)"
+          },
+          "terminal_value_valued_load_kwh": {
+            "name": "Economically valued residual load (kWh)"
+          },
+          "terminal_value_ac_capacity_kwh": {
+            "name": "Usable AC battery energy (kWh)"
+          },
+          "terminal_value_curve_knee_kwh": {
+            "name": "Residual-value curve knee (kWh)"
+          },
+          "terminal_value_first_marginal_ct_kwh": {
+            "name": "Highest marginal value (ct/kWh)"
+          },
+          "terminal_value_full_marginal_ct_kwh": {
+            "name": "Marginal value at full battery (ct/kWh)"
+          },
+          "terminal_value_full_battery_eur": {
+            "name": "Value of full usable battery (EUR)"
+          },
+          "terminal_value_current_ac_kwh": {
+            "name": "Current usable AC energy (kWh)"
+          },
+          "terminal_value_current_battery_eur": {
+            "name": "Value of current stored energy (EUR)"
+          },
+          "terminal_value_current_marginal_ct_kwh": {
+            "name": "Current marginal energy value (ct/kWh)"
+          },
+          "terminal_value_current_soc": {
+            "name": "Residual-value SOC (%)"
+          },
+          "terminal_value_battery_capacity_kwh": {
+            "name": "Residual-value capacity (kWh)"
+          },
+          "terminal_value_minimum_soc": {
+            "name": "Residual-value minimum SOC (%)"
+          },
+          "terminal_value_maximum_soc": {
+            "name": "Residual-value maximum SOC (%)"
+          },
+          "terminal_value_issued_at": {
+            "name": "Residual-value calculation time"
+          },
+          "terminal_value_method": {
+            "name": "Residual-value method"
+          },
+          "terminal_value_controls_battery": {
+            "name": "Residual value controls battery"
+          },
+          "hold_enabled": {
+            "name": "Discharge hold enabled"
+          },
+          "hold_status": {
+            "name": "Discharge hold status"
+          },
+          "hold_current_net_ct_kwh": {
+            "name": "Current energy value after cost (ct/kWh)"
+          },
+          "hold_future_marginal_ct_kwh": {
+            "name": "Future marginal value (ct/kWh)"
+          },
+          "hold_advantage_ct_kwh": {
+            "name": "Holding advantage (ct/kWh)"
+          },
+          "hold_required_margin_ct_kwh": {
+            "name": "Required margin (ct/kWh)"
+          },
+          "hold_switch_threshold_ct_kwh": {
+            "name": "Current switching threshold (ct/kWh)"
+          },
+          "hold_would_control_battery": {
+            "name": "Would control battery"
+          },
+          "hold_controls_battery": {
+            "name": "Discharge hold controls battery"
+          },
+          "informational_only": {
+            "name": "Informational only"
+          },
+          "controls_battery": {
+            "name": "Controls battery"
+          }
         }
       },
       "source_observation": {
@@ -1107,6 +1250,16 @@
       },
       "last_write_values": {
         "name": "Last SMA control values"
+      },
+      "plan_shadow": {
+        "name": "Shadow planner horizon",
+        "state": {
+          "dynamisch": "Battery dynamic",
+          "pause": "Battery pause",
+          "nur_laden": "Battery charge only",
+          "nur_entladen": "Battery discharge only",
+          "netzladen": "Battery grid charge"
+        }
       }
     },
     "button": {

@@ -1591,6 +1591,95 @@ def test_restored_long_horizon_without_source_attribute_keeps_the_legacy_night_h
     assert "Nacht: Vorzustand an gehalten" in held.attributes[HORIZON]["branch"]
 
 
+def _ev_night_states(instant_w, forecast_kwh, raw_w=500):
+    # EV option on: the score divides by the EV-adjusted load; raw_w is the
+    # unadjusted house load including the wallbox.
+    states = _night_horizon_states(raw_w, forecast_kwh)
+    states.update({"sensor.opti_forecast_house_instant_w": instant_w,
+                   "input_boolean.opti_score_house_includes_ev": "on"})
+    return states
+
+
+def _ev_engine(now):
+    return _restored_engine(now, **{DAILY: _daily_load_buckets(now, 500), DAILY_EV: _daily_load_buckets(now, 500)})
+
+
+def test_missing_ev_adjustment_does_not_switch_a_short_horizon_on():
+    # Issue #155 (tatec22, 22.10. 03:45): at the start of a car charge the EV
+    # subtraction is briefly invalid; the score then divides by the raw load
+    # including 9.6 kW of wallbox power and drops to 0.
+    now = dt.datetime(2026, 10, 22, 3, 45, tzinfo=TZ)
+    engine = _ev_engine(now)
+    before = evaluate(engine, _ev_night_states(500, 9.6), _OCT_NIGHT_ATTRS, now)
+    assert before.attributes[SUNNY]["load_source"] == "tagesmittel_24h"
+    assert (before.states[SUNNY], before.states[HORIZON]) == ("8", "off")
+    start = evaluate(engine, _ev_night_states("unavailable", 9.6, raw_w=10000), _OCT_NIGHT_ATTRS,
+                     now + dt.timedelta(seconds=15))
+    assert start.attributes[SUNNY]["load_source"] == "raw_60min_ev_fallback"
+    assert (start.states[SUNNY], start.states[HORIZON]) == ("0", "off")
+    assert "EV-bereinigte Last fehlt (raw_60min_ev_fallback): Vorzustand aus gehalten" in start.attributes[HORIZON]["branch"]
+    charging = evaluate(engine, _ev_night_states(500, 9.6, raw_w=10000), _OCT_NIGHT_ATTRS,
+                        now + dt.timedelta(seconds=30))
+    assert charging.attributes[SUNNY]["load_source"] == "tagesmittel_24h"
+    assert (charging.states[SUNNY], charging.states[HORIZON]) == ("8", "off")
+
+
+def test_missing_ev_adjustment_keeps_a_long_horizon_and_its_origin():
+    # By day no night hold applies, so only the EV hold keeps the horizon.
+    now = dt.datetime(2026, 10, 22, 12, 0, tzinfo=TZ)
+    day_attrs = {"sun.sun": {"next_rising": "2026-10-23T07:51:00+02:00",
+                             "next_setting": "2026-10-22T18:20:00+02:00"}}
+
+    def day(instant_w, forecast_kwh, raw_w=500):
+        states = _ev_night_states(instant_w, forecast_kwh, raw_w)
+        states.update({"sun.sun": "above_horizon", "sensor.opti_forecast_tomorrow_kwh": forecast_kwh})
+        return states
+
+    engine = _ev_engine(now)
+    assert evaluate(engine, day(500, 1.0), day_attrs, now).states[HORIZON] == "on"
+    # The raw fallback reads score 10 here; the real "on" is held instead.
+    held = evaluate(engine, day("unavailable", 9.6, raw_w=100), day_attrs, now + dt.timedelta(seconds=15))
+    assert (held.states[SUNNY], held.states[HORIZON]) == ("10", "on")
+    assert held.attributes[HORIZON]["an_quelle"] == "score"
+    assert "Vorzustand an gehalten" in held.attributes[HORIZON]["branch"]
+    released = evaluate(engine, day(500, 9.6), day_attrs, now + dt.timedelta(seconds=30))
+    assert (released.states[SUNNY], released.states[HORIZON]) == ("8", "off")
+
+
+def test_missing_ev_adjustment_does_not_turn_a_missing_score_on_into_a_real_one():
+    now = dt.datetime(2026, 10, 22, 3, 45, tzinfo=TZ)
+    engine = _ev_engine(now)
+    gap = _ev_night_states(500, 2.4)
+    gap["sensor.opti_forecast_today_kwh"] = "unavailable"
+    assert evaluate(engine, gap, _OCT_NIGHT_ATTRS, now).attributes[HORIZON]["an_quelle"] == "score_fehlt"
+    held = evaluate(engine, _ev_night_states("unavailable", 2.4, raw_w=10000), _OCT_NIGHT_ATTRS,
+                    now + dt.timedelta(seconds=15))
+    assert held.states[HORIZON] == "on"
+    assert held.attributes[HORIZON]["an_quelle"] == "score_fehlt"
+    back = evaluate(engine, _ev_night_states(500, 2.4), _OCT_NIGHT_ATTRS, now + dt.timedelta(seconds=30))
+    assert (back.states[SUNNY], back.states[HORIZON]) == ("2", "off")
+    assert "an stammte aus fehlendem Score" in back.attributes[HORIZON]["branch"]
+
+
+def test_missing_ev_adjustment_without_previous_state_uses_the_entry_rule():
+    now = dt.datetime(2026, 10, 22, 3, 45, tzinfo=TZ)
+    states = _ev_night_states("unavailable", 9.6, raw_w=10000)
+    states["sensor.opti_house_consumption_60min_w"] = "unavailable"
+    fresh = evaluate(_ev_engine(now), states, _OCT_NIGHT_ATTRS, now)
+    assert fresh.attributes[SUNNY]["load_source"] == "current_house_ev_fallback"
+    assert (fresh.states[SUNNY], fresh.states[HORIZON]) == ("0", "on")
+    assert fresh.attributes[HORIZON]["an_quelle"] == "score"
+
+
+def test_ev_fallback_marker_needs_the_ev_option():
+    now = dt.datetime(2026, 10, 22, 3, 45, tzinfo=TZ)
+    states = _night_horizon_states(10000, 9.6)
+    states.update({"sensor.opti_forecast_house_instant_w": "unavailable",
+                   "input_boolean.opti_score_house_includes_ev": "off"})
+    result = evaluate(StrategyEngine(), states, _OCT_NIGHT_ATTRS, now)
+    assert result.attributes[SUNNY]["load_source"] == "legacy_60min_extrapolation"
+
+
 @pytest.mark.parametrize("history", [
     pytest.param({"hours": 11}, id="under_half_a_day"),
     pytest.param({"hours": 14, "gap_at_hours": 7, "gap_hours": 2.5}, id="gap_over_two_hours"),
@@ -1664,7 +1753,7 @@ def test_ev_option_uses_the_ev_adjusted_daily_mean_and_reset_drops_it():
     states["sensor.opti_forecast_house_instant_w"] = "unavailable"
     invalid = evaluate(engine, states, _NIGHT_ATTRS, now + dt.timedelta(minutes=1))
     assert invalid.states[DAILY_EV] == "unavailable"
-    assert invalid.attributes[SUNNY]["load_source"] == "legacy_60min_extrapolation"
+    assert invalid.attributes[SUNNY]["load_source"] == "raw_60min_ev_fallback"
     engine.reset_score_statistics()
     assert DAILY_EV not in engine.snapshot()["buckets"]
     assert DAILY in engine.snapshot()["buckets"]

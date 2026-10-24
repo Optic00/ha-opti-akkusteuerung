@@ -215,6 +215,16 @@ Tagesmittel als Nenner (`load_source` = `tagesmittel_24h`) entfällt dieser
 Nacht-Halt (#155): Nachts gilt dieselbe Hysterese wie tagsüber, ein langer
 Horizont geht also auch nachts bei Score ≥ 3 aus. Ein Neueintrag ohne
 Vorzustand startet nachts wie bisher.
+Mit der EV-Option kann der Abzug kurz ungültig sein, typisch beim Ladestart:
+Die Wallbox meldet „lädt“, bevor eine frische Leistung vorliegt, oder die
+Leistung kommt vor der Hauslast an, die sie schon enthält. Dann rechnen die
+Scores mit der unbereinigten Last, und `load_source` zeigt
+`raw_60min_ev_fallback` oder, ohne 60-Minuten-Mittel, `current_house_ev_fallback`.
+Solange das gilt, behält der lange Horizont seinen Vorzustand und schaltet in
+keine Richtung (#155). Ein gehaltenes „an“ behält dabei seine `an_quelle`.
+Ohne Vorzustand gilt die Einstiegsregel. Bleibt der Abzug dauerhaft ungültig,
+etwa bei einer ausgefallenen Wallbox-Leistung, bleibt auch der Horizont auf
+seinem letzten Zustand; `score_load_error` im `reserve_plan` zeigt dann `ev_power`.
 
 Morgen- und Sonnentag-Score teilen die Tagesprognose seit Issue #124 durch den
 Tagesbedarf statt durch die auf 24 Stunden hochgerechnete letzte Stunde. Die

@@ -1616,6 +1616,7 @@ def test_missing_ev_adjustment_does_not_switch_a_short_horizon_on():
     start = evaluate(engine, _ev_night_states("unavailable", 9.6, raw_w=10000), _OCT_NIGHT_ATTRS,
                      now + dt.timedelta(seconds=15))
     assert start.attributes[SUNNY]["load_source"] == "raw_60min_ev_fallback"
+    assert start.attributes["sensor.opti_forecast_score_tomorrow"]["load_source"] == "raw_60min_ev_fallback"
     assert (start.states[SUNNY], start.states[HORIZON]) == ("0", "off")
     assert "EV-bereinigte Last fehlt (raw_60min_ev_fallback): Vorzustand aus gehalten" in start.attributes[HORIZON]["branch"]
     charging = evaluate(engine, _ev_night_states(500, 9.6, raw_w=10000), _OCT_NIGHT_ATTRS,
@@ -1669,6 +1670,19 @@ def test_missing_ev_adjustment_without_previous_state_uses_the_entry_rule():
     assert fresh.attributes[SUNNY]["load_source"] == "current_house_ev_fallback"
     assert (fresh.states[SUNNY], fresh.states[HORIZON]) == ("0", "on")
     assert fresh.attributes[HORIZON]["an_quelle"] == "score"
+
+
+def test_missing_score_wins_over_a_missing_ev_adjustment():
+    # A missing score still chooses 36 h conservatively, even while the EV hold would apply.
+    now = dt.datetime(2026, 10, 22, 3, 45, tzinfo=TZ)
+    engine = _ev_engine(now)
+    assert evaluate(engine, _ev_night_states(500, 9.6), _OCT_NIGHT_ATTRS, now).states[HORIZON] == "off"
+    both = _ev_night_states("unavailable", 9.6, raw_w=10000)
+    both["sensor.opti_forecast_today_kwh"] = "unavailable"
+    result = evaluate(engine, both, _OCT_NIGHT_ATTRS, now + dt.timedelta(seconds=15))
+    assert result.states[SUNNY] == "unavailable"
+    assert result.states[HORIZON] == "on"
+    assert result.attributes[HORIZON]["an_quelle"] == "score_fehlt"
 
 
 def test_ev_fallback_marker_needs_the_ev_option():

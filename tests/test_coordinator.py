@@ -148,6 +148,23 @@ async def test_latch_transitions_are_persisted_immediately(coordinator):
         assert not any(call.args[1] == 0 for call in delayed.call_args_list)
 
 
+async def test_horizon_origin_change_is_persisted_immediately(coordinator):
+    """Restore reads an_quelle back as previous state (#155); its change must not wait a minute."""
+    horizon = "binary_sensor.opti_peak_horizont_lang"
+    with patch.object(coordinator._store, "async_delay_save") as delayed:
+        data = await coordinator._async_update_data()  # no forecast source: score missing
+        assert data["states"][horizon] == "on"
+        assert data["attributes"][horizon]["an_quelle"] == "score_fehlt"
+        delayed.reset_mock()
+        await coordinator._async_update_data()
+        assert not any(call.args[1] == 0 for call in delayed.call_args_list)
+        # Same on state, different origin in the last saved snapshot -> immediate write.
+        coordinator._engine_snapshot["attributes"][horizon]["an_quelle"] = "score"
+        delayed.reset_mock()
+        await coordinator._async_update_data()
+        assert any(call.args[1] == 0 for call in delayed.call_args_list)
+
+
 async def test_minsoc_latch_survives_a_crash_right_after_it_latched(hass, entry):
     """Saved off, SoC 10 -> on, recovery to 11, crash: restore at 11 must stay on until 13."""
     before = OptiCoordinator(hass, entry, device(), StrategyEngine())
@@ -885,6 +902,32 @@ async def test_score_ev_opt_in_uses_cleaned_load_without_changing_real_house(coo
     assert invalid["states"]["sensor.opti_forecast_house_60min_w"] == "unavailable"
     assert len(coordinator.engine.snapshot()["samples"]["sensor.opti_forecast_house_60min_w"]) == 1
     assert invalid["reserve_plan"]["score_load_error"] == "ev_power"
+
+
+async def test_ev_power_ahead_of_house_load_marks_the_score_and_holds_the_horizon(coordinator, hass):
+    """Charge start (#155): wallbox power arrives before the house load contains it."""
+    options = {**coordinator.entry.options,
+               "sources": {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev",
+                           "forecast_today": "sensor.pv_today", "forecast_tomorrow": "sensor.pv_tomorrow"},
+               "demand_forecast": {"house_includes_ev": True}}
+    hass.config_entries.async_update_entry(coordinator.entry, options=options)
+    rising = (dt_util.now() + timedelta(hours=3)).isoformat()
+    hass.states.async_set("sun.sun", "below_horizon", {"next_rising": rising, "next_setting": rising})
+    for entity in ("sensor.pv_today", "sensor.pv_tomorrow"):
+        hass.states.async_set(entity, "50", {"unit_of_measurement": "kWh"})
+    hass.states.async_set("sensor.ev", "0", {"unit_of_measurement": "W"})
+    hass.states.async_set("binary_sensor.ev", "off")
+    horizon, sunny = "binary_sensor.opti_peak_horizont_lang", "sensor.opti_forecast_score_sonnentag"
+    data = await coordinator._async_update_data()
+    assert data["states"][sunny] == "10"
+    assert data["states"][horizon] == "off"
+    hass.states.async_set("binary_sensor.ev", "on")
+    hass.states.async_set("sensor.ev", "9600", {"unit_of_measurement": "W"})
+    start = await coordinator._async_update_data()
+    assert start["reserve_plan"]["score_load_error"] == "ev_power"
+    assert start["attributes"][sunny]["load_source"] == "raw_60min_ev_fallback"
+    assert start["states"][horizon] == "off"
+    assert "EV-bereinigte Last fehlt" in start["attributes"][horizon]["branch"]
 
 
 async def test_nonlegacy_score_subtracts_only_ev_not_already_excluded(coordinator, hass):

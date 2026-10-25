@@ -216,3 +216,34 @@ async def test_diagnostics_handles_failed_setup_without_runtime_data(hass):
     assert result["connection"]["command_evidence"] == {}
     assert result["health"]["source_errors"] == {"count": 0, "roles": [], "codes": {}}
     assert result["shadow"] == {"status": "not_active", "blocked_write_attempts": 0}
+
+
+async def test_diagnostics_shows_the_sbs_register_probe_without_serial(hass):
+    """#170: a tester shares raw SBS registers; the serial register never leaves."""
+    entry = config_entry(hass)
+    entry.runtime_data = SimpleNamespace(shadow_mode=True, strategy_enabled=True, data={
+        "identity": {
+            "profile": "sma_sbs", "model": "SMA Sunny Boy Storage (Gerätetyp 9357)", "model_id": 9357,
+            "device_class": 8007, "inverter_status": 307, "status_register": 33001,
+            "serial_number": "3012345678",
+            "register_probe": [
+                {"address": 30845, "evidence": "stp_se_maverick", "raw": 61},
+                {"address": 31061, "evidence": "sbs25_community", "error": "modbus_error"},
+                {"address": 30057, "raw": 3012345678},
+                {"address": 40189, "raw": True, "host": "192.0.2.44"},
+                "not a row",
+            ],
+        },
+    })
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    device = result["device"]
+    assert (device["profile"], device["status_register"], device["device_class"]) == ("sma_sbs", 33001, 8007)
+    assert device["register_probe"] == [
+        {"address": 30845, "raw": 61, "evidence": "stp_se_maverick"},
+        {"address": 31061, "error": "modbus_error", "evidence": "sbs25_community"},
+        {"address": 40189},
+    ]
+    assert "3012345678" not in json.dumps(result)
+    assert "192.0.2.44" not in json.dumps(result)

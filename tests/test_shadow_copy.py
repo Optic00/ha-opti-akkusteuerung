@@ -391,3 +391,12 @@ async def test_copy_reviews_existing_optional_sections_in_dependency_order(hass,
             result = await hass.config_entries.flow.async_configure(result['flow_id'], form_values(result))
     assert steps[steps.index('notifications'):] == ['notifications', 'advanced'] + (
         ['demand', 'ev_preparation', 'arbitrage', 'observation'] if configured else [])
+
+
+async def test_sbs_shadow_entry_is_not_offered_for_active_control(hass):
+    """#170: copying would create an active entry for a profile without a control path."""
+    shadow_entry(hass, data={**CONNECTION, "profile": "sma_sbs", "serial_number": "3012345678", "shadow_mode": True},
+                 unique_id="shadow:sma_sbs:3012345678")
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER},
+        data={"backend": "shadow_copy"})
+    assert result["reason"] == "no_shadow_entries"

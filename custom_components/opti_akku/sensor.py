@@ -13,6 +13,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
 
 from .entity import OptiAkkuEntity, coordinator_data, readable_name
+from .evcc_comparison import VERDICTS as EVCC_VERDICTS
 
 SENSOR_PREFIXES = ("sensor.", "counter.", "input_datetime.")
 PLAN_SHADOW_KEY = "sensor.opti_plan_shadow"
@@ -20,6 +21,7 @@ PLAN_SHADOW_KEY = "sensor.opti_plan_shadow"
 PLAN_SHADOW_STATES = {"Akku Dynamisch": "dynamisch", "Akku Pause": "pause", "Akku nur Laden": "nur_laden",
                       "Akku nur Entladen": "nur_entladen", "Akku Netzladen": "netzladen"}
 PLAN_SHADOW_MODES = list(PLAN_SHADOW_STATES.values())
+EVCC_COMPARISON_KEY = "sensor.opti_evcc_comparison"
 DIAGNOSTICS = ("mode", "reason", "last_write", "last_error", "source_errors", "price_provider_error", "price_last_success", "notification_error", "load_profile", "control_release", "device_errors", "command_confirmation", "command_evidence", "pause_pending", "reserve_plan", "operating_report", "price_status", "demand_forecast", "source_observation", "connection_status", "ev_preparation", "arbitrage_estimate")
 CORE_UNITS = {"soc": "%", "battery_temp": "°C", "battery_capacity_kwh": "kWh",
               "battery_power_w": "W", "pv_power_w": "W", "pv_generation_w": "W",
@@ -42,6 +44,7 @@ async def async_setup_entry(
             known.update(keys)
             async_add_entities(
                 OptiAkkuPlanShadowSensor(entry, key) if key == PLAN_SHADOW_KEY
+                else OptiAkkuEvccComparisonSensor(entry, key) if key == EVCC_COMPARISON_KEY
                 else OptiAkkuStateSensor(entry, key) for key in keys)
 
     add_new_entities()
@@ -152,6 +155,20 @@ class OptiAkkuPlanShadowSensor(OptiAkkuStateSensor):
     @property
     def native_value(self) -> Any:
         return PLAN_SHADOW_STATES.get(self._value())
+
+
+class OptiAkkuEvccComparisonSensor(OptiAkkuPlanShadowSensor):
+    """Verdict of the evcc optimizer against the ladder; counters stay out of Recorder."""
+
+    def __init__(self, entry: ConfigEntry, key: str) -> None:
+        super().__init__(entry, key)
+        self._attr_options = list(EVCC_VERDICTS)
+        self._attr_translation_key = "evcc_comparison"
+
+    @property
+    def native_value(self) -> Any:
+        value = self._value()
+        return value if value in EVCC_VERDICTS else None
 
 
 class OptiAkkuDiagnosticSensor(OptiAkkuEntity, SensorEntity):

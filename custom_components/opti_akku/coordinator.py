@@ -22,6 +22,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import sun
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
 from .alerts import HealthAlerts, night_standby
@@ -56,6 +57,7 @@ from .negative_price_hold import NegativePriceHoldShadow, negative_price_hold_ch
 from .planner_shadow import ForecastHistory, PlannerInputs, PlannerShadow, price_periods, pv_forecast_hourly
 from .demand import EV_SCOPE_VERSION, DemandForecast, pv_intervals, ev_profile_sources, ev_profile_scope, profile_house_value
 from .refill_comparison import RefillReserveComparison, refill_reserve_check
+from .evcc_comparison import FETCH_INTERVAL as EVCC_FETCH_INTERVAL, EvccComparison, derive_plan, evcc_check, fetch_evopt, suggestion_status
 from .demand_comparison import build_strategy_comparison, remaining_day_profile
 from .peak_load import peak_load_profile
 from .ev_preparation import EVPreparation, apply_preparation, command_signals
@@ -93,6 +95,7 @@ def _build_metadata(engine: Any) -> dict:
         "sensor.opti_clipping_forecast_kwh": {"name": "Erwartete Energie über AC-Grenze", "unit_of_measurement": "kWh", "state_class": "measurement"},
         "sensor.opti_negative_price_hold": {"name": "Schattenvergleich PV-Ladung bis Preisfenster"},
         "sensor.opti_plan_shadow": {"name": "Schattenplaner Horizont"},
+        "sensor.opti_evcc_comparison": {"name": "Schattenvergleich evcc-Optimizer"},
         "binary_sensor.opti_connection": {"name": "Verbindung", "device_class": "connectivity"},
         "binary_sensor.opti_block_violation": {"name": "Sperrverletzung", "device_class": "problem"},
         "binary_sensor.opti_write_stalled": {"name": "Schreibstillstand", "device_class": "problem"},
@@ -255,6 +258,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._operating_report = OperatingReport()
         self._precharge_comparison = PrechargeComparison()
         self._refill_comparison = RefillReserveComparison()
+        self._evcc_comparison = EvccComparison()
         self._negative_price_hold = NegativePriceHoldShadow()
         self._planner = PlannerShadow()
         self._planner_history = ForecastHistory()
@@ -319,6 +323,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._settings_revision = None
         self._price_snapshot: TibberPriceSnapshot | None = None
         self._price_task: asyncio.Task | None = None
+        self._evcc_task: asyncio.Task | None = None
+        self._evcc_next_fetch: datetime | None = None
+        self._evcc_evopt: Any = None
+        self._evcc_fetch_error: str | None = None
         self._price_next_fetch: datetime | None = None
         self._price_provider_error: str | None = None
         self._price_last_success: datetime | None = None
@@ -364,6 +372,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.engine.restore(stored.get("engine", {}))
         self._precharge_comparison.restore(stored.get("precharge_comparison"))
         self._refill_comparison.restore(stored.get("refill_reserve_comparison"))
+        self._evcc_comparison.restore(stored.get("evcc_comparison"))
         self._negative_price_hold.restore(stored.get("negative_price_hold"))
         self._planner.restore(stored.get("planner_shadow"))
         try:
@@ -473,6 +482,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "engine": self._engine_snapshot, "operating_report": self._operating_report.snapshot(),
                 "precharge_comparison": self._precharge_comparison.snapshot(),
                 "refill_reserve_comparison": self._refill_comparison.snapshot(),
+                "evcc_comparison": self._evcc_comparison.snapshot(),
                 "negative_price_hold": self._negative_price_hold.snapshot(),
                 "planner_shadow": self._planner.snapshot(), "load_profile": self._load_profile.snapshot(),
                 "score_load_profile": self._score_load_profile.snapshot(),
@@ -1245,6 +1255,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data, now, (captured_options.get("sources", {}).get("forecast_today"), demand_sources.get("pv_today")),
             captured_options)
         await self._async_update_planner(data, now, captured_options, demand_sources)
+        self._update_evcc_comparison(data, now, captured_options)
         self._update_arbitrage_report(data, now, captured_options, arbitrage_hold, safety_reason)
         await self._async_update_observations(data, now, captured_options)
         # Only a real on<->off transition forces a write; a latch missing on one
@@ -1334,11 +1345,76 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         attributes[key] = check
 
     def _planner_entity_enabled(self) -> bool:
-        """The shadow sensor is disabled by default; a disabled entity costs no CPU."""
+        return self._shadow_entity_enabled("sensor.opti_plan_shadow")
+
+    def _shadow_entity_enabled(self, key: str) -> bool:
+        """Shadow sensors are disabled by default; a disabled entity costs no CPU or I/O."""
         registry = er.async_get(self.hass)
-        entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{self.entry.entry_id}_sensor.opti_plan_shadow")
+        entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{self.entry.entry_id}_{key}")
         entry = registry.async_get(entity_id) if entity_id else None
         return entry is not None and entry.disabled_by is None
+
+    def _update_evcc_comparison(self, data, now, options):
+        """Compare the ladder with the evcc optimizer; it never changes control."""
+        key = "sensor.opti_evcc_comparison"
+        states, attributes = data["states"], data["attributes"]
+        cfg = options.get("evcc_comparison") if isinstance(options.get("evcc_comparison"), dict) else {}
+        entity, url = cfg.get("suggestion_entity"), cfg.get("url")
+        try:
+            if not entity and not url:
+                check = {"status": "not_configured"}
+            elif not self._shadow_entity_enabled(key):
+                check = {"status": "disabled", "detail": "entity_disabled"}
+            else:
+                check = None
+            if check is not None:
+                self._evcc_comparison.interrupt()
+                check.update(informational_only=True, controls_battery=False)
+            else:
+                if url:
+                    self._schedule_evcc_fetch(url)
+                if entity:
+                    state = self.hass.states.get(entity)
+                    suggestion = suggestion_status(
+                        state.attributes if state else None, state.state if state else None,
+                        state.last_reported if state else None, now)
+                else:
+                    suggestion = {"status": "not_configured"}
+                if not url:
+                    plan = {"status": "not_configured"}
+                elif self._evcc_fetch_error is not None:
+                    plan = {"status": "fetch_error", "error": self._evcc_fetch_error}
+                else:
+                    plan = derive_plan(self._evcc_evopt, now)
+                check = evcc_check(suggestion, plan, data.get("mode"))
+                check["totals"] = self._evcc_comparison.observe(now, check)
+        except Exception as err:  # Observation only; never affects the decision.
+            _LOGGER.debug("evcc comparison unavailable: %s", type(err).__name__)
+            self._evcc_comparison.interrupt()
+            check = {"status": "error", "informational_only": True, "controls_battery": False}
+        states[key] = check.get("verdict", "unknown") if check.get("status") == "ready" else "unknown"
+        attributes[key] = check
+
+    @callback
+    def _schedule_evcc_fetch(self, url: str) -> None:
+        """Read evcc's evopt result in the background; never await the network in the update."""
+        if (self._stopping or (self._evcc_task is not None and not self._evcc_task.done())
+                or (self._evcc_next_fetch is not None and dt_util.utcnow() < self._evcc_next_fetch)):
+            return
+        self._evcc_next_fetch = dt_util.utcnow() + EVCC_FETCH_INTERVAL
+        self._evcc_task = self.entry.async_create_background_task(
+            self.hass, self._async_fetch_evcc(url), "Opti evcc optimizer plan", eager_start=False)
+
+    async def _async_fetch_evcc(self, url: str) -> None:
+        """A failed read drops the cached plan, so an old plan never looks current."""
+        try:
+            self._evcc_evopt = await fetch_evopt(async_get_clientsession(self.hass), url)
+            self._evcc_fetch_error = None
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001 - any read failure stays in the comparison
+            self._evcc_evopt = None
+            self._evcc_fetch_error = type(err).__name__
 
     async def _async_update_planner(self, data, now, options, demand_sources):
         """Shadow horizon planner; runs after the decision and never changes it.
@@ -1915,12 +1991,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._revision += 1
         self._unsubscribe()
         await self.alerts.async_stop()
-        if self._price_task is not None and not self._price_task.done():
-            self._price_task.cancel()
-            try:
-                await self._price_task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._price_task, self._evcc_task):
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         await self.async_shutdown()
         async with self._update_lock:
             if not self.shadow_mode and self.write_enabled and self._online and self._identity.get("serial_number"):

@@ -185,3 +185,28 @@ def test_translation_state_keys_are_hassfest_slugs():
                     assert pattern.match(key), f"{path.name}: state key {key!r} is not a slug"
                     checked += 1
     assert checked >= 15
+
+
+def test_evcc_comparison_sensor_shows_verdicts_only():
+    from homeassistant.const import MATCH_ALL
+    from custom_components.opti_akku.sensor import OptiAkkuEvccComparisonSensor
+
+    key = "sensor.opti_evcc_comparison"
+    coordinator = Mock()
+    coordinator.data = {"states": {key: "unknown"}, "metadata": {},
+                        "attributes": {key: {"status": "no_evcc_data"}}}
+    coordinator.last_update_success = True
+    coordinator.shadow_mode = False
+    entry = MockConfigEntry(domain="opti_akku", title="Opti Test", data={"profile": "sma_stp_se"})
+    entry.runtime_data = coordinator
+    sensor = OptiAkkuEvccComparisonSensor(entry, key)
+
+    assert sensor._unrecorded_attributes == frozenset({MATCH_ALL})
+    assert sensor.entity_registry_enabled_default is False
+    assert sensor.translation_key == "evcc_comparison"
+    assert sensor.options[0] == "agree" and "evcc_grid_charge" in sensor.options
+    assert sensor.native_value is None and sensor.available is True
+    coordinator.data["states"][key] = "evcc_hold"
+    assert sensor.native_value == "evcc_hold"
+    coordinator.data["states"][key] = "Akku Pause"
+    assert sensor.native_value is None

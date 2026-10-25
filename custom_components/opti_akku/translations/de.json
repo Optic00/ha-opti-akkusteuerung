@@ -413,6 +413,7 @@
         "menu_options": {
           "connection": "Verbindung",
           "observation": "Messquellen und Bilanz vergleichen",
+          "evcc_comparison": "Mit evcc-Optimizer vergleichen",
           "advanced": "Erweiterte Einstellungen",
           "init": "Zurück zur Übersicht"
         }
@@ -670,6 +671,14 @@
       "active_setup": {
         "title": "Aktive Steuerung einrichten",
         "description": "Dieser Shadow-Eintrag bleibt dauerhaft lesend.\n\n1. Schließe diesen Dialog. Falls du Einstellungen geändert hast, speichere sie zuerst über „Prüfen und speichern“.\n2. Öffne Einstellungen → Geräte & Dienste → Integration hinzufügen → Opti Akku.\n3. Wähle „Shadow-Einstellungen für aktive Steuerung übernehmen“ und diesen Shadow-Eintrag.\n\nDer neue Assistent übernimmt die Einstellungen als Vorschläge und prüft die Gerätebindung erneut. Schreibzugriffe bleiben zunächst gesperrt. Die bisherige schreibende Steuerung muss vor der abschließenden Bestätigung deaktiviert sein. Dieser Schritt selbst verändert nichts."
+      },
+      "evcc_comparison": {
+        "title": "Mit evcc-Optimizer vergleichen",
+        "description": "Nur lesend. Vergleicht den Modus der Leiter mit dem Akku-Plan von evcc. Danach den deaktivierten Sensor „Schattenvergleich evcc-Optimizer“ aktivieren. Die Suggestion-Entität ist der SoC-Sensor des Hausakkus aus ha-evcc mit dem Attribut „suggestion“. Die evcc-Adresse ist optional: Dann liest Opti Akku alle 5 Minuten das evopt-Ergebnis aus /api/state und leitet die Akku-Aktion je Slot ab. Voraussetzung ist der evcc-Optimizer (Konfiguration → Experimentell).",
+        "data": {
+          "suggestion_entity": "Entität mit evcc-Suggestion",
+          "url": "evcc-Adresse (z. B. http://192.168.1.10:7070)"
+        }
       }
     },
     "error": {
@@ -711,7 +720,8 @@
       "ev_soc_unit": "Fahrzeug-SoC muss Prozent (%) liefern.",
       "ev_deadline_value": "Für die Abfahrtsplanung Kapazität und Ladeleistung angeben.",
       "huawei_temperature_required": "Eine gültige Huawei-Batterietemperatur fehlt. Wähle sie unter Anlagen und Messwerte oder Verbindung aus. Rein lesende Messwerte sind im Shadow-Modus ohne Strategie möglich.",
-      "huawei_house_source_required": "Huawei benötigt einen vorhandenen Hausverbrauchssensor. Die SMA-Ein-Wechselrichter-Bilanz ist hier nicht verfügbar."
+      "huawei_house_source_required": "Huawei benötigt einen vorhandenen Hausverbrauchssensor. Die SMA-Ein-Wechselrichter-Bilanz ist hier nicht verfügbar.",
+      "evcc_url": "Eine einfache http(s)-Adresse ohne Benutzername, Passwort, Query oder Fragment angeben."
     }
   },
   "entity": {
@@ -1259,6 +1269,18 @@
           "nur_laden": "Akku nur Laden",
           "nur_entladen": "Akku nur Entladen",
           "netzladen": "Akku Netzladen"
+        }
+      },
+      "evcc_comparison": {
+        "name": "Schattenvergleich evcc-Optimizer",
+        "state": {
+          "agree": "Übereinstimmung",
+          "evcc_grid_charge": "evcc lädt aus dem Netz",
+          "ladder_grid_charge": "Leiter lädt aus dem Netz",
+          "evcc_hold": "evcc hält den Akku",
+          "evcc_discharge": "evcc entlädt",
+          "evcc_no_charge": "evcc sperrt Laden",
+          "other": "Andere Abweichung"
         }
       }
     },

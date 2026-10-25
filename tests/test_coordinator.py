@@ -3653,3 +3653,102 @@ def test_expected_load_hours_strips_the_profile_margin_only():
     assert _expected_load_hours(profile) == {"1": 1000.0, "2": 800.0}
     assert _expected_load_hours({"status": "disabled", "hours": {}}) == {}
     assert _expected_load_hours(None) == {}
+
+
+EVCC_KEY = "sensor.opti_evcc_comparison"
+
+
+def enable_evcc_comparison(hass, entry, **cfg):
+    from homeassistant.helpers import entity_registry as er
+    er.async_get(hass).async_get_or_create("sensor", "opti_akku", f"{entry.entry_id}_{EVCC_KEY}", config_entry=entry)
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "evcc_comparison": cfg})
+
+
+def evcc_evopt(now):
+    start = now.replace(minute=now.minute - now.minute % 15, second=0, microsecond=0)
+    return {
+        "updated": now.isoformat(),
+        "req": {"time_series": {"dt": [900, 900]}, "batteries": [{"s_min": 1000, "s_max": 9000}]},
+        "res": {"status": "Optimal", "batteries": [{"charging_power": [500, 0], "discharging_power": [0, 0]}],
+                "grid_import": [600, 0], "grid_export": [0, 0]},
+        "details": {"timestamp": [start.isoformat(), (start + timedelta(minutes=15)).isoformat()],
+                    "batteryDetails": [{"type": "battery", "name": "byd"}]},
+    }
+
+
+async def test_evcc_comparison_is_off_until_configured_and_enabled(coordinator, hass, entry):
+    data = await coordinator._async_update_data()
+    assert data["states"][EVCC_KEY] == "unknown"
+    assert data["attributes"][EVCC_KEY]["status"] == "not_configured"
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "evcc_comparison": {"url": "http://evcc.local:7070"}})
+    with patch("custom_components.opti_akku.coordinator.fetch_evopt", AsyncMock()) as fetch:
+        data = await coordinator._async_update_data()
+    attrs = data["attributes"][EVCC_KEY]
+    assert attrs["status"] == "disabled" and attrs["controls_battery"] is False
+    assert coordinator._evcc_task is None
+    fetch.assert_not_called()
+
+
+async def test_evcc_suggestion_is_compared_with_the_ladder_mode(coordinator, hass, entry):
+    enable_evcc_comparison(hass, entry, suggestion_entity="sensor.evcc_battery_soc")
+    hass.states.async_set("sensor.evcc_battery_soc", "84", {"suggestion": {"action": "normal"}})
+    await coordinator._async_update_data()
+    data = await coordinator._async_update_data()
+    attrs = data["attributes"][EVCC_KEY]
+    assert data["mode"] == "Akku Pause"
+    assert data["states"][EVCC_KEY] == "evcc_discharge"
+    assert attrs["source"] == "suggestion" and attrs["plan"] == {"status": "not_configured"}
+    assert attrs["totals"]["started_at"] is not None
+    assert coordinator._stored_data()["evcc_comparison"]["version"] == 1
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+async def test_evcc_plan_is_read_in_the_background_and_derived(coordinator, hass, entry):
+    enable_evcc_comparison(hass, entry, url="http://evcc.local:7070")
+    payload = evcc_evopt(dt_util.utcnow())
+    with patch("custom_components.opti_akku.coordinator.fetch_evopt", AsyncMock(return_value=payload)) as fetch:
+        data = await coordinator._async_update_data()
+        assert data["attributes"][EVCC_KEY]["status"] == "no_evcc_data"
+        await coordinator._evcc_task
+        data = await coordinator._async_update_data()
+    attrs = data["attributes"][EVCC_KEY]
+    assert fetch.await_count == 1 and fetch.await_args.args[1] == "http://evcc.local:7070"
+    assert attrs["source"] == "evopt" and attrs["evcc_action"] == "charge"
+    assert data["states"][EVCC_KEY] == "evcc_grid_charge"
+    assert attrs["suggestion"] == {"status": "not_configured"}
+
+
+async def test_evcc_fetch_error_drops_the_plan_and_waits_for_the_interval(coordinator, hass, entry):
+    enable_evcc_comparison(hass, entry, url="http://evcc.local:7070")
+    coordinator._evcc_evopt = evcc_evopt(dt_util.utcnow())
+    with patch("custom_components.opti_akku.coordinator.fetch_evopt", AsyncMock(side_effect=OSError)) as fetch:
+        await coordinator._async_update_data()
+        await coordinator._evcc_task
+        data = await coordinator._async_update_data()
+    assert data["attributes"][EVCC_KEY]["plan"] == {"status": "fetch_error", "error": "OSError"}
+    assert coordinator._evcc_evopt is None and fetch.await_count == 1
+
+
+async def test_evcc_comparison_error_never_stops_the_update(coordinator, hass, entry):
+    enable_evcc_comparison(hass, entry, suggestion_entity="sensor.evcc_battery_soc")
+    with patch("custom_components.opti_akku.coordinator.evcc_check", side_effect=RuntimeError("boom")):
+        data = await coordinator._async_update_data()
+    assert data["states"][EVCC_KEY] == "unknown"
+    assert data["attributes"][EVCC_KEY]["status"] == "error"
+    assert data["mode"] == "Akku Pause"
+
+
+async def test_stop_cancels_a_running_evcc_read(coordinator, hass, entry):
+    enable_evcc_comparison(hass, entry, url="http://evcc.local:7070")
+    blocked = asyncio.Event()
+
+    async def wait(*args):
+        await blocked.wait()
+
+    with patch("custom_components.opti_akku.coordinator.fetch_evopt", wait):
+        await coordinator._async_update_data()
+        task = coordinator._evcc_task
+        await asyncio.sleep(0)
+        await coordinator.async_stop()
+    assert task.cancelled()

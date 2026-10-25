@@ -601,6 +601,48 @@ Betrag erreicht, sonst Eigenverbrauch; `plan_source` zeigt es) und
 `planner.grid_check_quantile` (Variante B, z. B. `p50`: Netzladen nur, wenn
 auch der Plan mit dem Median-PV netzlädt; `grid_check` zeigt das Ergebnis).
 
+## Vergleich mit dem evcc-Optimizer
+
+**Opti Schattenvergleich evcc-Optimizer** (`sensor.opti_evcc_comparison`,
+Diagnose, standardmäßig deaktiviert) stellt den Modus der Leiter neben den
+Akku-Plan des evcc-Optimizers (ab evcc 0.318). Er **steuert nichts** und
+schreibt nichts an evcc. Voraussetzung ist der eingeschaltete Optimizer in
+evcc (**Konfiguration → Experimentell**, Sponsor-Token). Den Automatikmodus
+von evcc braucht der Vergleich nicht. Steuert evcc den Akku selbst, darf
+Opti Akku keine Schreibfreigabe haben.
+
+Einrichtung unter **Erweitert und Diagnose → Mit evcc-Optimizer vergleichen**,
+danach den Sensor aktivieren. Beide Quellen sind optional, eine genügt:
+
+- **Entität mit evcc-Suggestion:** der SoC-Sensor des Hausakkus aus der
+  Integration ha-evcc. Sein Attribut `suggestion.action` ist evccs Empfehlung
+  für den laufenden Slot. Ein Zustand, der länger als 15 Minuten nicht
+  gemeldet wurde, gilt als veraltet.
+- **evcc-Adresse** (z. B. `http://192.168.1.10:7070`, ohne Zugangsdaten):
+  Opti Akku liest alle 5 Minuten im Hintergrund `/api/state?jq=.evopt` und
+  leitet daraus für jeden Slot die Akku-Aktion mit evccs eigener Regel ab
+  (Schwelle 50 W, Netzbezug und Einspeisung, SoC-Grenzen). Ein Ergebnis,
+  das älter als 30 Minuten oder nicht `Optimal`/`Feasible` ist, wird
+  verworfen; ein fehlgeschlagener Abruf verwirft auch den letzten Plan.
+
+evcc-Aktionen in der Sprache der Leiter: `normal` = Akku Dynamisch, `hold` =
+Akku nur Laden, `charge` = Akku Netzladen, `holdcharge` = Akku nur Entladen.
+`discharge` (Entladen ins Netz) hat kein Gegenstück, für Akku Pause gibt es
+in evcc keinen Modus. Der Zustand nennt die Abweichung: `agree`,
+`evcc_grid_charge`, `ladder_grid_charge`, `evcc_hold`, `evcc_discharge`,
+`evcc_no_charge` oder `other`. Die Suggestion hat Vorrang. Liegen beide
+Quellen vor, zeigt `derivation_matches`, ob die Ableitung aus evopt evccs
+eigene Empfehlung trifft.
+
+Attribute: `suggestion` und `plan` mit Status je Quelle, im Plan `segments`
+(Start, Ende, Aktion; höchstens 96) und `hours` je Aktion ab jetzt, dazu
+`totals` mit Sekunden je Abweichung und Quelle, `disagreement_percent` sowie
+`derivation_checked_seconds`/`derivation_mismatch_seconds`. Die Attribute
+werden nicht aufgezeichnet. evcc rechnet mit eigenen Akku-Grenzen,
+Lastprofil und Prognosen und kennt weder maxsoc-Deckel noch Peak-Reserve.
+Eine Abweichung zeigt also, wo die Pläne auseinandergehen, nicht welcher
+richtig ist.
+
 ## Diagnose herunterladen
 
 Unter **Einstellungen -> Geräte & Dienste -> Opti Akku -> Drei-Punkte-Menü ->

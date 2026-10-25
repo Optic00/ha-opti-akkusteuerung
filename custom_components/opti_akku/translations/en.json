@@ -413,6 +413,7 @@
         "menu_options": {
           "connection": "Connection",
           "observation": "Compare sources and balance",
+          "evcc_comparison": "Compare with evcc optimizer",
           "advanced": "Advanced settings",
           "init": "Back to overview"
         }
@@ -670,6 +671,14 @@
       "active_setup": {
         "title": "Set up active control",
         "description": "This Shadow entry remains permanently read-only.\n\n1. Close this dialog. If you changed settings, save them first via Review and save.\n2. Open Settings → Devices & services → Add integration → Opti Akku.\n3. Choose Copy Shadow settings for active control and select this Shadow entry.\n\nThe new wizard uses the settings as suggestions and checks device identity again. Write access starts disabled. Disable the previous writing controller before the final confirmation. This step itself changes nothing."
+      },
+      "evcc_comparison": {
+        "title": "Compare with evcc optimizer",
+        "description": "Read-only. Compares the ladder mode with evcc's battery plan. Enable the disabled sensor \"evcc optimizer shadow comparison\" afterwards. The suggestion entity is the ha-evcc battery SoC sensor with the \"suggestion\" attribute. The evcc address is optional: Opti Akku then reads the evopt result from /api/state every 5 minutes and derives the battery action per slot. Requires the evcc optimizer (Configuration → Experimental).",
+        "data": {
+          "suggestion_entity": "Entity with evcc suggestion",
+          "url": "evcc address (e.g. http://192.168.1.10:7070)"
+        }
       }
     },
     "error": {
@@ -711,7 +720,8 @@
       "ev_soc_unit": "Vehicle SOC must use percent (%).",
       "ev_deadline_value": "Enter vehicle capacity and charge power for departure planning.",
       "huawei_temperature_required": "A valid Huawei battery temperature is missing. Select it under System and measurements or Connection. Read-only telemetry is available in shadow mode with strategy disabled.",
-      "huawei_house_source_required": "Huawei requires an existing house consumption sensor. The SMA single-inverter balance is not available here."
+      "huawei_house_source_required": "Huawei requires an existing house consumption sensor. The SMA single-inverter balance is not available here.",
+      "evcc_url": "Enter a plain http(s) address without user name, password, query or fragment."
     }
   },
   "entity": {
@@ -1259,6 +1269,18 @@
           "nur_laden": "Battery charge only",
           "nur_entladen": "Battery discharge only",
           "netzladen": "Battery grid charge"
+        }
+      },
+      "evcc_comparison": {
+        "name": "evcc optimizer shadow comparison",
+        "state": {
+          "agree": "Agree",
+          "evcc_grid_charge": "evcc charges from grid",
+          "ladder_grid_charge": "Ladder charges from grid",
+          "evcc_hold": "evcc holds battery",
+          "evcc_discharge": "evcc discharges",
+          "evcc_no_charge": "evcc blocks charging",
+          "other": "Other difference"
         }
       }
     },

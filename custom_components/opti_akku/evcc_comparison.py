@@ -29,6 +29,10 @@ EVOPT_MAX_AGE = timedelta(minutes=30)
 SUGGESTION_MAX_AGE = timedelta(minutes=15)
 FETCH_INTERVAL = timedelta(minutes=5)
 FETCH_TIMEOUT_S = 10
+# evcc caps a jq result at 1 MiB; anything larger is not an evopt result.
+MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+# 48 h of quarter hours plus hourly slots; a self-hosted optimizer may keep quarter hours for days.
+MAX_SLOTS = 600
 MAX_SEGMENTS = 96
 STATE_PATH = "/api/state"
 # The unauthenticated jq parameter trims the state to the evopt result.
@@ -161,6 +165,8 @@ def derive_plan(evopt: Any, now: datetime) -> dict[str, Any]:
     if (not isinstance(dt, Sequence) or not isinstance(stamps, Sequence) or not dt
             or len(dt) != len(stamps)):
         return {"status": "invalid"}
+    if len(dt) > MAX_SLOTS:
+        return {"status": "too_many_slots"}
     starts = [_instant(stamp) for stamp in stamps]
     seconds = [_number(value) for value in dt]
     if any(start is None for start in starts) or any(value is None or value <= 0 for value in seconds):
@@ -257,12 +263,20 @@ def evcc_check(suggestion: Mapping[str, Any], plan: Mapping[str, Any], ladder_mo
     }
 
 
-async def fetch_evopt(session: Any, url: str) -> Any:
-    """Read the evopt result from evcc's state API; ``None`` while evcc has none."""
+async def fetch_evopt(session: Any, url: str) -> bytes:
+    """Read the raw evopt JSON from evcc's state API, bounded in size.
+
+    Parsing is left to the caller so it can run outside the event loop.
+    """
     async with session.get(url.rstrip("/") + STATE_PATH, params=STATE_QUERY,
                            timeout=FETCH_TIMEOUT_S) as response:
         response.raise_for_status()
-        return await response.json(content_type=None)
+        body = bytearray()
+        async for chunk in response.content.iter_chunked(65536):
+            body += chunk
+            if len(body) > MAX_RESPONSE_BYTES:
+                raise ValueError("evcc response too large")
+        return bytes(body)
 
 
 class EvccComparison:

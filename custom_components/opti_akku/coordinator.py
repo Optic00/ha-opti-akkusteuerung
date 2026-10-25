@@ -324,6 +324,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._price_snapshot: TibberPriceSnapshot | None = None
         self._price_task: asyncio.Task | None = None
         self._evcc_task: asyncio.Task | None = None
+        self._evcc_url: str | None = None
         self._evcc_next_fetch: datetime | None = None
         self._evcc_evopt: Any = None
         self._evcc_fetch_error: str | None = None
@@ -1371,6 +1372,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._evcc_comparison.interrupt()
                 check.update(informational_only=True, controls_battery=False)
             else:
+                if url != self._evcc_url:
+                    # Options change without a reload; a plan from another address never counts.
+                    self._reset_evcc_plan(url)
                 if url:
                     self._schedule_evcc_fetch(url)
                 if entity:
@@ -1396,6 +1400,17 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         attributes[key] = check
 
     @callback
+    def _reset_evcc_plan(self, url: str | None) -> None:
+        if self._evcc_task is not None and not self._evcc_task.done():
+            # Cancellation completes later; the new address must not wait for it.
+            self._evcc_task.cancel()
+        self._evcc_task = None
+        self._evcc_url = url
+        self._evcc_evopt = None
+        self._evcc_fetch_error = None
+        self._evcc_next_fetch = None
+
+    @callback
     def _schedule_evcc_fetch(self, url: str) -> None:
         """Read evcc's evopt result in the background; never await the network in the update."""
         if (self._stopping or (self._evcc_task is not None and not self._evcc_task.done())
@@ -1408,13 +1423,16 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_fetch_evcc(self, url: str) -> None:
         """A failed read drops the cached plan, so an old plan never looks current."""
         try:
-            self._evcc_evopt = await fetch_evopt(async_get_clientsession(self.hass), url)
-            self._evcc_fetch_error = None
+            raw = await fetch_evopt(async_get_clientsession(self.hass), url)
+            payload = await self.hass.async_add_executor_job(json.loads, raw)
         except asyncio.CancelledError:
             raise
         except Exception as err:  # noqa: BLE001 - any read failure stays in the comparison
-            self._evcc_evopt = None
-            self._evcc_fetch_error = type(err).__name__
+            payload, error = None, type(err).__name__
+        else:
+            error = None
+        if url == self._evcc_url:
+            self._evcc_evopt, self._evcc_fetch_error = payload, error
 
     async def _async_update_planner(self, data, now, options, demand_sources):
         """Shadow horizon planner; runs after the decision and never changes it.

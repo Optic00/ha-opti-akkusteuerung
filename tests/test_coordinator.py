@@ -3706,7 +3706,7 @@ async def test_evcc_suggestion_is_compared_with_the_ladder_mode(coordinator, has
 
 async def test_evcc_plan_is_read_in_the_background_and_derived(coordinator, hass, entry):
     enable_evcc_comparison(hass, entry, url="http://evcc.local:7070")
-    payload = evcc_evopt(dt_util.utcnow())
+    payload = json.dumps(evcc_evopt(dt_util.utcnow())).encode()
     with patch("custom_components.opti_akku.coordinator.fetch_evopt", AsyncMock(return_value=payload)) as fetch:
         data = await coordinator._async_update_data()
         assert data["attributes"][EVCC_KEY]["status"] == "no_evcc_data"
@@ -3721,7 +3721,13 @@ async def test_evcc_plan_is_read_in_the_background_and_derived(coordinator, hass
 
 async def test_evcc_fetch_error_drops_the_plan_and_waits_for_the_interval(coordinator, hass, entry):
     enable_evcc_comparison(hass, entry, url="http://evcc.local:7070")
-    coordinator._evcc_evopt = evcc_evopt(dt_util.utcnow())
+    with patch("custom_components.opti_akku.coordinator.fetch_evopt", AsyncMock(return_value=b"{")) as fetch:
+        await coordinator._async_update_data()
+        await coordinator._evcc_task
+        data = await coordinator._async_update_data()
+    assert data["attributes"][EVCC_KEY]["plan"]["error"] == "JSONDecodeError"
+    coordinator._evcc_evopt, coordinator._evcc_fetch_error = evcc_evopt(dt_util.utcnow()), None
+    coordinator._evcc_next_fetch = None
     with patch("custom_components.opti_akku.coordinator.fetch_evopt", AsyncMock(side_effect=OSError)) as fetch:
         await coordinator._async_update_data()
         await coordinator._evcc_task
@@ -3752,3 +3758,39 @@ async def test_stop_cancels_a_running_evcc_read(coordinator, hass, entry):
         await asyncio.sleep(0)
         await coordinator.async_stop()
     assert task.cancelled()
+
+
+async def test_evcc_options_change_without_reload_and_drop_the_old_plan(hass, entry, coordinator):
+    from custom_components.opti_akku import _async_options_updated
+
+    entry.runtime_data = coordinator
+    coordinator.write_enabled = True
+    enable_evcc_comparison(hass, entry, url="http://evcc.local:7070")
+    with patch.object(hass.config_entries, "async_reload", AsyncMock()) as reload:
+        await _async_options_updated(hass, entry)
+    reload.assert_not_awaited()
+    coordinator.device.async_apply.assert_not_awaited()
+
+    blocked = asyncio.Event()
+
+    async def slow(*args):
+        await blocked.wait()
+        return json.dumps(evcc_evopt(dt_util.utcnow())).encode()
+
+    with patch("custom_components.opti_akku.coordinator.fetch_evopt", slow):
+        await coordinator._async_update_data()
+        old = coordinator._evcc_task
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, "evcc_comparison": {"url": "http://evcc2.local:7070"}})
+        await coordinator._async_update_data()
+        await asyncio.sleep(0)
+    assert old.cancelled() and coordinator._evcc_url == "http://evcc2.local:7070"
+    assert coordinator._evcc_evopt is None and coordinator._evcc_task is not old
+
+
+async def test_evcc_result_for_an_old_address_is_discarded(coordinator):
+    coordinator._evcc_url = "http://new.local"
+    payload = json.dumps(evcc_evopt(dt_util.utcnow())).encode()
+    with patch("custom_components.opti_akku.coordinator.fetch_evopt", AsyncMock(return_value=payload)):
+        await coordinator._async_fetch_evcc("http://old.local")
+    assert coordinator._evcc_evopt is None and coordinator._evcc_fetch_error is None

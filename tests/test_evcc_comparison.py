@@ -3,6 +3,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from custom_components.opti_akku.evcc_comparison import (
+    MAX_RESPONSE_BYTES,
+    MAX_SLOTS,
     EvccComparison,
     classify,
     derive_plan,
@@ -214,9 +216,18 @@ def test_restore_round_trip_and_rejects_inconsistent_counters():
         assert restored.snapshot()["ready_seconds"] == 0
 
 
+class FakeContent:
+    def __init__(self, chunks):
+        self.chunks = chunks
+
+    async def iter_chunked(self, size):
+        for chunk in self.chunks:
+            yield chunk
+
+
 class FakeResponse:
-    def __init__(self, payload, error=None):
-        self.payload, self.error = payload, error
+    def __init__(self, chunks, error=None):
+        self.content, self.error = FakeContent(chunks), error
 
     async def __aenter__(self):
         return self
@@ -227,9 +238,6 @@ class FakeResponse:
     def raise_for_status(self):
         if self.error:
             raise self.error
-
-    async def json(self, content_type=None):
-        return self.payload
 
 
 class FakeSession:
@@ -242,10 +250,18 @@ class FakeSession:
 
 
 async def test_fetch_reads_only_the_evopt_part_of_the_state():
-    session = FakeSession(FakeResponse({"updated": "x"}))
-    assert await fetch_evopt(session, "http://evcc.local:7070/") == {"updated": "x"}
+    session = FakeSession(FakeResponse([b'{"updated":', b' "x"}']))
+    assert await fetch_evopt(session, "http://evcc.local:7070/") == b'{"updated": "x"}'
     url, kwargs = session.calls[0]
     assert url == "http://evcc.local:7070/api/state"
     assert kwargs["params"] == {"jq": ".evopt"} and kwargs["timeout"] == 10
     with pytest.raises(RuntimeError):
-        await fetch_evopt(FakeSession(FakeResponse(None, RuntimeError("503"))), "http://evcc.local")
+        await fetch_evopt(FakeSession(FakeResponse([], RuntimeError("503"))), "http://evcc.local")
+    chunk = b"x" * 65536
+    with pytest.raises(ValueError, match="too large"):
+        await fetch_evopt(FakeSession(FakeResponse([chunk] * (MAX_RESPONSE_BYTES // len(chunk) + 1))), "http://evcc.local")
+
+
+def test_oversized_plans_are_rejected_before_parsing():
+    plan = derive_plan(evopt(slots=[SLOTS[4]] * (MAX_SLOTS + 1)), T0)
+    assert plan == {"status": "too_many_slots"}

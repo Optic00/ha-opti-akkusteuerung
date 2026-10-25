@@ -624,6 +624,12 @@ danach den Sensor aktivieren. Beide Quellen sind optional, eine genügt:
   (Schwelle 50 W, Netzbezug und Einspeisung, SoC-Grenzen). Ein Ergebnis,
   das älter als 30 Minuten oder nicht `Optimal`/`Feasible` ist, wird
   verworfen; ein fehlgeschlagener Abruf verwirft auch den letzten Plan.
+  Antworten über 2 MiB und Pläne mit mehr als 600 Slots werden nicht
+  ausgewertet.
+
+Eine Änderung dieser Optionen lädt die Integration nicht neu und unterbricht
+die Steuerung daher nicht. Nach einem Adresswechsel wird der alte Plan sofort
+verworfen.
 
 evcc-Aktionen in der Sprache der Leiter: `normal` = Akku Dynamisch, `hold` =
 Akku nur Laden, `charge` = Akku Netzladen, `holdcharge` = Akku nur Entladen.

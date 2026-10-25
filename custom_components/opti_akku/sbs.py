@@ -103,18 +103,20 @@ class SbsDevice:
         16777213 is SMA's "information not available"; another register with a
         real status wins, otherwise that code is reported as it is.
         """
-        addresses = (self._status_address,) if self._status_address else STATUS_REGISTERS
+        # The last real answer is tried first, never exclusively.
+        addresses = STATUS_REGISTERS if self._status_address is None else (
+            self._status_address, *(address for address in STATUS_REGISTERS if address != self._status_address))
         last_error: Exception | None = None
         placeholder: tuple[int, int] | None = None
         for address in addresses:
             try:
                 value = await self._read(address)
+            except (ModbusConnectionError, TimeoutError):
+                raise
             except (ModbusError, InvalidDataError) as err:
-                if isinstance(err, ModbusConnectionError):
-                    raise
                 last_error = err
                 continue
-            if value == INFORMATION_NOT_AVAILABLE and len(addresses) > 1:
+            if value == INFORMATION_NOT_AVAILABLE:
                 placeholder = placeholder or (address, value)
                 continue
             self._status_address = self._status_source = address
@@ -136,14 +138,16 @@ class SbsDevice:
                 row["error"] = "transport"
                 snapshot.append(row)
                 break  # Do not hammer an unreachable device once per register.
+            except TimeoutError:
+                # Before ModbusError: ModbusTimeoutError is both. Several silent
+                # registers would otherwise exceed the coordinator's time limit.
+                row["error"] = "timeout"
+                snapshot.append(row)
+                break
             except InvalidDataError:
                 row["error"] = "not_available"
             except ModbusError:
                 row["error"] = "modbus_error"
-            except TimeoutError:
-                row["error"] = "timeout"
-                snapshot.append(row)
-                break
             snapshot.append(row)
         return snapshot
 
@@ -165,8 +169,9 @@ class SbsDevice:
             serial_number = 0
         now = self._monotonic()
         if self._register_probe_at is None or now - self._register_probe_at >= REGISTER_PROBE_SECONDS:
-            self._register_probe = await self._snapshot_registers()
+            # Stamp first: a snapshot cut short by a timeout waits for the next interval.
             self._register_probe_at = now
+            self._register_probe = await self._snapshot_registers()
         return {
             "profile": PROFILE_SMA_SBS,
             "inverter_status": status,

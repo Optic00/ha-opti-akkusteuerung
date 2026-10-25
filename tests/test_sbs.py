@@ -8,7 +8,7 @@ import sys
 from types import ModuleType
 
 import pytest
-from modbus_connection import ModbusConnectionError, ModbusError
+from modbus_connection import ModbusConnectionError, ModbusError, ModbusTimeoutError
 
 _SOURCE = Path(__file__).resolve().parents[1] / "custom_components/opti_akku"
 _package = ModuleType("opti_sbs_under_test")
@@ -63,6 +63,7 @@ class FakeUnit:
         self.writes = []
         self.fail_reads = set()
         self.disconnect_at = None
+        self.timeout_reads = set()
         self.spacing = None
 
     def set_message_spacing(self, value):
@@ -72,6 +73,8 @@ class FakeUnit:
         self.reads.append(address)
         if address == self.disconnect_at:
             raise ModbusConnectionError("injected disconnect")
+        if address in self.timeout_reads:
+            raise ModbusTimeoutError("injected timeout")
         if address in self.fail_reads or address not in self.values:
             raise ModbusError("illegal data address")
         raw = self.values[address] & 0xFFFFFFFF
@@ -196,3 +199,33 @@ async def test_every_command_is_refused_without_touching_the_device(unit, mode):
     assert device.supported_modes == ()
     assert not unit.writes
     assert not hasattr(device, "_write")
+
+
+async def test_a_silent_register_ends_the_snapshot_and_waits_for_the_next_interval(unit):
+    """A ModbusTimeoutError is also a ModbusError; it must not keep the snapshot going."""
+    clock = Clock()
+    unit.timeout_reads.add(30843)
+    device = sbs.SbsDevice(unit, monotonic=clock)
+    rows = (await device.async_probe())["register_probe"]
+    assert rows[-1] == {"address": 30843, "evidence": "sbs25_community", "error": "timeout"}
+    assert 30845 not in [row["address"] for row in rows]
+    reads = len(unit.reads)
+    await device.async_probe()
+    assert len(unit.reads) - reads == 4
+
+
+async def test_status_timeout_is_a_transport_problem_not_a_missing_register(unit):
+    unit.timeout_reads.add(33003)
+    with pytest.raises(TimeoutError):
+        await sbs.SbsDevice(unit).async_probe()
+    assert 33001 not in unit.reads
+
+
+async def test_cached_status_register_still_falls_back_to_the_other(unit):
+    device = sbs.SbsDevice(unit)
+    assert (await device.async_probe())["status_register"] == 33003
+    unit.values[33003] = sbs.INFORMATION_NOT_AVAILABLE
+    probe = await device.async_probe()
+    assert (probe["inverter_status"], probe["status_register"]) == (307, 33001)
+    unit.values[33003] = 235
+    assert (await device.async_read())["sensor.opti_inverter_status"] == 307  # 33001 is now preferred

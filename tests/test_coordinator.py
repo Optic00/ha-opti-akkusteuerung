@@ -3794,3 +3794,20 @@ async def test_evcc_result_for_an_old_address_is_discarded(coordinator):
     with patch("custom_components.opti_akku.coordinator.fetch_evopt", AsyncMock(return_value=payload)):
         await coordinator._async_fetch_evcc("http://old.local")
     assert coordinator._evcc_evopt is None and coordinator._evcc_fetch_error is None
+
+
+async def test_switching_the_evcc_comparison_off_drops_plan_and_running_read(coordinator, hass, entry):
+    enable_evcc_comparison(hass, entry, url="http://evcc.local:7070")
+    blocked = asyncio.Event()
+
+    async def slow(*args):
+        await blocked.wait()
+
+    with patch("custom_components.opti_akku.coordinator.fetch_evopt", slow):
+        await coordinator._async_update_data()
+        running = coordinator._evcc_task
+        hass.config_entries.async_update_entry(entry, options={**entry.options, "evcc_comparison": {}})
+        data = await coordinator._async_update_data()
+        await asyncio.sleep(0)
+    assert data["attributes"][EVCC_KEY]["status"] == "not_configured"
+    assert running.cancelled() and coordinator._evcc_url is None and coordinator._evcc_next_fetch is None

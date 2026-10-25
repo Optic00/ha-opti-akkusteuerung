@@ -1368,13 +1368,15 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 check = {"status": "disabled", "detail": "entity_disabled"}
             else:
                 check = None
+            # Options change without a reload: a plan from another address, or from
+            # before the comparison was switched off, never counts.
+            active_url = url if check is None else None
+            if active_url != self._evcc_url:
+                self._reset_evcc_plan(active_url)
             if check is not None:
                 self._evcc_comparison.interrupt()
                 check.update(informational_only=True, controls_battery=False)
             else:
-                if url != self._evcc_url:
-                    # Options change without a reload; a plan from another address never counts.
-                    self._reset_evcc_plan(url)
                 if url:
                     self._schedule_evcc_fetch(url)
                 if entity:

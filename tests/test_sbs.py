@@ -229,3 +229,46 @@ async def test_cached_status_register_still_falls_back_to_the_other(unit):
     assert (probe["inverter_status"], probe["status_register"]) == (307, 33001)
     unit.values[33003] = 235
     assert (await device.async_read())["sensor.opti_inverter_status"] == 307  # 33001 is now preferred
+
+
+async def test_lost_connection_ends_the_snapshot(unit):
+    unit.disconnect_at = 30775
+    rows = (await sbs.SbsDevice(unit).async_probe())["register_probe"]
+    assert rows[-1] == {"address": 30775, "evidence": "stp_se_maverick", "error": "transport"}
+    assert len(rows) == 5
+
+
+async def test_missing_serial_number_is_not_an_identity_error(unit):
+    unit.fail_reads.add(30057)
+    probe = await sbs.SbsDevice(unit).async_probe()
+    assert probe["serial_number"] is None
+    assert probe["model_id"] == 9357
+
+
+async def test_lost_connection_at_status_returns_only_missing_values(unit):
+    device = sbs.SbsDevice(unit)
+    await device.async_probe()
+    unit.disconnect_at = 33003
+    readings = await device.async_read()
+    assert "transport" in device.last_read_errors
+    assert readings["sensor.opti_inverter_status"] is None
+    assert readings["sensor.opti_soc"] is None
+    assert readings["sensor.opti_battery_power_w"] is None
+
+
+async def test_missing_status_keeps_the_other_readings(unit):
+    device = sbs.SbsDevice(unit)
+    await device.async_probe()
+    unit.fail_reads.update({33003, 33001})
+    readings = await device.async_read()
+    assert readings["sensor.opti_inverter_status"] is None
+    assert "sensor.opti_inverter_status" in device.last_read_errors
+    assert readings["sensor.opti_soc"] == 61
+
+
+async def test_implausible_value_is_dropped(unit):
+    unit.values[30845] = 140
+    device = sbs.SbsDevice(unit)
+    readings = await device.async_read()
+    assert readings["sensor.opti_soc"] is None
+    assert "outside plausible range" in device.last_read_errors["sensor.opti_soc"]

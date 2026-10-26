@@ -148,6 +148,23 @@ async def test_latch_transitions_are_persisted_immediately(coordinator):
         assert not any(call.args[1] == 0 for call in delayed.call_args_list)
 
 
+async def test_horizon_origin_change_is_persisted_immediately(coordinator):
+    """Restore reads an_quelle back as previous state (#155); its change must not wait a minute."""
+    horizon = "binary_sensor.opti_peak_horizont_lang"
+    with patch.object(coordinator._store, "async_delay_save") as delayed:
+        data = await coordinator._async_update_data()  # no forecast source: score missing
+        assert data["states"][horizon] == "on"
+        assert data["attributes"][horizon]["an_quelle"] == "score_fehlt"
+        delayed.reset_mock()
+        await coordinator._async_update_data()
+        assert not any(call.args[1] == 0 for call in delayed.call_args_list)
+        # Same on state, different origin in the last saved snapshot -> immediate write.
+        coordinator._engine_snapshot["attributes"][horizon]["an_quelle"] = "score"
+        delayed.reset_mock()
+        await coordinator._async_update_data()
+        assert any(call.args[1] == 0 for call in delayed.call_args_list)
+
+
 async def test_minsoc_latch_survives_a_crash_right_after_it_latched(hass, entry):
     """Saved off, SoC 10 -> on, recovery to 11, crash: restore at 11 must stay on until 13."""
     before = OptiCoordinator(hass, entry, device(), StrategyEngine())
@@ -885,6 +902,103 @@ async def test_score_ev_opt_in_uses_cleaned_load_without_changing_real_house(coo
     assert invalid["states"]["sensor.opti_forecast_house_60min_w"] == "unavailable"
     assert len(coordinator.engine.snapshot()["samples"]["sensor.opti_forecast_house_60min_w"]) == 1
     assert invalid["reserve_plan"]["score_load_error"] == "ev_power"
+
+
+async def test_ev_power_ahead_of_house_load_marks_the_score_and_holds_the_horizon(coordinator, hass):
+    """Charge start (#155): wallbox power arrives before the house load contains it."""
+    options = {**coordinator.entry.options,
+               "sources": {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev",
+                           "forecast_today": "sensor.pv_today", "forecast_tomorrow": "sensor.pv_tomorrow"},
+               "demand_forecast": {"house_includes_ev": True}}
+    hass.config_entries.async_update_entry(coordinator.entry, options=options)
+    rising = (dt_util.now() + timedelta(hours=3)).isoformat()
+    hass.states.async_set("sun.sun", "below_horizon", {"next_rising": rising, "next_setting": rising})
+    for entity in ("sensor.pv_today", "sensor.pv_tomorrow"):
+        hass.states.async_set(entity, "50", {"unit_of_measurement": "kWh"})
+    hass.states.async_set("sensor.ev", "0", {"unit_of_measurement": "W"})
+    hass.states.async_set("binary_sensor.ev", "off")
+    horizon, sunny = "binary_sensor.opti_peak_horizont_lang", "sensor.opti_forecast_score_sonnentag"
+    data = await coordinator._async_update_data()
+    assert data["states"][sunny] == "10"
+    assert data["states"][horizon] == "off"
+    hass.states.async_set("binary_sensor.ev", "on")
+    hass.states.async_set("sensor.ev", "9600", {"unit_of_measurement": "W"})
+    start = await coordinator._async_update_data()
+    assert start["reserve_plan"]["score_load_error"] == "ev_power"
+    assert start["attributes"][sunny]["load_source"] == "raw_60min_ev_fallback"
+    assert start["states"][horizon] == "off"
+    assert "EV-bereinigte Last fehlt" in start["attributes"][horizon]["branch"]
+
+
+async def test_nonlegacy_ev_gap_holds_horizon_until_clean_daily_mean_recovers(coordinator, hass):
+    """A missing EV subtraction must not turn an EV-heavy night into a long horizon."""
+    options = {**coordinator.entry.options, "plant_mode": "balance", "plant_meter_confirmed": True,
+               "forecast_min_load_w": 0,
+               "sources": {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev",
+                           "forecast_today": "sensor.pv_today", "forecast_tomorrow": "sensor.pv_tomorrow"},
+               "demand_forecast": {"house_includes_ev": True}}
+    hass.config_entries.async_update_entry(coordinator.entry, options=options)
+    # Balance mode derives the house load from AC power and grid flow.
+    coordinator.device.async_read.return_value["sensor.opti_pv_power_w"] = 11700
+    hass.states.async_set("sun.sun", "below_horizon", {
+        "next_rising": "2026-10-22T07:50:00+02:00",
+        "next_setting": "2026-10-22T18:20:00+02:00",
+    })
+    now = datetime(2026, 10, 22, 1, 45, tzinfo=UTC)
+    # The real coordinator and engine collect enough minute samples for a valid
+    # 24-hour mean; no private engine buckets or attributes are injected.
+    for minute in range(721):
+        observed_at = now - timedelta(minutes=720 - minute)
+        with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+                   return_value=observed_at):
+            hass.states.async_set("binary_sensor.ev", "on",
+                                  timestamp=observed_at.timestamp())
+            if minute % 10 == 0:
+                hass.states.async_set("sensor.ev", "9500", {"unit_of_measurement": "W"},
+                                      timestamp=observed_at.timestamp())
+                for entity in ("sensor.pv_today", "sensor.pv_tomorrow"):
+                    hass.states.async_set(entity, "9.6", {"unit_of_measurement": "kWh"},
+                                          timestamp=observed_at.timestamp())
+            data = await coordinator._async_update_data()
+
+    horizon = "binary_sensor.opti_peak_horizont_lang"
+    sunny = "sensor.opti_forecast_score_sonnentag"
+    daily = "sensor.opti_forecast_house_24h_w"
+    assert data["attributes"][daily]["coverage_ok"] is True
+    assert float(data["states"][daily]) == pytest.approx(500, abs=1)
+    assert data["attributes"][sunny]["load_source"] == "tagesmittel_24h"
+    assert (data["states"][sunny], data["states"][horizon]) == ("8", "off")
+    assert data["attributes"][horizon]["an_quelle"] == "score"
+
+    hass.states.async_set("sensor.ev", "unavailable", {"unit_of_measurement": "W"},
+                          timestamp=(now + timedelta(minutes=1)).timestamp())
+    with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+               return_value=now + timedelta(minutes=1)):
+        gap = await coordinator._async_update_data()
+    assert gap["reserve_plan"]["score_load_error"] == "ev_power"
+    assert gap["states"][sunny] == "0"
+    assert gap["states"][horizon] == "off"
+    assert gap["attributes"][horizon]["an_quelle"] == "score"
+    assert gap["attributes"][sunny]["load_source"] == "raw_60min_ev_fallback"
+    assert "EV-bereinigte Last fehlt (raw_60min_ev_fallback)" in gap["attributes"][horizon]["branch"]
+
+    hass.states.async_set("sensor.ev", "9500", {"unit_of_measurement": "W"},
+                          timestamp=(now + timedelta(minutes=2)).timestamp())
+    with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+               return_value=now + timedelta(minutes=2)):
+        recovered = await coordinator._async_update_data()
+    assert recovered["attributes"][sunny]["load_source"] == "tagesmittel_24h"
+    assert float(recovered["attributes"][sunny]["tagesmittel_24h_w"]) == pytest.approx(500, abs=1)
+    assert (recovered["states"][sunny], recovered["states"][horizon]) == ("8", "off")
+    assert recovered["attributes"][horizon]["an_quelle"] == "score"
+
+    hass.states.async_set("sensor.pv_today", "1.0", {"unit_of_measurement": "kWh"},
+                          timestamp=(now + timedelta(minutes=3)).timestamp())
+    with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+               return_value=now + timedelta(minutes=3)):
+        lower_forecast = await coordinator._async_update_data()
+    assert lower_forecast["attributes"][sunny]["load_source"] == "tagesmittel_24h"
+    assert (lower_forecast["states"][sunny], lower_forecast["states"][horizon]) == ("1", "on")
 
 
 async def test_nonlegacy_score_subtracts_only_ev_not_already_excluded(coordinator, hass):

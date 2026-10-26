@@ -199,12 +199,32 @@ Ansonsten gilt ohne EV-Option weiterhin die bisherige Berechnung.
 `score_load_error`. Ein neuer Eintrag startet bei gültigem Score zwischen den
 Schaltschwellen mit kurzem Horizont; ein vorhandener langer Horizont bleibt
 in diesem Bereich erhalten. Ein fehlender Score wählt weiterhin 36 Stunden.
-Nachts (`sun.sun` unter dem Horizont) schwankt der Sonnentag-Score nur mit
-der Hauslast, die Prognose selbst ändert sich nicht. Ein bereits langer
-Horizont wird deshalb nachts nicht mehr abgeschaltet; ein kurzer wird nachts
-weiterhin nur bei Score ≤ 1 lang. Die Abschaltschwelle (Score ≥ 3) wirkt erst
-wieder nach Sonnenaufgang. Ein Neueintrag ohne Vorzustand startet nachts wie
-bisher.
+Dieses „an“ zählt aber nicht als Vorzustand: Kehrt der Score zurück, gilt die
+Einstiegsregel wie bei einem Neueintrag, und der Horizont hält weder in der
+Hysterese noch nachts. Ein bereits aus einem gültigen Score stammendes „an“
+behält seine Herkunft auch über eine Score-Lücke. Das Attribut `an_quelle`
+(`score` oder `score_fehlt`) zeigt, woher der Zustand stammt; ein Wechsel wird
+wie ein Zustandswechsel sofort gespeichert.
+Rechnet der Sonnentag-Score noch mit der 60-Minuten-Hochrechnung
+(`load_source` = `legacy_60min_extrapolation`), schwankt er nachts
+(`sun.sun` unter dem Horizont) nur mit der Hauslast, die Prognose selbst
+ändert sich nicht. Ein bereits langer Horizont wird dann nachts nicht
+abgeschaltet; ein kurzer wird nachts weiterhin nur bei Score ≤ 1 lang. Die
+Abschaltschwelle (Score ≥ 3) wirkt erst wieder nach Sonnenaufgang. Mit dem
+Tagesmittel als Nenner (`load_source` = `tagesmittel_24h`) entfällt dieser
+Nacht-Halt (#155): Nachts gilt dieselbe Hysterese wie tagsüber, ein langer
+Horizont geht also auch nachts bei Score ≥ 3 aus. Ein Neueintrag ohne
+Vorzustand startet nachts wie bisher.
+Mit der EV-Option kann der Abzug kurz ungültig sein, typisch beim Ladestart:
+Die Wallbox meldet „lädt“, bevor eine frische Leistung vorliegt, oder die
+Leistung kommt vor der Hauslast an, die sie schon enthält. Dann rechnen die
+Scores mit der unbereinigten Last, und `load_source` zeigt
+`raw_60min_ev_fallback` oder, ohne 60-Minuten-Mittel, `current_house_ev_fallback`.
+Solange das gilt, behält der lange Horizont seinen Vorzustand und schaltet in
+keine Richtung (#155). Ein gehaltenes „an“ behält dabei seine `an_quelle`.
+Ohne Vorzustand gilt die Einstiegsregel. Bleibt der Abzug dauerhaft ungültig,
+etwa bei einer ausgefallenen Wallbox-Leistung, bleibt auch der Horizont auf
+seinem letzten Zustand; `score_load_error` im `reserve_plan` zeigt dann `ev_power`.
 
 Morgen- und Sonnentag-Score teilen die Tagesprognose seit Issue #124 durch den
 Tagesbedarf statt durch die auf 24 Stunden hochgerechnete letzte Stunde. Die

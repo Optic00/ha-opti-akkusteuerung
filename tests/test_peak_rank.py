@@ -5,7 +5,12 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from custom_components.opti_akku.peak_rank import PeakRankShadow, peak_rank_check
+from custom_components.opti_akku.engine import StrategyEngine
+from custom_components.opti_akku.peak_rank import (
+    PeakRankShadow,
+    _grid_charge_possible,
+    peak_rank_check,
+)
 
 TZ = ZoneInfo("Europe/Berlin")
 
@@ -77,13 +82,15 @@ def test_enough_energy_for_both_peaks_discharges():
     assert result["reason"].startswith("Entladen:")
 
 
-def test_cheap_refill_between_peaks_discharges():
+def test_cheap_refill_without_future_soc_is_uncertain():
     result = check(price_series=series(night=30.0))
-    assert result["verdict"] == "discharge"
-    assert result["refill_kind"] == "grid_precharge"
-    assert result["refill_at"] == local(18, 19, 0).isoformat()
-    # Only the evening slots up to the refill compete for the energy.
-    assert result["peak_slots"] == 8
+    assert result["status"] == result["verdict"] == "uncertain"
+    assert result["possible_refill_kind"] == "grid_precharge"
+    assert result["possible_refill_at"] == local(18, 19, 0).isoformat()
+    assert result["detail"] == "future_charge_conditions"
+    assert result["reason"].startswith("Unsicher:")
+    for key in ("refill_at", "refill_kind", "covers_all", "rank_discharges"):
+        assert key not in result
 
 
 def test_cheap_night_without_grid_charging_is_no_refill():
@@ -94,7 +101,7 @@ def test_cheap_night_without_grid_charging_is_no_refill():
 
 def test_refill_needs_the_full_spread_to_the_peak_average():
     # From 19:00 the peak average is 51.4 ct (4 x 51, 1 x 53), the night 30 ct.
-    assert check(price_series=series(night=30.0), spread_ct=21)["refill_kind"] == "grid_precharge"
+    assert check(price_series=series(night=30.0), spread_ct=21)["possible_refill_kind"] == "grid_precharge"
     assert check(price_series=series(night=30.0), spread_ct=22)["refill_kind"] == "pv_horizon"
 
 
@@ -104,16 +111,16 @@ def test_night_peak_slots_lower_the_spread_average():
     assert check(spread_ct=10)["refill_kind"] == "pv_horizon"
     assert check(spread_ct=7)["refill_kind"] == "pv_horizon"
     result = check(spread_ct=6.5)
-    assert (result["refill_kind"], result["refill_at"]) == ("grid_precharge", local(19, 7, 0).isoformat())
+    assert (result["possible_refill_kind"], result["possible_refill_at"]) == ("grid_precharge", local(19, 7, 0).isoformat())
 
 
-def test_refill_window_opens_when_the_hour_starts_with_a_peak():
-    # 17:00 is a peak, so from 17:15 the template sees no lower price before it.
+def test_refill_window_ignores_expired_peak_slots():
+    # Der abgelaufene 17:00-Peak sperrt das günstigere Fenster um 17:30 nicht.
     prices = series()
     prices["today"][69] = 5.0  # 17:15
     prices["today"][70] = 3.0  # 17:30
     result = check(price_series=prices, spread_ct=100)
-    assert (result["refill_kind"], result["refill_at"]) == ("grid_below_feed_in", local(18, 17, 15).isoformat())
+    assert (result["possible_refill_kind"], result["possible_refill_at"]) == ("grid_below_feed_in", local(18, 17, 30).isoformat())
 
 
 def test_later_slot_counts_only_up_to_the_horizon():
@@ -133,8 +140,8 @@ def test_refill_in_the_last_peak_slot_still_counts():
     result = check(now=local(18, 17, 30), price_series={"today": today, "tomorrow": []},
                    horizon_end=local(18, 18, 0).isoformat(), load_hours={}, soc=6.3)
     # From 17:00 the peak average is 64.67 ct, 14.67 ct above the 50 ct slot.
-    assert (result["refill_kind"], result["refill_at"]) == ("grid_precharge", local(18, 17, 45).isoformat())
-    assert result["verdict"] == "discharge"
+    assert (result["possible_refill_kind"], result["possible_refill_at"]) == ("grid_precharge", local(18, 17, 45).isoformat())
+    assert result["verdict"] == "uncertain"
 
 
 def test_window_starts_at_the_local_full_hour():
@@ -150,10 +157,113 @@ def test_window_starts_at_the_local_full_hour():
     assert result["verdict"] == "hold"
 
 
-def test_price_below_feed_in_with_weak_forecast_is_a_refill():
-    result = check(price_series=series(night=5.0), spread_ct=100)
-    assert result["refill_kind"] == "grid_below_feed_in"
-    assert check(price_series=series(night=5.0), spread_ct=100, score=4)["refill_kind"] == "pv_horizon"
+@pytest.mark.parametrize("score", [1, 4, None])
+def test_price_below_feed_in_needs_future_soc_and_score(score):
+    # Auch ein heutiger Score >= 3 belegt den Score im künftigen Slot nicht.
+    result = check(price_series=series(night=5.0), spread_ct=100, score=score)
+    assert result["status"] == result["verdict"] == "uncertain"
+    assert result["possible_refill_kind"] == "grid_below_feed_in"
+
+
+def test_small_morning_reserve_does_not_invent_a_refill():
+    # 0,2 kWh / 0,9 / 12,8 kWh + MinSOC = 6,7 % Reserve. Die echte
+    # Strategie startet erst unter 3,7 %, also nicht bei SoC >= MinSOC.
+    prices = {"today": day_prices(30, ((17, 0), (17, 15), 44)),
+              "tomorrow": day_prices(30, ((7, 30), (7, 45), 53))}
+    args = dict(price_series=prices, soc=6.3, load_hours={})
+    assert check(**args, grid_charging=False)["verdict"] == "hold"
+    result = check(**args)
+    assert result["status"] == result["verdict"] == "uncertain"
+    assert result["detail"] == "future_charge_conditions"
+    assert "SoC" in result["reason"]
+    assert "covers_all" not in result
+
+
+@pytest.mark.parametrize("tomorrow", [None, [], series()["tomorrow"][:32]])
+def test_missing_or_partial_tomorrow_is_incomplete(tomorrow):
+    prices = series()
+    if tomorrow is None:
+        del prices["tomorrow"]
+    else:
+        prices["tomorrow"] = tomorrow
+    result = check(price_series=prices)
+    assert result["status"] == "incomplete"
+    assert result["verdict"] == "uncertain"
+    assert result["detail"] == "price_coverage"
+    assert result["price_coverage_end"] == local(19, 0).isoformat()
+    assert result["horizon_end"] == local(19, 11, 1).isoformat()
+    assert "covers_all" not in result and "rank_discharges" not in result
+
+
+def test_coverage_exactly_to_boundary_is_sufficient():
+    prices = {"today": series()["today"]}
+    args = dict(price_series=prices, grid_charging=False)
+    complete = check(**args, horizon_end=local(19, 0).isoformat())
+    assert complete["status"] == "ready"
+    assert complete["refill_at"] == local(19, 0).isoformat()
+    incomplete = check(**args, horizon_end=local(19, 0, 1).isoformat())
+    assert incomplete["status"] == "incomplete"
+
+
+def test_early_possible_refill_does_not_hide_missing_horizon_prices():
+    # Auch der Peak-Durchschnitt eines frühen Ladefensters braucht den Horizont.
+    prices = {"today": series(night=5)["today"]}
+    result = check(price_series=prices)
+    assert result["status"] == "incomplete"
+    assert "refill_at" not in result
+
+
+@pytest.fixture(scope="module")
+def strategy():
+    return StrategyEngine()
+
+
+@pytest.mark.parametrize("kind,overrides,expected", [
+    ("grid_precharge", {}, True),
+    ("grid_precharge", {"soc": 3.7}, False),
+    ("grid_precharge", {"soc": 5}, False),
+    ("grid_precharge", {"soc": 5, "charging": True}, True),
+    ("grid_precharge", {"soc": 6.7, "charging": True}, False),
+    ("grid_precharge", {"average": 39.99}, False),
+    ("grid_precharge", {"price": 30.5, "average": 40.5}, True),
+    ("grid_precharge", {"price": 30.51, "average": 40.51}, False),
+    ("grid_precharge", {"price": 31.5, "average": 41.5, "charging": True}, True),
+    ("grid_precharge", {"price": 31.51, "average": 41.51, "charging": True}, False),
+    ("grid_below_feed_in", {"soc": 91.9}, True),
+    ("grid_below_feed_in", {"soc": 92}, False),
+    ("grid_below_feed_in", {"soc": 94.9, "charging": True}, True),
+    ("grid_below_feed_in", {"soc": 95, "charging": True}, False),
+    ("grid_below_feed_in", {"score": 3}, False),
+    ("grid_below_feed_in", {"feed_in": 30}, False),
+    ("grid_below_feed_in", {"price": 30.51}, False),
+    ("grid_below_feed_in", {"price": 31.5, "charging": True}, True),
+    ("grid_below_feed_in", {"price": 31.51, "charging": True}, False),
+])
+def test_charge_entry_and_hysteresis_match_actual_strategy(strategy, kind, overrides, expected):
+    args = dict(price=30, minimum=30, average=40, spread=10, feed_in=7,
+                soc=3.6, reserve_soc=6.7, maxsoc=95, score=1, charging=False)
+    if kind == "grid_below_feed_in":
+        args.update(feed_in=35, average=30)
+    args.update(overrides)
+    strategy._states = {
+        "input_boolean.opti_prognose_netzladen": "on",
+        "binary_sensor.opti_peak_reserve_aktiv": "on",
+        "input_select.akkusteuerung_modus": "Akku Netzladen" if args["charging"] else "Akku nur Laden",
+        "sensor.opti_price_current_ct_kwh": str(args["price"]),
+        "sensor.opti_soc": str(args["soc"]),
+        "sensor.opti_peak_reserve_soc": str(args["reserve_soc"]),
+        "sensor.opti_forecast_score": str(args["score"]),
+        "input_number.maxsoc": str(args["maxsoc"]),
+        "input_number.opti_netzlade_spread_ct": str(args["spread"]),
+        "input_number.opti_einspeiseverguetung_ct": str(args["feed_in"]),
+    }
+    strategy._attributes = {"sensor.opti_peak_reserve_soc": {
+        "min_preis_vor_peak_ct": args["minimum"], "peak_preis_avg_ct": args["average"]}}
+    decision = "peak_precharge" if kind == "grid_precharge" else "negative_price"
+    branches = strategy.resources["strategy"]["actions"][0]["choose"]
+    branch = next(b for b in branches if b["sequence"][0].get("decision_id") == decision)
+    assert strategy._all_conditions(branch["conditions"]) is expected
+    assert (_grid_charge_possible(**args) == kind) is expected
 
 
 def test_other_decision_reports_rank_without_peak_verdict():
@@ -249,7 +359,31 @@ def test_shadow_restore_round_trip_and_rejects_inconsistent_data():
     restored.restore(saved)
     assert restored.data == saved
     for broken in ({**saved, "hold_seconds": -1}, {**saved, "peak_seconds": 999},
-                   {**saved, "version": 2}, {**saved, "assumptions": [1, 2]},
+                   {**saved, "version": 1}, {**saved, "version": 3},
+                   {**saved, "assumptions": [1, 2]},
                    {**saved, "started_at": "2026-10-18T17:00:00"}, None):
         restored.restore(broken)
         assert restored.data["ready_seconds"] == 0
+
+
+@pytest.mark.parametrize("uncertain", [
+    check(price_series=series(night=30)),
+    check(price_series={"today": series()["today"]}),
+])
+def test_uncertain_intervals_never_enter_persistent_totals(uncertain):
+    shadow = PeakRankShadow()
+    start = local(18, 17)
+    for seconds in (0, 60, 120):
+        shadow.observe(start + timedelta(seconds=seconds), uncertain, ASSUMPTIONS, -2000)
+    saved = shadow.snapshot()
+    restored = PeakRankShadow()
+    restored.restore(saved)
+    assert restored.snapshot() == saved
+    for key in ("ready_seconds", "peak_seconds", "agree_seconds", "hold_seconds",
+                "discharged_while_agree_kwh", "discharged_while_hold_kwh"):
+        assert saved[key] == 0
+    # Auch beim Wechsel zurück zu einem gültigen Urteil zählt das unsichere Intervall nicht.
+    totals = shadow.observe(start + timedelta(seconds=180), check(), ASSUMPTIONS, -2000)
+    assert totals["ready_seconds"] == totals["peak_seconds"] == 0
+    totals = shadow.observe(start + timedelta(seconds=240), check(), ASSUMPTIONS, -2000)
+    assert totals["hold_seconds"] == 60

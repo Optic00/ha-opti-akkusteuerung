@@ -673,6 +673,49 @@ def test_peak_reserve_pipeline_accepts_supported_price_grids(length):
     assert result.mode == "Akku Netzladen"
 
 
+@pytest.mark.parametrize("soc,previous_mode,expected_mode,expected_decision", [
+    (3.6, "Akku Pause", "Akku Netzladen", "peak_precharge"),
+    (3.7, "Akku Pause", "Akku nur Laden", "minimum_soc"),
+    (5, "Akku Pause", "Akku nur Laden", "minimum_soc"),
+    (6.3, "Akku Pause", "Akku nur Laden", "peak_l4"),
+    (5, "Akku Netzladen", "Akku Netzladen", "peak_precharge"),
+])
+def test_peak_precharge_requires_full_entry_gap_but_continues_below_reserve(
+    soc, previous_mode, expected_mode, expected_decision
+):
+    now = dt.datetime(2026, 10, 19, 7, 0, tzinfo=TZ)
+    states = measurements(**{
+        SOC: soc, CAPACITY: 12.8, MODE: previous_mode,
+        "input_number.minsoc": 5, "input_number.maxsoc": 95,
+        "input_number.opti_peak_verbrauch_kw": 0.8,
+        "input_number.opti_peak_min_aufschlag_ct": 5,
+        "input_number.opti_netzlade_spread_ct": 10,
+        "input_boolean.opti_prognose_netzladen": "on",
+        "sensor.opti_house_consumption_w": 800,
+        "sensor.opti_price_current_ct_kwh": 30,
+        "sensor.opti_forecast_today_kwh": 20,
+        "sensor.opti_forecast_tomorrow_kwh": 20,
+        "sensor.opti_forecast_remaining_today_kwh": 20,
+        "sun.sun": "below_horizon",
+    })
+    attrs = {"sun.sun": {"next_rising": "2026-10-19T08:01:00+02:00",
+                         "next_setting": "2026-10-19T18:00:00+02:00"}}
+    prices = [30] * 96
+    prices[30] = 53  # 07:30-07:45, the sole remaining peak.
+    attrs["sensor.opti_price_series"] = {"today": prices, "tomorrow": [30] * 96}
+
+    result = evaluate(states=states, attributes=attrs, now=now)
+
+    peak = result.attributes["sensor.opti_peak_reserve_soc"]
+    assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "on"
+    assert float(result.states["sensor.opti_peak_reserve_soc"]) == 6.7
+    assert dt.datetime.fromisoformat(peak["horizont_ende"]) == dt.datetime(
+        2026, 10, 19, 11, 1, tzinfo=TZ)
+    assert result.mode == expected_mode
+    assert result.decision_id == expected_decision
+    assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+
+
 @pytest.mark.parametrize(
     ("soc", "expected_mode", "reason_prefix"),
     [

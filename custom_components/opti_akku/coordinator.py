@@ -1365,7 +1365,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 fallback_load_kw=settings.get("input_number.opti_peak_verbrauch_kw"),
                 surcharge_ct=settings.get("input_number.opti_peak_min_aufschlag_ct"),
                 soc=states.get("sensor.opti_soc"), capacity_kwh=states.get("sensor.opti_battery_capacity_kwh"),
-                minsoc=settings.get("input_number.minsoc"), decision_id=data.get("decision_id"),
+                minsoc=settings.get("input_number.minsoc"), maxsoc=settings.get("input_number.maxsoc"),
+                decision_id=data.get("decision_id"),
                 strategy_mode=data.get("engine_requested_mode"),
                 peak_reserve_active=states.get("binary_sensor.opti_peak_reserve_aktiv") == "on",
                 grid_charging=settings.get("input_boolean.opti_prognose_netzladen") is True,
@@ -1383,7 +1384,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Peak rank check unavailable: %s", type(err).__name__)
             self._peak_rank.interrupt()
             check = {"status": "error", "observation_only": True, "controls_battery": False}
-        states[key] = check.get("verdict", "unavailable") if check.get("status") == "ready" else "unavailable"
+        states[key] = (check.get("verdict", "unavailable")
+                       if check.get("status") in ("ready", "uncertain", "incomplete") else "unavailable")
         attributes[key] = check
 
     def _planner_entity_enabled(self) -> bool:

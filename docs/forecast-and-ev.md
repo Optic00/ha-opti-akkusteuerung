@@ -467,16 +467,37 @@ Berücksichtigt werden der laufende Slot und die kommenden Peak-Slots bis zum
 nächsten belastbaren Nachladen. Peak-Slots sind wie bei
 `sensor.opti_peak_reserve_soc` Slots mit Midrank-Perzentil ab 0,6 und mindestens
 `opti_peak_min_aufschlag_ct` über dem Tiefstpreis im Horizont. Die Grenze ist
-das Ende des PV-Horizonts der Peak-Reserve (`horizont_ende`) oder, falls früher
-und `opti_prognose_netzladen` eingeschaltet ist, der erste spätere Slot, in dem
-die Strategie aus dem Netz laden würde: Peak-Vorladen mit
-`opti_netzlade_spread_ct` Abstand zum Durchschnitt der folgenden Peak-Slots im
-Ladefenster oder ein Preis unter der Einspeisevergütung bei Prognose-Score
-unter 3. Wie im Template gilt dabei die Sicht ab Beginn der vollen Stunde
-dieses Slots; ein Nachladen nach dem letzten Peak-Slot zählt nicht. Die
-Peak-Einstufung selbst stammt aus der aktuellen Sicht. Die Grenze gilt auch bei
-leerem Akku, weil Netzladen seit #154 vor dem MinSOC-Schutz Vorrang hat. Wie viel
-dabei nachgeladen wird, bildet der Vergleich nicht ab.
+das Ende des PV-Horizonts der Peak-Reserve (`horizont_ende`). Die Preise müssen
+diesen Horizont lückenlos abdecken, auch wenn davor ein mögliches
+Netzladefenster liegt: Dessen Peak-Durchschnitt braucht ebenfalls den Horizont.
+Fehlende oder unvollständige Morgenpreise ergeben `status: incomplete`,
+`verdict: uncertain` und den Sensorzustand `uncertain`. `detail: price_coverage`,
+`price_coverage_end` und `horizon_end` zeigen die fehlende Abdeckung. Abdeckung
+genau bis zur Grenze genügt.
+
+Bei eingeschaltetem `opti_prognose_netzladen` sucht der Vergleich außerdem nach
+möglichen früheren Netzladefenstern. Er spiegelt die Ladebedingungen der
+Strategie: Peak-Vorladen braucht eine aktive Peak-Reserve, den eingestellten
+Spread zum Peak-Durchschnitt und beim Einstieg `SoC < Reserve-SoC - 3`.
+Laden unter der Einspeisevergütung braucht Prognose-Score unter 3 und
+`SoC < MaxSOC - 3`. Für beide Zweige gilt das Ladefenster bis zum Tiefstpreis
+vor dem nächsten Peak plus 0,5 ct. Bei bereits laufendem Netzladen entfallen
+die 3 Prozentpunkte Abstand, das Preisband beträgt dann 1,5 ct. Wie im Template
+beginnt die Reservesicht an der vollen Stunde; abgelaufene Slots zählen nicht
+zum Preisfenster vor dem nächsten Peak. Nach dem letzten Peak zählt kein Refill.
+
+Der künftige SoC, Reserve-SoC, Prognose-Score und Lademodus werden nicht
+vorhergesagt. Heutige Messwerte belegen diese Bedingungen im künftigen Slot
+nicht. Deshalb verkürzt ein nur preislich mögliches Netzladefenster den
+Horizont nicht: Es ergibt `status: uncertain`, `verdict: uncertain`, den
+Sensorzustand `uncertain` und `detail: future_charge_conditions`. `reason`
+erläutert die Unsicherheit, `possible_refill_at` und `possible_refill_kind`
+(`grid_precharge`, `grid_below_feed_in`) nennen nur die Möglichkeit.
+Der Vorrang des Netzladens vor dem MinSOC-Schutz ersetzt die SoC-Bedingung
+nicht. Wie viel nachgeladen würde, bildet der Vergleich nicht ab.
+Netz-Balancing über den Watchdog und andere Sonderladepfade sind nicht
+modelliert. Auch ein `ready`-Urteil gilt daher unter der Annahme, dass bis zum
+Horizont kein solcher Sonderpfad den Akku nachlädt.
 
 Jeder Slot bekommt die erwartete Hauslast aus dem Peak-Lastprofil
 (`sensor.opti_peak_load_profile`), ersatzweise `opti_peak_verbrauch_kw`. Der
@@ -485,8 +506,10 @@ teuersten Slot abwärts verteilt; `threshold_price_ct` ist der Preis des letzten
 bedienten Slots. Liegt der laufende Slot unter den bedienten, lautet das Urteil
 während L1 oder L2 `discharge`, sonst `hold`. Bei jeder anderen Entscheidung
 lautet es `not_peak`; `rank_discharges` zeigt dann trotzdem das Ergebnis der
-Rangfolge. `reason` begründet das Urteil, `refill_at` und `refill_kind`
-(`pv_horizon`, `grid_precharge`, `grid_below_feed_in`) nennen die Grenze.
+Rangfolge. Diese Urteile gibt es nur mit `status: ready`. `reason` begründet
+das Urteil, `refill_at` und `refill_kind: pv_horizon` nennen die Grenze.
+Unsichere und unvollständige Ergebnisse haben weder `covers_all` noch
+`rank_discharges` oder eine bestätigte Refill-Grenze.
 Tagsüber wählen L1 und L2 bei PV-Überschuss `Akku Dynamisch` statt
 `Akku nur Entladen`; auch dann entlädt der Akku bei Defizit, das Urteil gilt
 also für beide Modi. `strategy_mode` nennt den gewählten Modus, damit sich die
@@ -497,6 +520,9 @@ Unter `totals` werden zeitgewichtet summiert: Sekunden mit L1 oder L2
 (`peak_seconds`), davon mit Urteil `discharge` und `hold`, sowie die in beiden
 Fällen tatsächlich entladene Energie. `discharged_while_hold_kwh` ist also die
 Energie, die die Rangfolge für spätere, teurere Slots zurückgehalten hätte.
+Unsichere und unvollständige Beobachtungsintervalle zählen weder zu diesen
+Summen noch zu `ready_seconds`. Mit Speicherformat 2 werden frühere Summen
+verworfen, die noch auf unbestätigten Refill-Grenzen beruhen konnten.
 Lücken über 90 Sekunden und der erste Durchlauf nach einem Neustart zählen
 nicht; ein geänderter Mindest-SoC, Spread, Mindestaufschlag, eine geänderte
 Einspeisevergütung, ein geänderter Ersatzwert `opti_peak_verbrauch_kw` oder ein

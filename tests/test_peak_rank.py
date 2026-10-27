@@ -133,13 +133,39 @@ def test_night_peak_slots_lower_the_spread_average():
     assert (result["possible_refill_kind"], result["possible_refill_at"]) == ("grid_precharge", local(19, 7, 0).isoformat())
 
 
-def test_refill_window_ignores_expired_peak_slots():
-    # Der abgelaufene 17:00-Peak sperrt das günstigere Fenster um 17:30 nicht.
+@pytest.mark.parametrize(
+    ("spread_ct", "feed_in_ct", "kind"),
+    [(100, 7, "grid_below_feed_in"), (10, 0, "grid_precharge")],
+)
+@pytest.mark.parametrize("minute", [0, 15])
+def test_refill_window_uses_only_remaining_slots_after_an_earlier_peak(spread_ct, feed_in_ct, kind, minute):
+    # The 17:00 peak stays in the hourly average after it expires, while
+    # the remaining charge window has its lowest price at 17:30.
     prices = series()
     prices["today"][69] = 5.0  # 17:15
     prices["today"][70] = 3.0  # 17:30
-    result = check(price_series=prices, spread_ct=100)
-    assert (result["possible_refill_kind"], result["possible_refill_at"]) == ("grid_below_feed_in", local(18, 17, 30).isoformat())
+    result = check(now=local(18, 17, minute), price_series=prices,
+                   spread_ct=spread_ct, feed_in_ct=feed_in_ct)
+    assert result["status"] == result["verdict"] == "uncertain"
+    assert (result["possible_refill_kind"], result["possible_refill_at"]) == (
+        kind, local(18, 17, 30).isoformat())
+
+
+@pytest.mark.parametrize(
+    ("spread_ct", "feed_in_ct", "kind"),
+    [(100, 7, "grid_below_feed_in"), (10, 0, "grid_precharge")],
+)
+def test_refill_window_ignores_expired_cheaper_slot(spread_ct, feed_in_ct, kind):
+    # At 17:15 the 17:00 slot has ended. The remaining 5 ct slots form the
+    # entry window before the 17:45 peak despite the earlier 3 ct price.
+    prices = series()
+    prices["today"][68] = 3.0  # 17:00
+    prices["today"][69] = 5.0  # 17:15
+    prices["today"][70] = 5.0  # 17:30
+    result = check(price_series=prices, spread_ct=spread_ct, feed_in_ct=feed_in_ct)
+    assert result["status"] == result["verdict"] == "uncertain"
+    assert (result["possible_refill_kind"], result["possible_refill_at"]) == (
+        kind, local(18, 17, 15).isoformat())
 
 
 def test_later_slot_counts_only_up_to_the_horizon():

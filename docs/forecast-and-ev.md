@@ -483,8 +483,11 @@ Laden unter der Einspeisevergütung braucht Prognose-Score unter 3 und
 `SoC < MaxSOC - 3`. Für beide Zweige gilt das Ladefenster bis zum Tiefstpreis
 vor dem nächsten Peak plus 0,5 ct. Bei bereits laufendem Netzladen entfallen
 die 3 Prozentpunkte Abstand, das Preisband beträgt dann 1,5 ct. Wie im Template
-beginnt die Reservesicht an der vollen Stunde; abgelaufene Slots zählen nicht
-zum Preisfenster vor dem nächsten Peak. Nach dem letzten Peak zählt kein Refill.
+beginnt die Reservesicht an der vollen Stunde: Der Peak-Durchschnitt enthält
+auch abgelaufene Peak-Slots dieser Stunde. Das günstige Ladefenster betrachtet
+nur noch verbleibende Slots ab dem betrachteten Slot bis zum nächsten Peak;
+abgelaufene teure oder günstige Slots sperren oder erweitern es nicht.
+Nach dem letzten Peak zählt kein Refill.
 
 Der künftige SoC, Reserve-SoC, Prognose-Score und Lademodus werden nicht
 vorhergesagt. Heutige Messwerte belegen diese Bedingungen im künftigen Slot

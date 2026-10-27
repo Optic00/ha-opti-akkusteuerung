@@ -2640,6 +2640,27 @@ async def test_duplicate_endpoint_is_permanent_setup_error_not_automatic_retry(h
     assert hass.data["opti_akku_writers"][("127.0.0.1", 15020, 3)] == "existing-controller"
 
 
+async def test_sbs_profile_sets_up_only_as_read_only_shadow(hass, entry):
+    """#170: an SBS entry without shadow mode is refused; with it the device never writes."""
+    from custom_components.opti_akku import async_setup_entry
+    from custom_components.opti_akku.sbs import SbsDevice
+    from homeassistant.exceptions import ConfigEntryError
+
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "profile": "sma_sbs", "shadow_mode": False})
+    with pytest.raises(ConfigEntryError, match="read-only"):
+        await async_setup_entry(hass, entry)
+    assert not hass.data.get("opti_akku_writers")
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "shadow_mode": True})
+    with patch("custom_components.opti_akku.OptiCoordinator") as coordinator_cls:
+        coordinator_cls.return_value.async_restore = AsyncMock()
+        coordinator_cls.return_value.async_config_entry_first_refresh = AsyncMock()
+        with patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()):
+            assert await async_setup_entry(hass, entry)
+    device = coordinator_cls.call_args.args[2]
+    assert isinstance(device, SbsDevice)
+    assert device.supported_modes == ()
+
+
 async def test_explicit_existing_grid_charging_preference_is_preserved(hass, entry):
     from homeassistant.helpers.storage import Store
 

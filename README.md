@@ -18,6 +18,7 @@ Die Software wird unter der [MIT-Lizenz](https://github.com/Optic00/ha-opti-akku
 
 - Home Assistant ab **2026.9.1**, HACS für die komfortable Installation.
 - **SMA Sunny Tripower Smart Energy** STP5.0/6.0/8.0/10.0-3SE-40 mit aktiviertem Modbus TCP. Die Einrichtung prüft Geräteprofil und Identität lesend. Der bisherige praktische Pilotumfang ersetzt keine Abnahme jeder Modell-/Firmwarekombination.
+- **SMA Sunny Boy Storage nur als lesender Test:** Das Profil läuft immer im Shadow-Modus und steuert den Akku nicht. Es dient dazu, die Register am Gerät zu prüfen: [SBS-Lesetest](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/sbs-lesetest.md).
 - **Huawei Solar ist experimentell:** nutzt eine bereits eingerichtete Huawei-Solar-Integration und deren Entitäten/Dienste. Sie wird nicht ersetzt. Voraussetzungen und Grenzen: [Huawei](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/HUAWEI_CONTROL.md).
 - Stromtarif, PV-Prognose, Wärmepumpe und Fahrzeug sind optionale externe Quellen. Anbieter müssen bereits in HA eingerichtet sein.
 

@@ -50,8 +50,25 @@ def _device_summary(identity: Any) -> dict[str, Any]:
     """Keep compatibility facts while excluding serial numbers and identifiers."""
     if not isinstance(identity, Mapping):
         return {}
-    allowed = ("device_class", "inverter_status", "max_power_w", "model", "model_id")
-    return {key: identity[key] for key in allowed if isinstance(identity.get(key), str | int | float | bool)}
+    allowed = ("device_class", "inverter_status", "max_power_w", "model", "model_id", "profile", "status_register")
+    summary = {key: identity[key] for key in allowed if isinstance(identity.get(key), str | int | float | bool)}
+    if isinstance(identity.get("register_probe"), list):
+        summary["register_probe"] = _register_probe_summary(identity["register_probe"])
+    return summary
+
+
+def _register_probe_summary(rows: list[Any]) -> list[dict[str, Any]]:
+    """Raw device-test registers (#170); the serial-number register is never included."""
+    summary = []
+    for row in rows:
+        if not isinstance(row, Mapping) or not isinstance(row.get("address"), int) or row["address"] == 30057:
+            continue
+        item: dict[str, Any] = {"address": row["address"]}
+        for key, kind in (("raw", int), ("error", str), ("evidence", str)):
+            if isinstance(row.get(key), kind) and not isinstance(row.get(key), bool):
+                item[key] = row[key]
+        summary.append(item)
+    return summary
 
 
 def _command_evidence_summary(value: Any) -> dict[str, Any]:

@@ -208,6 +208,8 @@ STORE_SAVE_INTERVAL = 60
 # Derived latches whose on/off transition must survive a crash right away.
 PERSISTED_LATCHES = ("binary_sensor.opti_minsoc_schutz_aktiv", "binary_sensor.opti_pv_spitze",
                      "binary_sensor.opti_ladedeckel_aktiv", "binary_sensor.opti_peak_horizont_lang")
+# Latch attributes that restore reads back as previous state (#155).
+PERSISTED_LATCH_ATTRIBUTES = (("binary_sensor.opti_peak_horizont_lang", "an_quelle"),)
 
 
 def pv_peak_release_applies(result, mode: str, manual_mode, strategy_enabled: bool) -> bool:
@@ -955,6 +957,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             .get("level")
         )
         previous_latches = {key: self._engine_snapshot.get("states", {}).get(key) for key in PERSISTED_LATCHES}
+        previous_latch_attributes = {
+            (key, name): self._engine_snapshot.get("attributes", {}).get(key, {}).get(name)
+            for key, name in PERSISTED_LATCH_ATTRIBUTES
+        }
         def evaluate():
             result = self.engine.evaluate(states, attributes, dt_util.as_local(now))
             return result, self.engine.snapshot()
@@ -1253,12 +1259,17 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._update_peak_rank(data, now)
         self._update_arbitrage_report(data, now, captured_options, arbitrage_hold, safety_reason)
         await self._async_update_observations(data, now, captured_options)
-        # Only a real on<->off transition forces a write; a latch missing on one
-        # side (disabled strategy, first cycle) waits for the routine interval.
+        # Only a real on<->off transition or a changed latch origin forces a
+        # write; a latch missing on one side (disabled strategy, first cycle)
+        # waits for the routine interval.
         latch_changed = any(
             previous_latches[key] != result.states.get(key)
             and previous_latches[key] in ("on", "off") and result.states.get(key) in ("on", "off")
             for key in PERSISTED_LATCHES
+        ) or any(
+            previous is not None and self._engine_snapshot.get("attributes", {}).get(key, {}).get(name)
+            not in (None, previous)
+            for (key, name), previous in previous_latch_attributes.items()
         )
         self._schedule_routine_save(monotonic_now, force=latch_changed)
         return data

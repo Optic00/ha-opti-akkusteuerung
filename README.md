@@ -46,6 +46,7 @@ BYD-Zellüberwachung, KI-Tagesreport und eine eigene Wallbox-/Wärmepumpensteuer
 
 ## Dokumentation
 
+- [Änderungsprotokoll](CHANGELOG.md)
 - [Einrichtung und Einstellungen](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/configuration.md)
 - [Betrieb, Shadow und Schreibschutz](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/operation.md)
 - [Migration und Rückweg](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md)

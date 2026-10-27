@@ -44,6 +44,8 @@ geführt.
 
 ## Versionen und Releases
 
+Das [Änderungsprotokoll](../CHANGELOG.md) wird pro Release gepflegt; der Release-Workflow erzeugt weiterhin Release-Notizen.
+
 Versionen folgen dem Veröffentlichungsmonat. Auf `2026.9-beta11` folgt im
 Oktober `2026.10-beta1`; eine stabile September-Version wurde nicht veröffentlicht.
 Weitere Oktober-Betas heißen beispielsweise `2026.10-beta11`. Eine spätere stabile

@@ -674,7 +674,7 @@
       },
       "evcc_comparison": {
         "title": "Mit evcc-Optimizer vergleichen",
-        "description": "Nur lesend. Vergleicht den Modus der Leiter mit dem Akku-Plan von evcc. Danach den deaktivierten Sensor „Schattenvergleich evcc-Optimizer“ aktivieren. Die Suggestion-Entität ist der SoC-Sensor des Hausakkus aus ha-evcc mit dem Attribut „suggestion“. Die evcc-Adresse ist optional: Dann liest Opti Akku alle 5 Minuten das evopt-Ergebnis aus /api/state und leitet die Akku-Aktion je Slot ab. Voraussetzung ist der evcc-Optimizer (Konfiguration → Experimentell).",
+        "description": "Nur lesend. Vergleicht den Modus der Leiter mit dem Akku-Plan von evcc. Der Sensor „Schattenvergleich evcc-Optimizer“ ist bereits aktiv und fragt erst ab, wenn hier eine Quelle eingetragen ist. Die Suggestion-Entität ist der SoC-Sensor des Hausakkus aus ha-evcc mit dem Attribut „suggestion“. Die evcc-Adresse ist optional: Dann liest Opti Akku alle 5 Minuten das evopt-Ergebnis aus /api/state und leitet die Akku-Aktion je Slot ab. Voraussetzung ist der evcc-Optimizer (Konfiguration → Experimentell).",
         "data": {
           "suggestion_entity": "Entität mit evcc-Suggestion",
           "url": "evcc-Adresse (z. B. http://192.168.1.10:7070)"

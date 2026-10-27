@@ -674,7 +674,7 @@
       },
       "evcc_comparison": {
         "title": "Compare with evcc optimizer",
-        "description": "Read-only. Compares the ladder mode with evcc's battery plan. Enable the disabled sensor \"evcc optimizer shadow comparison\" afterwards. The suggestion entity is the ha-evcc battery SoC sensor with the \"suggestion\" attribute. The evcc address is optional: Opti Akku then reads the evopt result from /api/state every 5 minutes and derives the battery action per slot. Requires the evcc optimizer (Configuration → Experimental).",
+        "description": "Read-only. Compares the ladder mode with evcc's battery plan. The sensor \"evcc optimizer shadow comparison\" is already enabled; it only queries evcc once a source is entered here. The suggestion entity is the ha-evcc battery SoC sensor with the \"suggestion\" attribute. The evcc address is optional: Opti Akku then reads the evopt result from /api/state every 5 minutes and derives the battery action per slot. Requires the evcc optimizer (Configuration → Experimental).",
         "data": {
           "suggestion_entity": "Entity with evcc suggestion",
           "url": "evcc address (e.g. http://192.168.1.10:7070)"

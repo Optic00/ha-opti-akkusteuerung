@@ -633,8 +633,10 @@ Eine Änderung dieser Optionen lädt die Integration nicht neu und unterbricht
 die Steuerung daher nicht. Nach einem Adresswechsel wird der alte Plan sofort
 verworfen. Abschalten lässt sich der Vergleich, indem beide Quellen geleert
 werden. Wer stattdessen den Sensor deaktiviert und später wieder aktiviert,
-löst nach 30 Sekunden einen Neustart des Eintrags aus: Opti Akku schreibt
-dabei kurz „Akku Pause“ und ein manuell gewählter Modus endet.
+lässt Home Assistant den Eintrag nach 30 Sekunden neu laden: Bei aktiver
+Schreibfreigabe außerhalb des Schattenmodus schreibt Opti Akku dabei
+„Akku Pause“, bis die Strategie wieder übernimmt, und ein manuell gewählter
+Modus endet.
 
 evcc-Aktionen in der Sprache der Leiter: `normal` = Akku Dynamisch, `hold` =
 Akku nur Laden, `charge` = Akku Netzladen, `holdcharge` = Akku nur Entladen.

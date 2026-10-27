@@ -202,7 +202,7 @@ def test_evcc_comparison_sensor_shows_verdicts_only():
     sensor = OptiAkkuEvccComparisonSensor(entry, key)
 
     assert sensor._unrecorded_attributes == frozenset({MATCH_ALL})
-    assert sensor.entity_registry_enabled_default is False
+    assert sensor.entity_registry_enabled_default is True
     assert sensor.translation_key == "evcc_comparison"
     assert sensor.options[0] == "agree" and "evcc_grid_charge" in sensor.options
     assert sensor.native_value is None and sensor.available is True

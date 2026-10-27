@@ -604,15 +604,17 @@ auch der Plan mit dem Median-PV netzlädt; `grid_check` zeigt das Ergebnis).
 ## Vergleich mit dem evcc-Optimizer
 
 **Opti Schattenvergleich evcc-Optimizer** (`sensor.opti_evcc_comparison`,
-Diagnose, standardmäßig deaktiviert) stellt den Modus der Leiter neben den
+Diagnose) stellt den Modus der Leiter neben den
 Akku-Plan des evcc-Optimizers (ab evcc 0.318). Er **steuert nichts** und
 schreibt nichts an evcc. Voraussetzung ist der eingeschaltete Optimizer in
 evcc (**Konfiguration → Experimentell**, Sponsor-Token). Den Automatikmodus
 von evcc braucht der Vergleich nicht. Steuert evcc den Akku selbst, darf
 Opti Akku keine Schreibfreigabe haben.
 
-Einrichtung unter **Erweitert und Diagnose → Mit evcc-Optimizer vergleichen**,
-danach den Sensor aktivieren. Beide Quellen sind optional, eine genügt:
+Einrichtung unter **Erweitert und Diagnose → Mit evcc-Optimizer vergleichen**.
+Der Sensor ist von Anfang an aktiv, zeigt ohne Quelle aber keinen Wert
+(`status: not_configured`); abgefragt wird erst, wenn eine Quelle eingetragen ist. Beide Quellen sind
+optional, eine genügt:
 
 - **Entität mit evcc-Suggestion:** der SoC-Sensor des Hausakkus aus der
   Integration ha-evcc. Sein Attribut `suggestion.action` ist evccs Empfehlung
@@ -629,7 +631,10 @@ danach den Sensor aktivieren. Beide Quellen sind optional, eine genügt:
 
 Eine Änderung dieser Optionen lädt die Integration nicht neu und unterbricht
 die Steuerung daher nicht. Nach einem Adresswechsel wird der alte Plan sofort
-verworfen.
+verworfen. Abschalten lässt sich der Vergleich, indem beide Quellen geleert
+werden. Wer stattdessen den Sensor deaktiviert und später wieder aktiviert,
+löst nach 30 Sekunden einen Neustart des Eintrags aus: Opti Akku schreibt
+dabei kurz „Akku Pause“ und ein manuell gewählter Modus endet.
 
 evcc-Aktionen in der Sprache der Leiter: `normal` = Akku Dynamisch, `hold` =
 Akku nur Laden, `charge` = Akku Netzladen, `holdcharge` = Akku nur Entladen.

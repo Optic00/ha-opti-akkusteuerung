@@ -4025,6 +4025,42 @@ async def test_stop_cancels_a_running_evcc_read(coordinator, hass, entry):
     assert task.cancelled()
 
 
+async def test_setting_up_the_evcc_comparison_keeps_control_running(hass, entry):
+    """The sensor is enabled from the start, so the opt-in is a reload-free option, not an entity activation."""
+    from homeassistant.config_entries import RELOAD_AFTER_UPDATE_DELAY
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        before = entry.runtime_data
+        registry = er.async_get(hass)
+        entity_id = registry.async_get_entity_id("sensor", "opti_akku", f"{entry.entry_id}_{EVCC_KEY}")
+        assert entity_id and registry.async_get(entity_id).disabled_by is None
+        await before.async_set_setting("input_boolean.akku_opti_automatik", True)
+        await before.async_set_mode("Akku schnell Entladen")
+        await before.async_set_write_enabled(True)
+        inverter.async_apply.reset_mock()
+
+        hass.states.async_set("sensor.evcc_battery_soc", "84", {"suggestion": {"action": "normal"}})
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, "evcc_comparison": {"suggestion_entity": "sensor.evcc_battery_soc"}})
+        await hass.async_block_till_done()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=RELOAD_AFTER_UPDATE_DELAY + 1))
+        await hass.async_block_till_done()
+
+        assert entry.runtime_data is before and not before._stopped
+        assert before.manual_mode == "Akku schnell Entladen" and before.write_enabled is True
+        assert all(call.args[0] != "Akku Pause" for call in inverter.async_apply.await_args_list)
+        await before.async_refresh()
+        assert before.data["attributes"][EVCC_KEY]["status"] != "disabled"
+        assert hass.states.get(entity_id) is not None
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
 async def test_evcc_options_change_without_reload_and_drop_the_old_plan(hass, entry, coordinator):
     from custom_components.opti_akku import _async_options_updated
 

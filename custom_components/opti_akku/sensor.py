@@ -162,6 +162,9 @@ class OptiAkkuEvccComparisonSensor(OptiAkkuPlanShadowSensor):
 
     def __init__(self, entry: ConfigEntry, key: str) -> None:
         super().__init__(entry, key)
+        # The evcc_comparison option is the opt-in. Enabling a disabled entity
+        # makes HA reload the entry, which pauses control and drops a manual mode.
+        self._attr_entity_registry_enabled_default = True
         self._attr_options = list(EVCC_VERDICTS)
         self._attr_translation_key = "evcc_comparison"
 

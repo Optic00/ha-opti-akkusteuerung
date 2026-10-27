@@ -2288,3 +2288,51 @@ async def test_evcc_comparison_options_validate_entity_and_address(hass):
     assert suggested == {"suggestion_entity": "sensor.evcc_battery_soc", "url": "http://192.0.2.20:7070"}
     result = await hass.config_entries.options.async_configure(result["flow_id"], {})
     assert flow._draft["evcc_comparison"] == {}
+
+
+SBS_PROBE = {"profile": "sma_sbs", "inverter_status": 235, "model": "SMA Sunny Boy Storage (Gerätetyp 9357)",
+             "model_id": 9357, "serial_number": "3012345678"}
+
+
+async def test_sbs_profile_always_creates_a_shadow_entry(hass):
+    """#170: the SBS profile has no control path, a disabled shadow toggle is overridden."""
+    probe = AsyncMock(return_value=SBS_PROBE)
+    with patch("custom_components.opti_akku.config_flow._probe", probe), patch("custom_components.opti_akku.async_setup_entry", AsyncMock(return_value=True)):
+        result = await finish_wizard(hass, await begin(hass, {**CONNECTION, "profile": "sma_sbs", "shadow_mode": False}),
+                                     {"sources": {"single_inverter": True, "plant_meter_confirmed": True}})
+    assert probe.await_args.args[1]["profile"] == "sma_sbs"
+    assert result["data"]["profile"] == "sma_sbs"
+    assert result["data"]["shadow_mode"] is True
+    assert result["options"]["single_writer_confirmed"] is False
+    assert result["result"].unique_id == "shadow:sma_sbs:3012345678"
+
+
+async def test_sbs_profile_cannot_replace_an_active_connection(hass):
+    entry = MockConfigEntry(domain=DOMAIN, unique_id="sma_stp_se:1234567890", data={**CONNECTION, "serial_number": "1234567890"}, options={"sources": {}})
+    entry.add_to_hass(hass)
+    probe = AsyncMock(return_value=SBS_PROBE)
+    with patch("custom_components.opti_akku.config_flow._probe", probe):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await configure_options(hass, result["flow_id"], {"next_step_id": "connection"})
+        connection = {k: v for k, v in CONNECTION.items() if k != "shadow_mode"}
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {**connection, "profile": "sma_sbs"})
+    assert result["errors"] == {"base": "unsupported_device"}
+    probe.assert_not_awaited()
+    assert entry.data["profile"] == "sma_stp_se"
+
+
+async def test_probe_uses_the_read_only_sbs_device_for_the_sbs_profile(hass):
+    from contextlib import asynccontextmanager
+    from custom_components.opti_akku import config_flow
+
+    @asynccontextmanager
+    async def temporary_unit(*_args):
+        yield object()
+
+    with patch.object(config_flow, "async_get_temporary_unit", temporary_unit), \
+            patch.object(config_flow.SbsDevice, "__init__", return_value=None), \
+            patch.object(config_flow.SbsDevice, "async_probe", AsyncMock(return_value=SBS_PROBE)) as sbs_probe, \
+            patch.object(config_flow.SmaDevice, "async_probe", AsyncMock()) as stp_probe:
+        assert await config_flow._probe(hass, {**CONNECTION, "profile": "sma_sbs"}) == SBS_PROBE
+    sbs_probe.assert_awaited_once()
+    stp_probe.assert_not_awaited()

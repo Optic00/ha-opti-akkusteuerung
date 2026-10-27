@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Willkommen: Wechselrichter verbinden",
-        "description": "Wähle die Anbindung deiner Batterie: SMA STP SE oder eine vorhandene Huawei-Solar-Integration. Verbindung und Betriebsweise richtest du in den folgenden Schritten ein.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.\n\nWenn bereits ein Shadow-Eintrag geladen ist, erscheint die zusätzliche Auswahl „Shadow-Einstellungen für aktive Steuerung übernehmen“.",
+        "description": "Wähle die Anbindung deiner Batterie: SMA STP SE, SMA Sunny Boy Storage (lesender Test) oder eine vorhandene Huawei-Solar-Integration. Verbindung und Betriebsweise richtest du in den folgenden Schritten ein.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.\n\nWenn bereits ein Shadow-Eintrag geladen ist, erscheint die zusätzliche Auswahl „Shadow-Einstellungen für aktive Steuerung übernehmen“.",
         "data": {
           "backend": "Einrichtung",
           "host": "Host",
@@ -17,7 +17,7 @@
       },
       "sma_connection": {
         "title": "SMA-Wechselrichter verbinden",
-        "description": "Die Verbindungsprüfung liest nur.",
+        "description": "Die Verbindungsprüfung liest nur. Das Profil SMA Sunny Boy Storage ist ein lesender Test: Es läuft immer im Shadow-Modus und steuert den Akku nie. PV-Erzeugung gesamt und die AC-Leistung des Sunny Tripower trägst du als Quellen ein.",
         "data": {
           "host": "Host",
           "port": "Port",
@@ -340,7 +340,7 @@
     },
     "error": {
       "cannot_connect": "Verbindung zum Wechselrichter fehlgeschlagen.",
-      "unsupported_device": "Das Gerät ist kein unterstützter SMA STP SE.",
+      "unsupported_device": "Das Gerät passt nicht zum gewählten Geräteprofil.",
       "house_required": "Hausverbrauch auswählen oder passende Einzelwechselrichter-Berechnung bestätigen.",
       "missing_or_stale": "Quelle fehlt, ist nicht verfügbar oder zu alt.",
       "missing_or_unavailable": "Quelle fehlt, ist nicht verfügbar oder hat einen unbekannten Zustand.",
@@ -684,7 +684,7 @@
     "error": {
       "already_configured": "Dieser Wechselrichter ist bereits eingerichtet.",
       "cannot_connect": "Verbindung zum Wechselrichter fehlgeschlagen.",
-      "unsupported_device": "Das Gerät ist kein unterstützter SMA STP SE.",
+      "unsupported_device": "Das Gerät passt nicht zum gewählten Geräteprofil.",
       "house_required": "Hausverbrauch auswählen oder passende Einzelwechselrichter-Berechnung bestätigen.",
       "missing_or_stale": "Quelle fehlt, ist nicht verfügbar oder zu alt.",
       "missing_or_unavailable": "Quelle fehlt, ist nicht verfügbar oder hat einen unbekannten Zustand.",
@@ -1413,6 +1413,12 @@
         "legacy": "Bisherige Berechnung (Migration)",
         "balance": "Anlagenbilanz aus AC-Leistungen und Netzzähler",
         "external": "Ungeglätteter Hausverbrauch aus vorhandenem Sensor"
+      }
+    },
+    "profile": {
+      "options": {
+        "sma_stp_se": "SMA STP SE",
+        "sma_sbs": "SMA Sunny Boy Storage (lesender Test)"
       }
     }
   }

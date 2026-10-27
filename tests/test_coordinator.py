@@ -148,6 +148,23 @@ async def test_latch_transitions_are_persisted_immediately(coordinator):
         assert not any(call.args[1] == 0 for call in delayed.call_args_list)
 
 
+async def test_horizon_origin_change_is_persisted_immediately(coordinator):
+    """Restore reads an_quelle back as previous state (#155); its change must not wait a minute."""
+    horizon = "binary_sensor.opti_peak_horizont_lang"
+    with patch.object(coordinator._store, "async_delay_save") as delayed:
+        data = await coordinator._async_update_data()  # no forecast source: score missing
+        assert data["states"][horizon] == "on"
+        assert data["attributes"][horizon]["an_quelle"] == "score_fehlt"
+        delayed.reset_mock()
+        await coordinator._async_update_data()
+        assert not any(call.args[1] == 0 for call in delayed.call_args_list)
+        # Same on state, different origin in the last saved snapshot -> immediate write.
+        coordinator._engine_snapshot["attributes"][horizon]["an_quelle"] = "score"
+        delayed.reset_mock()
+        await coordinator._async_update_data()
+        assert any(call.args[1] == 0 for call in delayed.call_args_list)
+
+
 async def test_minsoc_latch_survives_a_crash_right_after_it_latched(hass, entry):
     """Saved off, SoC 10 -> on, recovery to 11, crash: restore at 11 must stay on until 13."""
     before = OptiCoordinator(hass, entry, device(), StrategyEngine())
@@ -885,6 +902,103 @@ async def test_score_ev_opt_in_uses_cleaned_load_without_changing_real_house(coo
     assert invalid["states"]["sensor.opti_forecast_house_60min_w"] == "unavailable"
     assert len(coordinator.engine.snapshot()["samples"]["sensor.opti_forecast_house_60min_w"]) == 1
     assert invalid["reserve_plan"]["score_load_error"] == "ev_power"
+
+
+async def test_ev_power_ahead_of_house_load_marks_the_score_and_holds_the_horizon(coordinator, hass):
+    """Charge start (#155): wallbox power arrives before the house load contains it."""
+    options = {**coordinator.entry.options,
+               "sources": {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev",
+                           "forecast_today": "sensor.pv_today", "forecast_tomorrow": "sensor.pv_tomorrow"},
+               "demand_forecast": {"house_includes_ev": True}}
+    hass.config_entries.async_update_entry(coordinator.entry, options=options)
+    rising = (dt_util.now() + timedelta(hours=3)).isoformat()
+    hass.states.async_set("sun.sun", "below_horizon", {"next_rising": rising, "next_setting": rising})
+    for entity in ("sensor.pv_today", "sensor.pv_tomorrow"):
+        hass.states.async_set(entity, "50", {"unit_of_measurement": "kWh"})
+    hass.states.async_set("sensor.ev", "0", {"unit_of_measurement": "W"})
+    hass.states.async_set("binary_sensor.ev", "off")
+    horizon, sunny = "binary_sensor.opti_peak_horizont_lang", "sensor.opti_forecast_score_sonnentag"
+    data = await coordinator._async_update_data()
+    assert data["states"][sunny] == "10"
+    assert data["states"][horizon] == "off"
+    hass.states.async_set("binary_sensor.ev", "on")
+    hass.states.async_set("sensor.ev", "9600", {"unit_of_measurement": "W"})
+    start = await coordinator._async_update_data()
+    assert start["reserve_plan"]["score_load_error"] == "ev_power"
+    assert start["attributes"][sunny]["load_source"] == "raw_60min_ev_fallback"
+    assert start["states"][horizon] == "off"
+    assert "EV-bereinigte Last fehlt" in start["attributes"][horizon]["branch"]
+
+
+async def test_nonlegacy_ev_gap_holds_horizon_until_clean_daily_mean_recovers(coordinator, hass):
+    """A missing EV subtraction must not turn an EV-heavy night into a long horizon."""
+    options = {**coordinator.entry.options, "plant_mode": "balance", "plant_meter_confirmed": True,
+               "forecast_min_load_w": 0,
+               "sources": {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev",
+                           "forecast_today": "sensor.pv_today", "forecast_tomorrow": "sensor.pv_tomorrow"},
+               "demand_forecast": {"house_includes_ev": True}}
+    hass.config_entries.async_update_entry(coordinator.entry, options=options)
+    # Balance mode derives the house load from AC power and grid flow.
+    coordinator.device.async_read.return_value["sensor.opti_pv_power_w"] = 11700
+    hass.states.async_set("sun.sun", "below_horizon", {
+        "next_rising": "2026-10-22T07:50:00+02:00",
+        "next_setting": "2026-10-22T18:20:00+02:00",
+    })
+    now = datetime(2026, 10, 22, 1, 45, tzinfo=UTC)
+    # The real coordinator and engine collect enough minute samples for a valid
+    # 24-hour mean; no private engine buckets or attributes are injected.
+    for minute in range(721):
+        observed_at = now - timedelta(minutes=720 - minute)
+        with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+                   return_value=observed_at):
+            hass.states.async_set("binary_sensor.ev", "on",
+                                  timestamp=observed_at.timestamp())
+            if minute % 10 == 0:
+                hass.states.async_set("sensor.ev", "9500", {"unit_of_measurement": "W"},
+                                      timestamp=observed_at.timestamp())
+                for entity in ("sensor.pv_today", "sensor.pv_tomorrow"):
+                    hass.states.async_set(entity, "9.6", {"unit_of_measurement": "kWh"},
+                                          timestamp=observed_at.timestamp())
+            data = await coordinator._async_update_data()
+
+    horizon = "binary_sensor.opti_peak_horizont_lang"
+    sunny = "sensor.opti_forecast_score_sonnentag"
+    daily = "sensor.opti_forecast_house_24h_w"
+    assert data["attributes"][daily]["coverage_ok"] is True
+    assert float(data["states"][daily]) == pytest.approx(500, abs=1)
+    assert data["attributes"][sunny]["load_source"] == "tagesmittel_24h"
+    assert (data["states"][sunny], data["states"][horizon]) == ("8", "off")
+    assert data["attributes"][horizon]["an_quelle"] == "score"
+
+    hass.states.async_set("sensor.ev", "unavailable", {"unit_of_measurement": "W"},
+                          timestamp=(now + timedelta(minutes=1)).timestamp())
+    with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+               return_value=now + timedelta(minutes=1)):
+        gap = await coordinator._async_update_data()
+    assert gap["reserve_plan"]["score_load_error"] == "ev_power"
+    assert gap["states"][sunny] == "0"
+    assert gap["states"][horizon] == "off"
+    assert gap["attributes"][horizon]["an_quelle"] == "score"
+    assert gap["attributes"][sunny]["load_source"] == "raw_60min_ev_fallback"
+    assert "EV-bereinigte Last fehlt (raw_60min_ev_fallback)" in gap["attributes"][horizon]["branch"]
+
+    hass.states.async_set("sensor.ev", "9500", {"unit_of_measurement": "W"},
+                          timestamp=(now + timedelta(minutes=2)).timestamp())
+    with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+               return_value=now + timedelta(minutes=2)):
+        recovered = await coordinator._async_update_data()
+    assert recovered["attributes"][sunny]["load_source"] == "tagesmittel_24h"
+    assert float(recovered["attributes"][sunny]["tagesmittel_24h_w"]) == pytest.approx(500, abs=1)
+    assert (recovered["states"][sunny], recovered["states"][horizon]) == ("8", "off")
+    assert recovered["attributes"][horizon]["an_quelle"] == "score"
+
+    hass.states.async_set("sensor.pv_today", "1.0", {"unit_of_measurement": "kWh"},
+                          timestamp=(now + timedelta(minutes=3)).timestamp())
+    with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+               return_value=now + timedelta(minutes=3)):
+        lower_forecast = await coordinator._async_update_data()
+    assert lower_forecast["attributes"][sunny]["load_source"] == "tagesmittel_24h"
+    assert (lower_forecast["states"][sunny], lower_forecast["states"][horizon]) == ("1", "on")
 
 
 async def test_nonlegacy_score_subtracts_only_ev_not_already_excluded(coordinator, hass):
@@ -2526,6 +2640,27 @@ async def test_duplicate_endpoint_is_permanent_setup_error_not_automatic_retry(h
     assert hass.data["opti_akku_writers"][("127.0.0.1", 15020, 3)] == "existing-controller"
 
 
+async def test_sbs_profile_sets_up_only_as_read_only_shadow(hass, entry):
+    """#170: an SBS entry without shadow mode is refused; with it the device never writes."""
+    from custom_components.opti_akku import async_setup_entry
+    from custom_components.opti_akku.sbs import SbsDevice
+    from homeassistant.exceptions import ConfigEntryError
+
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "profile": "sma_sbs", "shadow_mode": False})
+    with pytest.raises(ConfigEntryError, match="read-only"):
+        await async_setup_entry(hass, entry)
+    assert not hass.data.get("opti_akku_writers")
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "shadow_mode": True})
+    with patch("custom_components.opti_akku.OptiCoordinator") as coordinator_cls:
+        coordinator_cls.return_value.async_restore = AsyncMock()
+        coordinator_cls.return_value.async_config_entry_first_refresh = AsyncMock()
+        with patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()):
+            assert await async_setup_entry(hass, entry)
+    device = coordinator_cls.call_args.args[2]
+    assert isinstance(device, SbsDevice)
+    assert device.supported_modes == ()
+
+
 async def test_explicit_existing_grid_charging_preference_is_preserved(hass, entry):
     from homeassistant.helpers.storage import Store
 
@@ -3349,6 +3484,136 @@ async def test_negative_price_hold_falls_back_to_demand_solcast_intervals(coordi
     assert data["attributes"]["sensor.opti_negative_price_hold"]["source"] == "sensor.solcast_demand"
     assert [watts for _, watts in captured["pv_slots"]][-1] == 4000
     assert data["states"]["sensor.opti_negative_price_hold"] == "no_window"
+
+
+
+async def test_peak_rank_is_published_as_observation(coordinator):
+    data = await coordinator._async_update_data()
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert data["states"]["sensor.opti_peak_rank"] == "unavailable"
+    assert attrs["status"] in ("not_applicable", "data_missing")
+    assert attrs["controls_battery"] is False
+    assert "totals" in attrs
+    assert coordinator._stored_data()["peak_rank"]["version"] == 2
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+async def test_peak_rank_receives_decision_and_settings(coordinator):
+    captured = {}
+
+    def fake_check(**kwargs):
+        captured.update(kwargs)
+        return {"status": "ready", "verdict": "hold", "observation_only": True,
+                "controls_battery": False}
+
+    with patch("custom_components.opti_akku.coordinator.peak_rank_check", side_effect=fake_check):
+        data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_peak_rank"] == "hold"
+    assert captured["decision_id"] == data["decision_id"]
+    assert captured["strategy_mode"] == data["engine_requested_mode"]
+    assert captured["minsoc"] == coordinator.settings["input_number.minsoc"]
+    assert captured["maxsoc"] == coordinator.settings["input_number.maxsoc"]
+    assert captured["spread_ct"] == coordinator.settings["input_number.opti_netzlade_spread_ct"]
+    assert captured["grid_charging"] is (
+        coordinator.settings["input_boolean.opti_prognose_netzladen"] is True)
+
+
+@pytest.mark.parametrize("status", ["uncertain", "incomplete"])
+async def test_peak_rank_uncertain_verdict_is_visible_without_counting(coordinator, status):
+    now = dt_util.utcnow()
+    check = {"status": status, "verdict": "uncertain", "reason": "Testursache",
+             "observation_only": True, "controls_battery": False}
+    data = {"states": {"sensor.opti_soc": "60",
+                       "sensor.opti_battery_capacity_kwh": "12.8",
+                       "sensor.opti_battery_power_w": "-2000"},
+            "attributes": {}, "decision_id": "peak_l1",
+            "engine_requested_mode": "Akku Dynamisch"}
+
+    with patch("custom_components.opti_akku.coordinator.peak_rank_check",
+               return_value=dict(check)):
+        coordinator._update_peak_rank(data, now)
+        coordinator._update_peak_rank(data, now + timedelta(seconds=60))
+
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert data["states"]["sensor.opti_peak_rank"] == "uncertain"
+    assert (attrs["status"], attrs["verdict"], attrs["reason"]) == (
+        status, "uncertain", "Testursache")
+    assert attrs["controls_battery"] is False
+    totals = attrs["totals"]
+    for key in ("ready_seconds", "peak_seconds", "hold_seconds", "agree_seconds",
+                "discharged_while_hold_kwh", "discharged_while_agree_kwh"):
+        assert totals[key] == 0
+        assert coordinator._stored_data()["peak_rank"][key] == 0
+
+
+@pytest.mark.parametrize("decision_id", ["peak_l1", "peak_l2"])
+@pytest.mark.parametrize("real_check", [False, True])
+async def test_peak_rank_verdict_never_changes_the_command(coordinator, decision_id, real_check):
+    from custom_components.opti_akku.engine import Evaluation
+    from custom_components.opti_akku.peak_rank import peak_rank_check
+
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.minsoc"] = 5
+    coordinator.write_enabled = True
+
+    def evaluate(*args, **kwargs):
+        return Evaluation(
+            {**active_hold_evaluation().states, "sensor.opti_soc": 23}, {}, "Akku Dynamisch",
+            "Peak-Leiter", {}, decision_id=decision_id,
+        )
+
+    def fake_check(**kwargs):
+        if real_check:
+            now = datetime(2026, 10, 18, 17, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+            today = [30.0] * 96
+            today[67:76] = [44.0] * 9
+            today[72] = 44.7
+            today[76:] = [42.0] * 20
+            tomorrow = [42.0] * 30 + [51.0] * 5 + [30.0] * 61
+            tomorrow[31] = 53.0
+            return peak_rank_check(**{
+                **kwargs, "now": now,
+                "price_series": {"today": today, "tomorrow": tomorrow},
+                "horizon_end": (now + timedelta(days=1)).replace(hour=11, minute=1).isoformat(),
+                "load_hours": {str(int((now + timedelta(days=1)).replace(hour=hour).timestamp())): 1600
+                               for hour in (7, 8)},
+                "fallback_load_kw": 0.8, "peak_reserve_active": True,
+            })
+        return {"status": "ready", "verdict": "hold", "rank_discharges": False,
+                "observation_only": True, "controls_battery": False}
+
+    with patch.object(coordinator.engine, "evaluate", side_effect=evaluate):
+        with patch.object(coordinator, "_update_peak_rank"):
+            baseline = await coordinator._async_update_data()
+        coordinator.device.async_apply.assert_awaited_once()
+        baseline_command = coordinator.device.async_apply.await_args.args[:2]
+        assert "sensor.opti_peak_rank" not in baseline["states"]
+        assert baseline["mode"] == baseline_command[0] == "Akku Dynamisch"
+        assert baseline["decision_id"] == decision_id
+
+        coordinator.device.async_apply.reset_mock()
+        coordinator._last_apply = None  # Require a fresh write for the same command.
+        with patch("custom_components.opti_akku.coordinator.peak_rank_check", side_effect=fake_check):
+            data = await coordinator._async_update_data()
+
+    assert data["states"]["sensor.opti_peak_rank"] == "hold"
+    if real_check:
+        assert data["attributes"]["sensor.opti_peak_rank"]["reason"].startswith("Halten:")
+    assert data["decision_id"] == data["reason_details"]["decision_id"] == decision_id
+    assert data["mode"] == baseline["mode"]
+    coordinator.device.async_apply.assert_awaited_once()
+    assert coordinator.device.async_apply.await_args.args[:2] == baseline_command
+    assert coordinator._stored_data()["peak_rank"]["assumptions"][-1] == (
+        coordinator.settings["input_number.opti_peak_verbrauch_kw"])
+
+
+async def test_peak_rank_error_never_stops_the_update(coordinator):
+    with patch("custom_components.opti_akku.coordinator.peak_rank_check",
+               side_effect=RuntimeError("boom")):
+        data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_peak_rank"] == "unavailable"
+    assert data["attributes"]["sensor.opti_peak_rank"]["status"] == "error"
+    assert data["mode"] == "Akku Pause"
 
 
 REFILL_DEMAND = {

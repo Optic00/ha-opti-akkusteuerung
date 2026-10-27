@@ -41,6 +41,7 @@ from .const import (
     EV_SOURCE_KEYS,
     SOURCE_DEFINITIONS,
 )
+from .sbs import PROFILE_SMA_SBS, SbsDevice
 from .sma import MODEL_NAMES, MODEL_POWER_W, SmaDevice, UnsupportedDeviceError, ac_surplus_suggestion_w
 from .device import DeviceError
 from .source_quality import DEFAULT_FORECAST_MAX_AGE, measurement_max_age, reported_recently
@@ -61,7 +62,7 @@ def _device_unique_id(connection: dict[str, Any], probe: dict[str, Any]) -> str:
         return f"{'shadow:' if connection.get('shadow_mode', True) else ''}{BACKEND_HUAWEI}:{connection['huawei_device_id']}"
     prefix = "shadow:" if connection.get("shadow_mode") is True else ""
     if serial_number := probe.get("serial_number"):
-        return f"{prefix}{PROFILE_SMA_STP_SE}:{serial_number}"
+        return f"{prefix}{connection.get(CONF_PROFILE, PROFILE_SMA_STP_SE)}:{serial_number}"
     return (
         f"{prefix}{connection[CONF_HOST].lower()}:{connection[CONF_PORT]}:"
         f"{connection[CONF_UNIT_ID]}"
@@ -90,7 +91,8 @@ def _connection_schema(defaults: dict[str, Any], *, initial: bool = False) -> vo
             ),
             vol.Required(
                 CONF_PROFILE, default=defaults.get(CONF_PROFILE, PROFILE_SMA_STP_SE)
-            ): SelectSelector(SelectSelectorConfig(options=[PROFILE_SMA_STP_SE])),
+            ): SelectSelector(SelectSelectorConfig(options=[PROFILE_SMA_STP_SE, PROFILE_SMA_SBS],
+                                                   translation_key="profile")),
         }
     )
     if initial:
@@ -145,6 +147,8 @@ def _sources_schema(defaults: dict[str, Any], section: str, *, shadow_mode: bool
 async def _probe(hass: Any, data: dict[str, Any]) -> dict[str, Any]:
     params = ModbusTcpParams(host=data[CONF_HOST].strip(), port=data[CONF_PORT])
     async with async_get_temporary_unit(hass, params, data[CONF_UNIT_ID]) as unit:
+        if data.get(CONF_PROFILE) == PROFILE_SMA_SBS:
+            return await SbsDevice(unit).async_probe()
         return await SmaDevice(unit, read_only=True).async_probe()
 
 
@@ -995,6 +999,7 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
         return {entry.entry_id: entry for entry in self.hass.config_entries.async_entries(DOMAIN)
                 if entry.data.get("shadow_mode") is True
                 and entry.data.get("backend", BACKEND_SMA) in ("sma", BACKEND_SMA, BACKEND_HUAWEI)
+                and entry.data.get(CONF_PROFILE) != PROFILE_SMA_SBS
                 and entry.state is ConfigEntryState.LOADED
                 and getattr(entry, "runtime_data", None) is not None
                 and entry.runtime_data.connection_config == dict(entry.data)}
@@ -1135,6 +1140,9 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
                           CONF_UNIT_ID: user_input[CONF_UNIT_ID], CONF_PROFILE: user_input.get(CONF_PROFILE, PROFILE_SMA_STP_SE),
                           "backend": BACKEND_SMA,
                           "shadow_mode": bool(user_input.get("migrate_legacy")) or user_input.get("shadow_mode", True)}
+        # The SBS profile has no control path; it always runs in shadow mode.
+        if connection[CONF_PROFILE] == PROFILE_SMA_SBS:
+            connection["shadow_mode"] = True
         try:
             probe = await _probe(self.hass, connection)
             if not probe or not probe.get("inverter_status"):
@@ -1361,6 +1369,8 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
                           CONF_UNIT_ID: user_input[CONF_UNIT_ID], CONF_PROFILE: user_input.get(CONF_PROFILE, PROFILE_SMA_STP_SE),
                           "shadow_mode": self._entry.data.get("shadow_mode", False)}
             try:
+                if connection[CONF_PROFILE] == PROFILE_SMA_SBS and connection["shadow_mode"] is not True:
+                    raise UnsupportedDeviceError("The SMA SBS profile requires a shadow entry")
                 probe = await _probe(self.hass, connection)
                 if not probe or not probe.get("inverter_status"):
                     raise UnsupportedDeviceError("Unsupported device")

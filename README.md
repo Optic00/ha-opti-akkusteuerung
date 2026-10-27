@@ -4,7 +4,7 @@
 
 Opti Akku verbindet lokale Akkusteuerung mit einer optionalen Strategie für PV-Überschuss, Strompreise und Verbrauchsreserve. Die Einrichtung erfolgt über einen geführten Assistenten. Zusätzliche YAML-Automationen oder manuell angelegte Helfer sind für die Integration nicht erforderlich.
 
-**Beta-Reihe 2026.10, aktueller Stand `2026.10-beta10`.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md) umstellen.
+**Beta-Reihe 2026.10, aktueller Stand `2026.10-beta11`.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md) umstellen.
 
 > **Aktive Akkusteuerung:** Freigegebene Schreibzugriffe verändern das Lade- und Entladeverhalten. Falsche Einstellungen oder Fehler können zusätzliche Kosten und unerwünschten Betrieb verursachen. Herstellervorgaben beachten und andere schreibende Steuerungen vor der Freigabe deaktivieren. Neue Einträge starten ohne Schreibfreigabe; Shadow-Einträge bleiben dauerhaft lesend.
 
@@ -18,6 +18,7 @@ Die Software wird unter der [MIT-Lizenz](https://github.com/Optic00/ha-opti-akku
 
 - Home Assistant ab **2026.9.1**, HACS für die komfortable Installation.
 - **SMA Sunny Tripower Smart Energy** STP5.0/6.0/8.0/10.0-3SE-40 mit aktiviertem Modbus TCP. Die Einrichtung prüft Geräteprofil und Identität lesend. Der bisherige praktische Pilotumfang ersetzt keine Abnahme jeder Modell-/Firmwarekombination.
+- **SMA Sunny Boy Storage nur als lesender Test:** Das Profil läuft immer im Shadow-Modus und steuert den Akku nicht. Es dient dazu, die Register am Gerät zu prüfen: [SBS-Lesetest](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/sbs-lesetest.md).
 - **Huawei Solar ist experimentell:** nutzt eine bereits eingerichtete Huawei-Solar-Integration und deren Entitäten/Dienste. Sie wird nicht ersetzt. Voraussetzungen und Grenzen: [Huawei](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/HUAWEI_CONTROL.md).
 - Stromtarif, PV-Prognose, Wärmepumpe und Fahrzeug sind optionale externe Quellen. Anbieter müssen bereits in HA eingerichtet sein.
 
@@ -45,6 +46,7 @@ BYD-Zellüberwachung, KI-Tagesreport und eine eigene Wallbox-/Wärmepumpensteuer
 
 ## Dokumentation
 
+- [Änderungsprotokoll](CHANGELOG.md)
 - [Einrichtung und Einstellungen](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/configuration.md)
 - [Betrieb, Shadow und Schreibschutz](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/operation.md)
 - [Migration und Rückweg](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md)

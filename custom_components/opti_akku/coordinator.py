@@ -54,6 +54,7 @@ from .load_profile import LoadProfile
 from .clipping import clipping_forecast
 from .source_quality import DEFAULT_FORECAST_MAX_AGE
 from .negative_price_hold import NegativePriceHoldShadow, negative_price_hold_check
+from .peak_rank import PeakRankShadow, peak_rank_check
 from .planner_shadow import ForecastHistory, PlannerInputs, PlannerShadow, price_periods, pv_forecast_hourly
 from .demand import EV_SCOPE_VERSION, DemandForecast, pv_intervals, ev_profile_sources, ev_profile_scope, profile_house_value
 from .refill_comparison import RefillReserveComparison, refill_reserve_check
@@ -94,6 +95,7 @@ def _build_metadata(engine: Any) -> dict:
         "sensor.opti_forecast_remaining_load_profile_kwh": {"name": "Verbrauchsprofil Resttag", "unit_of_measurement": "kWh", "state_class": "measurement"},
         "sensor.opti_clipping_forecast_kwh": {"name": "Erwartete Energie über AC-Grenze", "unit_of_measurement": "kWh", "state_class": "measurement"},
         "sensor.opti_negative_price_hold": {"name": "Schattenvergleich PV-Ladung bis Preisfenster"},
+        "sensor.opti_peak_rank": {"name": "Schattenvergleich Peak-Rangfolge"},
         "sensor.opti_plan_shadow": {"name": "Schattenplaner Horizont"},
         "sensor.opti_evcc_comparison": {"name": "Schattenvergleich evcc-Optimizer"},
         "binary_sensor.opti_connection": {"name": "Verbindung", "device_class": "connectivity"},
@@ -209,6 +211,8 @@ STORE_SAVE_INTERVAL = 60
 # Derived latches whose on/off transition must survive a crash right away.
 PERSISTED_LATCHES = ("binary_sensor.opti_minsoc_schutz_aktiv", "binary_sensor.opti_pv_spitze",
                      "binary_sensor.opti_ladedeckel_aktiv", "binary_sensor.opti_peak_horizont_lang")
+# Latch attributes that restore reads back as previous state (#155).
+PERSISTED_LATCH_ATTRIBUTES = (("binary_sensor.opti_peak_horizont_lang", "an_quelle"),)
 
 
 def pv_peak_release_applies(result, mode: str, manual_mode, strategy_enabled: bool) -> bool:
@@ -260,6 +264,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._refill_comparison = RefillReserveComparison()
         self._evcc_comparison = EvccComparison()
         self._negative_price_hold = NegativePriceHoldShadow()
+        self._peak_rank = PeakRankShadow()
         self._planner = PlannerShadow()
         self._planner_history = ForecastHistory()
         self._demand_forecast = DemandForecast()
@@ -375,6 +380,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._refill_comparison.restore(stored.get("refill_reserve_comparison"))
         self._evcc_comparison.restore(stored.get("evcc_comparison"))
         self._negative_price_hold.restore(stored.get("negative_price_hold"))
+        self._peak_rank.restore(stored.get("peak_rank"))
         self._planner.restore(stored.get("planner_shadow"))
         try:
             # Diagnosis only: a broken history must never block the integration.
@@ -485,6 +491,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "refill_reserve_comparison": self._refill_comparison.snapshot(),
                 "evcc_comparison": self._evcc_comparison.snapshot(),
                 "negative_price_hold": self._negative_price_hold.snapshot(),
+                "peak_rank": self._peak_rank.snapshot(),
                 "planner_shadow": self._planner.snapshot(), "load_profile": self._load_profile.snapshot(),
                 "score_load_profile": self._score_load_profile.snapshot(),
                 "load_source_fingerprint": self._load_source_fingerprint,
@@ -961,6 +968,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             .get("level")
         )
         previous_latches = {key: self._engine_snapshot.get("states", {}).get(key) for key in PERSISTED_LATCHES}
+        previous_latch_attributes = {
+            (key, name): self._engine_snapshot.get("attributes", {}).get(key, {}).get(name)
+            for key, name in PERSISTED_LATCH_ATTRIBUTES
+        }
         def evaluate():
             result = self.engine.evaluate(states, attributes, dt_util.as_local(now))
             return result, self.engine.snapshot()
@@ -1257,14 +1268,20 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             captured_options)
         await self._async_update_planner(data, now, captured_options, demand_sources)
         self._update_evcc_comparison(data, now, captured_options)
+        self._update_peak_rank(data, now)
         self._update_arbitrage_report(data, now, captured_options, arbitrage_hold, safety_reason)
         await self._async_update_observations(data, now, captured_options)
-        # Only a real on<->off transition forces a write; a latch missing on one
-        # side (disabled strategy, first cycle) waits for the routine interval.
+        # Only a real on<->off transition or a changed latch origin forces a
+        # write; a latch missing on one side (disabled strategy, first cycle)
+        # waits for the routine interval.
         latch_changed = any(
             previous_latches[key] != result.states.get(key)
             and previous_latches[key] in ("on", "off") and result.states.get(key) in ("on", "off")
             for key in PERSISTED_LATCHES
+        ) or any(
+            previous is not None and self._engine_snapshot.get("attributes", {}).get(key, {}).get(name)
+            not in (None, previous)
+            for (key, name), previous in previous_latch_attributes.items()
         )
         self._schedule_routine_save(monotonic_now, force=latch_changed)
         return data
@@ -1343,6 +1360,44 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._negative_price_hold.interrupt()
             check = {"status": "error", "observation_only": True, "controls_battery": False}
         states[key] = check.get("verdict", "unavailable") if check.get("status") == "ready" else "unavailable"
+        attributes[key] = check
+
+    def _update_peak_rank(self, data, now):
+        """Shadow price-rank allocation for L1/L2; runs after the decision and never changes it."""
+        states, attributes = data["states"], data["attributes"]
+        key = "sensor.opti_peak_rank"
+        try:
+            settings = self.settings
+            peak = attributes.get("sensor.opti_peak_reserve_soc") or {}
+            profile = attributes.get("sensor.opti_peak_load_profile") or {}
+            check = peak_rank_check(
+                now=now, timezone=dt_util.DEFAULT_TIME_ZONE,
+                price_series=attributes.get("sensor.opti_price_series"),
+                horizon_end=peak.get("horizont_ende"), load_hours=profile.get("hours"),
+                fallback_load_kw=settings.get("input_number.opti_peak_verbrauch_kw"),
+                surcharge_ct=settings.get("input_number.opti_peak_min_aufschlag_ct"),
+                soc=states.get("sensor.opti_soc"), capacity_kwh=states.get("sensor.opti_battery_capacity_kwh"),
+                minsoc=settings.get("input_number.minsoc"), maxsoc=settings.get("input_number.maxsoc"),
+                decision_id=data.get("decision_id"),
+                strategy_mode=data.get("engine_requested_mode"),
+                peak_reserve_active=states.get("binary_sensor.opti_peak_reserve_aktiv") == "on",
+                grid_charging=settings.get("input_boolean.opti_prognose_netzladen") is True,
+                spread_ct=settings.get("input_number.opti_netzlade_spread_ct"),
+                feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
+                score=states.get("sensor.opti_forecast_score"),
+            )
+            assumptions = [settings.get(name) for name in (
+                "input_number.minsoc", "input_number.opti_netzlade_spread_ct",
+                "input_number.opti_peak_min_aufschlag_ct", "input_number.opti_einspeiseverguetung_ct",
+                "input_boolean.opti_prognose_netzladen", "input_number.opti_peak_verbrauch_kw")]
+            check["totals"] = self._peak_rank.observe(
+                now, check, assumptions, states.get("sensor.opti_battery_power_w"))
+        except Exception as err:  # Observation only; never affects the decision.
+            _LOGGER.debug("Peak rank check unavailable: %s", type(err).__name__)
+            self._peak_rank.interrupt()
+            check = {"status": "error", "observation_only": True, "controls_battery": False}
+        states[key] = (check.get("verdict", "unavailable")
+                       if check.get("status") in ("ready", "uncertain", "incomplete") else "unavailable")
         attributes[key] = check
 
     def _planner_entity_enabled(self) -> bool:

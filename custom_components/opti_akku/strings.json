@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Welcome: connect your inverter",
-        "description": "Choose your battery connection: SMA STP SE or an existing Huawei Solar integration. Configure the connection and operating mode in the following steps.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.\n\nIf a Shadow entry is already loaded, setup also offers “Copy Shadow settings for active control”.",
+        "description": "Choose your battery connection: SMA STP SE, SMA Sunny Boy Storage (read-only test) or an existing Huawei Solar integration. Configure the connection and operating mode in the following steps.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.\n\nIf a Shadow entry is already loaded, setup also offers “Copy Shadow settings for active control”.",
         "data": {
           "backend": "Setup",
           "host": "Host",
@@ -17,7 +17,7 @@
       },
       "sma_connection": {
         "title": "Connect SMA inverter",
-        "description": "The connection check reads only.",
+        "description": "The connection check reads only. The SMA Sunny Boy Storage profile is a read-only test: it always runs in shadow mode and never controls the battery. Configure total PV generation and the Sunny Tripower's AC power as sources.",
         "data": {
           "host": "Host",
           "port": "Port",
@@ -340,7 +340,7 @@
     },
     "error": {
       "cannot_connect": "Could not connect to the inverter.",
-      "unsupported_device": "The device is not a supported SMA STP SE.",
+      "unsupported_device": "The device does not match the selected device profile.",
       "house_required": "Select house consumption or confirm suitable single-inverter calculation.",
       "missing_or_stale": "Source is missing, unavailable or stale.",
       "missing_or_unavailable": "Source is missing, unavailable or has an unknown state.",
@@ -684,7 +684,7 @@
     "error": {
       "already_configured": "This inverter is already configured.",
       "cannot_connect": "Could not connect to the inverter.",
-      "unsupported_device": "The device is not a supported SMA STP SE.",
+      "unsupported_device": "The device does not match the selected device profile.",
       "house_required": "Select house consumption or confirm suitable single-inverter calculation.",
       "missing_or_stale": "Source is missing, unavailable or stale.",
       "missing_or_unavailable": "Source is missing, unavailable or has an unknown state.",
@@ -1413,6 +1413,12 @@
         "legacy": "Existing calculation (migration)",
         "balance": "Plant balance from AC outputs and grid meter",
         "external": "Unsmoothed house consumption from an existing sensor"
+      }
+    },
+    "profile": {
+      "options": {
+        "sma_stp_se": "SMA STP SE",
+        "sma_sbs": "SMA Sunny Boy Storage (read-only test)"
       }
     }
   }

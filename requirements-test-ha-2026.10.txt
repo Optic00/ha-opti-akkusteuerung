@@ -1,5 +1,5 @@
-homeassistant==2026.10.4
-pytest-homeassistant-custom-component==0.13.375
+homeassistant==2026.10.3
+pytest-homeassistant-custom-component==0.13.374
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
 mypy==1.18.2

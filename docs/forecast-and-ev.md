@@ -453,7 +453,9 @@ die Strategie aus dem Netz laden würde: Peak-Vorladen mit
 `opti_netzlade_spread_ct` Abstand zum Durchschnitt der folgenden Peak-Slots im
 Ladefenster oder ein Preis unter der Einspeisevergütung bei Prognose-Score
 unter 3. Wie im Template gilt dabei die Sicht ab Beginn der vollen Stunde
-dieses Slots; ein Nachladen nach dem letzten Peak-Slot zählt nicht. Die
+dieses Slots für den Peak-Durchschnitt. Das günstige Ladefenster betrachtet
+nur noch verbleibende Slots ab dem betrachteten Slot bis zum nächsten Peak;
+ein Nachladen nach dem letzten Peak-Slot zählt nicht. Die
 Peak-Einstufung selbst stammt aus der aktuellen Sicht. Die Grenze gilt auch bei
 leerem Akku, weil Netzladen seit #154 vor dem MinSOC-Schutz Vorrang hat. Wie viel
 dabei nachgeladen wird, bildet der Vergleich nicht ab.

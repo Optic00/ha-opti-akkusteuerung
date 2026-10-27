@@ -107,13 +107,18 @@ def test_night_peak_slots_lower_the_spread_average():
     assert (result["refill_kind"], result["refill_at"]) == ("grid_precharge", local(19, 7, 0).isoformat())
 
 
-def test_refill_window_opens_when_the_hour_starts_with_a_peak():
-    # 17:00 is a peak, so from 17:15 the template sees no lower price before it.
+@pytest.mark.parametrize(
+    ("spread_ct", "score", "kind"),
+    [(100, 1, "grid_below_feed_in"), (10, 4, "grid_precharge")],
+)
+def test_refill_window_uses_only_remaining_slots_after_an_earlier_peak(spread_ct, score, kind):
+    # The 17:00 peak stays in the hourly average, but the remaining window
+    # starts at 17:15 and has a lower price at 17:30.
     prices = series()
     prices["today"][69] = 5.0  # 17:15
     prices["today"][70] = 3.0  # 17:30
-    result = check(price_series=prices, spread_ct=100)
-    assert (result["refill_kind"], result["refill_at"]) == ("grid_below_feed_in", local(18, 17, 15).isoformat())
+    result = check(price_series=prices, spread_ct=spread_ct, score=score)
+    assert (result["refill_kind"], result["refill_at"]) == (kind, local(18, 17, 30).isoformat())
 
 
 def test_later_slot_counts_only_up_to_the_horizon():

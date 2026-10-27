@@ -85,9 +85,9 @@ def _refill(slots: Sequence[Slot], peaks: set[int], first: int, end: datetime, t
 
     Mirrors the grid branches of decisions.yaml as seen from that slot. Like
     the peak reserve template, it looks from the start of that slot's full
-    hour: the peak average includes earlier peaks of the same hour, and the
-    charging window is the lowest price before the first peak from there
-    (none if that hour starts with a peak) plus the entry band. A charge
+    hour: the peak average includes earlier peaks of the same hour. The
+    charging window uses only remaining slots before the next peak, with
+    the lowest price plus the entry band. A charge
     after the last peak protects nothing and does not count.
     """
     if not grid:
@@ -101,6 +101,8 @@ def _refill(slots: Sequence[Slot], peaks: set[int], first: int, end: datetime, t
         view = [i for i in range(limit) if slots[i][0] >= hour]
         before_peak: list[float] = []
         for i in view:
+            if i < index:
+                continue
             if i in peaks:
                 break
             before_peak.append(slots[i][2])

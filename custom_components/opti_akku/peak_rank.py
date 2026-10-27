@@ -13,11 +13,10 @@ The current slot is worth discharging only if it is among the served slots.
 Peak slots use the same classification as ``sensor.opti_peak_reserve_soc``
 (midrank percentile >= 0.6 and the minimum surcharge over the window low).
 Only peak slots and the current slot draw on the battery; consumption between
-peaks is not modelled. The refill boundary is the earliest of the PV horizon
-of the peak reserve and the first later slot in which grid charging would
-start (peak precharge spread or price below feed-in with a weak forecast).
-That boundary assumes grid charging also works at or below MinSOC, as on the
-branch for #154; the charged amount itself is not modelled.
+peaks is not modelled. The confirmed boundary is the PV horizon of the peak
+reserve. Future SoC, reserve and forecast score are not predicted: a possible
+price-driven grid refill makes the check uncertain instead of shortening it.
+Prices must cover the whole reserve horizon, also for the refill's peak average.
 """
 
 from __future__ import annotations
@@ -34,6 +33,7 @@ PEAK_PERCENTILE = 0.60
 WEAK_SCORE = 3
 # Same entry band as the precharge window in decisions.yaml.
 WINDOW_BAND_CT = 0.5
+HOLD_WINDOW_BAND_CT = 1.5
 PEAK_DECISIONS = frozenset({"peak_l1", "peak_l2"})
 MAX_INTERVAL = 90
 _COUNTERS = (
@@ -78,16 +78,39 @@ def _hour_start(at: datetime, timezone: tzinfo) -> datetime:
     return at.astimezone(timezone).replace(minute=0, second=0, microsecond=0)
 
 
+def _grid_charge_possible(*, price: float, minimum: float | None, average: float | None,
+                          spread: float, feed_in: float, soc: float | None,
+                          reserve_soc: float | None, maxsoc: float, score: float | None,
+                          charging: bool = False) -> str | None:
+    """Ladebedingungen aus decisions.yaml; fehlende Zukunftswerte sind nur möglich.
+
+    Einstieg: SoC < Ziel - 3, Fenster bis Tief + 0,5 ct. Bereits laufendes
+    Netzladen: SoC < Ziel, Fenster bis Tief + 1,5 ct. Ein möglicher Zweig ist
+    ohne verlässliche Zukunftswerte ausdrücklich kein Nachladebeleg.
+    """
+    stopband = 0 if charging else 3
+    band = HOLD_WINDOW_BAND_CT if charging else WINDOW_BAND_CT
+    if minimum is not None and price > minimum + band:
+        return None
+    if (price < feed_in and (score is None or score < WEAK_SCORE)
+            and (soc is None or soc < maxsoc - stopband)):
+        return "grid_below_feed_in"
+    if (average is not None and average - price >= spread
+            and (soc is None or reserve_soc is None or soc < reserve_soc - stopband)):
+        return "grid_precharge"
+    return None
+
+
 def _refill(slots: Sequence[Slot], peaks: set[int], first: int, end: datetime, timezone: tzinfo, *,
-            grid: bool, spread: float | None, feed_in: float | None,
-            score: float | None) -> tuple[int, str] | None:
-    """First later slot before the PV horizon in which the strategy would charge from the grid.
+            grid: bool, spread: float, feed_in: float, maxsoc: float,
+            surcharge: float, charging: bool) -> tuple[int, str] | None:
+    """Erstes mögliches Netzladefenster, kein belastbarer Refill.
 
     Mirrors the grid branches of decisions.yaml as seen from that slot. Like
     the peak reserve template, it looks from the start of that slot's full
     hour: the peak average includes earlier peaks of the same hour. The
     charging window uses only remaining slots before the next peak, with
-    the lowest price plus the entry band. A charge
+    the lowest price plus the entry or hold band. A charge
     after the last peak protects nothing and does not count.
     """
     if not grid:
@@ -99,20 +122,26 @@ def _refill(slots: Sequence[Slot], peaks: set[int], first: int, end: datetime, t
         price = slots[index][2]
         hour = _hour_start(slots[index][0], timezone)
         view = [i for i in range(limit) if slots[i][0] >= hour]
+        low = min(slots[i][2] for i in view)
+        future_peaks = {i for i in view if i in peaks and slots[i][2] >= low + surcharge}
         before_peak: list[float] = []
         for i in view:
-            if i < index:
+            # Expired slots still count for the peak average, not the price window.
+            if slots[i][1] <= slots[index][0]:
                 continue
-            if i in peaks:
+            if i in future_peaks:
                 break
             before_peak.append(slots[i][2])
-        if before_peak and price > min(before_peak) + WINDOW_BAND_CT:
-            continue
-        if feed_in is not None and score is not None and score < WEAK_SCORE and price < feed_in:
-            return index, "grid_below_feed_in"
-        ahead = [slots[i][2] for i in view if i in peaks]
-        if ahead and spread is not None and sum(ahead) / len(ahead) - price >= spread:
-            return index, "grid_precharge"
+        ahead = [slots[i][2] for i in view if i in future_peaks]
+        kind = _grid_charge_possible(
+            price=price, minimum=round(min(before_peak), 2) if before_peak else None,
+            average=round(sum(ahead) / len(ahead), 2) if ahead else None,
+            spread=spread, feed_in=feed_in, maxsoc=maxsoc,
+            # Heutige Messwerte belegen weder SoC noch Reserve/Score dieses Slots.
+            soc=None, reserve_soc=None, score=None, charging=charging,
+        )
+        if kind is not None:
+            return index, kind
     return None
 
 
@@ -135,8 +164,12 @@ def peak_rank_check(
     spread_ct: Any,
     feed_in_ct: Any,
     score: Any,
+    maxsoc: Any = 95,
 ) -> dict[str, Any]:
-    """Return the rank verdict for this cycle; never raises on bad input."""
+    """Return the rank verdict for this cycle; never raises on bad input.
+
+    ``score`` ist ein heutiger Messwert, keine Freigabe für künftiges Netzladen.
+    """
     out: dict[str, Any] = {"observation_only": True, "controls_battery": False}
     if not peak_reserve_active:
         return {**out, "status": "not_applicable", "detail": "peak_reserve_inactive"}
@@ -157,6 +190,19 @@ def peak_rank_check(
     if current is None or end <= now:
         return {**out, "status": "not_applicable", "detail": "no_horizon"}
 
+    covered_until = now
+    for start, stop, _price in periods[current:]:
+        if start > covered_until:
+            break
+        covered_until = max(covered_until, stop)
+        if covered_until >= end:
+            break
+    if covered_until < end:
+        return {**out, "status": "incomplete", "verdict": "uncertain",
+                "detail": "price_coverage", "horizon_end": end.isoformat(),
+                "price_coverage_end": covered_until.isoformat(),
+                "reason": "Unvollständig: Preise decken den Reservehorizont nicht lückenlos ab"}
+
     prices = [slot[2] for slot in periods]
     window_start = _hour_start(now, timezone)
     window = [i for i, slot in enumerate(periods) if window_start <= slot[0] < end]
@@ -166,9 +212,21 @@ def peak_rank_check(
         if _percentile(prices, periods[i][2]) >= PEAK_PERCENTILE
         and (window_min is None or periods[i][2] >= window_min + values["surcharge"])
     }
-    refill = _refill(periods, peaks, current + 1, end, timezone, grid=grid_charging, spread=_number(spread_ct),
-                     feed_in=_number(feed_in_ct), score=_number(score))
-    boundary, boundary_kind = (periods[refill[0]][0], refill[1]) if refill else (end, "pv_horizon")
+    refill = _refill(
+        periods, peaks, current + 1, end, timezone, grid=grid_charging,
+        spread=value if (value := _number(spread_ct)) is not None else 10,
+        feed_in=value if (value := _number(feed_in_ct)) is not None else 0,
+        maxsoc=value if (value := _number(maxsoc)) is not None else 95,
+        surcharge=values["surcharge"], charging=strategy_mode == "Akku Netzladen",
+    )
+    if refill:
+        return {**out, "status": "uncertain", "verdict": "uncertain",
+                "detail": "future_charge_conditions", "horizon_end": end.isoformat(),
+                "possible_refill_at": periods[refill[0]][0].isoformat(),
+                "possible_refill_kind": refill[1],
+                "reason": "Unsicher: künftiger SoC, Reserve-SoC, Prognose-Score und "
+                          "Lademodus für das mögliche Netzladefenster sind nicht belegt"}
+    boundary = end
 
     candidates = sorted(
         {current, *(i for i in peaks if current < i and periods[i][0] < boundary)},
@@ -187,7 +245,7 @@ def peak_rank_check(
             served.append(index)
             remaining -= energy
     rank_discharges = current in served
-    covers_all = remaining >= -1e-9
+    covers_all = usable >= demand - 1e-9
     threshold = periods[served[-1]][2] if served else None
     current_price = periods[current][2]
     rank = candidates.index(current) + 1
@@ -226,7 +284,7 @@ def peak_rank_check(
         "demand_kwh": round(demand, 3),
         "covers_all": covers_all,
         "refill_at": boundary.isoformat(),
-        "refill_kind": boundary_kind,
+        "refill_kind": "pv_horizon",
         "horizon_end": end.isoformat(),
     }
 
@@ -244,7 +302,7 @@ class PeakRankShadow:
 
     @staticmethod
     def _fresh() -> dict[str, Any]:
-        return {"version": 1, "started_at": None, "last_observation": None,
+        return {"version": 2, "started_at": None, "last_observation": None,
                 "assumptions": None, **dict.fromkeys(_COUNTERS, 0.0)}
 
     def snapshot(self) -> dict[str, Any]:
@@ -253,7 +311,7 @@ class PeakRankShadow:
     def restore(self, saved: Any) -> None:
         self.data = self._fresh()
         self._previous = None
-        if not isinstance(saved, Mapping) or saved.get("version") != 1:
+        if not isinstance(saved, Mapping) or saved.get("version") != 2:
             return
         try:
             for key in ("started_at", "last_observation"):
@@ -275,7 +333,7 @@ class PeakRankShadow:
                 return
         except TypeError, ValueError, AttributeError:
             return
-        self.data = {"version": 1, "started_at": saved.get("started_at"),
+        self.data = {"version": 2, "started_at": saved.get("started_at"),
                      "last_observation": saved.get("last_observation"),
                      "assumptions": assumptions, **counters}
 

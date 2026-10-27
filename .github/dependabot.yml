@@ -4,3 +4,24 @@ updates:
     directory: /
     schedule:
       interval: monthly
+  # requirements-test.txt pinnt die HA-Mindestversion 2026.9.1,
+  # requirements-test-ha-2026.10.txt die aktuelle HA-Testversion.
+  # HA-Update-PRs gegen diesen Vertrag prüfen; die Mindestversion nie still anheben.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore
+    groups:
+      home-assistant-test-stack:
+        patterns:
+          - homeassistant
+          - pytest-homeassistant-custom-component
+      test-tooling:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - homeassistant
+          - pytest-homeassistant-custom-component

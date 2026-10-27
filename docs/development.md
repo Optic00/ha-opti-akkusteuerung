@@ -16,6 +16,12 @@ python tools/check_coverage.py coverage.json .github/coverage-baseline.json
 python tools/build_package.py
 ```
 
+`requirements-test.txt` prüft die unterstützte Mindestversion Home Assistant
+2026.9.1. Die CI prüft zusätzlich Home Assistant 2026.10.4 mit
+`requirements-test-ha-2026.10.txt` in einem eigenen Job. Für einen lokalen Lauf
+mit dieser Version in einer separaten virtuellen Umgebung denselben Ablauf
+verwenden und bei der Installation die zweite Anforderungsdatei angeben.
+
 Die Suite prüft unter anderem HA-Lifecycle, Konfigurationsdialoge, Migration, native Modbus-Kommunikation gegen einen lokalen Simulator, Schreibsperren, Strategie, Quellen, Prognosen und den Import eines entpackten Pakets ohne Quellcheckout. Sie ersetzt keine Geräteabnahme.
 
 Änderungen an `strategy/*.yaml` mit `python tools/build_strategy_resources.py` bauen und das JSON mit committen. Der historische Importer ist kein regulärer Buildschritt. HACS lädt das Repository-Verzeichnis; das manuelle ZIP enthält den Pfad `custom_components/opti_akku/` und ist kein aktiviertes `zip_release`-Asset.
@@ -38,9 +44,11 @@ geführt.
 
 ## Versionen und Releases
 
+Das [Änderungsprotokoll](../CHANGELOG.md) wird pro Release gepflegt; der Release-Workflow erzeugt weiterhin Release-Notizen.
+
 Versionen folgen dem Veröffentlichungsmonat. Auf `2026.9-beta11` folgt im
 Oktober `2026.10-beta1`; eine stabile September-Version wurde nicht veröffentlicht.
-Weitere Oktober-Betas heißen beispielsweise `2026.10-beta10`. Eine spätere stabile
+Weitere Oktober-Betas heißen beispielsweise `2026.10-beta11`. Eine spätere stabile
 Version erhält den Veröffentlichungsmonat mit `.0`, danach `.1` für eine Fehlerkorrektur.
 Die Jahres- und Monatsangabe bezeichnet Opti Akku, nicht die erforderliche
 Home-Assistant-Version.

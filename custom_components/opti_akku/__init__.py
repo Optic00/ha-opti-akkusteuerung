@@ -10,6 +10,7 @@ from modbus_connection import ModbusTcpParams
 from .const import DOMAIN, NO_RELOAD_OPTION_KEYS, PLATFORMS
 from .coordinator import OptiCoordinator
 from .engine import StrategyEngine
+from .sbs import PROFILE_SMA_SBS, SbsDevice
 from .sma import SmaDevice
 from .source_quality import measurement_max_age
 
@@ -32,6 +33,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             raise ConfigEntryError(f"Invalid Huawei configuration: {type(err).__name__}") from err
     elif backend not in ("sma", "sma_modbus"):
         raise ConfigEntryError("Unsupported device backend")
+    sbs_profile = backend in ("sma", "sma_modbus") and entry.data.get("profile") == PROFILE_SMA_SBS
+    if sbs_profile and entry.data.get("shadow_mode") is not True:
+        raise ConfigEntryError("The SMA SBS profile is read-only and requires shadow mode")
     endpoint = (entry.data.get(CONF_HOST, "huawei").strip().lower(), entry.data.get(CONF_PORT, 0), entry.data.get("unit_id", 0))
     if backend == "huawei_solar":
         endpoint = (backend, entry.data["huawei_entry_id"], entry.data["huawei_device_id"])
@@ -50,7 +54,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(release_owner)
     if backend in ("sma", "sma_modbus"):
         unit = async_get_unit(hass, entry, ModbusTcpParams(host=endpoint[0], port=endpoint[1]), endpoint[2])
-        device = SmaDevice(unit, read_only=shadow)
+        device = SbsDevice(unit) if sbs_profile else SmaDevice(unit, read_only=shadow)
     engine = await hass.async_add_executor_job(StrategyEngine)
     coordinator = OptiCoordinator(hass, entry, device, engine)
     entry.runtime_data = coordinator

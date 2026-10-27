@@ -898,8 +898,10 @@ template_blocks:
          waehrend der Spitze nicht abfaellt (laufende Stunde konservativ voll
          gerechnet - bei Viertelstundenraster zaehlen dadurch bis zu 3 bereits
          vergangene Slots der laufenden Stunde mit). min_preis_vor_peak_ct
-         bezieht sich weiterhin auf die erste GEZAEHLTE (also gefilterte)
-         Peak-Stunde. f.ve/f.exp summieren STUNDEN (slot_h je Slot), nicht
+         beruecksichtigt nur noch nicht beendete Slots vor dem ersten
+         noch nicht beendeten, gezaehlten Peak. Abgelaufene Slots bleiben
+         fuer die Reserve erhalten, sperren aber kein Ladefenster (Issue #175).
+         f.ve/f.exp summieren STUNDEN (slot_h je Slot), nicht
          Slot-Anzahlen, da today/tomorrow unterschiedliche slot_h haben
          koennen - deshalb Namespace-Summe statt Zaehler * Konstante. #}
       {% set load_hours = state_attr('sensor.opti_peak_load_profile', 'hours') %}
@@ -927,12 +929,17 @@ template_blocks:
               {% set f.extreme_energy = f.extreme_energy + slot_kw * remaining_h %}
             {% endif %}
             {% if pct >= 0.80 and ist_peak_preis %}
-              {% set f.ve_extra = f.ve_extra + extra %}{% set f.ve = f.ve + slot_h %}{% set f.ve_energy = f.ve_energy + slot_kw * slot_h %}{% if 'profile' in load_method %}{% set f.profile_hours = f.profile_hours + slot_h %}{% endif %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
+              {% set f.ve_extra = f.ve_extra + extra %}{% set f.ve = f.ve + slot_h %}{% set f.ve_energy = f.ve_energy + slot_kw * slot_h %}{% if 'profile' in load_method %}{% set f.profile_hours = f.profile_hours + slot_h %}{% endif %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}
               {% set f.ve_summe = f.ve_summe + p %}{% set f.ve_anz = f.ve_anz + 1 %}
             {% elif pct >= 0.60 and ist_peak_preis %}
-              {% set f.exp_extra = f.exp_extra + extra %}{% set f.exp = f.exp + slot_h %}{% set f.exp_energy = f.exp_energy + slot_kw * slot_h %}{% if 'profile' in load_method %}{% set f.profile_hours = f.profile_hours + slot_h %}{% endif %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}{% set f.peak_gesehen = true %}
-            {% elif not f.peak_gesehen %}
-              {% set f.minpre = p if f.minpre is none else ([f.minpre, p] | min) %}
+              {% set f.exp_extra = f.exp_extra + extra %}{% set f.exp = f.exp + slot_h %}{% set f.exp_energy = f.exp_energy + slot_kw * slot_h %}{% if 'profile' in load_method %}{% set f.profile_hours = f.profile_hours + slot_h %}{% endif %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}
+            {% endif %}
+            {% if t + timedelta(hours=slot_h) > now() %}
+              {% if pct >= 0.60 and ist_peak_preis %}
+                {% set f.peak_gesehen = true %}
+              {% elif not f.peak_gesehen %}
+                {% set f.minpre = p if f.minpre is none else ([f.minpre, p] | min) %}
+              {% endif %}
             {% endif %}
           {% endif %}
         {% endfor %}

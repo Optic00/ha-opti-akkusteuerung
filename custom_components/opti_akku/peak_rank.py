@@ -243,7 +243,7 @@ def peak_rank_check(
             served.append(index)
             remaining -= energy
     rank_discharges = current in served
-    covers_all = remaining >= -1e-9
+    covers_all = usable >= demand - 1e-9
     threshold = periods[served[-1]][2] if served else None
     current_price = periods[current][2]
     rank = candidates.index(current) + 1

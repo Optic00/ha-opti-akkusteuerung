@@ -82,6 +82,25 @@ def test_enough_energy_for_both_peaks_discharges():
     assert result["reason"].startswith("Entladen:")
 
 
+@pytest.mark.parametrize("soc,usable,covers_all", [
+    pytest.param(10, 0.45, False, id="exact_exhaustion"),
+    pytest.param(5, 0, False, id="zero_usable"),
+    pytest.param(15, 0.9, True, id="exact_coverage"),
+])
+def test_coverage_uses_total_demand(soc, usable, covers_all):
+    prices = {"today": day_prices(30, ((17, 30), (17, 45), 53),
+                                  ((17, 45), (18, 0), 51))}
+    result = check(now=local(18, 17, 30), horizon_end=local(18, 18).isoformat(),
+                   price_series=prices, load_hours={}, fallback_load_kw=1.8,
+                   capacity_kwh=10, soc=soc, grid_charging=False)
+    assert result["status"] == "ready"
+    assert result["peak_slots"] == 2
+    assert result["usable_kwh"] == pytest.approx(usable)
+    assert result["demand_kwh"] == pytest.approx(0.9)
+    assert result["covers_all"] is covers_all
+    assert ("reichen für alle 2 Peak-Slots" in result["reason"]) is covers_all
+
+
 def test_cheap_refill_without_future_soc_is_uncertain():
     result = check(price_series=series(night=30.0))
     assert result["status"] == result["verdict"] == "uncertain"

@@ -121,6 +121,21 @@ def test_refill_window_uses_only_remaining_slots_after_an_earlier_peak(spread_ct
     assert (result["refill_kind"], result["refill_at"]) == (kind, local(18, 17, 30).isoformat())
 
 
+@pytest.mark.parametrize(
+    ("spread_ct", "score", "kind"),
+    [(100, 1, "grid_below_feed_in"), (10, 4, "grid_precharge")],
+)
+def test_refill_window_ignores_expired_cheaper_slot(spread_ct, score, kind):
+    # At 17:15 the 17:00 slot has ended. The remaining 5 ct slots form the
+    # entry window before the 17:45 peak despite the earlier 3 ct price.
+    prices = series()
+    prices["today"][68] = 3.0  # 17:00
+    prices["today"][69] = 5.0  # 17:15
+    prices["today"][70] = 5.0  # 17:30
+    result = check(price_series=prices, spread_ct=spread_ct, score=score)
+    assert (result["refill_kind"], result["refill_at"]) == (kind, local(18, 17, 15).isoformat())
+
+
 def test_later_slot_counts_only_up_to_the_horizon():
     # The 18:00 peak lasts one minute before the horizon: 0.0133 kWh, so most
     # of the 0.15 kWh still serves the current slot.

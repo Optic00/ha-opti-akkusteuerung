@@ -31,6 +31,7 @@ SOURCE_DEFINITIONS = {
     "price_current": ("sensor.opti_price_current_ct_kwh", "Aktueller Strompreis", "price"),
     "price_series": ("sensor.opti_price_series", "Preisreihe (today/tomorrow)", "price"),
     "cell_spread": ("sensor.byd_zellspreizung_ruhe", "BYD-Zellspreizung in Ruhe (optional)", "voltage_spread"),
+    "cell_voltage_min": ("sensor.opti_cell_voltage_min_v", "Niedrigste Zellspannung (optional, z. B. BYD BMU)", "voltage"),
 }
 EV_SOURCE_KEYS = (
     "ev1_mode", "ev1_charging", "ev1_smart_cost", "ev1_power",

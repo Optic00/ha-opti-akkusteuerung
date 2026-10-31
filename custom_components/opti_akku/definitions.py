@@ -217,7 +217,15 @@ NUMBER_DEFINITIONS = {'input_number.akkusteuerung_ladestaerke_soll': {'name': 'A
                                                       'unit_of_measurement': 'Tage',
                                                       'mode': 'box',
                                                       'icon': 'mdi:timer-sand',
-                                                      'default': 5}}
+                                                      'default': 5},
+ 'input_number.opti_zellspannung_reserve_v': {'name': 'Opti Zellspannungs-Reserve',
+                                              'min': 0,
+                                              'max': 3.3,
+                                              'step': 0.01,
+                                              'unit_of_measurement': 'V',
+                                              'mode': 'box',
+                                              'icon': 'mdi:battery-low',
+                                              'default': 0}}
 
 SWITCH_DEFINITIONS = {'input_boolean.akku_opti_automatik': {'name': 'Akku Opti-Automatik',
                                        'icon': 'mdi:battery-sync',

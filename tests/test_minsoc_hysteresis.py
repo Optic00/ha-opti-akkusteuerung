@@ -185,3 +185,77 @@ def test_empty_battery_precharges_before_morning_peak(price, expected, mode):
         result = decision_engine().evaluate(inputs(soc, **states), attributes, NOW)
         assert result.decision_id == expected
         assert result.mode == result.states[PREVIEW] == mode
+
+
+CELL = "sensor.opti_cell_voltage_min_v"
+RESERVE = "input_number.opti_zellspannung_reserve_v"
+
+
+def test_cell_voltage_reserve_triggers_and_holds_through_relaxation():
+    engine = decision_engine()
+    result = run(engine, 12, **{RESERVE: 3.0, CELL: 2.99})
+    assert result.decision_id == "minimum_soc"
+    assert result.mode == "Akku nur Laden"
+    assert result.reason.startswith("Zellspannungs-Reserve")
+    assert result.reason == "Zellspannungs-Reserve (Zelle 2.99 V, Halten bis 3.2 V)"
+    attributes = result.attributes[LATCH]
+    assert attributes["ausloeser"] == "zellspannung"
+    assert attributes["reserve_v"] == 3.0
+    assert attributes["release_zell_v"] == 3.2
+    # Relaxation in rest: voltage recovers, latch holds until reserve + 0.20 V
+    for volt in (3.10, 3.19):
+        held = run(engine, 40, **{RESERVE: 3.0, CELL: volt})
+        assert held.decision_id == "minimum_soc"
+        assert held.states[LATCH] == "on"
+    released = run(engine, 40, **{RESERVE: 3.0, CELL: 3.20})
+    assert released.states[LATCH] == "off"
+    assert released.decision_id != "minimum_soc"
+    assert released.attributes[LATCH]["ausloeser"] == "aus"
+
+
+def test_cell_voltage_hold_requires_prior_trigger():
+    result = run(decision_engine(), 40, **{RESERVE: 3.0, CELL: 3.10})
+    assert result.states[LATCH] == "off"
+
+
+def test_cell_voltage_missing_source_keeps_legacy_behaviour():
+    engine = decision_engine()
+    assert run(engine, 12, **{RESERVE: 3.0, CELL: "unavailable"}).states[LATCH] == "off"
+    run(engine, 12, **{RESERVE: 3.0, CELL: 2.9})
+    # source disappears while held: only the SoC logic decides, fail-open
+    result = run(engine, 40, **{RESERVE: 3.0, CELL: "unavailable"})
+    assert result.states[LATCH] == "off"
+    run(engine, 9)
+    result = run(engine, 11, **{RESERVE: 3.0, CELL: "unavailable"})
+    assert result.decision_id == "minimum_soc"
+    assert result.reason == "MinSOC-Schutz (Halten bis 13%)"
+    assert result.attributes[LATCH]["ausloeser"] == "soc"
+
+
+def test_cell_voltage_with_reserve_zero_matches_legacy():
+    engine = decision_engine()
+    result = run(engine, 40, **{RESERVE: 0, CELL: 2.5})
+    assert result.states[LATCH] == "off"
+    assert result.attributes[LATCH]["ausloeser"] == "aus"
+    assert result.attributes[LATCH]["release_zell_v"] is None
+    run(engine, 9, **{RESERVE: 0, CELL: 2.5})
+    result = run(engine, 11, **{RESERVE: 0, CELL: 2.5})
+    assert result.reason == "MinSOC-Schutz (Halten bis 13%)"
+
+
+def test_changed_reserve_ends_cell_voltage_hold():
+    engine = decision_engine()
+    run(engine, 40, **{RESERVE: 3.0, CELL: 2.95})
+    assert run(engine, 40, **{RESERVE: 3.0, CELL: 3.1}).states[LATCH] == "on"
+    result = run(engine, 40, **{RESERVE: 3.05, CELL: 3.1})
+    assert result.states[LATCH] == "off"
+    # a new reserve above the cell voltage triggers afresh
+    assert run(engine, 40, **{RESERVE: 3.2, CELL: 3.1}).states[LATCH] == "on"
+
+
+def test_cell_voltage_latch_yields_to_balancing_grid_charging():
+    engine = decision_engine()
+    run(engine, 40, **{RESERVE: 3.0, CELL: 2.95})
+    result = run(engine, 40, **{RESERVE: 3.0, CELL: 3.1, "sensor.opti_balancing_watchdog": "netz"})
+    assert result.decision_id == "balancing_grid"
+    assert result.mode == "Akku Netzladen"

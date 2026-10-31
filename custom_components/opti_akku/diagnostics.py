@@ -30,6 +30,7 @@ def _source_error_summary(errors: Any) -> dict[str, Any]:
             role = "plant"
         elif role not in {
             "cell_spread",
+            "cell_voltage_min",
             "forecast_remaining",
             "forecast_today",
             "forecast_tomorrow",

@@ -3918,3 +3918,19 @@ def test_expected_load_hours_strips_the_profile_margin_only():
     assert _expected_load_hours(profile) == {"1": 1000.0, "2": 800.0}
     assert _expected_load_hours({"status": "disabled", "hours": {}}) == {}
     assert _expected_load_hours(None) == {}
+
+
+@pytest.mark.parametrize("value,valid", [(0, True), (2.9, True), (3.0, True), (3.3, True),
+                                        (0.5, False), (2.89, False), (3.31, False), (-1, False)])
+def test_cell_voltage_reserve_is_off_or_within_safe_range(value, valid):
+    from homeassistant.exceptions import HomeAssistantError
+    key = "input_number.opti_zellspannung_reserve_v"
+    current = {"input_number.minsoc": 10, "input_number.maxsoc": 95,
+               "input_number.akkusteuerung_min_ladestaerke": 100, "input_number.akkusteuerung_max_ladestaerke": 200,
+               "input_number.akkusteuerung_min_entladestaerke": 100, "input_number.akkusteuerung_max_entladestaerke": 200,
+               "input_number.akkusteuerung_ueberschuss_veto_aus_grenze": 1, "input_number.akkusteuerung_ueberschuss_veto_grenze": 2}
+    if valid:
+        assert validate_setting(key, value, current) == value
+    else:
+        with pytest.raises(HomeAssistantError):
+            validate_setting(key, value, current)

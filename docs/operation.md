@@ -210,6 +210,17 @@ Der Schutz im Halteband hat wie die harte MinSOC-Regel Vorrang vor der
 PV-Vorbereitung fürs Auto. Dadurch kann der Hausakku während einer Autoladung
 Solarüberschuss aufnehmen, bis die Freigabegrenze erreicht ist.
 
+Optional ergänzt eine Zellspannungs-Reserve den MinSOC-Schutz, weil der SoC unten
+um mehrere Prozentpunkte driften kann und das BMS bei etwa 2,8 V Zellspannung
+abschaltet. Dafür die Quelle „Niedrigste Zellspannung“ (Balancing-Gruppe, Volt
+oder Millivolt) angeben und `input_number.opti_zellspannung_reserve_v` auf 2,90
+bis 3,30 V setzen (z. B. 3,00 V). Erreicht die niedrigste Zelle unter Last die
+Reserve, gilt der Schutz wie bei MinSOC („Akku nur Laden“, Grund
+„Zellspannungs-Reserve“). Er hält, bis die Zelle in Ruhe 0,20 V über der
+Reserve liegt; eine geänderte Reserve beendet das Halten. Fehlt die Zellspannung
+oder steht die Reserve auf 0 (Standard), entscheidet nur die SoC-Regel wie bisher.
+Das Attribut `ausloeser` des Schutzes nennt `soc`, `zellspannung` oder `aus`.
+
 Die Bestätigung während der Einrichtung aktiviert keine Schreibzugriffe. Bei
 einem neuen Setup ist die Schreibfreigabe aus. Eine gespeicherte Freigabe wird
 nur bei aktivierter Strategie, unveränderter Gerätebindung und gültigen gespeicherten

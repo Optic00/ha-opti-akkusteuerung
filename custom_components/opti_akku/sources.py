@@ -51,6 +51,8 @@ def _factor(family: str, unit: str | None, price_unit: str) -> float:
         return {"EUR/kWh": 100, "ct/kWh": 1}[price_unit]
     if family == "voltage_spread":
         return {"mV": 1, "V": 1000}[unit]
+    if family == "voltage":
+        return {"V": 1, "mV": 0.001}[unit]
     raise ValueError(f"Unknown source family: {family}")
 
 

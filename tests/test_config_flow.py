@@ -456,6 +456,8 @@ async def test_unselected_features_leave_balancing_off_and_drop_suggestion(hass)
     assert result["options"]["settings"]["input_number.opti_balancing_intervall_tage"] == 0
     assert result["options"]["settings"]["input_boolean.opti_ev_akku_pause"] is False
     assert "cell_spread" not in result["options"]["sources"]
+    assert "cell_voltage_min" not in result["options"]["sources"]
+    assert result["options"]["settings"]["input_number.opti_zellspannung_reserve_v"] == 0
 
 
 async def test_options_menu_groups_optional_features(hass):

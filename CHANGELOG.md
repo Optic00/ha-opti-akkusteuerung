@@ -8,7 +8,7 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
-## [2026.10-beta12] - 2026-10-27
+## [2026.10-beta12] - 2026-10-31
 
 ### Hinzugefügt
 

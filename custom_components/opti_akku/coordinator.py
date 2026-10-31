@@ -211,7 +211,11 @@ STORE_SAVE_INTERVAL = 60
 PERSISTED_LATCHES = ("binary_sensor.opti_minsoc_schutz_aktiv", "binary_sensor.opti_pv_spitze",
                      "binary_sensor.opti_ladedeckel_aktiv", "binary_sensor.opti_peak_horizont_lang")
 # Latch attributes that restore reads back as previous state (#155).
-PERSISTED_LATCH_ATTRIBUTES = (("binary_sensor.opti_peak_horizont_lang", "an_quelle"),)
+PERSISTED_LATCH_ATTRIBUTES = (
+    ("binary_sensor.opti_peak_horizont_lang", "an_quelle"),
+    *(("binary_sensor.opti_minsoc_schutz_aktiv", name)
+      for name in ("soc_aktiv", "zell_aktiv", "reserve_v", "ausloeser")),
+)
 
 
 def pv_peak_release_applies(result, mode: str, manual_mode, strategy_enabled: bool) -> bool:

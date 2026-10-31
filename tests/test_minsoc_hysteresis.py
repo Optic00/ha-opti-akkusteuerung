@@ -12,6 +12,7 @@ from custom_components.opti_akku.ev_preparation import apply_preparation
 
 LATCH = "binary_sensor.opti_minsoc_schutz_aktiv"
 PREVIEW = "sensor.opti_strategie_vorschau"
+DEBOUNCE = "binary_sensor.opti_zellspannung_unter_reserve"
 
 
 def decision_engine(snapshot=None):
@@ -19,7 +20,7 @@ def decision_engine(snapshot=None):
     for block in resources["template_blocks"]:
         for domain in ("sensor", "binary_sensor"):
             block[domain] = [item for item in block.get(domain, [])
-                             if f"{domain}.{item['unique_id']}" in (LATCH, PREVIEW)]
+                             if f"{domain}.{item['unique_id']}" in (LATCH, PREVIEW, DEBOUNCE)]
     resources["statistics"] = {}
     resources["balancing_automations"] = []
     engine = StrategyEngine(resources)
@@ -34,8 +35,8 @@ def inputs(soc, **overrides):
             "sensor.opti_price_level": "VERY_EXPENSIVE", **overrides}
 
 
-def run(engine, soc, **overrides):
-    result = engine.evaluate(inputs(soc, **overrides), {}, NOW)
+def run(engine, soc, now=NOW, **overrides):
+    result = engine.evaluate(inputs(soc, **overrides), {}, now)
     assert result.states[PREVIEW] == result.mode
     assert result.states["sensor.opti_engine_diagnostics"] == "ok"
     return result
@@ -189,73 +190,131 @@ def test_empty_battery_precharges_before_morning_peak(price, expected, mode):
 
 CELL = "sensor.opti_cell_voltage_min_v"
 RESERVE = "input_number.opti_zellspannung_reserve_v"
+LATER = NOW + dt.timedelta(seconds=60)
+
+
+def cell_run(engine, soc, volt, reserve=3.0, at=LATER, **overrides):
+    return run(engine, soc, now=at, **{RESERVE: reserve, CELL: volt}, **overrides)
+
+
+def trigger_cell(engine, soc=12, volt=2.99, reserve=3.0):
+    """Entry needs the debounced sensor: below the reserve for 60 s."""
+    first = run(engine, soc, now=NOW, **{RESERVE: reserve, CELL: volt})
+    assert first.states[LATCH] == "off"
+    return cell_run(engine, soc, volt, reserve)
 
 
 def test_cell_voltage_reserve_triggers_and_holds_through_relaxation():
     engine = decision_engine()
-    result = run(engine, 12, **{RESERVE: 3.0, CELL: 2.99})
+    result = trigger_cell(engine)
     assert result.decision_id == "minimum_soc"
     assert result.mode == "Akku nur Laden"
-    assert result.reason.startswith("Zellspannungs-Reserve")
     assert result.reason == "Zellspannungs-Reserve (Zelle 2.99 V, Halten bis 3.2 V)"
     attributes = result.attributes[LATCH]
-    assert attributes["ausloeser"] == "zellspannung"
-    assert attributes["reserve_v"] == 3.0
-    assert attributes["release_zell_v"] == 3.2
-    # Relaxation in rest: voltage recovers, latch holds until reserve + 0.20 V
+    assert (attributes["ausloeser"], attributes["reserve_v"], attributes["release_zell_v"]) == ("zellspannung", 3.0, 3.2)
+    # Swap case: voltage recovers while the SoC (12 %) is above minsoc but inside the SoC band
     for volt in (3.10, 3.19):
-        held = run(engine, 40, **{RESERVE: 3.0, CELL: volt})
-        assert held.decision_id == "minimum_soc"
+        held = cell_run(engine, 12, volt)
         assert held.states[LATCH] == "on"
-    released = run(engine, 40, **{RESERVE: 3.0, CELL: 3.20})
+        assert held.decision_id == "minimum_soc"
+        assert held.attributes[LATCH]["ausloeser"] == "zellspannung"
+        assert held.attributes[LATCH]["soc_aktiv"] is False
+    released = cell_run(engine, 12, 3.20)
     assert released.states[LATCH] == "off"
-    assert released.decision_id != "minimum_soc"
     assert released.attributes[LATCH]["ausloeser"] == "aus"
 
 
-def test_cell_voltage_hold_requires_prior_trigger():
-    result = run(decision_engine(), 40, **{RESERVE: 3.0, CELL: 3.10})
-    assert result.states[LATCH] == "off"
-
-
-def test_cell_voltage_missing_source_keeps_legacy_behaviour():
+def test_cell_hold_does_not_inherit_soc_hysteresis_nor_soc_hold_the_cell_origin():
     engine = decision_engine()
-    assert run(engine, 12, **{RESERVE: 3.0, CELL: "unavailable"}).states[LATCH] == "off"
-    run(engine, 12, **{RESERVE: 3.0, CELL: 2.9})
-    # source disappears while held: only the SoC logic decides, fail-open
-    result = run(engine, 40, **{RESERVE: 3.0, CELL: "unavailable"})
-    assert result.states[LATCH] == "off"
-    run(engine, 9)
-    result = run(engine, 11, **{RESERVE: 3.0, CELL: "unavailable"})
-    assert result.decision_id == "minimum_soc"
-    assert result.reason == "MinSOC-Schutz (Halten bis 13%)"
-    assert result.attributes[LATCH]["ausloeser"] == "soc"
-
-
-def test_cell_voltage_with_reserve_zero_matches_legacy():
+    trigger_cell(engine)
+    # reserve switched off at SoC 12: no SoC hysteresis applies, protection ends
+    assert cell_run(engine, 12, 3.1, reserve=0).states[LATCH] == "off"
+    # SoC trigger while the cell hold runs keeps both origins apart
     engine = decision_engine()
-    result = run(engine, 40, **{RESERVE: 0, CELL: 2.5})
+    trigger_cell(engine, soc=40)
+    both = cell_run(engine, 9, 3.1)
+    assert both.attributes[LATCH]["ausloeser"] == "beide"
+    assert both.reason.startswith("MinSOC-Schutz")
+    after = cell_run(engine, 40, 3.1)
+    assert after.attributes[LATCH]["ausloeser"] == "zellspannung"
+    assert after.states[LATCH] == "on"
+
+
+def test_simultaneous_trigger_reports_both_and_releases_independently():
+    engine = decision_engine()
+    run(engine, 9, now=NOW, **{RESERVE: 3.0, CELL: 2.9})
+    both = cell_run(engine, 9, 2.9)
+    assert both.attributes[LATCH]["ausloeser"] == "beide"
+    soc_only = cell_run(engine, 11, 3.25)
+    assert soc_only.attributes[LATCH]["ausloeser"] == "soc"
+    assert soc_only.reason == "MinSOC-Schutz (Halten bis 13%)"
+
+
+def test_cell_hold_survives_maxsoc_change_and_bounds_at_release():
+    engine = decision_engine()
+    trigger_cell(engine, soc=40)
+    assert cell_run(engine, 40, 3.1, **{"input_number.maxsoc": 90}).states[LATCH] == "on"
+    # exactly reserve + 0.20 V (3.30 V at reserve 3.10) releases; float noise must not hold it
+    engine = decision_engine()
+    trigger_cell(engine, soc=40, volt=3.05, reserve=3.1)
+    assert cell_run(engine, 40, 3.29, reserve=3.1).states[LATCH] == "on"
+    result = cell_run(engine, 40, 3.30, reserve=3.1)
+    assert result.states[LATCH] == "off"
+    assert result.attributes[LATCH]["release_zell_v"] == 3.3
+
+
+def test_load_spike_shorter_than_debounce_does_not_trigger():
+    engine = decision_engine()
+    run(engine, 40, now=NOW, **{RESERVE: 3.0, CELL: 2.95})
+    spike_over = cell_run(engine, 40, 3.2, at=NOW + dt.timedelta(seconds=30))
+    assert spike_over.states[LATCH] == "off"
+    again = cell_run(engine, 40, 3.2, at=NOW + dt.timedelta(seconds=90))
+    assert again.states[LATCH] == "off"
+    # a new dip must again persist for 60 s
+    assert cell_run(engine, 40, 2.95, at=NOW + dt.timedelta(seconds=100)).states[LATCH] == "off"
+    assert cell_run(engine, 40, 2.95, at=NOW + dt.timedelta(seconds=161)).states[LATCH] == "on"
+
+
+def test_changed_reserve_ends_cell_hold_and_new_dip_needs_debounce():
+    engine = decision_engine()
+    trigger_cell(engine, soc=40)
+    assert cell_run(engine, 40, 3.1).states[LATCH] == "on"
+    assert cell_run(engine, 40, 3.1, reserve=3.05).states[LATCH] == "off"
+    assert cell_run(engine, 40, 3.1, reserve=3.2, at=LATER + dt.timedelta(seconds=1)).states[LATCH] == "off"
+    assert cell_run(engine, 40, 3.1, reserve=3.2, at=LATER + dt.timedelta(seconds=62)).states[LATCH] == "on"
+
+
+def test_missing_source_or_reserve_zero_keeps_legacy_behaviour():
+    engine = decision_engine()
+    assert run(engine, 12, now=NOW, **{RESERVE: 3.0, CELL: "unavailable"}).states[LATCH] == "off"
+    assert cell_run(engine, 12, "unavailable").states[LATCH] == "off"
+    trigger_cell(engine, soc=40)
+    assert cell_run(engine, 40, "unavailable").states[LATCH] == "off"
+    engine = decision_engine()
+    result = cell_run(engine, 40, 2.5, reserve=0)
     assert result.states[LATCH] == "off"
     assert result.attributes[LATCH]["ausloeser"] == "aus"
     assert result.attributes[LATCH]["release_zell_v"] is None
     run(engine, 9, **{RESERVE: 0, CELL: 2.5})
-    result = run(engine, 11, **{RESERVE: 0, CELL: 2.5})
-    assert result.reason == "MinSOC-Schutz (Halten bis 13%)"
+    assert run(engine, 11, **{RESERVE: 0, CELL: 2.5}).reason == "MinSOC-Schutz (Halten bis 13%)"
 
 
-def test_changed_reserve_ends_cell_voltage_hold():
+def test_legacy_latch_without_new_attributes_keeps_soc_hold():
     engine = decision_engine()
-    run(engine, 40, **{RESERVE: 3.0, CELL: 2.95})
-    assert run(engine, 40, **{RESERVE: 3.0, CELL: 3.1}).states[LATCH] == "on"
-    result = run(engine, 40, **{RESERVE: 3.05, CELL: 3.1})
-    assert result.states[LATCH] == "off"
-    # a new reserve above the cell voltage triggers afresh
-    assert run(engine, 40, **{RESERVE: 3.2, CELL: 3.1}).states[LATCH] == "on"
+    run(engine, 9)
+    snapshot = json.loads(json.dumps(engine.snapshot()))
+    for name in ("soc_aktiv", "zell_aktiv", "reserve_v", "ausloeser"):
+        snapshot["attributes"][LATCH].pop(name, None)
+    restored = decision_engine(snapshot)
+    result = run(restored, 11)
+    assert result.states[LATCH] == "on"
+    assert result.attributes[LATCH]["ausloeser"] == "soc"
+    assert run(restored, 13).states[LATCH] == "off"
 
 
 def test_cell_voltage_latch_yields_to_balancing_grid_charging():
     engine = decision_engine()
-    run(engine, 40, **{RESERVE: 3.0, CELL: 2.95})
-    result = run(engine, 40, **{RESERVE: 3.0, CELL: 3.1, "sensor.opti_balancing_watchdog": "netz"})
+    trigger_cell(engine, soc=40)
+    result = cell_run(engine, 40, 3.1, **{"sensor.opti_balancing_watchdog": "netz"})
     assert result.decision_id == "balancing_grid"
     assert result.mode == "Akku Netzladen"

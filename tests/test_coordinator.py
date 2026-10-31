@@ -165,6 +165,21 @@ async def test_horizon_origin_change_is_persisted_immediately(coordinator):
         assert any(call.args[1] == 0 for call in delayed.call_args_list)
 
 
+async def test_minsoc_origin_change_is_persisted_immediately(coordinator):
+    """Restore reads the cell/SoC origin back as previous state; a change must not wait a minute."""
+    latch = "binary_sensor.opti_minsoc_schutz_aktiv"
+    with patch.object(coordinator._store, "async_delay_save") as delayed:
+        await coordinator._async_update_data()
+        delayed.reset_mock()
+        await coordinator._async_update_data()
+        assert not any(call.args[1] == 0 for call in delayed.call_args_list)
+        for name, value in (("zell_aktiv", True), ("soc_aktiv", True), ("reserve_v", 3.0), ("ausloeser", "beide")):
+            coordinator._engine_snapshot["attributes"].setdefault(latch, {})[name] = value
+            delayed.reset_mock()
+            await coordinator._async_update_data()
+            assert any(call.args[1] == 0 for call in delayed.call_args_list), name
+
+
 async def test_minsoc_latch_survives_a_crash_right_after_it_latched(hass, entry):
     """Saved off, SoC 10 -> on, recovery to 11, crash: restore at 11 must stay on until 13."""
     before = OptiCoordinator(hass, entry, device(), StrategyEngine())

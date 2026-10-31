@@ -1,6 +1,15 @@
 template_blocks:
 - source: packages/opti_derived.yaml
   binary_sensor:
+  - unique_id: opti_zellspannung_unter_reserve
+    name: Opti Zellspannung unter Reserve
+    icon: mdi:battery-alert
+    delay_on:
+      seconds: 60
+    state: |
+      {% set reserve = states('input_number.opti_zellspannung_reserve_v')|float(0) %}
+      {% set zell_roh = states('sensor.opti_cell_voltage_min_v') %}
+      {{ reserve > 0 and is_number(zell_roh) and zell_roh|float(0) <= reserve }}
   - unique_id: opti_winter_charging_allowed
     name: Opti Winter Charging Allowed
     state: '{{ true }}'
@@ -1057,6 +1066,7 @@ template_blocks:
     - input_number.maxsoc
     - sensor.opti_cell_voltage_min_v
     - input_number.opti_zellspannung_reserve_v
+    - binary_sensor.opti_zellspannung_unter_reserve
   conditions:
   - condition: template
     value_template: |-
@@ -1075,20 +1085,27 @@ template_blocks:
       {% set minimum = states('input_number.minsoc')|float(0) %}
       {% set maximum = states('input_number.maxsoc')|float(0) %}
       {% set band = [3, (maximum - minimum) / 2] | min %}
-      {% set gehalten = this is defined and this.state == 'on'
+      {% set hat_vorher = this is defined %}
+      {# Zwei unabhängige Halte-Flags mit jeweils eigener Hysterese und eigenem
+         Vorzustand. Alt-Latches ohne soc_aktiv gelten über ihren State als SoC-Halten. #}
+      {% set vor_attr = this.attributes.get('soc_aktiv') if hat_vorher else none %}
+      {% set vor_soc = hat_vorher and ((vor_attr|string|lower == 'true') if vor_attr is not none else this.state == 'on') %}
+      {% set soc_aktiv = soc <= minimum or (vor_soc
           and this.attributes.get('minsoc')|float(-1) == minimum
-          and this.attributes.get('maxsoc')|float(-1) == maximum %}
+          and this.attributes.get('maxsoc')|float(-1) == maximum
+          and soc < minimum + band) %}
       {# Optionale Zellspannungs-Reserve: Reserve 0 oder fehlende Zellspannung
-         lassen nur die SoC-Logik entscheiden. Das Halten durch die Zellspannung
-         gilt nur bei unveränderter Reserve (die Zelle erholt sich in Ruhe). #}
+         lassen nur die SoC-Logik entscheiden. Einstieg über den entprellten Sensor,
+         Halten über den Rohwert bis Reserve + 0,20 V und nur bei unveränderter Reserve. #}
       {% set reserve = states('input_number.opti_zellspannung_reserve_v')|float(0) %}
       {% set zell_roh = states('sensor.opti_cell_voltage_min_v') %}
       {% set zell_ok = is_number(zell_roh) %}
       {% set zell = zell_roh|float(0) %}
-      {% set zell_gehalten = gehalten and this.attributes.get('ausloeser') == 'zellspannung'
-          and this.attributes.get('reserve_v')|float(-1) == reserve %}
-      {% set zell_aktiv = reserve > 0 and zell_ok and (zell <= reserve or (zell_gehalten and zell < reserve + 0.2)) %}
-      {{ soc <= minimum or (gehalten and soc < minimum + band) or zell_aktiv }}
+      {% set freigabe = (reserve + 0.2)|round(2) %}
+      {% set vor_zell = hat_vorher and this.attributes.get('zell_aktiv')|string|lower == 'true' %}
+      {% set zell_aktiv = reserve > 0 and zell_ok and (is_state('binary_sensor.opti_zellspannung_unter_reserve', 'on')
+          or (vor_zell and this.attributes.get('reserve_v')|float(-1) == reserve and zell < freigabe)) %}
+      {{ soc_aktiv or zell_aktiv }}
     attributes:
       minsoc: "{{ states('input_number.minsoc')|float(0) }}"
       maxsoc: "{{ states('input_number.maxsoc')|float(0) }}"
@@ -1103,22 +1120,85 @@ template_blocks:
       release_zell_v: |
         {% set reserve = states('input_number.opti_zellspannung_reserve_v')|float(0) %}
         {{ (reserve + 0.2)|round(2) if reserve > 0 else none }}
+      soc_aktiv: |
+        {% set soc = states('sensor.opti_soc')|float(0) %}
+        {% set minimum = states('input_number.minsoc')|float(0) %}
+        {% set maximum = states('input_number.maxsoc')|float(0) %}
+        {% set band = [3, (maximum - minimum) / 2] | min %}
+        {% set hat_vorher = this is defined %}
+        {# Zwei unabhängige Halte-Flags mit jeweils eigener Hysterese und eigenem
+           Vorzustand. Alt-Latches ohne soc_aktiv gelten über ihren State als SoC-Halten. #}
+        {% set vor_attr = this.attributes.get('soc_aktiv') if hat_vorher else none %}
+        {% set vor_soc = hat_vorher and ((vor_attr|string|lower == 'true') if vor_attr is not none else this.state == 'on') %}
+        {% set soc_aktiv = soc <= minimum or (vor_soc
+            and this.attributes.get('minsoc')|float(-1) == minimum
+            and this.attributes.get('maxsoc')|float(-1) == maximum
+            and soc < minimum + band) %}
+        {# Optionale Zellspannungs-Reserve: Reserve 0 oder fehlende Zellspannung
+           lassen nur die SoC-Logik entscheiden. Einstieg über den entprellten Sensor,
+           Halten über den Rohwert bis Reserve + 0,20 V und nur bei unveränderter Reserve. #}
+        {% set reserve = states('input_number.opti_zellspannung_reserve_v')|float(0) %}
+        {% set zell_roh = states('sensor.opti_cell_voltage_min_v') %}
+        {% set zell_ok = is_number(zell_roh) %}
+        {% set zell = zell_roh|float(0) %}
+        {% set freigabe = (reserve + 0.2)|round(2) %}
+        {% set vor_zell = hat_vorher and this.attributes.get('zell_aktiv')|string|lower == 'true' %}
+        {% set zell_aktiv = reserve > 0 and zell_ok and (is_state('binary_sensor.opti_zellspannung_unter_reserve', 'on')
+            or (vor_zell and this.attributes.get('reserve_v')|float(-1) == reserve and zell < freigabe)) %}
+        {{ soc_aktiv }}
+      zell_aktiv: |
+        {% set soc = states('sensor.opti_soc')|float(0) %}
+        {% set minimum = states('input_number.minsoc')|float(0) %}
+        {% set maximum = states('input_number.maxsoc')|float(0) %}
+        {% set band = [3, (maximum - minimum) / 2] | min %}
+        {% set hat_vorher = this is defined %}
+        {# Zwei unabhängige Halte-Flags mit jeweils eigener Hysterese und eigenem
+           Vorzustand. Alt-Latches ohne soc_aktiv gelten über ihren State als SoC-Halten. #}
+        {% set vor_attr = this.attributes.get('soc_aktiv') if hat_vorher else none %}
+        {% set vor_soc = hat_vorher and ((vor_attr|string|lower == 'true') if vor_attr is not none else this.state == 'on') %}
+        {% set soc_aktiv = soc <= minimum or (vor_soc
+            and this.attributes.get('minsoc')|float(-1) == minimum
+            and this.attributes.get('maxsoc')|float(-1) == maximum
+            and soc < minimum + band) %}
+        {# Optionale Zellspannungs-Reserve: Reserve 0 oder fehlende Zellspannung
+           lassen nur die SoC-Logik entscheiden. Einstieg über den entprellten Sensor,
+           Halten über den Rohwert bis Reserve + 0,20 V und nur bei unveränderter Reserve. #}
+        {% set reserve = states('input_number.opti_zellspannung_reserve_v')|float(0) %}
+        {% set zell_roh = states('sensor.opti_cell_voltage_min_v') %}
+        {% set zell_ok = is_number(zell_roh) %}
+        {% set zell = zell_roh|float(0) %}
+        {% set freigabe = (reserve + 0.2)|round(2) %}
+        {% set vor_zell = hat_vorher and this.attributes.get('zell_aktiv')|string|lower == 'true' %}
+        {% set zell_aktiv = reserve > 0 and zell_ok and (is_state('binary_sensor.opti_zellspannung_unter_reserve', 'on')
+            or (vor_zell and this.attributes.get('reserve_v')|float(-1) == reserve and zell < freigabe)) %}
+        {{ zell_aktiv }}
       ausloeser: |
         {% set soc = states('sensor.opti_soc')|float(0) %}
         {% set minimum = states('input_number.minsoc')|float(0) %}
         {% set maximum = states('input_number.maxsoc')|float(0) %}
         {% set band = [3, (maximum - minimum) / 2] | min %}
-        {% set gehalten = this is defined and this.state == 'on'
+        {% set hat_vorher = this is defined %}
+        {# Zwei unabhängige Halte-Flags mit jeweils eigener Hysterese und eigenem
+           Vorzustand. Alt-Latches ohne soc_aktiv gelten über ihren State als SoC-Halten. #}
+        {% set vor_attr = this.attributes.get('soc_aktiv') if hat_vorher else none %}
+        {% set vor_soc = hat_vorher and ((vor_attr|string|lower == 'true') if vor_attr is not none else this.state == 'on') %}
+        {% set soc_aktiv = soc <= minimum or (vor_soc
             and this.attributes.get('minsoc')|float(-1) == minimum
-            and this.attributes.get('maxsoc')|float(-1) == maximum %}
+            and this.attributes.get('maxsoc')|float(-1) == maximum
+            and soc < minimum + band) %}
+        {# Optionale Zellspannungs-Reserve: Reserve 0 oder fehlende Zellspannung
+           lassen nur die SoC-Logik entscheiden. Einstieg über den entprellten Sensor,
+           Halten über den Rohwert bis Reserve + 0,20 V und nur bei unveränderter Reserve. #}
         {% set reserve = states('input_number.opti_zellspannung_reserve_v')|float(0) %}
         {% set zell_roh = states('sensor.opti_cell_voltage_min_v') %}
         {% set zell_ok = is_number(zell_roh) %}
         {% set zell = zell_roh|float(0) %}
-        {% set zell_gehalten = gehalten and this.attributes.get('ausloeser') == 'zellspannung'
-            and this.attributes.get('reserve_v')|float(-1) == reserve %}
-        {% set zell_aktiv = reserve > 0 and zell_ok and (zell <= reserve or (zell_gehalten and zell < reserve + 0.2)) %}
-        {% if soc <= minimum or (gehalten and soc < minimum + band) %}soc
+        {% set freigabe = (reserve + 0.2)|round(2) %}
+        {% set vor_zell = hat_vorher and this.attributes.get('zell_aktiv')|string|lower == 'true' %}
+        {% set zell_aktiv = reserve > 0 and zell_ok and (is_state('binary_sensor.opti_zellspannung_unter_reserve', 'on')
+            or (vor_zell and this.attributes.get('reserve_v')|float(-1) == reserve and zell < freigabe)) %}
+        {% if soc_aktiv and zell_aktiv %}beide
+        {%- elif soc_aktiv %}soc
         {%- elif zell_aktiv %}zellspannung
         {%- else %}aus{% endif %}
 - source: packages/opti_ev_sperre.yaml

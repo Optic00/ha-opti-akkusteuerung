@@ -626,6 +626,34 @@ async def test_normal_power_updates_do_not_starve_write_sequence(coordinator, ha
     coordinator._unsubscribe()  # HA entry callbacks can run after the explicit stop.
 
 
+async def test_cell_voltage_updates_do_not_starve_write_sequence(coordinator, hass, entry):
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "sources": {"cell_voltage_min": "sensor.cell_min"}})
+    hass.states.async_set("sensor.cell_min", "3.31", {"unit_of_measurement": "V"})
+    coordinator.async_listen_sources()
+    coordinator.write_enabled = True
+    # The coordinator catches exceptions raised by the device; record the
+    # observations and assert outside the write sequence.
+    observed = []
+
+    async def apply(mode, params, current):
+        observed.append(("start", current()))
+        for volt in ("3.30", "3.29", "3.31"):
+            hass.states.async_set("sensor.cell_min", volt, {"unit_of_measurement": "V"})
+            await asyncio.sleep(0)
+            observed.append((volt, current()))
+        hass.states.async_set("sensor.cell_min", "unavailable", {"unit_of_measurement": "V"})
+        await asyncio.sleep(0)
+        observed.append(("unavailable", current()))
+
+    coordinator.device.async_apply.side_effect = apply
+    await coordinator._async_update_data()
+    coordinator.device.async_apply.side_effect = None
+    coordinator.write_enabled = False
+    await coordinator.async_stop()
+    coordinator._unsubscribe()
+    assert observed == [("start", True), ("3.30", True), ("3.29", True), ("3.31", True), ("unavailable", False)]
+
+
 async def test_ev_state_age_does_not_invalidate_pending_command(coordinator, hass, entry):
     hass.config_entries.async_update_entry(entry, options={**entry.options, "source_max_age": 1,
         "sources": {"ev1_mode": "select.car", "ev1_charging": "binary_sensor.car"}})

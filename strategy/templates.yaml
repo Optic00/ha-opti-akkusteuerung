@@ -9,7 +9,7 @@ template_blocks:
     state: |
       {% set reserve = states('input_number.opti_zellspannung_reserve_v')|float(0) %}
       {% set zell_roh = states('sensor.opti_cell_voltage_min_v') %}
-      {{ reserve > 0 and is_number(zell_roh) and zell_roh|float(0) <= reserve }}
+      {{ reserve > 0 and is_number(zell_roh) and (zell_roh|float(0))|round(3) <= reserve|round(3) }}
   - unique_id: opti_winter_charging_allowed
     name: Opti Winter Charging Allowed
     state: '{{ true }}'
@@ -1100,7 +1100,7 @@ template_blocks:
       {% set reserve = states('input_number.opti_zellspannung_reserve_v')|float(0) %}
       {% set zell_roh = states('sensor.opti_cell_voltage_min_v') %}
       {% set zell_ok = is_number(zell_roh) %}
-      {% set zell = zell_roh|float(0) %}
+      {% set zell = (zell_roh|float(0))|round(3) %}
       {% set freigabe = (reserve + 0.2)|round(2) %}
       {% set vor_zell = hat_vorher and this.attributes.get('zell_aktiv')|string|lower == 'true' %}
       {% set zell_aktiv = reserve > 0 and zell_ok and (is_state('binary_sensor.opti_zellspannung_unter_reserve', 'on')
@@ -1140,7 +1140,7 @@ template_blocks:
         {% set reserve = states('input_number.opti_zellspannung_reserve_v')|float(0) %}
         {% set zell_roh = states('sensor.opti_cell_voltage_min_v') %}
         {% set zell_ok = is_number(zell_roh) %}
-        {% set zell = zell_roh|float(0) %}
+        {% set zell = (zell_roh|float(0))|round(3) %}
         {% set freigabe = (reserve + 0.2)|round(2) %}
         {% set vor_zell = hat_vorher and this.attributes.get('zell_aktiv')|string|lower == 'true' %}
         {% set zell_aktiv = reserve > 0 and zell_ok and (is_state('binary_sensor.opti_zellspannung_unter_reserve', 'on')
@@ -1166,7 +1166,7 @@ template_blocks:
         {% set reserve = states('input_number.opti_zellspannung_reserve_v')|float(0) %}
         {% set zell_roh = states('sensor.opti_cell_voltage_min_v') %}
         {% set zell_ok = is_number(zell_roh) %}
-        {% set zell = zell_roh|float(0) %}
+        {% set zell = (zell_roh|float(0))|round(3) %}
         {% set freigabe = (reserve + 0.2)|round(2) %}
         {% set vor_zell = hat_vorher and this.attributes.get('zell_aktiv')|string|lower == 'true' %}
         {% set zell_aktiv = reserve > 0 and zell_ok and (is_state('binary_sensor.opti_zellspannung_unter_reserve', 'on')
@@ -1192,7 +1192,7 @@ template_blocks:
         {% set reserve = states('input_number.opti_zellspannung_reserve_v')|float(0) %}
         {% set zell_roh = states('sensor.opti_cell_voltage_min_v') %}
         {% set zell_ok = is_number(zell_roh) %}
-        {% set zell = zell_roh|float(0) %}
+        {% set zell = (zell_roh|float(0))|round(3) %}
         {% set freigabe = (reserve + 0.2)|round(2) %}
         {% set vor_zell = hat_vorher and this.attributes.get('zell_aktiv')|string|lower == 'true' %}
         {% set zell_aktiv = reserve > 0 and zell_ok and (is_state('binary_sensor.opti_zellspannung_unter_reserve', 'on')

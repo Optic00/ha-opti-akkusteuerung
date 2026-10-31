@@ -514,11 +514,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sources = self.entry.options.get("sources", {})
             keys = [key for key, entity_id in sources.items() if entity_id == event.data["entity_id"]]
             new_state = event.data.get("new_state")
-            # A live power meter may report every second. Such observations
-            # queue reevaluation without cancelling every multi-second write.
-            # Invalid data, EV state, prices and forecasts invalidate at once.
+            # A live power meter (or cell-voltage reading) may report every
+            # second. Such observations queue reevaluation without cancelling
+            # every multi-second write. Invalid data, EV state, prices and
+            # forecasts invalidate at once.
             ordinary_power = all(
-                (key in SOURCE_DEFINITIONS and SOURCE_DEFINITIONS[key][2] == "power")
+                (key in SOURCE_DEFINITIONS and SOURCE_DEFINITIONS[key][2] in ("power", "voltage"))
                 or key in ("ev1_power", "ev2_power") for key in keys
             )
             if not ordinary_power or new_state is None or finite(new_state.state) is None:

@@ -318,3 +318,12 @@ def test_cell_voltage_latch_yields_to_balancing_grid_charging():
     result = cell_run(engine, 40, 3.1, **{"sensor.opti_balancing_watchdog": "netz"})
     assert result.decision_id == "balancing_grid"
     assert result.mode == "Akku Netzladen"
+
+
+def test_millivolt_normalisation_artefact_meets_exact_reserve():
+    # 3030 mV * 0.001 ergibt 3.0300000000000002 V; die Reserve 3,03 V muss greifen.
+    engine = decision_engine()
+    run(engine, 40, now=NOW, **{RESERVE: 3.03, CELL: 3030 * 0.001})
+    result = cell_run(engine, 40, 3030 * 0.001, reserve=3.03)
+    assert result.states[LATCH] == "on"
+    assert result.decision_id == "minimum_soc"

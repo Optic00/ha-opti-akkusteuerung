@@ -220,7 +220,7 @@ NUMBER_DEFINITIONS = {'input_number.akkusteuerung_ladestaerke_soll': {'name': 'A
                                                       'default': 5},
  'input_number.opti_zellspannung_reserve_v': {'name': 'Opti Zellspannungs-Reserve',
                                               'min': 0,
-                                              'max': 3.3,
+                                              'max': 3.1,
                                               'step': 0.01,
                                               'unit_of_measurement': 'V',
                                               'mode': 'box',

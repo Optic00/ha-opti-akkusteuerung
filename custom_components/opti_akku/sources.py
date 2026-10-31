@@ -150,6 +150,9 @@ def build_inputs(
         source = ha_states.get(entity_id)
         states[canonical] = "unavailable"
         max_age = measurement_max_age(options.get("source_max_age", 900), event_based=family in {"power", "voltage_spread"})
+        if family == "voltage":
+            # Lowest-cell protection must react at the lower knee; a frozen value stays fresh for 3 minutes at most.
+            max_age = min(max_age, 180.0)
         if key == "house_consumption":
             max_age = house_consumption_max_age(options)
         elif family == "energy":

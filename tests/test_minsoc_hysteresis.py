@@ -284,12 +284,32 @@ def test_changed_reserve_ends_cell_hold_and_new_dip_needs_debounce():
     assert cell_run(engine, 40, 3.1, reserve=3.2, at=LATER + dt.timedelta(seconds=62)).states[LATCH] == "on"
 
 
-def test_missing_source_or_reserve_zero_keeps_legacy_behaviour():
+def test_source_outage_without_prior_hold_never_triggers():
     engine = decision_engine()
     assert run(engine, 12, now=NOW, **{RESERVE: 3.0, CELL: "unavailable"}).states[LATCH] == "off"
     assert cell_run(engine, 12, "unavailable").states[LATCH] == "off"
+
+
+def test_source_outage_keeps_cell_hold_until_valid_release_or_reserve_change():
+    engine = decision_engine()
     trigger_cell(engine, soc=40)
-    assert cell_run(engine, 40, "unavailable").states[LATCH] == "off"
+    assert cell_run(engine, 40, "unavailable").states[LATCH] == "on"
+    assert cell_run(engine, 40, "unavailable").attributes[LATCH]["ausloeser"] == "zellspannung"
+    assert cell_run(engine, 40, "unavailable").reason == "Zellspannungs-Reserve (Zelle n/v V, Halten bis 3.2 V)"
+    assert cell_run(engine, 40, 3.1).states[LATCH] == "on"
+    assert cell_run(engine, 40, 3.2).states[LATCH] == "off"
+    # reserve 0 during an outage frees the protection
+    engine = decision_engine()
+    trigger_cell(engine, soc=40)
+    assert cell_run(engine, 40, "unavailable").states[LATCH] == "on"
+    assert cell_run(engine, 40, "unavailable", reserve=0).states[LATCH] == "off"
+    # a changed reserve during an outage also ends the hold, no re-entry without a valid value
+    engine = decision_engine()
+    trigger_cell(engine, soc=40)
+    assert cell_run(engine, 40, "unavailable", reserve=3.05).states[LATCH] == "off"
+
+
+def test_reserve_zero_keeps_legacy_behaviour():
     engine = decision_engine()
     result = cell_run(engine, 40, 2.5, reserve=0)
     assert result.states[LATCH] == "off"

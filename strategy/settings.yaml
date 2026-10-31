@@ -246,7 +246,7 @@ helper_definitions:
     domain: input_number
     name: Opti Zellspannungs-Reserve
     min: 0
-    max: 3.3
+    max: 3.1
     step: 0.01
     unit_of_measurement: V
     mode: box

@@ -3963,8 +3963,8 @@ def test_expected_load_hours_strips_the_profile_margin_only():
     assert _expected_load_hours(None) == {}
 
 
-@pytest.mark.parametrize("value,valid", [(0, True), (2.9, True), (3.0, True), (3.3, True),
-                                        (0.5, False), (2.89, False), (3.31, False), (-1, False)])
+@pytest.mark.parametrize("value,valid", [(0, True), (2.9, True), (3.0, True), (3.1, True),
+                                        (0.5, False), (2.89, False), (3.11, False), (3.3, False), (-1, False)])
 def test_cell_voltage_reserve_is_off_or_within_safe_range(value, valid):
     from homeassistant.exceptions import HomeAssistantError
     key = "input_number.opti_zellspannung_reserve_v"

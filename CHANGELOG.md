@@ -11,10 +11,12 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 ### Hinzugefügt
 
 - Optionale Zellspannungs-Reserve für den MinSOC-Schutz: Mit der Quelle „Niedrigste
-  Zellspannung“ und `input_number.opti_zellspannung_reserve_v` (0 = aus, sonst 2,90
-  bis 3,30 V) beendet Opti die Entladung, sobald die niedrigste Zelle unter Last mindestens
-  60 Sekunden lang die Reserve erreicht, und hält den Schutz bis 0,20 V darüber. Ohne Quelle oder mit 0
-  ändert sich nichts. Siehe [Betrieb](docs/operation.md).
+  Zellspannung“ (schnell aktualisiert, höchstens 180 s alt) und
+  `input_number.opti_zellspannung_reserve_v` (0 = aus, sonst 2,90 bis 3,10 V,
+  Startwert 3,00 V) beendet Opti die Entladung, sobald die niedrigste Zelle unter Last
+  mindestens 60 Sekunden lang die Reserve erreicht. Der Schutz endet bei Reserve
+  + 0,20 V und bleibt bei Quellenausfall bestehen. Ohne Quelle oder mit 0 ändert sich
+  nichts. Siehe [Betrieb](docs/operation.md).
 
 ## [2026.10-beta12] - 2026-10-31
 

@@ -213,14 +213,19 @@ Solarüberschuss aufnehmen, bis die Freigabegrenze erreicht ist.
 Optional ergänzt eine Zellspannungs-Reserve den MinSOC-Schutz, weil der SoC unten
 um mehrere Prozentpunkte driften kann und das BMS bei etwa 2,8 V Zellspannung
 abschaltet. Dafür die Quelle „Niedrigste Zellspannung“ (Balancing-Gruppe, Volt
-oder Millivolt) angeben und `input_number.opti_zellspannung_reserve_v` auf 2,90
-bis 3,30 V setzen (z. B. 3,00 V). Erreicht die niedrigste Zelle unter Last die
-Reserve (mindestens 60 Sekunden lang, damit Lastspitzen nicht auslösen), gilt der Schutz wie bei MinSOC („Akku nur Laden“, Grund
-„Zellspannungs-Reserve“). Er hält, bis die Zelle in Ruhe 0,20 V über der
-Reserve liegt; eine geänderte Reserve beendet das Halten. Fehlt die Zellspannung
-oder steht die Reserve auf 0 (Standard), entscheidet nur die SoC-Regel wie bisher.
-SoC- und Zellspannungs-Schutz halten unabhängig voneinander; das Attribut `ausloeser`
-des Schutzes nennt `soc`, `zellspannung`, `beide` oder `aus`.
+oder Millivolt) angeben und `input_number.opti_zellspannung_reserve_v` auf 0 (aus)
+oder 2,90 bis 3,10 V setzen; empfohlener Start sind 3,00 V. Als Quelle eignet sich
+nur ein schnell aktualisierter Sensor (z. B. ein BMU-Wert im Takt von etwa 30 s),
+kein 10-Minuten-Detailwert; Werte älter als 180 s gelten als veraltet.
+Erreicht die niedrigste Zelle unter Last mindestens 60 Sekunden lang die Reserve
+(damit Lastspitzen nicht auslösen), gilt der Schutz wie bei MinSOC („Akku nur
+Laden“, Grund „Zellspannungs-Reserve“). Er endet, sobald die niedrigste Zelle
+0,20 V über der Reserve liegt, praktisch beim ersten Nachladen; eine geänderte
+Reserve oder Reserve 0 beendet ihn ebenfalls. Fällt die Quelle während des Haltens
+aus, bleibt der Schutz bestehen; ein neuer Einstieg braucht immer einen gültigen
+Wert. Ohne Quelle oder mit Reserve 0 (Standard) entscheidet nur die SoC-Regel wie
+bisher. SoC- und Zellspannungs-Schutz halten unabhängig voneinander; das Attribut
+`ausloeser` des Schutzes nennt `soc`, `zellspannung`, `beide` oder `aus`.
 
 Die Bestätigung während der Einrichtung aktiviert keine Schreibzugriffe. Bei
 einem neuen Setup ist die Schreibfreigabe aus. Eine gespeicherte Freigabe wird

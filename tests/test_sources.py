@@ -397,6 +397,15 @@ def test_lowest_cell_voltage_rejects_invalid_sources(sample):
     assert values["sensor.opti_cell_voltage_min_v"] == "unavailable"
 
 
+def test_lowest_cell_voltage_uses_short_age_limit_even_with_long_source_max_age():
+    options = {"source_max_age": 900, "sources": {"cell_voltage_min": "sensor.cells"}}
+    values, _, errors = build_inputs({}, options, {"sensor.cells": state(3.0, "V", age=170)}, NOW)
+    assert not errors
+    values, _, errors = build_inputs({}, options, {"sensor.cells": state(3.0, "V", age=181)}, NOW)
+    assert errors == {"cell_voltage_min": "missing_or_stale"}
+    assert values["sensor.opti_cell_voltage_min_v"] == "unavailable"
+
+
 def test_lowest_cell_voltage_unconfigured_is_unavailable():
     values, _, errors = build_inputs({}, {}, {}, NOW)
     assert not errors

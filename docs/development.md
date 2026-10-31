@@ -48,7 +48,7 @@ Das [Änderungsprotokoll](../CHANGELOG.md) wird pro Release gepflegt; der Releas
 
 Versionen folgen dem Veröffentlichungsmonat. Auf `2026.9-beta11` folgt im
 Oktober `2026.10-beta1`; eine stabile September-Version wurde nicht veröffentlicht.
-Weitere Oktober-Betas heißen beispielsweise `2026.10-beta11`. Eine spätere stabile
+Weitere Oktober-Betas heißen beispielsweise `2026.10-beta12`. Eine spätere stabile
 Version erhält den Veröffentlichungsmonat mit `.0`, danach `.1` für eine Fehlerkorrektur.
 Die Jahres- und Monatsangabe bezeichnet Opti Akku, nicht die erforderliche
 Home-Assistant-Version.

@@ -8,6 +8,15 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- Schattenvergleich mit dem evcc-Optimizer (`sensor.opti_evcc_comparison`,
+  [#172](https://github.com/Optic00/ha-opti-akkusteuerung/pull/172)). Er steuert
+  nichts, ist von Anfang an aktiv und fragt erst ab, wenn unter
+  **Erweitert und Diagnose** eine evcc-Quelle eingetragen ist. Die Einrichtung
+  lädt die Integration nicht neu, anders als das Aktivieren deaktivierter
+  Sensoren ([#183](https://github.com/Optic00/ha-opti-akkusteuerung/issues/183)).
+
 ## [2026.10-beta12] - 2026-10-31
 
 ### Hinzugefügt

@@ -209,12 +209,25 @@ OPTION_GROUPS = {"sources": ["source_max_age", "house_consumption_max_age", "str
                  "finish": ["shadow_reference_mode", "single_writer_confirmed"]}
 DEFINITIONS = {**NUMBER_DEFINITIONS, **SWITCH_DEFINITIONS}
 
+
+def _evcc_url_valid(url: str) -> bool:
+    """Plain http(s) base URL; credentials, query and fragment never go into the options."""
+    from yarl import URL
+
+    try:
+        parsed = URL(url)
+    except (TypeError, ValueError):
+        return False
+    return (parsed.scheme in ("http", "https") and bool(parsed.host) and parsed.user is None
+            and parsed.password is None and not parsed.query_string and not parsed.fragment)
+
 # Copy configuration only; entry-specific journals, permissions and learned state
 # belong to the original entry. Unknown future options are not copied implicitly.
 SHADOW_COPY_OPTIONS = frozenset({
     *DEFAULT_OPTIONS, *(key for keys in OPTION_GROUPS.values() for key in keys),
     "tibber_home", "tibber_entry_id", "tibber_eur_confirmed", "notification_service",
     "ev_preparation", "demand_forecast", "arbitrage_estimate", "source_observation",
+    "evcc_comparison",
 }) - {"settings", "single_writer_confirmed", "shadow_reference_mode"}
 SHADOW_COPY_CONNECTION = frozenset({
     CONF_HOST, CONF_PORT, CONF_UNIT_ID, CONF_PROFILE, "backend", "serial_number",
@@ -657,6 +670,28 @@ class WizardSections:
             marker = vol.Optional(key, description={"suggested_value":cfg[key]}) if cfg.get(key) else vol.Optional(key)
             schema[marker] = EntitySelector(EntitySelectorConfig(domain=["sensor"],multiple=key not in ("instant_house", "gross_house")))
         return self.async_show_form(step_id="observation",data_schema=vol.Schema(schema),errors=errors)
+
+    async def async_step_evcc_comparison(self, user_input=None):
+        """Read-only comparison with the evcc optimizer; nothing here reaches control."""
+        cfg = self._draft.get("evcc_comparison", {})
+        errors = {}
+        if user_input is not None:
+            entity = user_input.get("suggestion_entity")
+            url = (user_input.get("url") or "").strip().rstrip("/")
+            if entity and self.hass.states.get(entity) is None:
+                errors["suggestion_entity"] = "missing_or_unavailable"
+            if url and not _evcc_url_valid(url):
+                errors["url"] = "evcc_url"
+            if not errors:
+                self._draft["evcc_comparison"] = {
+                    key: value for key, value in (("suggestion_entity", entity), ("url", url)) if value}
+                return await self.async_step_init()
+        schema = {}
+        for key, selector in (("suggestion_entity", EntitySelector(EntitySelectorConfig(domain=["sensor"]))),
+                              ("url", TextSelector())):
+            marker = vol.Optional(key, description={"suggested_value": cfg[key]}) if cfg.get(key) else vol.Optional(key)
+            schema[marker] = selector
+        return self.async_show_form(step_id="evcc_comparison", data_schema=vol.Schema(schema), errors=errors)
 
     async def async_step_ev_preparation(self, user_input=None):
         from .ev_preparation import _deadline_instant
@@ -1323,7 +1358,7 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
         return self.async_show_form(step_id="active_setup", data_schema=vol.Schema({}))
 
     async def async_step_maintenance(self, user_input=None):
-        return self.async_show_menu(step_id="maintenance", menu_options=["connection", "observation", "advanced", "init"])
+        return self.async_show_menu(step_id="maintenance", menu_options=["connection", "observation", "evcc_comparison", "advanced", "init"])
 
     async def async_step_connection(self, user_input=None):
         if self._connection.get("backend") == BACKEND_HUAWEI:

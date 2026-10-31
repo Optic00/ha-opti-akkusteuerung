@@ -22,7 +22,7 @@ async def configure_options(hass, flow_id, user_input):
     section = user_input.get("next_step_id")
     parents = {
         **dict.fromkeys(("ev_preparation", "demand", "arbitrage", "notifications"), "features"),
-        **dict.fromkeys(("connection", "observation", "advanced"), "maintenance"),
+        **dict.fromkeys(("connection", "observation", "evcc_comparison", "advanced"), "maintenance"),
     }
     if section in parents and hass.config_entries.options.async_get(flow_id)["step_id"] == "init":
         await hass.config_entries.options.async_configure(flow_id, {"next_step_id": parents[section]})
@@ -2189,7 +2189,7 @@ async def test_options_overview_and_maintenance_preserve_a_single_draft(hass):
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["menu_options"] == ["sources", "battery", "tariff", "forecast", "features", "maintenance", "finish"]
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "maintenance"})
-    assert result["menu_options"] == ["connection", "observation", "advanced", "init"]
+    assert result["menu_options"] == ["connection", "observation", "evcc_comparison", "advanced", "init"]
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "init"})
     assert result["step_id"] == "init"
     assert not entry.options
@@ -2261,6 +2261,33 @@ def test_house_age_limit_schema_accepts_zero_and_rejects_fractions():
     assert validator(0) == 0 and validator(3600.0) == 3600
     with pytest.raises(vol.Invalid):
         validator(0.5)
+
+
+async def test_evcc_comparison_options_validate_entity_and_address(hass):
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION)
+    entry.add_to_hass(hass)
+    hass.states.async_set("sensor.evcc_battery_soc", "84", {"suggestion": {"action": "normal"}})
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "evcc_comparison"})
+    assert result["step_id"] == "evcc_comparison"
+    for url in ("ftp://evcc.local", "http://user:secret@evcc.local", "http://evcc.local/?x=1",
+                "http://evcc.local/#top", "http://", "http://[::1"):
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"url": url})
+        assert result["errors"] == {"url": "evcc_url"}, url
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"suggestion_entity": "sensor.missing"})
+    assert result["errors"] == {"suggestion_entity": "missing_or_unavailable"}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"suggestion_entity": "sensor.evcc_battery_soc", "url": " http://192.0.2.20:7070/ "})
+    assert result["step_id"] == "init"
+    flow = hass.config_entries.options._progress[result["flow_id"]]
+    assert flow._draft["evcc_comparison"] == {
+        "suggestion_entity": "sensor.evcc_battery_soc", "url": "http://192.0.2.20:7070"}
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "evcc_comparison"})
+    suggested = {marker.schema: marker.description["suggested_value"] for marker in result["data_schema"].schema}
+    assert suggested == {"suggestion_entity": "sensor.evcc_battery_soc", "url": "http://192.0.2.20:7070"}
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert flow._draft["evcc_comparison"] == {}
 
 
 SBS_PROBE = {"profile": "sma_sbs", "inverter_status": 235, "model": "SMA Sunny Boy Storage (Gerätetyp 9357)",

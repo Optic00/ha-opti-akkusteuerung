@@ -8,6 +8,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+## [2026.10-beta12] - 2026-10-31
+
 ### Hinzugefügt
 
 - SMA Sunny Boy Storage als ausschließlich lesendes Testprofil über Modbus TCP
@@ -17,11 +19,21 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   und weist jeden Schreibversuch ab. Diagnose und Registerabzug dienen dem
   [SBS-Lesetest](docs/sbs-lesetest.md); Werte, Vorzeichen und Skalierung am Gerät
   sind noch nicht bestätigt.
+- Schattenvergleich Peak-Rangfolge für L1/L2 (`sensor.opti_peak_rank`,
+  [#168](https://github.com/Optic00/ha-opti-akkusteuerung/pull/168),
+  [#177](https://github.com/Optic00/ha-opti-akkusteuerung/pull/177)). Er steuert
+  nichts und zeigt, ob eine Preisrangfolge die Energie für eine spätere,
+  teurere Spitze zurückhalten würde. Der Sensor ist standardmäßig deaktiviert;
+  sein Aktivieren lädt die Integration nach 30 Sekunden neu. Bei aktiver
+  Schreibfreigabe schreibt Opti Akku dabei „Akku Pause“, bis die Strategie
+  wieder übernimmt, und ein manuell gewählter Modus endet
+  ([#183](https://github.com/Optic00/ha-opti-akkusteuerung/issues/183)).
 
 ### Behoben
 
-- Abgelaufene Preisslots sperren kein Peak-Vorladefenster mehr; für die
-  Reserveberechnung bleiben sie berücksichtigt
+- Ein bereits abgelaufener Peak-Slot der laufenden Stunde hebelt die
+  Fensterprüfung beim Peak-Vorladen nicht mehr aus; für die Reserveberechnung
+  bleibt er berücksichtigt
   ([#175](https://github.com/Optic00/ha-opti-akkusteuerung/issues/175),
   [#176](https://github.com/Optic00/ha-opti-akkusteuerung/pull/176)).
 
@@ -352,7 +364,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 - Frühere YAML-Lösung bleibt im Legacy-Archiv erhalten. Bestehende
   Integrationseinträge bei der Migration beibehalten.
 
-[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.10-beta11...HEAD
+[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.10-beta12...HEAD
+[2026.10-beta12]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta12
 [2026.10-beta11]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta11
 [2026.10-beta10]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta10
 [2026.10-beta9]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta9

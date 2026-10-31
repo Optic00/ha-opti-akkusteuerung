@@ -31,8 +31,9 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Behoben
 
-- Abgelaufene Preisslots sperren kein Peak-Vorladefenster mehr; für die
-  Reserveberechnung bleiben sie berücksichtigt
+- Ein bereits abgelaufener Peak-Slot der laufenden Stunde hebelt die
+  Fensterprüfung beim Peak-Vorladen nicht mehr aus; für die Reserveberechnung
+  bleibt er berücksichtigt
   ([#175](https://github.com/Optic00/ha-opti-akkusteuerung/issues/175),
   [#176](https://github.com/Optic00/ha-opti-akkusteuerung/pull/176)).
 

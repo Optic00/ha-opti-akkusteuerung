@@ -165,6 +165,21 @@ async def test_horizon_origin_change_is_persisted_immediately(coordinator):
         assert any(call.args[1] == 0 for call in delayed.call_args_list)
 
 
+async def test_minsoc_origin_change_is_persisted_immediately(coordinator):
+    """Restore reads the cell/SoC origin back as previous state; a change must not wait a minute."""
+    latch = "binary_sensor.opti_minsoc_schutz_aktiv"
+    with patch.object(coordinator._store, "async_delay_save") as delayed:
+        await coordinator._async_update_data()
+        delayed.reset_mock()
+        await coordinator._async_update_data()
+        assert not any(call.args[1] == 0 for call in delayed.call_args_list)
+        for name, value in (("zell_aktiv", True), ("soc_aktiv", True), ("reserve_v", 3.0), ("ausloeser", "beide")):
+            coordinator._engine_snapshot["attributes"].setdefault(latch, {})[name] = value
+            delayed.reset_mock()
+            await coordinator._async_update_data()
+            assert any(call.args[1] == 0 for call in delayed.call_args_list), name
+
+
 async def test_minsoc_latch_survives_a_crash_right_after_it_latched(hass, entry):
     """Saved off, SoC 10 -> on, recovery to 11, crash: restore at 11 must stay on until 13."""
     before = OptiCoordinator(hass, entry, device(), StrategyEngine())
@@ -609,6 +624,34 @@ async def test_normal_power_updates_do_not_starve_write_sequence(coordinator, ha
     coordinator.write_enabled = False
     await coordinator.async_stop()
     coordinator._unsubscribe()  # HA entry callbacks can run after the explicit stop.
+
+
+async def test_cell_voltage_updates_do_not_starve_write_sequence(coordinator, hass, entry):
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "sources": {"cell_voltage_min": "sensor.cell_min"}})
+    hass.states.async_set("sensor.cell_min", "3.31", {"unit_of_measurement": "V"})
+    coordinator.async_listen_sources()
+    coordinator.write_enabled = True
+    # The coordinator catches exceptions raised by the device; record the
+    # observations and assert outside the write sequence.
+    observed = []
+
+    async def apply(mode, params, current):
+        observed.append(("start", current()))
+        for volt in ("3.30", "3.29", "3.31"):
+            hass.states.async_set("sensor.cell_min", volt, {"unit_of_measurement": "V"})
+            await asyncio.sleep(0)
+            observed.append((volt, current()))
+        hass.states.async_set("sensor.cell_min", "unavailable", {"unit_of_measurement": "V"})
+        await asyncio.sleep(0)
+        observed.append(("unavailable", current()))
+
+    coordinator.device.async_apply.side_effect = apply
+    await coordinator._async_update_data()
+    coordinator.device.async_apply.side_effect = None
+    coordinator.write_enabled = False
+    await coordinator.async_stop()
+    coordinator._unsubscribe()
+    assert observed == [("start", True), ("3.30", True), ("3.29", True), ("3.31", True), ("unavailable", False)]
 
 
 async def test_ev_state_age_does_not_invalidate_pending_command(coordinator, hass, entry):
@@ -3918,3 +3961,19 @@ def test_expected_load_hours_strips_the_profile_margin_only():
     assert _expected_load_hours(profile) == {"1": 1000.0, "2": 800.0}
     assert _expected_load_hours({"status": "disabled", "hours": {}}) == {}
     assert _expected_load_hours(None) == {}
+
+
+@pytest.mark.parametrize("value,valid", [(0, True), (2.9, True), (3.0, True), (3.1, True),
+                                        (0.5, False), (2.89, False), (3.11, False), (3.3, False), (-1, False)])
+def test_cell_voltage_reserve_is_off_or_within_safe_range(value, valid):
+    from homeassistant.exceptions import HomeAssistantError
+    key = "input_number.opti_zellspannung_reserve_v"
+    current = {"input_number.minsoc": 10, "input_number.maxsoc": 95,
+               "input_number.akkusteuerung_min_ladestaerke": 100, "input_number.akkusteuerung_max_ladestaerke": 200,
+               "input_number.akkusteuerung_min_entladestaerke": 100, "input_number.akkusteuerung_max_entladestaerke": 200,
+               "input_number.akkusteuerung_ueberschuss_veto_aus_grenze": 1, "input_number.akkusteuerung_ueberschuss_veto_grenze": 2}
+    if valid:
+        assert validate_setting(key, value, current) == value
+    else:
+        with pytest.raises(HomeAssistantError):
+            validate_setting(key, value, current)

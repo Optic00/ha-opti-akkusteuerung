@@ -380,6 +380,38 @@ def test_resting_cell_spread_uses_explicit_source_availability_opt_in(value, uni
     assert values["sensor.byd_zellspreizung_ruhe"] == expected
 
 
+@pytest.mark.parametrize("value,unit,expected", [(2.99, "V", 2.99), (2990, "mV", 2.99)])
+def test_lowest_cell_voltage_is_normalised_to_volt(value, unit, expected):
+    values, _, errors = build_inputs({}, {"sources": {"cell_voltage_min": "sensor.cells"}},
+                                     {"sensor.cells": state(value, unit)}, NOW)
+    assert not errors
+    assert values["sensor.opti_cell_voltage_min_v"] == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("sample", [None, state("unavailable", "V"), state("nan", "V"), state(-3, "V"),
+                                    state(3.0, "W"), state(3.0, "V", age=901)])
+def test_lowest_cell_voltage_rejects_invalid_sources(sample):
+    values, _, errors = build_inputs({}, {"sources": {"cell_voltage_min": "sensor.cells"}},
+                                     {"sensor.cells": sample}, NOW)
+    assert "cell_voltage_min" in errors
+    assert values["sensor.opti_cell_voltage_min_v"] == "unavailable"
+
+
+def test_lowest_cell_voltage_uses_short_age_limit_even_with_long_source_max_age():
+    options = {"source_max_age": 900, "sources": {"cell_voltage_min": "sensor.cells"}}
+    values, _, errors = build_inputs({}, options, {"sensor.cells": state(3.0, "V", age=170)}, NOW)
+    assert not errors
+    values, _, errors = build_inputs({}, options, {"sensor.cells": state(3.0, "V", age=181)}, NOW)
+    assert errors == {"cell_voltage_min": "missing_or_stale"}
+    assert values["sensor.opti_cell_voltage_min_v"] == "unavailable"
+
+
+def test_lowest_cell_voltage_unconfigured_is_unavailable():
+    values, _, errors = build_inputs({}, {}, {}, NOW)
+    assert not errors
+    assert values["sensor.opti_cell_voltage_min_v"] == "unavailable"
+
+
 @pytest.mark.parametrize("sample", [None, state("unavailable", "mV"), state("unknown", "mV"),
     state("nan", "mV"), state(-1, "mV"), state(20, "W"), state(20, "mV", age=-61)])
 def test_cell_spread_availability_opt_in_still_rejects_invalid_sources(sample):

@@ -195,7 +195,7 @@ SETTING_GROUPS = {
     "tariff": ["ladepreis", "mindestpreisdifferenz_lade_entladepreis", "opti_einspeiseverguetung_ct", "opti_netzlade_spread_ct", "opti_peak_min_aufschlag_ct", "opti_halte_spread_ct", "hausakku_aus_netz_laden"],
     "forecast": ["opti_forecast_optimismus", "opti_peak_verbrauch_kw", "opti_prognose_netzladen"],
     "ev": ["opti_ev_akku_pause"],
-    "balancing": ["opti_balancing_intervall_tage", "opti_balancing_karenz_tage", "opti_balancing_max_ct", "opti_balancing_done_soc", "opti_balancing_spreizungs_schwelle", "opti_balancing_bedarf_cooldown_tage", "opti_balancing_netzladen"],
+    "balancing": ["opti_balancing_intervall_tage", "opti_balancing_karenz_tage", "opti_balancing_max_ct", "opti_balancing_done_soc", "opti_balancing_spreizungs_schwelle", "opti_balancing_bedarf_cooldown_tage", "opti_balancing_netzladen", "opti_zellspannung_reserve_v"],
     "finish": ["akku_opti_automatik"],
 }
 _GROUPED = {key for keys in SETTING_GROUPS.values() for key in keys}
@@ -203,7 +203,7 @@ SETTING_GROUPS["advanced"] = [key.split(".", 1)[1] for key in (*NUMBER_DEFINITIO
 SOURCE_GROUPS = {"sources": ["house_consumption", "pv_generation", "pv_power"],
                  "tariff": ["price_current", "price_series"],
                  "forecast": ["forecast_today", "forecast_tomorrow", "forecast_remaining"],
-                 "ev": list(EV_SOURCE_KEYS), "balancing": ["cell_spread"]}
+                 "ev": list(EV_SOURCE_KEYS), "balancing": ["cell_spread", "cell_voltage_min"]}
 OPTION_GROUPS = {"sources": ["source_max_age", "house_consumption_max_age", "strategy_enabled", "single_inverter", "plant_mode", "additional_ac_sources", "excluded_load_sources", "event_based_excluded_sources", "plant_meter_confirmed", "forecast_min_load_w"], "tariff": ["price_unit", "price_provider"],
                  "advanced": ["forecast_max_age", "price_max_age"],
                  "finish": ["shadow_reference_mode", "single_writer_confirmed"]}
@@ -934,7 +934,9 @@ class WizardSections:
             if not self._use_balancing:
                 self._settings["input_number.opti_balancing_intervall_tage"] = 0
                 self._settings["input_boolean.opti_balancing_netzladen"] = False
+                self._settings["input_number.opti_zellspannung_reserve_v"] = 0
                 self._draft["sources"].pop("cell_spread", None)
+                self._draft["sources"].pop("cell_voltage_min", None)
             if user_input.get("configure_ev", False):
                 return await self.async_step_ev()
             return await (self.async_step_balancing() if self._use_balancing else self.async_step_notifications())

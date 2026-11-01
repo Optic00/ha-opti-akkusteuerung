@@ -84,8 +84,8 @@ def _build_metadata(engine: Any) -> dict:
                 identity = entity.get("unique_id", "")
                 metadata[f"{kind}.{identity}"] = dict(entity)
     for key, (_canonical, label, family) in SOURCE_DEFINITIONS.items():
-        label = {"pv_power": "Wechselrichterleistung AC", "price_series": "Strompreisreihe", "cell_spread": "Zellspreizung in Ruhe"}.get(key, label)
-        metadata[_canonical] = {"name": label, "unit_of_measurement": {"power": "W", "energy": "kWh", "price": "ct/kWh", "voltage_spread": "mV"}[family], "state_class": "measurement"}
+        label = {"pv_power": "Wechselrichterleistung AC", "price_series": "Strompreisreihe", "cell_spread": "Zellspreizung in Ruhe", "cell_voltage_min": "Niedrigste Zellspannung"}.get(key, label)
+        metadata[_canonical] = {"name": label, "unit_of_measurement": {"power": "W", "energy": "kWh", "price": "ct/kWh", "voltage_spread": "mV", "voltage": "V"}[family], "state_class": "measurement"}
     metadata.update({
         "sensor.opti_soc": {"name": "Ladezustand", "unit_of_measurement": "%", "device_class": "battery", "state_class": "measurement"},
         "sensor.opti_battery_temp": {"name": "Batterietemperatur", "unit_of_measurement": "°C", "device_class": "temperature", "state_class": "measurement"},
@@ -189,6 +189,8 @@ def validate_setting(key: str, value: Any, current: dict) -> float | bool:
     pairs = [("minsoc", "maxsoc"), ("akkusteuerung_min_ladestaerke", "akkusteuerung_max_ladestaerke"),
              ("akkusteuerung_min_entladestaerke", "akkusteuerung_max_entladestaerke"),
              ("akkusteuerung_ueberschuss_veto_aus_grenze", "akkusteuerung_ueberschuss_veto_grenze")]
+    if key == "input_number.opti_zellspannung_reserve_v" and number != 0 and not 2.9 <= number <= 3.1:
+        raise HomeAssistantError("Die Zellspannungs-Reserve muss 0 (aus) oder 2,90 bis 3,10 V betragen")
     for lower, upper in pairs:
         if float(updated[f"input_number.{lower}"]) > float(updated[f"input_number.{upper}"]):
             raise HomeAssistantError("Die Untergrenze darf nicht über der Obergrenze liegen")
@@ -209,7 +211,11 @@ STORE_SAVE_INTERVAL = 60
 PERSISTED_LATCHES = ("binary_sensor.opti_minsoc_schutz_aktiv", "binary_sensor.opti_pv_spitze",
                      "binary_sensor.opti_ladedeckel_aktiv", "binary_sensor.opti_peak_horizont_lang")
 # Latch attributes that restore reads back as previous state (#155).
-PERSISTED_LATCH_ATTRIBUTES = (("binary_sensor.opti_peak_horizont_lang", "an_quelle"),)
+PERSISTED_LATCH_ATTRIBUTES = (
+    ("binary_sensor.opti_peak_horizont_lang", "an_quelle"),
+    *(("binary_sensor.opti_minsoc_schutz_aktiv", name)
+      for name in ("soc_aktiv", "zell_aktiv", "reserve_v", "ausloeser")),
+)
 
 
 def pv_peak_release_applies(result, mode: str, manual_mode, strategy_enabled: bool) -> bool:
@@ -508,11 +514,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sources = self.entry.options.get("sources", {})
             keys = [key for key, entity_id in sources.items() if entity_id == event.data["entity_id"]]
             new_state = event.data.get("new_state")
-            # A live power meter may report every second. Such observations
-            # queue reevaluation without cancelling every multi-second write.
-            # Invalid data, EV state, prices and forecasts invalidate at once.
+            # A live power meter (or cell-voltage reading) may report every
+            # second. Such observations queue reevaluation without cancelling
+            # every multi-second write. Invalid data, EV state, prices and
+            # forecasts invalidate at once.
             ordinary_power = all(
-                (key in SOURCE_DEFINITIONS and SOURCE_DEFINITIONS[key][2] == "power")
+                (key in SOURCE_DEFINITIONS and SOURCE_DEFINITIONS[key][2] in ("power", "voltage"))
                 or key in ("ev1_power", "ev2_power") for key in keys
             )
             if not ordinary_power or new_state is None or finite(new_state.state) is None:

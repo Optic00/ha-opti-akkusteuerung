@@ -378,7 +378,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 - Frühere YAML-Lösung bleibt im Legacy-Archiv erhalten. Bestehende
   Integrationseinträge bei der Migration beibehalten.
 
-[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.10-beta12...HEAD
+[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.10-beta13...HEAD
+[2026.10-beta13]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta13
 [2026.10-beta12]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta12
 [2026.10-beta11]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta11
 [2026.10-beta10]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta10

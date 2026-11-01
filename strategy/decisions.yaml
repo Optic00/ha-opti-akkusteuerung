@@ -329,6 +329,18 @@ strategy:
           option: Akku Netzladen
         target:
           entity_id: input_select.akkusteuerung_modus
+    - alias: 'Balancing-Watchdog (Haltefenster)'
+      conditions:
+      - condition: state
+        entity_id: binary_sensor.opti_balancing_haltefenster_aktiv
+        state: 'on'
+      sequence:
+      - action: input_select.select_option
+        decision_id: balancing_hold
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
     - alias: 'Ladedeckel: oberhalb maxsoc Laden sperren, bei Reserve oder EV zusaetzlich Entladen sperren'
       conditions:
       - condition: template

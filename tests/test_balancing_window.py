@@ -9,7 +9,7 @@ import pytest
 from custom_components.opti_akku.definitions import NUMBER_DEFINITIONS
 from custom_components.opti_akku.migration import MIGRATABLE
 from tests.test_engine import (
-    DONE_AT, DONE_VALID, NOW, POWER, SOC, StrategyEngine, evaluate, load_resources, measurements,
+    DONE_AT, DONE_VALID, MINUTES, NOW, POWER, SOC, StrategyEngine, evaluate, load_resources, measurements,
     solar_attrs,
 )
 from tests.test_engine_parity import BASE
@@ -57,6 +57,54 @@ def test_default_zero_keeps_ladedeckel_after_confirmed_completion():
     assert result.decision_id == "maximum_soc"
     assert result.mode == "Akku nur Entladen"
     assert_parity(result)
+
+
+def test_zero_hold_time_still_confirms_once_per_calendar_day():
+    engine = StrategyEngine()
+    states = measurements(**{SOC: 100, HOURS: 0, "input_number.maxsoc": 95})
+    start = NOW.replace(hour=21)
+    evaluate(engine, states, now=start)
+    for day in range(3):
+        first_minute = start + dt.timedelta(minutes=1) if day == 0 else (
+            start + dt.timedelta(days=day)
+        ).replace(hour=0)
+        for minute in range(30):
+            now = first_minute + dt.timedelta(minutes=minute)
+            result = evaluate(engine, states, now=now)
+            assert result.states[WINDOW] == "off"
+            assert result.decision_id == "maximum_soc"
+            assert int(result.states[MINUTES]) == ((minute + 1) % 30)
+        completion = now.isoformat()
+        assert result.states[DONE_AT] == completion
+        for hour, minute in [(22, 0), (23, 59)]:
+            result = evaluate(engine, states, now=now.replace(hour=hour, minute=minute))
+            assert result.states[DONE_AT] == completion
+            assert int(result.states[MINUTES]) == 0
+            assert result.states[WINDOW] == "off"
+            assert result.decision_id == "maximum_soc"
+            assert_parity(result)
+
+
+def test_overnight_hold_at_full_soc_never_reconfirms_or_extends_deadline():
+    engine = StrategyEngine()
+    states = measurements(**{SOC: 100, HOURS: 6, "input_number.maxsoc": 95})
+    start = NOW.replace(hour=21)
+    completion = start + dt.timedelta(minutes=30)
+    deadline = completion + dt.timedelta(hours=6)
+    finish = (start + dt.timedelta(days=1)).replace(hour=7)
+    evaluate(engine, states, now=start)
+    for minute in range(1, int((finish - start).total_seconds() // 60) + 1):
+        now = start + dt.timedelta(minutes=minute)
+        result = evaluate(engine, states, now=now)
+        if now < completion:
+            continue
+        assert result.states[DONE_AT] == completion.isoformat(), now.isoformat()
+        assert int(result.states[MINUTES]) == 0, now.isoformat()
+        assert dt.datetime.fromisoformat(result.attributes[WINDOW]["ende"]) == deadline
+        holding = now < deadline
+        assert result.states[WINDOW] == ("on" if holding else "off")
+        assert result.decision_id == ("balancing_hold" if holding else "maximum_soc")
+        assert_parity(result)
 
 
 def test_confirmed_completion_holds_until_exact_absolute_deadline():

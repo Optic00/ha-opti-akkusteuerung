@@ -27,7 +27,7 @@ balancing_automations:
   description: Schliesst einen Balancing-Zyklus nach 30 bestaetigten Minuten oberhalb des Done-SoC ab.
     Bei Done-SoC ab 100 genuegt Gleichheit, damit die obere Grenze erreichbar bleibt.
     Persistente Minuten machen die Bestaetigung restartfest; der Abschluss-Zeitstempel verhindert Mehrfachabschluesse
-    am selben Tag.
+    am selben Tag sowie waehrend der Haltezeit und an deren Endtag.
   mode: queued
   triggers:
   - trigger: time_pattern
@@ -70,7 +70,7 @@ balancing_automations:
       - action: counter.reset
         target:
           entity_id: counter.opti_balancing_done_minuten
-    - alias: Nach heutigem Abschluss nicht erneut bestaetigen
+    - alias: Nach Abschluss bis zum Ende des Haltetags nicht erneut bestaetigen
       conditions:
       - condition: state
         entity_id: input_boolean.opti_balancing_abschluss_gueltig
@@ -80,8 +80,14 @@ balancing_automations:
           {% set letzter =
              states('input_datetime.opti_balancing_letzter_abschluss')
              | as_datetime %}
+          {% set haltezeit =
+             states('input_number.opti_balancing_haltezeit_h') | float(0) %}
           {{ letzter is not none
-             and (letzter | as_local).date() == now().date() }}
+             and ((letzter | as_local).date() == now().date()
+                  or (is_number(haltezeit) and haltezeit > 0
+                      and (as_timestamp(now()) - as_timestamp(letzter, 0) < haltezeit * 3600
+                           or (((letzter | as_utc) + timedelta(hours=haltezeit))
+                               | as_local).date() == now().date()))) }}
       sequence:
       - action: counter.reset
         target:

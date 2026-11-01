@@ -327,8 +327,11 @@ des Haltens seinen Bedarf jedoch aus dem Netz; dadurch können Stromkosten entst
 MinSOC-Schutz, zulässiges Netzladen, Peak-Vorladen und Peak-Entladung haben Vorrang.
 
 Das Haltefenster endet an einer festen Frist ab dem gespeicherten Abschluss.
-Neustarts und SoC-Sprünge verlängern sie nicht. Bei SoC unter 90 % ist das Fenster
+Eine Änderung der Haltezeit während eines laufenden Fensters verschiebt dessen Ende;
+Neustarts und SoC-Sprünge verändern es nicht. Bei SoC unter 90 % ist das Fenster
 inaktiv; steigt der SoC wieder, kann es nur bis zur ursprünglichen Frist wirken.
+Während der Haltezeit und am Kalendertag ihres Endes wird kein erneuter
+Balancing-Abschluss bestätigt.
 Fehlende Abschlussfreigabe, ungültiger oder zukünftiger Zeitstempel und ungültiger
 SoC aktivieren kein Halten. Der abgeleitete Zustand
 `binary_sensor.opti_balancing_haltefenster_aktiv` zeigt Ende, Restminuten und

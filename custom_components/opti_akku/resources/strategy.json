@@ -2390,7 +2390,7 @@
     {
       "id": "opti_balancing_counter_reset",
       "alias": "Opti Balancing: Abschluss nach erreichtem Done-SoC",
-      "description": "Schliesst einen Balancing-Zyklus nach 30 bestaetigten Minuten oberhalb des Done-SoC ab. Bei Done-SoC ab 100 genuegt Gleichheit, damit die obere Grenze erreichbar bleibt. Persistente Minuten machen die Bestaetigung restartfest; der Abschluss-Zeitstempel verhindert Mehrfachabschluesse am selben Tag.",
+      "description": "Schliesst einen Balancing-Zyklus nach 30 bestaetigten Minuten oberhalb des Done-SoC ab. Bei Done-SoC ab 100 genuegt Gleichheit, damit die obere Grenze erreichbar bleibt. Persistente Minuten machen die Bestaetigung restartfest; der Abschluss-Zeitstempel verhindert Mehrfachabschluesse am selben Tag sowie waehrend der Haltezeit und an deren Endtag.",
       "mode": "queued",
       "triggers": [
         {
@@ -2459,7 +2459,7 @@
               ]
             },
             {
-              "alias": "Nach heutigem Abschluss nicht erneut bestaetigen",
+              "alias": "Nach Abschluss bis zum Ende des Haltetags nicht erneut bestaetigen",
               "conditions": [
                 {
                   "condition": "state",
@@ -2468,7 +2468,7 @@
                 },
                 {
                   "condition": "template",
-                  "value_template": "{% set letzter =\n   states('input_datetime.opti_balancing_letzter_abschluss')\n   | as_datetime %}\n{{ letzter is not none\n   and (letzter | as_local).date() == now().date() }}"
+                  "value_template": "{% set letzter =\n   states('input_datetime.opti_balancing_letzter_abschluss')\n   | as_datetime %}\n{% set haltezeit =\n   states('input_number.opti_balancing_haltezeit_h') | float(0) %}\n{{ letzter is not none\n   and ((letzter | as_local).date() == now().date()\n        or (is_number(haltezeit) and haltezeit > 0\n            and (as_timestamp(now()) - as_timestamp(letzter, 0) < haltezeit * 3600\n                 or (((letzter | as_utc) + timedelta(hours=haltezeit))\n                     | as_local).date() == now().date()))) }}"
                 }
               ],
               "sequence": [

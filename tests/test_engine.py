@@ -550,6 +550,49 @@ def test_balancing_counts_observed_minute_boundaries_and_restores_29_minutes():
     assert later.states[DONE_AT] == complete.states[DONE_AT]
 
 
+@pytest.mark.parametrize("done,soc,completes", [
+    (98.5, 98.4, False),
+    (98.5, 98.5, False),
+    (98.5, 98.6, True),
+    (100, 99.9, False),
+    (100, 100, True),
+])
+def test_balancing_done_soc_boundaries_and_restart(done, soc, completes):
+    engine = StrategyEngine()
+    states = measurements(**{SOC: soc, "input_number.opti_balancing_done_soc": done})
+    evaluate(engine, states)
+    for minute in range(1, 30):
+        result = evaluate(engine, states, now=NOW + dt.timedelta(minutes=minute))
+        assert int(result.states[MINUTES]) == (minute if completes else 0)
+        assert result.states[DONE_VALID] == "off"
+    restored = StrategyEngine()
+    restored.restore(engine.snapshot())
+    start = NOW + dt.timedelta(hours=1)
+    result = evaluate(restored, states, now=start)
+    assert int(result.states[MINUTES]) == (29 if completes else 0)
+    result = evaluate(restored, states, now=start + dt.timedelta(minutes=1))
+    assert result.states[DONE_VALID] == ("on" if completes else "off")
+    assert int(result.states[MINUTES]) == 0
+
+
+@pytest.mark.parametrize("done,dip", [(98.5, 98.5), (100, 99.9)])
+def test_balancing_done_soc_dip_discards_confirmations_after_restart(done, dip):
+    engine = StrategyEngine()
+    states = measurements(**{SOC: 100, "input_number.opti_balancing_done_soc": done})
+    evaluate(engine, states)
+    result = evaluate(engine, states, now=NOW + dt.timedelta(minutes=1))
+    assert int(result.states[MINUTES]) == 1
+    snapshot = engine.snapshot()
+    # Both a live dip between ticks and a dip while offline discard the count.
+    states[SOC] = dip
+    result = evaluate(engine, states, now=NOW + dt.timedelta(minutes=1, seconds=5))
+    assert int(result.states[MINUTES]) == 0
+    restored = StrategyEngine()
+    restored.restore(snapshot)
+    result = evaluate(restored, states, now=NOW + dt.timedelta(hours=1))
+    assert int(result.states[MINUTES]) == 0
+
+
 @pytest.mark.parametrize("bad", [98.5, 98, "unavailable"])
 def test_balancing_brief_dip_or_source_error_discards_confirmations(bad):
     engine = StrategyEngine()

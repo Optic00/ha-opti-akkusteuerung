@@ -730,11 +730,14 @@ class StrategyEngine:
         soc = self._get_state("sensor.opti_soc")
         done = self._get_state("input_number.opti_balancing_done_soc")
         valid = _finite(soc) and _finite(done)
+        # Preserve strict completion below 100%; the upper limit must be reachable.
+        reached = valid and (float(soc) > float(done)
+                             or (float(done) >= 100 and float(soc) >= float(done)))
         if self._starting:
             trigger = "ha_start"
         elif not valid:
             trigger = "sensorfehler"
-        elif float(soc) <= float(done):
+        elif not reached:
             trigger = "rueckfall"
         elif minute != self._last_minute:
             trigger = "minute"

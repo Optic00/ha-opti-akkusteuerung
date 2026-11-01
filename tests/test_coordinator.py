@@ -339,6 +339,57 @@ async def test_min_soc_applies_to_manual_mode(coordinator):
     assert data["mode"] == "Akku Pause"
 
 
+@pytest.mark.parametrize("requested,protected", [
+    ("Akku nur Entladen", "Akku Pause"),
+    ("Akku schnell Entladen", "Akku Pause"),
+    ("Akku Dynamisch", "Akku nur Laden"),
+    ("Akku Automatisch", "Akku nur Laden"),
+    ("Akku Netzladen", "Akku Netzladen"),
+])
+@pytest.mark.parametrize("reserve,voltage,held", [
+    (3.0, 2.99, True),
+    (3.0, 3.30, False),
+    (0, 2.99, False),
+])
+async def test_manual_modes_obey_cell_reserve_hold(
+    coordinator, hass, entry, requested, protected, reserve, voltage, held
+):
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "sources": {"cell_voltage_min": "sensor.cell_min"}})
+    coordinator.settings.update({
+        "input_boolean.akku_opti_automatik": True,
+        "input_number.opti_zellspannung_reserve_v": reserve,
+    })
+    coordinator.manual_mode = requested
+    coordinator.write_enabled = True
+    hass.states.async_set("sensor.cell_min", str(voltage), {"unit_of_measurement": "V"})
+    now = dt_util.utcnow()
+    with patch("custom_components.opti_akku.coordinator.dt_util.utcnow", return_value=now):
+        await coordinator._async_update_data()
+    with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+               return_value=now + timedelta(seconds=61)):
+        data = await coordinator._async_update_data()
+    latch = "binary_sensor.opti_minsoc_schutz_aktiv"
+    assert data["states"][latch] == ("on" if held else "off")
+    assert data["attributes"][latch]["zell_aktiv"] is held
+    expected = protected if held else requested
+    assert data["mode"] == expected
+    assert coordinator.device.async_apply.await_args.args[0] == expected
+    # Voltage relaxation does not release the latch before reserve + 0.20 V.
+    if held:
+        hass.states.async_set("sensor.cell_min", "3.10", {"unit_of_measurement": "V"})
+        with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+                   return_value=now + timedelta(seconds=62)):
+            data = await coordinator._async_update_data()
+        assert data["mode"] == protected
+        hass.states.async_set("sensor.cell_min", "3.20", {"unit_of_measurement": "V"})
+        with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+                   return_value=now + timedelta(seconds=63)):
+            data = await coordinator._async_update_data()
+        assert data["states"][latch] == "off"
+        assert data["mode"] == requested
+
+
 async def test_automatic_minsoc_latch_survives_coordinator_restore(hass, entry):
     before = OptiCoordinator(hass, entry, device(), StrategyEngine())
     await before.async_restore()
@@ -1727,7 +1778,7 @@ async def test_active_hold_is_blocked_for_huawei_backend(coordinator, hass):
         patch.object(
             coordinator,
             "_safe_mode",
-            side_effect=lambda requested, _states: (requested, None),
+            side_effect=lambda requested, _states, _attributes: (requested, None),
         ),
     ):
         data = await coordinator._async_update_data()

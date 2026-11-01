@@ -572,7 +572,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._manual_ev_clear_since = None
         states["binary_sensor.opti_ev_schnellladung"] = "on" if self._manual_ev_latched else "off"
 
-    def _safe_mode(self, requested: str, states: dict) -> tuple[str, str | None]:
+    def _safe_mode(self, requested: str, states: dict, attributes: dict | None = None) -> tuple[str, str | None]:
         soc = finite(states.get("sensor.opti_soc"))
         capacity = finite(states.get("sensor.opti_battery_capacity_kwh"))
         if not self._online or soc is None or not 0 <= soc <= 100 or capacity is None or capacity <= 0:
@@ -613,6 +613,14 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._manual_discharge_blocked:
                 discharge_allowed = False
                 reasons.append("Min-SoC sperrt manuelle Entladung")
+            # Reuse the engine's debounced cell hold and its release hysteresis;
+            # keep it separate from the manual SoC latch and its release band.
+            cell_hold = (attributes or {}).get("binary_sensor.opti_minsoc_schutz_aktiv", {})
+            if (self.settings["input_number.opti_zellspannung_reserve_v"] > 0
+                    and states.get("binary_sensor.opti_minsoc_schutz_aktiv") == "on"
+                    and cell_hold.get("ausloeser") in ("zellspannung", "beide")):
+                discharge_allowed = False
+                reasons.append("Zellspannungs-Reserve sperrt manuelle Entladung")
             ev_blocked = (self.settings["input_boolean.opti_ev_akku_pause"]
                           and states.get("binary_sensor.opti_ev_schnellladung") == "on")
             if ev_blocked:
@@ -1037,7 +1045,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.strategy_enabled and self.manual_mode is None:
             mode, safety_reason = "Beobachtung", "Strategie deaktiviert; keine weiteren Steuerbefehle"
         else:
-            mode, safety_reason = self._safe_mode(requested, result.states)
+            mode, safety_reason = self._safe_mode(requested, result.states, result.attributes)
         reason = safety_reason or ("Manuelle Auswahl" if self.manual_mode else result.reason)
         params = self._parameters(result.states)
         # Text only, no wattage: values here change every update and would

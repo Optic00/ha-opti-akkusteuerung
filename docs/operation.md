@@ -220,11 +220,12 @@ kein 10-Minuten-Detailwert; Werte älter als 180 s gelten als veraltet.
 Erreicht die niedrigste Zelle unter Last mindestens 60 Sekunden lang die Reserve
 (damit Lastspitzen nicht auslösen), gilt der Schutz wie bei MinSOC („Akku nur
 Laden“, Grund „Zellspannungs-Reserve“). Er endet, sobald die niedrigste Zelle
-0,20 V über der Reserve liegt, praktisch beim ersten Nachladen; eine geänderte
-Reserve oder Reserve 0 beendet ihn ebenfalls. Fällt die Quelle während des Haltens
-aus, bleibt der Schutz bestehen; ein neuer Einstieg braucht immer einen gültigen
-Wert. Ohne Quelle oder mit Reserve 0 (Standard) entscheidet nur die SoC-Regel wie
-bisher. SoC- und Zellspannungs-Schutz halten unabhängig voneinander; das Attribut
+0,20 V über der Reserve liegt, praktisch beim ersten Nachladen. Eine erhöhte
+Reserve erhält das Halten; eine abgesenkte Reserve oder Reserve 0 beendet es.
+Fällt die Quelle während des Haltens aus, bleibt der Schutz bestehen; ein neuer
+Einstieg braucht immer einen gültigen Wert. Ohne Quelle oder mit Reserve 0
+(Standard) entscheidet nur die SoC-Regel wie bisher. SoC- und Zellspannungs-Schutz
+halten unabhängig voneinander; das Attribut
 `ausloeser` des Schutzes nennt `soc`, `zellspannung`, `beide` oder `aus`.
 
 Die Bestätigung während der Einrichtung aktiviert keine Schreibzugriffe. Bei

@@ -275,13 +275,44 @@ def test_load_spike_shorter_than_debounce_does_not_trigger():
     assert cell_run(engine, 40, 2.95, at=NOW + dt.timedelta(seconds=161)).states[LATCH] == "on"
 
 
-def test_changed_reserve_ends_cell_hold_and_new_dip_needs_debounce():
+def test_lowered_reserve_ends_cell_hold_and_new_dip_needs_debounce():
     engine = decision_engine()
     trigger_cell(engine, soc=40)
     assert cell_run(engine, 40, 3.1).states[LATCH] == "on"
-    assert cell_run(engine, 40, 3.1, reserve=3.05).states[LATCH] == "off"
-    assert cell_run(engine, 40, 3.1, reserve=3.2, at=LATER + dt.timedelta(seconds=1)).states[LATCH] == "off"
-    assert cell_run(engine, 40, 3.1, reserve=3.2, at=LATER + dt.timedelta(seconds=62)).states[LATCH] == "on"
+    assert cell_run(engine, 40, 3.1, reserve=2.95).states[LATCH] == "off"
+    for seconds in (1, 30):
+        assert cell_run(engine, 40, 2.94, reserve=2.95,
+                        at=LATER + dt.timedelta(seconds=seconds)).states[LATCH] == "off"
+    assert cell_run(engine, 40, 2.94, reserve=2.95, at=LATER + dt.timedelta(seconds=61)).states[LATCH] == "on"
+
+
+def test_raised_reserve_keeps_cell_hold_without_new_debounce():
+    engine = decision_engine()
+    trigger_cell(engine, soc=40, volt=2.99, reserve=3.0)
+    assert cell_run(engine, 40, 3.05).states[LATCH] == "on"
+    for seconds in (1, 30):
+        held = cell_run(engine, 40, 3.05, reserve=3.10, at=LATER + dt.timedelta(seconds=seconds))
+        assert held.states[LATCH] == "on"
+        assert held.states[DEBOUNCE] == "off"
+        assert held.decision_id == "minimum_soc"
+        assert held.attributes[LATCH]["zell_aktiv"] is True
+        assert held.attributes[LATCH]["soc_aktiv"] is False
+        assert held.attributes[LATCH]["ausloeser"] == "zellspannung"
+        assert held.attributes[LATCH]["release_zell_v"] == 3.30
+    assert cell_run(engine, 40, 3.25, reserve=3.10, at=LATER + dt.timedelta(seconds=31)).states[LATCH] == "on"
+    released = cell_run(engine, 40, 3.30, reserve=3.10, at=LATER + dt.timedelta(seconds=32))
+    assert released.states[LATCH] == "off"
+    assert released.attributes[LATCH]["zell_aktiv"] is False
+    assert released.attributes[LATCH]["ausloeser"] == "aus"
+
+
+@pytest.mark.parametrize("previous,reserve", [(3030 * 0.001, 3.03), (3.03, 3030 * 0.001)])
+def test_cell_hold_compares_reserves_rounded_to_millivolts(previous, reserve):
+    engine = decision_engine()
+    trigger_cell(engine, soc=40, reserve=previous)
+    held = cell_run(engine, 40, 3.10, reserve=reserve)
+    assert held.states[LATCH] == "on"
+    assert held.attributes[LATCH]["ausloeser"] == "zellspannung"
 
 
 def test_source_outage_without_prior_hold_never_triggers():
@@ -303,10 +334,16 @@ def test_source_outage_keeps_cell_hold_until_valid_release_or_reserve_change():
     trigger_cell(engine, soc=40)
     assert cell_run(engine, 40, "unavailable").states[LATCH] == "on"
     assert cell_run(engine, 40, "unavailable", reserve=0).states[LATCH] == "off"
-    # a changed reserve during an outage also ends the hold, no re-entry without a valid value
+    # raising the reserve during an outage keeps the hold; lowering ends it
     engine = decision_engine()
     trigger_cell(engine, soc=40)
-    assert cell_run(engine, 40, "unavailable", reserve=3.05).states[LATCH] == "off"
+    raised = cell_run(engine, 40, "unavailable", reserve=3.05)
+    assert raised.states[LATCH] == "on"
+    assert raised.attributes[LATCH]["ausloeser"] == "zellspannung"
+    assert cell_run(engine, 40, "unavailable", reserve=2.95).states[LATCH] == "off"
+    # no re-entry without a valid value
+    assert cell_run(engine, 40, "unavailable", reserve=2.95,
+                    at=LATER + dt.timedelta(seconds=60)).states[LATCH] == "off"
 
 
 def test_reserve_zero_keeps_legacy_behaviour():

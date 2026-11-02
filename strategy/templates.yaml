@@ -1251,7 +1251,7 @@ template_blocks:
     icon: mdi:battery-clock
     state: |-
       {% set soc = states('sensor.opti_soc') %}
-      {{ innerhalb and is_number(soc) and 90 <= soc | float(0) <= 100 }}
+      {{ innerhalb and is_number(soc) and 90 <= soc | float(0) < 100.1 }}
     attributes:
       ende: |-
         {% set abschluss = states('input_datetime.opti_balancing_letzter_abschluss') | as_datetime %}

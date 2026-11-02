@@ -332,6 +332,8 @@ Neustarts und SoC-Sprünge verändern es nicht. Bei SoC unter 90 % ist das Fenst
 inaktiv; steigt der SoC wieder, kann es nur bis zur ursprünglichen Frist wirken.
 Während der Haltezeit und am Kalendertag ihres Endes wird kein erneuter
 Balancing-Abschluss bestätigt.
+Deshalb kann „Tage seit 100 %“ am Endtag um eins steigen und das nächste Balancing
+bis zu einen Tag früher fällig werden.
 Fehlende Abschlussfreigabe, ungültiger oder zukünftiger Zeitstempel und ungültiger
 SoC aktivieren kein Halten. Der abgeleitete Zustand
 `binary_sensor.opti_balancing_haltefenster_aktiv` zeigt Ende, Restminuten und

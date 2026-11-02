@@ -913,7 +913,7 @@
           "unique_id": "opti_balancing_haltefenster_aktiv",
           "name": "Opti Balancing Haltefenster Aktiv",
           "icon": "mdi:battery-clock",
-          "state": "{% set soc = states('sensor.opti_soc') %}\n{{ innerhalb and is_number(soc) and 90 <= soc | float(0) <= 100 }}",
+          "state": "{% set soc = states('sensor.opti_soc') %}\n{{ innerhalb and is_number(soc) and 90 <= soc | float(0) < 100.1 }}",
           "attributes": {
             "ende": "{% set abschluss = states('input_datetime.opti_balancing_letzter_abschluss') | as_datetime %}\n{{ ((abschluss | as_utc) + timedelta(hours=haltezeit)).isoformat()\n   if abschluss is not none and is_number(haltezeit) and haltezeit > 0 else '' }}",
             "rest_minuten": "{{ ((ende_ts - jetzt_ts) / 60) | round(1) if innerhalb else 0 }}",

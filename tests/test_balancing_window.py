@@ -9,7 +9,7 @@ import pytest
 from custom_components.opti_akku.definitions import NUMBER_DEFINITIONS
 from custom_components.opti_akku.migration import MIGRATABLE
 from tests.test_engine import (
-    DONE_AT, DONE_VALID, MINUTES, NOW, POWER, SOC, StrategyEngine, evaluate, load_resources, measurements,
+    DAYS, DONE_AT, DONE_VALID, MINUTES, NOW, POWER, SOC, StrategyEngine, evaluate, load_resources, measurements,
     solar_attrs,
 )
 from tests.test_engine_parity import BASE
@@ -25,9 +25,9 @@ def assert_parity(result):
     assert result.states["sensor.opti_engine_diagnostics"] == "ok"
 
 
-def complete(hours=4):
+def complete(hours=4, soc=100):
     engine = StrategyEngine()
-    states = measurements(**{SOC: 100, HOURS: hours, "input_number.maxsoc": 95})
+    states = measurements(**{SOC: soc, HOURS: hours, "input_number.maxsoc": 95})
     evaluate(engine, states)
     for minute in range(1, 31):
         result = evaluate(engine, states, now=NOW + dt.timedelta(minutes=minute))
@@ -91,7 +91,7 @@ def test_overnight_hold_at_full_soc_never_reconfirms_or_extends_deadline():
     start = NOW.replace(hour=21)
     completion = start + dt.timedelta(minutes=30)
     deadline = completion + dt.timedelta(hours=6)
-    finish = (start + dt.timedelta(days=1)).replace(hour=7)
+    finish = (start + dt.timedelta(days=1)).replace(hour=23, minute=59)
     evaluate(engine, states, now=start)
     for minute in range(1, int((finish - start).total_seconds() // 60) + 1):
         now = start + dt.timedelta(minutes=minute)
@@ -100,15 +100,40 @@ def test_overnight_hold_at_full_soc_never_reconfirms_or_extends_deadline():
             continue
         assert result.states[DONE_AT] == completion.isoformat(), now.isoformat()
         assert int(result.states[MINUTES]) == 0, now.isoformat()
+        assert int(result.states[DAYS]) == (1 if now == finish else 0), now.isoformat()
         assert dt.datetime.fromisoformat(result.attributes[WINDOW]["ende"]) == deadline
         holding = now < deadline
         assert result.states[WINDOW] == ("on" if holding else "off")
         assert result.decision_id == ("balancing_hold" if holding else "maximum_soc")
         assert_parity(result)
 
+    # The blocked end day counts as a day without completion, even at full SoC.
+    result = evaluate(engine, states, now=finish + dt.timedelta(seconds=30))
+    assert int(result.states[DAYS]) == 1
+    assert result.states[DONE_AT] == completion.isoformat()
 
-def test_confirmed_completion_holds_until_exact_absolute_deadline():
-    engine, states, result = complete()
+    next_day = (finish + dt.timedelta(days=1)).replace(hour=0, minute=0)
+    for minute in range(30):
+        now = next_day + dt.timedelta(minutes=minute)
+        result = evaluate(engine, states, now=now)
+        if minute < 29:
+            assert result.states[DONE_AT] == completion.isoformat()
+            assert int(result.states[MINUTES]) == minute + 1
+            assert int(result.states[DAYS]) == 1
+            assert result.states[WINDOW] == "off"
+        else:
+            assert result.states[DONE_AT] == now.isoformat()
+            assert int(result.states[MINUTES]) == 0
+            assert int(result.states[DAYS]) == 0
+            assert result.states[WINDOW] == "on"
+            assert result.decision_id == "balancing_hold"
+            assert dt.datetime.fromisoformat(result.attributes[WINDOW]["ende"]) == now + dt.timedelta(hours=6)
+        assert_parity(result)
+
+
+@pytest.mark.parametrize("soc", [100, 100.05])
+def test_confirmed_completion_holds_until_exact_absolute_deadline(soc):
+    engine, states, result = complete(soc=soc)
     start = dt.datetime.fromisoformat(result.states[DONE_AT])
     assert result.decision_id == "balancing_hold"
     assert result.mode == "Akku nur Laden"
@@ -157,7 +182,7 @@ def test_restart_and_soc_jumps_never_extend_deadline():
     {DONE_AT: "unavailable"},
     {DONE_AT: ""},
     {DONE_AT: (NOW + dt.timedelta(seconds=1)).isoformat()},
-    {SOC: "unknown"}, {SOC: "unavailable"}, {SOC: "nan"}, {SOC: "inf"}, {SOC: 101},
+    {SOC: "unknown"}, {SOC: "unavailable"}, {SOC: "nan"}, {SOC: "inf"}, {SOC: 100.1}, {SOC: 101},
 ])
 def test_missing_invalid_or_future_inputs_never_activate(changes):
     result = evaluate(states=measurements(**{
@@ -169,13 +194,15 @@ def test_missing_invalid_or_future_inputs_never_activate(changes):
     assert result.states["sensor.opti_engine_diagnostics"] == "ok"
 
 
-@pytest.mark.parametrize("soc,active", [(89.9, False), (90, True), (100, True)])
+@pytest.mark.parametrize("soc,active", [(89.9, False), (90, True), (100, True), (100.05, True)])
 def test_soc_boundary(soc, active):
     result = evaluate(states=measurements(**{
         SOC: soc, HOURS: 4, DONE_VALID: "on", DONE_AT: NOW.isoformat(),
     }))
     assert result.states[WINDOW] == ("on" if active else "off")
     assert result.attributes[WINDOW]["abbruch_grund"] == ("" if active else "SoC unter 90 %")
+    if active:
+        assert result.decision_id == "balancing_hold"
     assert_parity(result)
 
 

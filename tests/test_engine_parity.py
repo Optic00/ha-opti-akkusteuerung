@@ -288,6 +288,7 @@ def test_all_original_branches_have_explicit_golden_case():
     # Issue #154: harter MinSOC-Boden steht hinter den Netzlade-Zweigen.
     assert actual.pop(2) == "minimum_soc"
     actual.insert(0, "minimum_soc")
+    assert actual.pop(actual.index("balancing_hold")) == "balancing_hold"
     assert actual.pop(17) == "extreme_peak_hold"
     assert actual == ORIGINAL_DECISION_IDS
     assert len(actual) == len(BRANCHES) - 1
@@ -401,3 +402,16 @@ def test_extreme_hold_release_restores_peak_use(decision_engine, hold, expected)
     result = decision_engine.evaluate(states, {}, NOW)
     assert result.decision_id == expected
     assert result.mode == result.states["sensor.opti_strategie_vorschau"]
+
+
+def test_balancing_hold_branch_and_preview_have_identical_priority(decision_engine):
+    result = decision_engine.evaluate({
+        **BASE, "input_boolean.akku_opti_automatik": "on", "sensor.opti_soc": 100,
+        "binary_sensor.opti_balancing_haltefenster_aktiv": "on",
+    }, {}, NOW)
+    assert result.decision_id == "balancing_hold"
+    assert result.mode == "Akku nur Laden"
+    assert result.states["sensor.opti_strategie_vorschau"] == result.mode
+    assert result.attributes["sensor.opti_strategie_vorschau"]["grund"] == result.reason
+    assert result.reason == "Balancing-Watchdog (Haltefenster)"
+    assert result.states["sensor.opti_engine_diagnostics"] == "ok"

@@ -8,6 +8,15 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- Optionales Balancing-Haltefenster nach bestätigtem Abschluss: 0 bis 6 Stunden,
+  standardmäßig aus. Hält vor dem Ladedeckel die Entladesperre mit unveränderten
+  Balancing-Ladegrenzen und ohne erzwungenes Mindestladen aus dem Netz. Die feste
+  Frist bleibt über Neustarts erhalten; unter 90 % SoC ist das Fenster inaktiv.
+  Peak- und Schutzregeln behalten Vorrang. Ohne PV wird der Hausbedarf während
+  des Haltens aus dem Netz gedeckt. Siehe [Betrieb](docs/operation.md).
+
 ### Behoben
 
 - Balancing-Abschluss mit Done-SoC 100 ist jetzt erreichbar; an der oberen

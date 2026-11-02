@@ -1106,6 +1106,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # error hides the branch ("unknown"), so treat it the same way.
             params["min_charge_w"] = 0
             charge_power_limits.append("Preisspitze: Laden nur aus PV-Überschuss")
+        if self.manual_mode is None and result.decision_id == "balancing_hold":
+            params["min_charge_w"] = 0
+            charge_power_limits.append("Balancing-Haltefenster: kein Mindestladen aus dem Netz")
         if ev_cfg.get("enabled") is True and self.strategy_enabled and self.manual_mode is None:
             # This feature never imposes minimum export/discharge or minimum
             # charging that could pull power from the grid.

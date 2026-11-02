@@ -316,6 +316,29 @@ bleibt davon unberührt.
 Ein fälliger Balancing-Zyklus hat weiterhin Vorrang und darf den Akku gezielt
 bis 100 Prozent laden.
 
+Die optionale **Balancing-Haltezeit** (`input_number.opti_balancing_haltezeit_h`)
+verhindert danach ein sofortiges Entladen durch den Ladedeckel. Standard ist
+0 Stunden (aus); einstellbar sind bis zu 6 Stunden in Schritten von 0,5 Stunden.
+Nach dem bestätigten Abschluss (30 Minuten am Done-SoC-Ziel) hält „Akku nur Laden“
+die Entladesperre aufrecht und erlaubt PV-Nachladen mit den bestehenden strengen
+Balancing-Ladegrenzen (ab 96 % höchstens 0,02C, davor ab 92 % höchstens 0,05C).
+Es wird kein Mindestladen aus dem Netz erzwungen. Ohne PV bezieht das Haus während
+des Haltens seinen Bedarf jedoch aus dem Netz; dadurch können Stromkosten entstehen.
+MinSOC-Schutz, zulässiges Netzladen, Peak-Vorladen und Peak-Entladung haben Vorrang.
+
+Das Haltefenster endet an einer festen Frist ab dem gespeicherten Abschluss.
+Eine Änderung der Haltezeit während eines laufenden Fensters verschiebt dessen Ende;
+Neustarts und SoC-Sprünge verändern es nicht. Bei SoC unter 90 % ist das Fenster
+inaktiv; steigt der SoC wieder, kann es nur bis zur ursprünglichen Frist wirken.
+Während der Haltezeit und am Kalendertag ihres Endes wird kein erneuter
+Balancing-Abschluss bestätigt.
+Deshalb kann „Tage seit 100 %“ am Endtag um eins steigen und das nächste Balancing
+bis zu einen Tag früher fällig werden.
+Fehlende Abschlussfreigabe, ungültiger oder zukünftiger Zeitstempel und ungültiger
+SoC aktivieren kein Halten. Der abgeleitete Zustand
+`binary_sensor.opti_balancing_haltefenster_aktiv` zeigt Ende, Restminuten und
+Abschluss sowie bei SoC unter 90 % innerhalb der Frist den Abbruchgrund an.
+
 Der Diagnosesensor **Befehlsnachweis** trennt drei Aussagen, die nicht
 gleichgesetzt werden dürfen:
 

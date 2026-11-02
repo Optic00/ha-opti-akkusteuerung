@@ -754,6 +754,9 @@ class StrategyEngine:
         else:
             trigger = None
         if trigger is not None:
+            # The YAML action tree also guards against reconfirmation during
+            # the hold period and on its end date, using the saved completion
+            # time. Derived entities have not been evaluated yet at this point.
             self._actions(reset["actions"], {"trigger_id": trigger})
         if not self._starting and minute != self._last_minute and self._now.hour == 23 and self._now.minute == 59:
             day = self._now.date().isoformat()

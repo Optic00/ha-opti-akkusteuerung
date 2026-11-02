@@ -327,6 +327,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._manual_discharge_blocked = False
         self._manual_ev_latched = False
         self._manual_ev_clear_since: datetime | None = None
+        self._manual_cell_latched = False
+        self._manual_cell_reserve_v = 0.0
+        self._manual_cell_low_since: datetime | None = None
         self._settings_revision = None
         self._price_snapshot: TibberPriceSnapshot | None = None
         self._price_task: asyncio.Task | None = None
@@ -441,6 +444,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._manual_charge_blocked = stored.get("manual_charge_blocked") is True
         self._manual_discharge_blocked = stored.get("manual_discharge_blocked") is True
         self._manual_ev_latched = stored.get("manual_ev_latched") is True
+        self._manual_cell_latched = stored.get("manual_cell_latched") is True
+        self._manual_cell_reserve_v = finite(stored.get("manual_cell_reserve_v")) or (
+            self.settings["input_number.opti_zellspannung_reserve_v"] if self._manual_cell_latched else 0.0)
+        # Only an established hold survives restart; a pending debounce re-arms.
+        self._manual_cell_low_since = None
         if self.write_enabled and getattr(type(self.device), "PHASED", False):
             self._pause_pending = True
             self._pause_binding = self._writer_binding
@@ -499,6 +507,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "manual_charge_blocked": self._manual_charge_blocked,
                 "manual_discharge_blocked": self._manual_discharge_blocked,
                 "manual_ev_latched": self._manual_ev_latched,
+                "manual_cell_latched": self._manual_cell_latched,
+                "manual_cell_reserve_v": self._manual_cell_reserve_v,
                 "shadow": self._shadow_snapshot}
 
     @callback
@@ -572,7 +582,28 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._manual_ev_clear_since = None
         states["binary_sensor.opti_ev_schnellladung"] = "on" if self._manual_ev_latched else "off"
 
-    def _safe_mode(self, requested: str, states: dict) -> tuple[str, str | None]:
+    def _add_manual_cell_safety(self, states: dict, now: datetime) -> None:
+        """Mirror the cell debounce/hold without evaluating strategy timers.
+
+        build_inputs has already rejected invalid and stale source readings.
+        Keep this hold separate from the manual SoC hysteresis.
+        """
+        reserve = round(self.settings["input_number.opti_zellspannung_reserve_v"], 3)
+        cell = finite(states.get("sensor.opti_cell_voltage_min_v"))
+        cell = round(cell, 3) if cell is not None else None
+        if reserve > 0 and cell is not None and cell <= reserve:
+            if self._manual_cell_low_since is None:
+                self._manual_cell_low_since = now
+            debounced = (now - self._manual_cell_low_since).total_seconds() >= 60
+        else:
+            self._manual_cell_low_since = None
+            debounced = False
+        held = (self._manual_cell_latched and 0 < self._manual_cell_reserve_v <= reserve
+                and (cell is None or cell < round(reserve + 0.20, 2)))
+        self._manual_cell_latched = reserve > 0 and (debounced or held)
+        self._manual_cell_reserve_v = reserve
+
+    def _safe_mode(self, requested: str, states: dict, attributes: dict | None = None) -> tuple[str, str | None]:
         soc = finite(states.get("sensor.opti_soc"))
         capacity = finite(states.get("sensor.opti_battery_capacity_kwh"))
         if not self._online or soc is None or not 0 <= soc <= 100 or capacity is None or capacity <= 0:
@@ -613,6 +644,17 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._manual_discharge_blocked:
                 discharge_allowed = False
                 reasons.append("Min-SoC sperrt manuelle Entladung")
+            # Unknown engine state/origin cannot prove cell discharge is safe.
+            # Without strategy evaluation use the independent manual cell hold.
+            cell_hold = (attributes or {}).get("binary_sensor.opti_minsoc_schutz_aktiv", {})
+            cell_state = states.get("binary_sensor.opti_minsoc_schutz_aktiv")
+            cell_origin = cell_hold.get("ausloeser") if isinstance(cell_hold, dict) else None
+            cell_blocked = (cell_state not in ("on", "off")
+                            or (cell_state == "on" and cell_origin != "soc")) if self.strategy_enabled else self._manual_cell_latched
+            if (self.settings["input_number.opti_zellspannung_reserve_v"] > 0
+                    and cell_blocked):
+                discharge_allowed = False
+                reasons.append("Zellspannungs-Reserve sperrt manuelle Entladung")
             ev_blocked = (self.settings["input_boolean.opti_ev_akku_pause"]
                           and states.get("binary_sensor.opti_ev_schnellladung") == "on")
             if ev_blocked:
@@ -968,6 +1010,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             (key, name): self._engine_snapshot.get("attributes", {}).get(key, {}).get(name)
             for key, name in PERSISTED_LATCH_ATTRIBUTES
         }
+        previous_manual_cell = (self._manual_cell_latched, self._manual_cell_reserve_v)
         def evaluate():
             result = self.engine.evaluate(states, attributes, dt_util.as_local(now))
             return result, self.engine.snapshot()
@@ -976,6 +1019,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result, self._engine_snapshot = await self.hass.async_add_executor_job(evaluate)
         else:
             self._add_manual_ev_safety(states, now)
+            self._add_manual_cell_safety(states, now)
             result = Evaluation(states, attributes, "Beobachtung", "Strategie deaktiviert", {})
         engine_base_mode = result.mode
         arbitrage_cfg = captured_options.get("arbitrage_estimate", {})
@@ -1037,7 +1081,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.strategy_enabled and self.manual_mode is None:
             mode, safety_reason = "Beobachtung", "Strategie deaktiviert; keine weiteren Steuerbefehle"
         else:
-            mode, safety_reason = self._safe_mode(requested, result.states)
+            mode, safety_reason = self._safe_mode(requested, result.states, result.attributes)
         reason = safety_reason or ("Manuelle Auswahl" if self.manual_mode else result.reason)
         params = self._parameters(result.states)
         # Text only, no wattage: values here change every update and would
@@ -1277,7 +1321,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             previous is not None and self._engine_snapshot.get("attributes", {}).get(key, {}).get(name)
             not in (None, previous)
             for (key, name), previous in previous_latch_attributes.items()
-        )
+        ) or previous_manual_cell != (self._manual_cell_latched, self._manual_cell_reserve_v)
         self._schedule_routine_save(monotonic_now, force=latch_changed)
         return data
 

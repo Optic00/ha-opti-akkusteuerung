@@ -2333,7 +2333,7 @@
     {
       "id": "opti_balancing_counter_reset",
       "alias": "Opti Balancing: Abschluss nach erreichtem Done-SoC",
-      "description": "Schliesst einen Balancing-Zyklus nach 30 bestaetigten Minuten oberhalb des Done-SoC ab. Persistente Minuten machen die Bestaetigung restartfest; der Abschluss-Zeitstempel verhindert Mehrfachabschluesse am selben Tag.",
+      "description": "Schliesst einen Balancing-Zyklus nach 30 bestaetigten Minuten oberhalb des Done-SoC ab. Bei Done-SoC ab 100 genuegt Gleichheit, damit die obere Grenze erreichbar bleibt. Persistente Minuten machen die Bestaetigung restartfest; der Abschluss-Zeitstempel verhindert Mehrfachabschluesse am selben Tag.",
       "mode": "queued",
       "triggers": [
         {
@@ -2343,7 +2343,7 @@
         },
         {
           "trigger": "template",
-          "value_template": "{% set soc = states('sensor.opti_soc') | float(none) %} {% set done = states('input_number.opti_balancing_done_soc') | float(none) %} {{ soc is not none and done is not none and soc <= done }}",
+          "value_template": "{% set soc = states('sensor.opti_soc') | float(none) %} {% set done = states('input_number.opti_balancing_done_soc') | float(none) %} {{ soc is not none and done is not none and (soc < done or (done < 100 and soc == done)) }}",
           "id": "rueckfall"
         },
         {
@@ -2365,6 +2365,12 @@
           "id": "sensorfehler"
         },
         {
+          "trigger": "state",
+          "entity_id": "input_number.opti_balancing_done_soc",
+          "to": null,
+          "id": "ziel_geaendert"
+        },
+        {
           "trigger": "homeassistant",
           "event": "start",
           "id": "ha_start"
@@ -2375,13 +2381,14 @@
           "alias": "Done-SoC minutenweise bestaetigen",
           "choose": [
             {
-              "alias": "Bestaetigungen bei Rueckfall oder Sensorfehler verwerfen",
+              "alias": "Bestaetigungen bei Rueckfall, Sensorfehler oder Zielwechsel verwerfen",
               "conditions": [
                 {
                   "condition": "trigger",
                   "id": [
                     "rueckfall",
-                    "sensorfehler"
+                    "sensorfehler",
+                    "ziel_geaendert"
                   ]
                 }
               ],
@@ -2425,7 +2432,7 @@
                 },
                 {
                   "condition": "template",
-                  "value_template": "{{ has_value('sensor.opti_soc')\n   and has_value('input_number.opti_balancing_done_soc')\n   and (states('sensor.opti_soc') | float(0))\n       <= (states('input_number.opti_balancing_done_soc')\n           | float(100)) }}"
+                  "value_template": "{% set soc = states('sensor.opti_soc') | float(0) %}\n{% set done = states('input_number.opti_balancing_done_soc') | float(100) %}\n{{ has_value('sensor.opti_soc')\n   and has_value('input_number.opti_balancing_done_soc')\n   and (soc < done or (done < 100 and soc == done)) }}"
                 }
               ],
               "sequence": [
@@ -2446,7 +2453,7 @@
                 },
                 {
                   "condition": "template",
-                  "value_template": "{{ not has_value('sensor.opti_soc')\n   or not has_value('input_number.opti_balancing_done_soc')\n   or (states('sensor.opti_soc') | float(0))\n      <= (states('input_number.opti_balancing_done_soc')\n          | float(100)) }}"
+                  "value_template": "{% set soc = states('sensor.opti_soc') | float(0) %}\n{% set done = states('input_number.opti_balancing_done_soc') | float(100) %}\n{{ not has_value('sensor.opti_soc')\n   or not has_value('input_number.opti_balancing_done_soc')\n   or soc < done or (done < 100 and soc == done) }}"
                 }
               ],
               "sequence": [
@@ -2459,16 +2466,15 @@
               ]
             },
             {
-              "alias": "Gueltige Minute oberhalb des Done-SoC bestaetigen",
+              "alias": "Gueltige Minute am Done-SoC-Ziel bestaetigen",
               "conditions": [
                 {
                   "condition": "trigger",
                   "id": "minute"
                 },
                 {
-                  "condition": "numeric_state",
-                  "entity_id": "sensor.opti_soc",
-                  "above": "input_number.opti_balancing_done_soc"
+                  "condition": "template",
+                  "value_template": "{% set soc = states('sensor.opti_soc') | float(none) %}\n{% set done = states('input_number.opti_balancing_done_soc') | float(none) %}\n{{ soc is not none and done is not none\n   and (soc > done or (done >= 100 and soc >= done)) }}"
                 }
               ],
               "sequence": [

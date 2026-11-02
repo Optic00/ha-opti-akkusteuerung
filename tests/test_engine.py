@@ -575,6 +575,76 @@ def test_balancing_done_soc_boundaries_and_restart(done, soc, completes):
     assert int(result.states[MINUTES]) == 0
 
 
+@pytest.mark.parametrize("initial,target", [(98, 99), (99, 98), (99, 100), (99, 99.0)])
+@pytest.mark.parametrize("restart", [False, True])
+@pytest.mark.parametrize("source", ["yaml", "generated"])
+def test_balancing_target_changes_discard_only_old_target_confirmations(initial, target, restart, source):
+    import yaml
+
+    # Execute the YAML action tree directly, independently of generated resources.
+    resource = load_resources()
+    if source == "yaml":
+        resource["balancing_automations"] = yaml.safe_load(
+            (Path(__file__).parents[1] / "strategy/balancing.yaml").read_text()
+        )["balancing_automations"]
+    engine = StrategyEngine(resource)
+    done_entity = "input_number.opti_balancing_done_soc"
+    states = measurements(**{SOC: 100, done_entity: initial})
+    evaluate(engine, states)
+    first = evaluate(engine, states, now=NOW + dt.timedelta(minutes=1))
+    assert int(first.states[MINUTES]) == 1
+    if restart:
+        snapshot = json.loads(json.dumps(engine.snapshot(), allow_nan=False))
+        assert snapshot["last_balancing_done_soc"] == initial
+        engine = StrategyEngine(resource)
+        engine.restore(snapshot)
+    states[done_entity] = target
+    result = evaluate(engine, states, now=NOW + dt.timedelta(minutes=1, seconds=5))
+    assert int(result.states[MINUTES]) == (1 if initial == target else 0)
+    assert result.states[DONE_VALID] == "off"
+    following = evaluate(engine, states, now=NOW + dt.timedelta(minutes=2))
+    assert int(following.states[MINUTES]) == (2 if initial == target else 1)
+
+
+@pytest.mark.parametrize("initial,target", [(98, 99), (99, 98), (99, 100)])
+def test_balancing_target_change_requires_all_30_new_confirmations(initial, target):
+    engine = StrategyEngine()
+    done_entity = "input_number.opti_balancing_done_soc"
+    states = measurements(**{SOC: 100, done_entity: initial})
+    evaluate(engine, states)
+    for minute in range(1, 30):
+        old = evaluate(engine, states, now=NOW + dt.timedelta(minutes=minute))
+    assert int(old.states[MINUTES]) == 29
+    states[done_entity] = target
+    changed = evaluate(engine, states, now=NOW + dt.timedelta(minutes=29, seconds=5))
+    assert int(changed.states[MINUTES]) == 0
+    assert changed.states[DONE_VALID] == "off"
+    for minute in range(1, 30):
+        result = evaluate(engine, states, now=NOW + dt.timedelta(minutes=29 + minute))
+        assert int(result.states[MINUTES]) == minute
+        assert result.states[DONE_VALID] == "off"
+    complete = evaluate(engine, states, now=NOW + dt.timedelta(minutes=59))
+    assert int(complete.states[MINUTES]) == 0
+    assert complete.states[DONE_VALID] == "on"
+
+
+def test_balancing_yaml_target_change_trigger_resets_confirmations():
+    import yaml
+
+    automations = yaml.safe_load(
+        (Path(__file__).parents[1] / "strategy/balancing.yaml").read_text()
+    )["balancing_automations"]
+    reset = automations[1]
+    trigger = next(item for item in reset["triggers"] if item["id"] == "ziel_geaendert")
+    assert trigger == {"trigger": "state", "entity_id": "input_number.opti_balancing_done_soc",
+                       "to": None, "id": "ziel_geaendert"}
+    branch = reset["actions"][0]["choose"][0]
+    assert "ziel_geaendert" in branch["conditions"][0]["id"]
+    assert branch["sequence"] == [
+        {"action": "counter.reset", "target": {"entity_id": MINUTES}}
+    ]
+
+
 @pytest.mark.parametrize("done,dip", [(98.5, 98.5), (100, 99.9)])
 def test_balancing_done_soc_dip_discards_confirmations_after_restart(done, dip):
     engine = StrategyEngine()

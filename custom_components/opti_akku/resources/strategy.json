@@ -2365,6 +2365,12 @@
           "id": "sensorfehler"
         },
         {
+          "trigger": "state",
+          "entity_id": "input_number.opti_balancing_done_soc",
+          "to": null,
+          "id": "ziel_geaendert"
+        },
+        {
           "trigger": "homeassistant",
           "event": "start",
           "id": "ha_start"
@@ -2375,13 +2381,14 @@
           "alias": "Done-SoC minutenweise bestaetigen",
           "choose": [
             {
-              "alias": "Bestaetigungen bei Rueckfall oder Sensorfehler verwerfen",
+              "alias": "Bestaetigungen bei Rueckfall, Sensorfehler oder Zielwechsel verwerfen",
               "conditions": [
                 {
                   "condition": "trigger",
                   "id": [
                     "rueckfall",
-                    "sensorfehler"
+                    "sensorfehler",
+                    "ziel_geaendert"
                   ]
                 }
               ],

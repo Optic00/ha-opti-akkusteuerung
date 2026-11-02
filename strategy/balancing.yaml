@@ -49,18 +49,23 @@ balancing_automations:
     - unknown
     - unavailable
     id: sensorfehler
+  - trigger: state
+    entity_id: input_number.opti_balancing_done_soc
+    to: null
+    id: ziel_geaendert
   - trigger: homeassistant
     event: start
     id: ha_start
   actions:
   - alias: Done-SoC minutenweise bestaetigen
     choose:
-    - alias: Bestaetigungen bei Rueckfall oder Sensorfehler verwerfen
+    - alias: Bestaetigungen bei Rueckfall, Sensorfehler oder Zielwechsel verwerfen
       conditions:
       - condition: trigger
         id:
         - rueckfall
         - sensorfehler
+        - ziel_geaendert
       sequence:
       - action: counter.reset
         target:

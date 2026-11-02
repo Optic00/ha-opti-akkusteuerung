@@ -228,6 +228,21 @@ Einstieg braucht immer einen gültigen Wert. Ohne Quelle oder mit Reserve 0
 halten unabhängig voneinander; das Attribut
 `ausloeser` des Schutzes nennt `soc`, `zellspannung`, `beide` oder `aus`.
 
+Die Zellspannungs-Reserve gilt auch für manuelle Entlademodi, einschließlich
+„Akku Automatisch“, und bei deaktivierter Strategie. Ohne Strategie laufen
+die 60-Sekunden-Entprellung und das Halten unabhängig von den Strategie-Timern.
+Ein aktiver manueller Zellschutz wird sofort gespeichert und bleibt über
+Neustarts erhalten; nur eine noch laufende Entprellung beginnt danach neu.
+Bei aktiver Strategie sperren ein unbekannter Schutzzustand oder ein aktiver
+Schutz ohne gültigen `ausloeser` ebenfalls die manuelle Entladung, wenn die
+Reserve größer als 0 ist. Der Auslöser `soc` allein bleibt dem separaten
+manuellen SoC-Schutz zugeordnet.
+
+Eine Änderung von `input_number.opti_balancing_done_soc` setzt die bisherigen
+Balancing-Bestätigungsminuten zurück. Für den Abschluss müssen erneut 30
+Minuten am neuen Ziel bestätigt werden; unter 100 % muss der SoC über dem Ziel
+liegen, bei einem Ziel von 100 % genügt das Erreichen von 100 %.
+
 Die Bestätigung während der Einrichtung aktiviert keine Schreibzugriffe. Bei
 einem neuen Setup ist die Schreibfreigabe aus. Eine gespeicherte Freigabe wird
 nur bei aktivierter Strategie, unveränderter Gerätebindung und gültigen gespeicherten

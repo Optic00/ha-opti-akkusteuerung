@@ -390,6 +390,209 @@ async def test_manual_modes_obey_cell_reserve_hold(
         assert data["mode"] == requested
 
 
+@pytest.mark.parametrize("requested,protected", [
+    ("Akku schnell Entladen", "Akku Pause"),
+    ("Akku nur Entladen", "Akku Pause"),
+    ("Akku Automatisch", "Akku nur Laden"),
+])
+@pytest.mark.parametrize("reserve", [0, 3.0])
+async def test_manual_cell_reserve_without_strategy_debounce_and_release(
+    coordinator, hass, entry, requested, protected, reserve
+):
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "strategy_enabled": False,
+        "sources": {"cell_voltage_min": "sensor.cell_min"}})
+    coordinator.strategy_enabled = False
+    coordinator.settings.update({
+        "input_boolean.akku_opti_automatik": True,
+        "input_number.opti_zellspannung_reserve_v": reserve,
+    })
+    coordinator.manual_mode = requested
+    coordinator.write_enabled = True
+    now = dt_util.utcnow()
+    # Rounding to 3 decimals makes this equal to the reserve.
+    hass.states.async_set("sensor.cell_min", "3.0004", {"unit_of_measurement": "V"})
+    with patch.object(coordinator.engine, "evaluate", side_effect=AssertionError("Strategy must not run")):
+        for seconds, voltage, blocked in [
+            (0, None, False), (59, None, False), (60, None, True),
+            (61, "3.1994", True), (62, "3.1996", False),
+        ]:
+            if voltage is not None:
+                hass.states.async_set("sensor.cell_min", voltage, {"unit_of_measurement": "V"})
+            with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+                       return_value=now + timedelta(seconds=seconds)):
+                data = await coordinator._async_update_data()
+            expected = protected if blocked and reserve else requested
+            assert data["mode"] == expected
+            assert coordinator.device.async_apply.await_args.args[0] == expected
+
+
+@pytest.mark.parametrize("source", [None, "unavailable", "invalid", "nan", "stale"])
+@pytest.mark.parametrize("latched", [False, True])
+async def test_manual_cell_reserve_without_strategy_missing_source(
+    coordinator, hass, entry, source, latched
+):
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "sources": {"cell_voltage_min": "sensor.cell_min"}})
+    coordinator.strategy_enabled = False
+    coordinator.settings.update({
+        "input_boolean.akku_opti_automatik": True,
+        "input_number.opti_zellspannung_reserve_v": 3.0,
+    })
+    coordinator.manual_mode = "Akku schnell Entladen"
+    now = dt_util.utcnow()
+    hass.states.async_set("sensor.cell_min", "2.99", {"unit_of_measurement": "V"})
+    if latched:
+        for seconds in (0, 60):
+            with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+                       return_value=now + timedelta(seconds=seconds)):
+                await coordinator._async_update_data()
+    if source is None:
+        hass.states.async_remove("sensor.cell_min")
+    elif source != "stale":
+        hass.states.async_set("sensor.cell_min", source, {"unit_of_measurement": "V"})
+    for seconds in (241, 302):
+        with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+                   return_value=now + timedelta(seconds=seconds)):
+            data = await coordinator._async_update_data()
+        assert data["states"]["sensor.opti_cell_voltage_min_v"] == "unavailable"
+        assert data["mode"] == ("Akku Pause" if latched else "Akku schnell Entladen")
+    # Disabling the reserve clears an established hold even without a source.
+    coordinator.settings["input_number.opti_zellspannung_reserve_v"] = 0
+    with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+               return_value=now + timedelta(seconds=303)):
+        data = await coordinator._async_update_data()
+    assert not coordinator._manual_cell_latched
+    assert data["mode"] == "Akku schnell Entladen"
+
+
+async def test_manual_cell_reserve_without_strategy_interrupted_debounce(coordinator):
+    coordinator.settings["input_number.opti_zellspannung_reserve_v"] = 3.0
+    now = dt_util.utcnow()
+    for seconds, voltage in [(0, 2.99), (59, "unavailable"), (60, 2.99), (119, 2.99)]:
+        coordinator._add_manual_cell_safety({"sensor.opti_cell_voltage_min_v": voltage},
+                                          now + timedelta(seconds=seconds))
+        assert not coordinator._manual_cell_latched
+    coordinator._add_manual_cell_safety({"sensor.opti_cell_voltage_min_v": 2.99},
+                                      now + timedelta(seconds=120))
+    assert coordinator._manual_cell_latched
+
+
+@pytest.mark.parametrize("reserve,voltage,held", [
+    (3.1, "unavailable", True), (2.9, "unavailable", False),
+    (2.9, 2.95, False), (2.9, 2.8, True),
+])
+async def test_manual_cell_reserve_setting_change_matches_engine_hold(coordinator, reserve, voltage, held):
+    coordinator.settings["input_number.opti_zellspannung_reserve_v"] = 3.0
+    now = dt_util.utcnow()
+    for seconds in (0, 60):
+        coordinator._add_manual_cell_safety({"sensor.opti_cell_voltage_min_v": 2.8},
+                                          now + timedelta(seconds=seconds))
+    assert coordinator._manual_cell_latched
+    coordinator.settings["input_number.opti_zellspannung_reserve_v"] = reserve
+    coordinator._add_manual_cell_safety({"sensor.opti_cell_voltage_min_v": voltage},
+                                      now + timedelta(seconds=61))
+    assert coordinator._manual_cell_latched is held
+
+
+async def test_manual_cell_and_soc_holds_release_independently(coordinator):
+    coordinator.strategy_enabled = False
+    coordinator.settings.update({
+        "input_boolean.akku_opti_automatik": True,
+        "input_number.opti_zellspannung_reserve_v": 3.0,
+    })
+    coordinator.manual_mode = "Akku Automatisch"
+    now = dt_util.utcnow()
+    for seconds, cell, soc, cell_hold, soc_hold in [
+        (0, 2.99, 1, False, True), (60, 2.99, 1, True, True),
+        (61, 3.2, 1, False, True), (62, 2.99, 60, False, False),
+        (122, 2.99, 60, True, False),
+    ]:
+        coordinator.device.async_read.return_value.update({
+            "sensor.opti_soc": soc, "sensor.opti_cell_voltage_min_v": cell})
+        with patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+                   return_value=now + timedelta(seconds=seconds)):
+            data = await coordinator._async_update_data()
+        assert coordinator._manual_cell_latched is cell_hold
+        assert coordinator._manual_discharge_blocked is soc_hold
+        assert data["mode"] == ("Akku nur Laden" if cell_hold or soc_hold else "Akku Automatisch")
+
+
+async def test_manual_cell_pending_debounce_rearms_after_restore(coordinator, hass, entry):
+    coordinator.settings["input_number.opti_zellspannung_reserve_v"] = 3.0
+    now = dt_util.utcnow()
+    coordinator._add_manual_cell_safety({"sensor.opti_cell_voltage_min_v": 2.99}, now)
+    snapshot = deepcopy(coordinator._stored_data())
+    restored = OptiCoordinator(hass, entry, device(), StrategyEngine())
+    try:
+        with patch.object(restored._store, "async_load", AsyncMock(return_value=snapshot)):
+            await restored.async_restore()
+        for seconds in (61, 120):
+            restored._add_manual_cell_safety({"sensor.opti_cell_voltage_min_v": 2.99},
+                                             now + timedelta(seconds=seconds))
+            assert not restored._manual_cell_latched
+        restored._add_manual_cell_safety({"sensor.opti_cell_voltage_min_v": 2.99},
+                                         now + timedelta(seconds=121))
+        assert restored._manual_cell_latched
+    finally:
+        await restored.async_stop()
+
+
+async def test_manual_cell_reserve_hold_is_persisted_immediately_and_restored(coordinator, hass, entry):
+    coordinator.strategy_enabled = False
+    coordinator.settings["input_number.opti_zellspannung_reserve_v"] = 3.0
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "strategy_enabled": False,
+        "sources": {"cell_voltage_min": "sensor.cell_min"}})
+    now = dt_util.utcnow()
+    hass.states.async_set("sensor.cell_min", "2.99", {"unit_of_measurement": "V"})
+    with patch("custom_components.opti_akku.coordinator.dt_util.utcnow", return_value=now):
+        await coordinator._async_update_data()
+    with patch.object(coordinator._store, "async_delay_save") as save, \
+            patch("custom_components.opti_akku.coordinator.dt_util.utcnow",
+                  return_value=now + timedelta(seconds=60)):
+        await coordinator._async_update_data()
+    assert save.call_args.args[1] == 0
+    snapshot = deepcopy(save.call_args.args[0]())
+    assert snapshot["manual_cell_latched"] is True
+    hass.states.async_set("sensor.cell_min", "unavailable")
+    restored = OptiCoordinator(hass, entry, device(), StrategyEngine())
+    try:
+        with patch.object(restored._store, "async_load", AsyncMock(return_value=snapshot)):
+            await restored.async_restore()
+        restored.settings["input_boolean.akku_opti_automatik"] = True
+        restored.manual_mode = "Akku schnell Entladen"
+        data = await restored._async_update_data()
+        assert data["mode"] == "Akku Pause"
+        assert restored._manual_cell_latched
+        assert restored._manual_discharge_blocked is False
+    finally:
+        await restored.async_stop()
+
+
+@pytest.mark.parametrize("state,origin,blocked", [
+    ("on", None, True), ("on", "unexpected", True), ("on", "aus", True),
+    ("on", "zellspannung", True), ("on", "beide", True), ("on", "soc", False),
+    ("off", None, False), ("unavailable", "soc", True), ("unknown", None, True),
+    (None, None, True),
+])
+@pytest.mark.parametrize("reserve", [0, 3.0])
+async def test_manual_cell_reserve_unknown_engine_latch_fails_closed(
+    coordinator, state, origin, blocked, reserve
+):
+    states = (await coordinator._async_update_data())["states"]
+    coordinator.settings.update({
+        "input_boolean.akku_opti_automatik": True,
+        "input_number.opti_zellspannung_reserve_v": reserve,
+    })
+    coordinator.manual_mode = "Akku schnell Entladen"
+    latch = "binary_sensor.opti_minsoc_schutz_aktiv"
+    states[latch] = state
+    attributes = {latch: {"ausloeser": origin}} if origin is not None else {}
+    expected = "Akku Pause" if blocked and reserve else "Akku schnell Entladen"
+    assert coordinator._safe_mode(coordinator.manual_mode, states, attributes)[0] == expected
+
+
 async def test_automatic_minsoc_latch_survives_coordinator_restore(hass, entry):
     before = OptiCoordinator(hass, entry, device(), StrategyEngine())
     await before.async_restore()

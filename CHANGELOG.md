@@ -10,6 +10,11 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Behoben
 
+- Balancing-Abschluss mit Done-SoC 100 ist jetzt erreichbar; an der oberen
+  SoC-Grenze genügt Gleichheit für die Bestätigung über 30 Minuten.
+- Die Zellspannungs-Reserve sperrt jetzt auch manuell gewählte Entladung:
+  Manuelle Entlademodi werden wie beim MinSOC-Schutz auf „nur Laden“ oder Pause
+  umgesetzt.
 - Die Zellspannungs-Reserve sperrt manuelle Entladung auch ohne aktivierte
   Strategie nach 60 Sekunden unter oder an der Reserve. Der eigene Haltezustand
   bleibt bei Quellenausfall und über Neustarts erhalten, bis die Freigabegrenze

@@ -8,9 +8,12 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+## [2026.10-beta14] - 2026-11-02
+
 ### Hinzugefügt
 
-- Optionales Balancing-Haltefenster nach bestätigtem Abschluss: 0 bis 6 Stunden,
+- Optionales Balancing-Haltefenster nach bestätigtem Abschluss
+  ([#197](https://github.com/Optic00/ha-opti-akkusteuerung/pull/197)): 0 bis 6 Stunden,
   standardmäßig aus. Hält vor dem Ladedeckel die Entladesperre mit unveränderten
   Balancing-Ladegrenzen und ohne erzwungenes Mindestladen aus dem Netz. Die feste
   Frist bleibt über Neustarts erhalten; unter 90 % SoC ist das Fenster inaktiv.
@@ -18,6 +21,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   des Haltens aus dem Netz gedeckt. Siehe [Betrieb](docs/operation.md).
 
 ### Behoben
+
+Alle Korrekturen aus [#196](https://github.com/Optic00/ha-opti-akkusteuerung/pull/196).
 
 - Balancing-Abschluss mit Done-SoC 100 ist jetzt erreichbar; an der oberen
   SoC-Grenze genügt Gleichheit für die Bestätigung über 30 Minuten.
@@ -404,7 +409,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 - Frühere YAML-Lösung bleibt im Legacy-Archiv erhalten. Bestehende
   Integrationseinträge bei der Migration beibehalten.
 
-[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.10-beta13...HEAD
+[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.10-beta14...HEAD
+[2026.10-beta14]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta14
 [2026.10-beta13]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta13
 [2026.10-beta12]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta12
 [2026.10-beta11]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta11

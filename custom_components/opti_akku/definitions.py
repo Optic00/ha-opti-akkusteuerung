@@ -253,6 +253,9 @@ SWITCH_DEFINITIONS = {'input_boolean.akku_opti_automatik': {'name': 'Akku Opti-A
  'input_boolean.opti_ev_akku_pause': {'name': 'Opti EV-Entladesperre',
                                       'icon': 'mdi:car-electric',
                                       'default': False},
+ 'input_boolean.opti_balancing_halten_vor_peak': {'name': 'Opti Balancing-Halten vor Preisspitzen',
+                                                'icon': 'mdi:battery-lock',
+                                                'default': False},
  'input_boolean.opti_balancing_netzladen': {'name': 'Opti Balancing darf ans Netz',
                                             'icon': 'mdi:battery-heart-variant',
                                             'default': False}}

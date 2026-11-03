@@ -285,6 +285,7 @@ def test_all_original_branches_have_explicit_golden_case():
     actual = [branch["sequence"][0]["decision_id"] for branch in choose]
     assert actual.pop(3) == "balancing_grid"  # Netz-Balancing im MinSOC-Halteband.
     assert actual.pop(3) == "minimum_soc"  # Eigenständiges MinSOC-Halteband.
+    assert actual.pop(3) == "balancing_hold"  # Optionaler Vorrang vor L1/L2.
     # Issue #154: harter MinSOC-Boden steht hinter den Netzlade-Zweigen.
     assert actual.pop(2) == "minimum_soc"
     actual.insert(0, "minimum_soc")

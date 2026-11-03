@@ -8,6 +8,15 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- Option `opti_balancing_halten_vor_peak`, standardmäßig aus (PR-Nummer offen):
+  Ein bestehendes Balancing-Haltefenster kann bei Watchdog „aus“ und gültigem
+  Preis bis einschließlich 60 ct/kWh Vorrang vor L1/L2 erhalten. Keine
+  Verlängerung oder nachgeholten Halteminuten, kein erzwungenes Netzladen;
+  Schutzregeln, 90-%-Grenze sowie EV- und Extrempreis-Entladesperren bleiben.
+  Ohne PV können höhere Haus-Netzkosten entstehen. Siehe [Betrieb](docs/operation.md).
+
 ## [2026.11-beta1] - 2026-11-02
 
 ### Hinzugefügt

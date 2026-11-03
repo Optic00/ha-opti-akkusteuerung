@@ -233,6 +233,31 @@ strategy:
           option: Akku nur Laden
         target:
           entity_id: input_select.akkusteuerung_modus
+    # Wie der spätere Haltezweig sperrt auch dieser die Entladung bei EV-Schnellladung
+    # und Extrempreis-Reserve. Die frühere Position schwächt diese Sperren nicht;
+    # balancing_hold verhindert außerdem Mindestladen aus dem Netz im Coordinator.
+    - alias: 'Balancing-Watchdog (Haltefenster vor Preisspitze)'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_balancing_halten_vor_peak
+        state: 'on'
+      - condition: state
+        entity_id: binary_sensor.opti_balancing_haltefenster_aktiv
+        state: 'on'
+      - condition: state
+        entity_id: sensor.opti_balancing_watchdog
+        state: aus
+      - condition: template
+        value_template: |-
+          {% set preis = states('sensor.opti_price_current_ct_kwh') %}
+          {{ is_number(preis) and preis | float(0) <= 60 }}
+      sequence:
+      - action: input_select.select_option
+        decision_id: balancing_hold
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
     - alias: 'Peak-Leiter L1 ''nur Entladen'' (tagsueber Dynamisch fuer PV-Laden): Preisspitze VERY_EXPENSIVE'
       conditions:
       - condition: template

@@ -306,6 +306,10 @@ helper_definitions:
     domain: input_boolean
     name: Opti EV Akku-Pause
     icon: mdi:car-electric
+  input_boolean.opti_balancing_halten_vor_peak:
+    domain: input_boolean
+    name: Opti Balancing-Halten vor Preisspitzen
+    icon: mdi:battery-lock
   input_boolean.opti_balancing_netzladen:
     domain: input_boolean
     name: Opti Balancing darf ans Netz
@@ -384,6 +388,7 @@ helper_defaults:
   input_boolean.opti_prognose_netzladen: 'on'
   input_boolean.opti_pv_ueberschuss_ladung: 'on'
   input_boolean.opti_ev_akku_pause: 'off'
+  input_boolean.opti_balancing_halten_vor_peak: 'off'
   input_boolean.opti_balancing_netzladen: 'off'
   input_boolean.opti_balancing_abschluss_gueltig: 'off'
   counter.tage_seit_akku100: 0

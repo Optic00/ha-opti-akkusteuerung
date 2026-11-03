@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from custom_components.opti_akku.definitions import NUMBER_DEFINITIONS
+from custom_components.opti_akku.definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
 from custom_components.opti_akku.migration import MIGRATABLE
 from tests.test_engine import (
     DAYS, DONE_AT, DONE_VALID, MINUTES, NOW, POWER, SOC, StrategyEngine, evaluate, load_resources, measurements,
@@ -49,6 +49,17 @@ def test_setting_is_opt_in_on_both_layers_and_not_implicitly_migrated():
     # Legacy import is a fixed allowlist, not a setting registry. Do not enable
     # a new control feature by importing a similarly named external helper.
     assert HOURS not in MIGRATABLE
+
+
+def test_hold_before_peak_setting_defaults_off_and_is_not_implicitly_migrated():
+    """Beide Setting-Ebenen starten aus und importieren keinen fremden Schalter."""
+    key = "input_boolean.opti_balancing_halten_vor_peak"
+    definition = SWITCH_DEFINITIONS[key]
+    assert definition["default"] is False
+    resource = load_resources()
+    assert resource["helper_defaults"][key] == "off"
+    assert resource["helper_definitions"][key]["icon"] == definition["icon"]
+    assert key not in MIGRATABLE
 
 
 def test_default_zero_keeps_ladedeckel_after_confirmed_completion():

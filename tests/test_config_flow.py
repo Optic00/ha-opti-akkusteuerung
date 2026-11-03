@@ -2311,3 +2311,39 @@ async def test_probe_uses_the_read_only_sbs_device_for_the_sbs_profile(hass):
         assert await config_flow._probe(hass, {**CONNECTION, "profile": "sma_sbs"}) == SBS_PROBE
     sbs_probe.assert_awaited_once()
     stp_probe.assert_not_awaited()
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_balancing_hold_before_peak_option_defaults_off_and_persists(hass, enabled):
+    """Die Option steht neben der Haltezeit und bleibt nach dem Speichern erhalten."""
+    from custom_components.opti_akku.config_flow import DEFINITIONS
+
+    key = "input_boolean.opti_balancing_halten_vor_peak"
+    assert DEFINITIONS[key]["default"] is False
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION)
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    flow_id = result["flow_id"]
+    result = await hass.config_entries.options.async_configure(flow_id, {"next_step_id": "features"})
+    result = await hass.config_entries.options.async_configure(flow_id, {"next_step_id": "balancing"})
+    fields = [marker.schema for marker in result["data_schema"].schema]
+    assert fields.index("opti_balancing_halten_vor_peak") == fields.index("opti_balancing_haltezeit_h") + 1
+    assert form_values(result)["opti_balancing_halten_vor_peak"] is False
+    await hass.config_entries.options.async_configure(
+        flow_id, form_values(result, {"opti_balancing_halten_vor_peak": enabled})
+    )
+    result = await hass.config_entries.options.async_configure(flow_id, {"next_step_id": "balancing"})
+    assert form_values(result)["opti_balancing_halten_vor_peak"] is enabled
+    await hass.config_entries.options.async_configure(flow_id, form_values(result))
+    await hass.config_entries.options.async_configure(flow_id, {"next_step_id": "init"})
+    result = await hass.config_entries.options.async_configure(flow_id, {"next_step_id": "finish"})
+    result = await hass.config_entries.options.async_configure(flow_id, form_values(result))
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options.get("settings", {}).get(key, False) is enabled
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    flow_id = result["flow_id"]
+    await hass.config_entries.options.async_configure(flow_id, {"next_step_id": "features"})
+    result = await hass.config_entries.options.async_configure(flow_id, {"next_step_id": "balancing"})
+    assert form_values(result)["opti_balancing_halten_vor_peak"] is enabled
+    hass.config_entries.options.async_abort(flow_id)

@@ -195,7 +195,7 @@ SETTING_GROUPS = {
     "tariff": ["ladepreis", "mindestpreisdifferenz_lade_entladepreis", "opti_einspeiseverguetung_ct", "opti_netzlade_spread_ct", "opti_peak_min_aufschlag_ct", "opti_halte_spread_ct", "hausakku_aus_netz_laden"],
     "forecast": ["opti_forecast_optimismus", "opti_peak_verbrauch_kw", "opti_prognose_netzladen"],
     "ev": ["opti_ev_akku_pause"],
-    "balancing": ["opti_balancing_intervall_tage", "opti_balancing_karenz_tage", "opti_balancing_max_ct", "opti_balancing_done_soc", "opti_balancing_haltezeit_h", "opti_balancing_spreizungs_schwelle", "opti_balancing_bedarf_cooldown_tage", "opti_balancing_netzladen", "opti_zellspannung_reserve_v"],
+    "balancing": ["opti_balancing_intervall_tage", "opti_balancing_karenz_tage", "opti_balancing_max_ct", "opti_balancing_done_soc", "opti_balancing_haltezeit_h", "opti_balancing_halten_vor_peak", "opti_balancing_spreizungs_schwelle", "opti_balancing_bedarf_cooldown_tage", "opti_balancing_netzladen", "opti_zellspannung_reserve_v"],
     "finish": ["akku_opti_automatik"],
 }
 _GROUPED = {key for keys in SETTING_GROUPS.values() for key in keys}

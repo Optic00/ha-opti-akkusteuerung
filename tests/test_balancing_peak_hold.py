@@ -17,7 +17,7 @@ PRICE = "sensor.opti_price_current_ct_kwh"
 WATCHDOG = "sensor.opti_balancing_watchdog"
 PEAK = "binary_sensor.opti_peak_reserve_aktiv"
 LEVEL = "sensor.opti_price_level"
-REASON = "Balancing-Watchdog (Haltefenster vor Preisspitze)"
+REASON = "Balancing-Watchdog (Haltefenster, Vorrang vor Peak-Leiter)"
 
 
 @pytest.fixture
@@ -168,4 +168,17 @@ def test_real_pipeline_keeps_balancing_and_temperature_limits(
     if option == "on":
         assert result.reason == REASON
         assert float(result.states[POWER]) == hold_power
+    assert_parity(result)
+
+
+@pytest.mark.parametrize("option,expected_reason", [
+    ("on", REASON), ("off", "Balancing-Watchdog (Haltefenster)"),
+])
+def test_without_peak_mode_is_unchanged_and_reason_stays_neutral(hold_engine, option, expected_reason):
+    """Ohne Preisspitze ändert die Option nur den Grund-Text, nicht Modus oder Entscheidung."""
+    result = hold_engine.evaluate(
+        peak_states("NORMAL", **{OPTION: option, PRICE: 30, PEAK: "off"}), peak_attrs(), NOW)
+    assert result.decision_id == "balancing_hold"
+    assert result.mode == "Akku nur Laden"
+    assert result.reason == expected_reason
     assert_parity(result)

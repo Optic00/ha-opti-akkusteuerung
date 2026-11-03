@@ -236,7 +236,7 @@ strategy:
     # Wie der spätere Haltezweig sperrt auch dieser die Entladung bei EV-Schnellladung
     # und Extrempreis-Reserve. Die frühere Position schwächt diese Sperren nicht;
     # balancing_hold verhindert außerdem Mindestladen aus dem Netz im Coordinator.
-    - alias: 'Balancing-Watchdog (Haltefenster vor Preisspitze)'
+    - alias: 'Balancing-Watchdog (Haltefenster, Vorrang vor Peak-Leiter)'
       conditions:
       - condition: state
         entity_id: input_boolean.opti_balancing_halten_vor_peak

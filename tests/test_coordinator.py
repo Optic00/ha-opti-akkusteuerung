@@ -4235,7 +4235,7 @@ def test_cell_voltage_reserve_is_off_or_within_safe_range(value, valid):
 
 @pytest.mark.parametrize("reason", [
     "Balancing-Watchdog (Haltefenster)",
-    "Balancing-Watchdog (Haltefenster vor Preisspitze)",
+    "Balancing-Watchdog (Haltefenster, Vorrang vor Peak-Leiter)",
 ])
 @pytest.mark.parametrize("manual_mode, decision_id, expected", [
     (None, "balancing_hold", 0),

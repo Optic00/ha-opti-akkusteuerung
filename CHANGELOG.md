@@ -10,7 +10,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Hinzugefügt
 
-- Option `opti_balancing_halten_vor_peak`, standardmäßig aus (PR-Nummer offen):
+- Option `opti_balancing_halten_vor_peak`, standardmäßig aus
+  ([#199](https://github.com/Optic00/ha-opti-akkusteuerung/pull/199)):
   Ein bestehendes Balancing-Haltefenster kann bei Watchdog „aus“ und gültigem
   Preis bis einschließlich 60 ct/kWh Vorrang vor L1/L2 erhalten. Keine
   Verlängerung oder nachgeholten Halteminuten, kein erzwungenes Netzladen;

@@ -324,7 +324,17 @@ die Entladesperre aufrecht und erlaubt PV-Nachladen mit den bestehenden strengen
 Balancing-Ladegrenzen (ab 96 % höchstens 0,02C, davor ab 92 % höchstens 0,05C).
 Es wird kein Mindestladen aus dem Netz erzwungen. Ohne PV bezieht das Haus während
 des Haltens seinen Bedarf jedoch aus dem Netz; dadurch können Stromkosten entstehen.
-MinSOC-Schutz, zulässiges Netzladen, Peak-Vorladen und Peak-Entladung haben Vorrang.
+MinSOC-Schutz, zulässiges Netzladen, Peak-Vorladen und Peak-Entladung haben standardmäßig Vorrang.
+
+Die Option **Balancing-Halten vor Preisspitzen**
+(`input_boolean.opti_balancing_halten_vor_peak`) ist standardmäßig aus. Eingeschaltet
+gibt sie einem bestehenden Haltefenster Vorrang vor Peak-Entladung durch L1 und
+L2, sofern der Balancing-Watchdog „aus“ und der aktuelle Preis
+gültig und höchstens 60 ct/kWh ist. Bei höherem, fehlendem oder ungültigem Preis
+gilt die bisherige Priorität. Die Option verlängert das Fenster nicht und holt
+keine verdrängten Halteminuten nach. Sie erzwingt kein Netzladen; Schutzregeln,
+die 90-%-SoC-Grenze sowie EV- und Extrempreis-Entladesperren bleiben wirksam.
+Ohne PV kann der Vorrang vor Peak-Entladung die Netzkosten des Hauses erhöhen.
 
 Das Haltefenster endet an einer festen Frist ab dem gespeicherten Abschluss.
 Eine Änderung der Haltezeit während eines laufenden Fensters verschiebt dessen Ende;

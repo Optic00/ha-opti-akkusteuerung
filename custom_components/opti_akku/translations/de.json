@@ -148,6 +148,7 @@
           "opti_balancing_max_ct": "Balancing-Preisgrenze",
           "opti_balancing_done_soc": "Balancing-Zielladestand",
           "opti_balancing_haltezeit_h": "Balancing-Haltezeit (0 = aus)",
+          "opti_balancing_halten_vor_peak": "Balancing-Halten vor Preisspitzen",
           "opti_balancing_spreizungs_schwelle": "Zellabweichung für Balancing",
           "opti_balancing_bedarf_cooldown_tage": "Balancing-Abstand bei Bedarf",
           "opti_balancing_netzladen": "Netzladen für Balancing erlauben",
@@ -530,6 +531,7 @@
           "opti_balancing_max_ct": "Balancing-Preisgrenze",
           "opti_balancing_done_soc": "Balancing-Zielladestand",
           "opti_balancing_haltezeit_h": "Balancing-Haltezeit (0 = aus)",
+          "opti_balancing_halten_vor_peak": "Balancing-Halten vor Preisspitzen",
           "opti_balancing_spreizungs_schwelle": "Zellabweichung für Balancing",
           "opti_balancing_bedarf_cooldown_tage": "Balancing-Abstand bei Bedarf",
           "opti_balancing_netzladen": "Netzladen für Balancing erlauben",
@@ -743,6 +745,9 @@
       },
       "opti_ev_akku_pause": {
         "name": "Entladung bei Autoladung sperren"
+      },
+      "opti_balancing_halten_vor_peak": {
+        "name": "Balancing-Halten vor Preisspitzen"
       },
       "opti_balancing_netzladen": {
         "name": "Netzladen für Balancing erlauben"

@@ -148,6 +148,7 @@
           "opti_balancing_max_ct": "Balancing price ceiling",
           "opti_balancing_done_soc": "Balancing target charge level",
           "opti_balancing_haltezeit_h": "Balancing hold time (0 = off)",
+          "opti_balancing_halten_vor_peak": "Prioritize balancing hold over peak",
           "opti_balancing_spreizungs_schwelle": "Cell spread for balancing",
           "opti_balancing_bedarf_cooldown_tage": "Demand balancing cooldown",
           "opti_balancing_netzladen": "Allow grid charging for balancing",
@@ -530,6 +531,7 @@
           "opti_balancing_max_ct": "Balancing price ceiling",
           "opti_balancing_done_soc": "Balancing target charge level",
           "opti_balancing_haltezeit_h": "Balancing hold time (0 = off)",
+          "opti_balancing_halten_vor_peak": "Prioritize balancing hold over peak",
           "opti_balancing_spreizungs_schwelle": "Cell spread for balancing",
           "opti_balancing_bedarf_cooldown_tage": "Demand balancing cooldown",
           "opti_balancing_netzladen": "Allow grid charging for balancing",
@@ -743,6 +745,9 @@
       },
       "opti_ev_akku_pause": {
         "name": "Block discharge during car charging"
+      },
+      "opti_balancing_halten_vor_peak": {
+        "name": "Prioritize balancing hold over peak"
       },
       "opti_balancing_netzladen": {
         "name": "Allow grid charging for balancing"

@@ -4233,25 +4233,30 @@ def test_cell_voltage_reserve_is_off_or_within_safe_range(value, valid):
             validate_setting(key, value, current)
 
 
+@pytest.mark.parametrize("reason", [
+    "Balancing-Watchdog (Haltefenster)",
+    "Balancing-Watchdog (Haltefenster, Vorrang vor Peak-Leiter)",
+])
 @pytest.mark.parametrize("manual_mode, decision_id, expected", [
     (None, "balancing_hold", 0),
     ("Akku nur Laden", "balancing_hold", 500),
     (None, "below_target", 500),
 ])
 async def test_balancing_hold_never_forces_minimum_grid_charge(
-    coordinator, hass, manual_mode, decision_id, expected
+    coordinator, hass, manual_mode, decision_id, expected, reason
 ):
     from custom_components.opti_akku.engine import Evaluation
 
     hass.config_entries.async_update_entry(
         coordinator.entry, data={**coordinator.entry.data, "backend": "sma_modbus"})
     coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_boolean.opti_balancing_halten_vor_peak"] = True
     coordinator.settings["input_number.akkusteuerung_min_ladestaerke"] = 500
     coordinator.manual_mode = manual_mode
     coordinator.write_enabled = True
     evaluation = Evaluation(
         {**active_hold_evaluation().states, "sensor.opti_soc": 92},
-        {}, "Akku nur Laden", "Balancing-Watchdog (Haltefenster)", {}, decision_id=decision_id)
+        {}, "Akku nur Laden", reason, {}, decision_id=decision_id)
     with patch.object(coordinator.engine, "evaluate", return_value=evaluation):
         data = await coordinator._async_update_data()
     assert data["mode"] == "Akku nur Laden"

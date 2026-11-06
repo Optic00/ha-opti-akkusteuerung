@@ -8,6 +8,16 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Behoben
+
+- Das Aktivieren einer standardmäßig deaktivierten Entität beendet keinen manuellen
+  Modus mehr ([#183](https://github.com/Optic00/ha-opti-akkusteuerung/issues/183)).
+  Home Assistant lädt den Eintrag danach neu; manueller Modus, Schreibfreigabe
+  (auch ohne Strategie) und die prognoseunabhängige Ladegrenze bleiben dabei
+  erhalten. Die kurze Pause beim Entladen bleibt als Absicherung. Ohne bestätigte
+  Pause, bei geänderter Verbindung oder Quellen und bei einem gewöhnlichen
+  Neustart gilt weiter der bisherige Ablauf. Siehe [Betrieb](docs/operation.md).
+
 ## [2026.11-beta2] - 2026-11-05
 
 ### Hinzugefügt

@@ -846,18 +846,76 @@ async def test_stale_entity_enable_does_not_keep_manual_mode(hass, entry):
         await hass.async_block_till_done()
 
 
-async def test_unconfirmed_phased_pause_blocks_reload_handover(hass, entry):
-    from unittest.mock import PropertyMock
+def _phased_device(shutdown_error=None):
+    class Phased:
+        PHASED = True
+        supported_modes = ("Akku Pause", "Akku nur Laden")
+        supports_control_release = False
+    dev = Phased()
+    dev.async_probe = AsyncMock(return_value={"serial_number": "123456789", "inverter_status": 235})
+    dev.async_read = device().async_read
+    dev.async_apply = AsyncMock()
+    dev.async_shutdown_control = AsyncMock(side_effect=shutdown_error)
+    return dev
 
-    inverter = device()
-    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
-        await _manual_entry_with_enabled_entity(hass, entry, inverter)
-        with patch.object(OptiCoordinator, "pause_unconfirmed", new_callable=PropertyMock, return_value=True):
-            assert await hass.config_entries.async_reload(entry.entry_id)
-            await hass.async_block_till_done()
-        assert entry.runtime_data.manual_mode is None
+
+@pytest.mark.parametrize(("shutdown_error", "kept"), [(None, True), (OSError("bus"), False)])
+async def test_phased_pause_debt_decides_reload_handover(hass, entry, shutdown_error, kept):
+    """A real open Huawei pause debt blocks the handover; a cleared one allows it."""
+    from homeassistant.helpers import entity_registry as er
+
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "strategy_enabled": False})
+    dev = _phased_device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=dev):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        before = entry.runtime_data
+        await before.async_set_mode("Akku nur Laden")
+        await before.async_set_write_enabled(True)
+        assert before._pause_pending
+        registry = er.async_get(hass)
+        disabled = next(item for item in er.async_entries_for_config_entry(registry, entry.entry_id)
+                        if item.disabled_by is er.RegistryEntryDisabler.INTEGRATION)
+        registry.async_update_entity(disabled.entity_id, disabled_by=None)
+        await hass.async_block_till_done()
+        dev.async_shutdown_control.side_effect = shutdown_error
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+        dev.async_shutdown_control.assert_awaited()
+        assert (entry.runtime_data.manual_mode == "Akku nur Laden") is kept
+        dev.async_shutdown_control.side_effect = None
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
+
+
+async def test_write_disable_lost_in_store_is_not_restored_by_handover(hass, entry):
+    """Live state at unload wins over a store whose write disable never landed."""
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    old = OptiCoordinator(hass, entry, device(), engine)
+    await old.async_restore()
+    old.write_enabled = True
+    await old._store.async_save(old._stored_data())
+    new = OptiCoordinator(hass, entry, device(), engine)
+    handover = {"at": time.monotonic(), "manual_mode": "Akku nur Laden", "write_enabled": False,
+                "manual_charge_limit": False, "connection": dict(new.connection_config),
+                "sources": dict(new.source_options)}
+    await new.async_restore(handover)
+    assert new.manual_mode == "Akku nur Laden"
+    assert new.write_enabled is False
+    await old.async_stop()
+    await new.async_stop()
+
+
+async def test_reload_handover_keeps_charge_limit_in_strategy_mode(hass, entry):
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    new = OptiCoordinator(hass, entry, device(), engine)
+    handover = {"at": time.monotonic(), "manual_mode": None, "write_enabled": True,
+                "manual_charge_limit": True, "connection": dict(new.connection_config),
+                "sources": dict(new.source_options)}
+    await new.async_restore(handover)
+    assert new.manual_mode is None
+    assert new.settings["input_boolean.opti_manuelle_ladegrenze"] is True
+    await new.async_stop()
 
 
 async def test_failed_sma_unload_pause_blocks_reload_handover(hass, entry):

@@ -43,7 +43,8 @@ der Balancing-Taper bleiben wirksam. Das gilt sowohl für manuell gewählte als
 auch für automatisch gewählte Modi, die die berechnete Ladeleistung verwenden
 (**Akku nur Laden**, **Akku Dynamisch**, **Akku Netzladen**).
 Nach HA-Neustart oder Neuladen der Integration ist die Option wieder aus; eine
-YAML-Migration aktiviert sie nicht automatisch. Nicht zusammen mit Verbindungs-
+YAML-Migration aktiviert sie nicht automatisch. Ausnahme ist das Neuladen nach dem
+Aktivieren einer Opti-Entität, siehe [Betrieb](operation.md). Nicht zusammen mit Verbindungs-
 oder Quellenänderungen einschalten, da diese ein Neuladen auslösen. Die Wattgrenze wird übernommen.
 Eine Ladeobergrenze erzwingt kein reines PV-Laden; dafür müssen auch Betriebsart,
 Mindestladeleistung und Netzladefreigaben passen. **Strategie berechnen** aus

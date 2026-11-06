@@ -364,8 +364,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self._stopping and self.write_enabled and not self.shadow_mode and not self._unload_pause_confirmed
 
     def reload_handover(self) -> dict | None:
-        """Manual control to keep across the reload HA does after enabling an entity (#183)."""
-        if not self.entity_enable_noted or self.shadow_mode:
+        """Manual control to keep across the reload HA does after enabling an entity (#183).
+
+        The caller decides whether the unload follows an entity enable."""
+        if self.shadow_mode:
             return None
         return {"manual_mode": self.manual_mode,
                 "write_enabled": self.write_enabled,
@@ -471,6 +473,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ("no_supported_modes", not self.supported_modes),
         ) if blocked]
         self.write_enabled = bool(stored.get("write_enabled", False)) and not restore_blockers
+        if handover is not None and handover.get("write_enabled") is not True:
+            # The live state at unload wins over a store that may lag behind,
+            # e.g. a write disable whose save did not complete.
+            self.write_enabled = False
         if stored.get("write_enabled") is True and restore_blockers:
             # Never silently lose control across a restart: name the reason.
             self._write_restore_blocked = restore_blockers[0]
@@ -491,8 +497,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # a restart. Strategy decisions are recomputed from current inputs.
         # Exception: the reload HA performs after an entity was enabled (#183).
         self.manual_mode = handover_mode
-        if handover_mode is not None:
+        if handover is not None:
             self.settings["input_boolean.opti_manuelle_ladegrenze"] = handover.get("manual_charge_limit") is True
+        if handover_mode is not None:
             _LOGGER.info("Manueller Modus %s nach Neuladen durch Aktivieren einer Entität beibehalten", handover_mode)
         self._manual_charge_blocked = stored.get("manual_charge_blocked") is True
         self._manual_discharge_blocked = stored.get("manual_discharge_blocked") is True

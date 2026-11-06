@@ -96,15 +96,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Stop writes before releasing entities and the shared Modbus unit."""
     coordinator = entry.runtime_data
-    # Captured before stopping. The pause below still runs: if the following
+    # Whether this unload follows an entity enable is decided before the pause,
+    # which may take long. The pause itself always runs: if the following
     # setup fails, the inverter must not keep a forced command.
-    handover = coordinator.reload_handover() if entry.disabled_by is None and hass.is_running else None
+    after_enable = coordinator.entity_enable_noted
     await coordinator.async_stop()
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    # Recheck after the awaits: the entry may have been disabled or HA may be
-    # stopping meanwhile. Without a confirmed pause, no forced mode resumes.
-    if (unloaded and handover is not None and entry.disabled_by is None and hass.is_running
-            and not coordinator.pause_unconfirmed):
+    # The control state is read only now, after the entities are gone, so no
+    # later mode or write change is lost. Recheck the entry and HA as well.
+    # Without a confirmed pause, no forced mode resumes.
+    if (unloaded and after_enable and entry.disabled_by is None and hass.is_running
+            and not coordinator.pause_unconfirmed and (handover := coordinator.reload_handover()) is not None):
         hass.data.setdefault(RELOAD_HANDOVER_KEY, {})[entry.entry_id] = {
             **handover, "at": time.monotonic(), "task": asyncio.current_task()}
     return unloaded

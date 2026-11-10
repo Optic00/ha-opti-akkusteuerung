@@ -376,6 +376,14 @@ Peak-Rangfolge, der Horizont-Planer im Schattenbetrieb (Verschleiß je entladene
 `wear_ct_kwh` gesetzt ist) und die Arbitrage-Anzeige. Die Anzeige selbst bleibt ohne
 Konfiguration bei `not_configured` und zeigt keine angenommenen Zahlen.
 
+Steuernd wirkt der Entladewirkungsgrad auf die Peak-Reserve: Die benötigte Energie der
+teuren Stunden wird durch ihn geteilt (`sensor.opti_peak_reserve_soc`, `reserve_ve_soc`,
+`extreme_reserve_soc`). Mit den Standardwerten bleibt die Reserve wie bisher. Bei 95 %
+wird der Reserveanteil über dem Mindest-SoC rund 5 % kleiner, bei 85 % rund 6 % größer.
+Fehlt das Akkumodell oder ist sein Wert nicht plausibel (nicht größer 0 und höchstens
+1), rechnet die Reserve weiter mit 90 %. Der Reserveplan meldet den verwendeten Wert
+unter `assumed_discharge_efficiency`.
+
 ### Schattenvergleich der Peak-Vorladeschwelle
 
 Ist die Arbitrage-Anzeige konfiguriert und liegt ein aktueller Preis vor, vergleicht

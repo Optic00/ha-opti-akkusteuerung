@@ -149,3 +149,15 @@ class BatteryModel:
             "source": self.source,
         }
 
+
+def template_discharge_efficiency(value: Any) -> float:
+    """The discharge efficiency the reserve template uses for ``value``.
+
+    Same rule as the template fallback: a number in (0, 1], otherwise the
+    default. The reserve never disappears because the model is missing.
+    """
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return DEFAULT_DISCHARGE_EFFICIENCY
+    return result if isfinite(result) and 0 < result <= 1 else DEFAULT_DISCHARGE_EFFICIENCY

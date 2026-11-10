@@ -14,6 +14,10 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   einem gemeinsamen Akkumodell. Ohne konfigurierte Arbitrage-Annahmen gelten 90 %
   Lade- und 90 % Entladewirkungsgrad und 3 ct/kWh Zykluskosten; die Steuerung rechnet
   damit wie bisher. Die Werte stehen im neuen Diagnosesensor „Akkumodell“.
+- Wer unter **Konfigurieren → Optionale Funktionen → Wirtschaftlichkeitsvergleich**
+  eigene Wirkungsgrade eingetragen hat: Der Entladewirkungsgrad bestimmt jetzt auch
+  die Peak-Reserve. Bei 95 % wird der Reserveanteil über dem Mindest-SoC rund 5 %
+  kleiner, bei 85 % rund 6 % größer.
 - Der Horizont-Planer (Schattenbetrieb) rechnet mit denselben Werten statt fest mit
   95 % und 3 ct. Seine Vergleichszahlen sind mit früheren nicht direkt vergleichbar.
 - Zwei Reservezweige der Strategie (SoC unter 20 % und SoC unter 75 % bei

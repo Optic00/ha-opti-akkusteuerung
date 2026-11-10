@@ -186,9 +186,9 @@ werden nicht geändert.
 Unter **Optionale Funktionen → Wirtschaftlichkeitsvergleich** eingetragene
 Wirkungsgrade, Akkukosten, Zyklen und Marge betreffen nicht mehr nur die Anzeige: Sie
 bilden das gemeinsame Akkumodell (`sensor.opti_battery_model`), mit dem auch
-Bedarfsprognose, Schattenvergleiche und Horizont-Planer rechnen. Ohne diese Angaben
-gelten 90 % je Richtung und 3 ct/kWh Zykluskosten. Einzelheiten stehen unter
-„Akkumodell“ in [Prognose und Auto](forecast-and-ev.md#akkumodell).
+Bedarfsprognose, Schattenvergleiche, Horizont-Planer und die Peak-Reserve rechnen.
+Ohne diese Angaben gelten 90 % je Richtung und 3 ct/kWh Zykluskosten. Einzelheiten
+stehen unter „Akkumodell“ in [Prognose und Auto](forecast-and-ev.md#akkumodell).
 
 ### Referenz-Ladepreis und Mindestgewinn beim Entladen
 

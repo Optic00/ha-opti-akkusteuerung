@@ -9,6 +9,7 @@ from custom_components.opti_akku.battery_model import (
     FIELDS,
     BatteryModel,
     invalid_arbitrage_fields,
+    template_discharge_efficiency,
 )
 
 CONFIGURED = {
@@ -131,3 +132,11 @@ def test_engine_state_reports_all_values(options):
     assert attributes["discharge_efficiency"] == model.discharge_efficiency
     assert attributes["throughput_cost_ct_kwh"] == round(model.throughput_cost_ct_kwh, 3)
 
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(0.95, 0.95), ("0.85", 0.85), (1, 1.0), (0, 0.9), (-1, 0.9), (1.5, 0.9), ("abc", 0.9),
+     (None, 0.9), (float("inf"), 0.9), (float("nan"), 0.9)],
+)
+def test_template_discharge_efficiency_follows_the_template_fallback(value, expected):
+    assert template_discharge_efficiency(value) == expected

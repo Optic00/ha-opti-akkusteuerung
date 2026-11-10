@@ -32,6 +32,8 @@ from .arbitrage import (
     precharge_assumptions,
     precharge_spread_check,
 )
+from .battery_model import ENGINE_ENTITY as BATTERY_MODEL_ENTITY
+from .battery_model import BatteryModel
 from .command_evidence import build_command_evidence
 from .device import PendingCommandError, DeviceAdapter, StaleCommandError
 from .engine import Evaluation
@@ -110,6 +112,7 @@ def _build_metadata(engine: Any) -> dict:
         "sensor.opti_negative_price_hold": {"name": "Schattenvergleich PV-Ladung bis Preisfenster"},
         "sensor.opti_peak_rank": {"name": "Schattenvergleich Peak-Rangfolge"},
         "sensor.opti_plan_shadow": {"name": "Schattenplaner Horizont"},
+        BATTERY_MODEL_ENTITY: {"name": "Akkumodell (Wirkungsgrad und Zykluskosten)"},
         "binary_sensor.opti_connection": {"name": "Verbindung", "device_class": "connectivity"},
         "binary_sensor.opti_block_violation": {"name": "Sperrverletzung", "device_class": "problem"},
         "binary_sensor.opti_write_stalled": {"name": "Schreibstillstand", "device_class": "problem"},
@@ -283,6 +286,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._negative_price_hold = NegativePriceHoldShadow()
         self._peak_rank = PeakRankShadow()
         self._planner = PlannerShadow()
+        self._battery_model = BatteryModel.default()
         self._planner_history = ForecastHistory()
         self._demand_forecast = DemandForecast()
         self._ev_preparation = EVPreparation()
@@ -922,6 +926,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 previous_data.get("engine_requested_mode", previous_mode),
             )
         states["input_select.akkusteuerung_modus"] = self.manual_mode or previous_mode
+        # One battery model per cycle, rebuilt from the options (no cache).
+        self._battery_model = BatteryModel.from_options(captured_options.get("arbitrage_estimate"))
+        states[BATTERY_MODEL_ENTITY], attributes[BATTERY_MODEL_ENTITY] = self._battery_model.engine_state()
         demand_cfg = captured_options.get("demand_forecast", {})
         demand_comparison_enabled = (
             isinstance(demand_cfg, dict) and demand_cfg.get("enabled") is True
@@ -953,6 +960,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass.states,
                 dt_util.DEFAULT_TIME_ZONE,
                 self._load_source_fingerprint,
+                model=self._battery_model,
             )
         except Exception as err:  # Forecast activation must fail back to the legacy score.
             _LOGGER.debug("Demand observation unavailable: %s", type(err).__name__)
@@ -1452,8 +1460,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 minsoc=self.settings.get("input_number.minsoc"), maxsoc=self.settings.get("input_number.maxsoc"),
                 peak_reserve_active=states.get("binary_sensor.opti_peak_reserve_aktiv") == "on",
                 peak_reserve_soc=states.get("sensor.opti_peak_reserve_soc"),
+                charge_efficiency=self._battery_model.charge_efficiency,
             )
-            assumptions = [self.settings.get("input_number.opti_einspeiseverguetung_ct"),
+            assumptions = [self._battery_model.charge_efficiency,
+                           self.settings.get("input_number.opti_einspeiseverguetung_ct"),
                            self.settings.get("input_number.minsoc"), self.settings.get("input_number.maxsoc")]
             check["source"] = forecast_entity
             check["totals"] = self._negative_price_hold.observe(
@@ -1489,11 +1499,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 spread_ct=settings.get("input_number.opti_netzlade_spread_ct"),
                 feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
                 score=states.get("sensor.opti_forecast_score"),
+                discharge_efficiency=self._battery_model.discharge_efficiency,
             )
-            assumptions = [settings.get(name) for name in (
+            # The model's discharge efficiency restarts the totals when it changes.
+            assumptions = [self._battery_model.discharge_efficiency, *(settings.get(name) for name in (
                 "input_number.minsoc", "input_number.opti_netzlade_spread_ct",
                 "input_number.opti_peak_min_aufschlag_ct", "input_number.opti_einspeiseverguetung_ct",
-                "input_boolean.opti_prognose_netzladen", "input_number.opti_peak_verbrauch_kw")]
+                "input_boolean.opti_prognose_netzladen", "input_number.opti_peak_verbrauch_kw"))]
             check["totals"] = self._peak_rank.observe(
                 now, check, assumptions, states.get("sensor.opti_battery_power_w"))
         except Exception as err:  # Observation only; never affects the decision.
@@ -1564,7 +1576,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 grid_charging=settings.get("input_boolean.opti_prognose_netzladen") is True,
                 ladder_mode=data.get("mode"),
                 quantile=cfg.get("quantile", "p10"),
-                wear_ct_kwh=_option_number(cfg, "wear_ct_kwh", 3.0),
+                # An explicit planner option wins over the battery model.
+                wear_ct_kwh=_option_number(cfg, "wear_ct_kwh", self._battery_model.wear_ct_per_discharged_ac_kwh),
+                eta_charge=self._battery_model.charge_efficiency,
+                eta_discharge=self._battery_model.discharge_efficiency,
                 terminal_factor=_option_number(cfg, "terminal_factor", 0.8),
                 min_benefit_ct=_option_number(cfg, "min_benefit_ct", 0.0),
                 grid_check_quantile=cfg.get("grid_check_quantile"),

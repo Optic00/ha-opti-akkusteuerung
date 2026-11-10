@@ -9,6 +9,9 @@ from copy import deepcopy
 from datetime import datetime
 from math import isfinite
 
+from .battery_model import ENGINE_ENTITY as BATTERY_MODEL_ENTITY
+from .battery_model import template_discharge_efficiency
+
 MAX_INTERVAL = 90
 
 
@@ -74,7 +77,8 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> 
         "priority_reserve_soc": priority if valid else None,
         "horizon_end": attrs.get("horizont_ende") if valid else None,
         "assumed_load_w": number(attrs.get("assumed_load_w")) if number(attrs.get("assumed_load_w")) is not None else load * 1000 if load is not None else None,
-        "assumed_discharge_efficiency": 0.9,
+        "assumed_discharge_efficiency": template_discharge_efficiency(
+            (data.get("attributes", {}).get(BATTERY_MODEL_ENTITY) or {}).get("discharge_efficiency")),
         "required_battery_kwh": number(attrs.get("benoetigt_kwh")) if valid else None,
         "extreme_buffer_kwh": round(extreme_buffer_kwh, 4)
         if valid and extreme_buffer_kwh is not None else None,

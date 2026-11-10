@@ -760,3 +760,38 @@ def test_precharge_comparison_restore_survives_non_mapping(saved):
     acc = PrechargeComparison()
     acc.restore(saved)
     assert acc.snapshot() == PrechargeComparison().snapshot()
+
+
+def test_estimate_from_battery_model_is_unchanged():
+    """Golden values of the display before the shared battery model (B4)."""
+    config = {
+        "enabled": True,
+        "battery_price_eur": 6000,
+        "degradation_percent": 20,
+        "cycles": 6000,
+        "usable_capacity_kwh": 12.8,
+        "charge_efficiency_percent": 95,
+        "discharge_efficiency_percent": 95,
+        "margin_ct": 1,
+    }
+    assert build_arbitrage_estimate(config, 27) == {
+        "battery_price_eur": 6000.0,
+        "charge_efficiency": 0.95,
+        "charge_price_ct_kwh": 27.0,
+        "controls_battery": False,
+        "cycle_cost_floor_ct_kwh": 2.562,
+        "cycles": 6000.0,
+        "degradation_percent": 20.0,
+        "degradation_value_eur": 1200.0,
+        "discharge_efficiency": 0.95,
+        "formula": (
+            "p_high_min = (p_low / eta_charge + 2 * c_throughput + margin) / eta_discharge"
+        ),
+        "informational_only": True,
+        "margin_ct": 1.0,
+        "minimum_high_price_ct_kwh": 32.614,
+        "minimum_spread_ct_kwh": 5.614,
+        "status": "ready",
+        "throughput_cost_ct_kwh": 0.781,
+        "usable_capacity_kwh": 12.8,
+    }

@@ -4491,13 +4491,26 @@ SOFT_UNITS = {
     "forecast_today": ("5.1", "5.0", "kWh"),
     "forecast_tomorrow": ("5.1", "5.0", "kWh"),
     "forecast_remaining": ("5.1", "5.0", "kWh"),
-    "price_series": ("ok", "updated", None),
+    "price_series": ("0.30", "0.31", "series"),
     "cell_spread": ("0.010", "0.012", "V"),
 }
 
 
+def _price_series_attributes(price):
+    from tests.test_price_sources import dated_prices
+
+    today = dt_util.now().date()
+    return {"unit_of_measurement": "EUR/kWh",
+            "today": dated_prices(today, timezone=dt_util.DEFAULT_TIME_ZONE, price=price),
+            "tomorrow": dated_prices(today + timedelta(days=1), timezone=dt_util.DEFAULT_TIME_ZONE, price=price)}
+
+
 def _set_source(hass, entity_id, state, unit):
-    hass.states.async_set(entity_id, state, {"unit_of_measurement": unit} if unit else {})
+    # A valid price series has a numeric state and dated intervals; an update
+    # changes both the state and the interval prices.
+    attributes = (_price_series_attributes(float(state)) if unit == "series"
+                  else {"unit_of_measurement": unit} if unit else {})
+    hass.states.async_set(entity_id, state, attributes)
 
 
 async def _confirm_first_command(coordinator, hass, entry, sources, initial):
@@ -4509,6 +4522,8 @@ async def _confirm_first_command(coordinator, hass, entry, sources, initial):
     data = await coordinator._async_update_data()
     assert data["command_result_this_update"] == "confirmed"
     assert coordinator._applied_mode is not None
+    # Every configured source is valid; otherwise the guard proves nothing.
+    assert not set(sources) & set(data["source_errors"]), data["source_errors"]
     # Make the next cycle due with the same mode: a renewal.
     coordinator._last_signature = None
     return coordinator._applied_mode
@@ -4588,11 +4603,11 @@ async def test_renewal_is_cancelled_when_forecast_becomes_unavailable(coordinato
 
 async def test_renewal_is_cancelled_when_current_price_changes(coordinator, hass, entry):
     await _confirm_first_command(
-        coordinator, hass, entry, {"price_current": "sensor.price"}, {"sensor.price": ("25", "ct/kWh")}
+        coordinator, hass, entry, {"price_current": "sensor.price"}, {"sensor.price": ("0.25", "EUR/kWh")}
     )
 
     async def change():
-        _set_source(hass, "sensor.price", "26", "ct/kWh")
+        _set_source(hass, "sensor.price", "0.26", "EUR/kWh")
 
     observed, _data = await _observe_renewal(coordinator, change)
     await _release_renewal_test(coordinator)
@@ -4603,11 +4618,11 @@ async def test_renewal_is_cancelled_when_entity_is_current_price_and_series(coor
     await _confirm_first_command(
         coordinator, hass, entry,
         {"price_current": "sensor.price", "price_series": "sensor.price"},
-        {"sensor.price": ("25", "ct/kWh")},
+        {"sensor.price": ("0.25", "series")},
     )
 
     async def change():
-        _set_source(hass, "sensor.price", "26", "ct/kWh")
+        _set_source(hass, "sensor.price", "0.26", "series")
 
     observed, _data = await _observe_renewal(coordinator, change)
     await _release_renewal_test(coordinator)
@@ -4626,6 +4641,7 @@ async def test_renewal_ignores_valid_update_of_every_soft_source(coordinator, ha
     observed, data = await _observe_renewal(coordinator, change)
     counters = (coordinator._revision - revision, coordinator._soft_revision - soft)
     await _release_renewal_test(coordinator)
+    assert key not in data["source_errors"]
     assert observed[1:] == [True, True]
     assert data["command_result_this_update"] == "confirmed"
     assert counters[0] == 0 and counters[1] >= 1
@@ -4635,11 +4651,11 @@ async def test_renewal_ignores_price_series_and_cell_spread_together(coordinator
     await _confirm_first_command(
         coordinator, hass, entry,
         {"price_series": "sensor.series", "cell_spread": "sensor.spread"},
-        {"sensor.series": ("ok", None), "sensor.spread": ("0.010", "V")},
+        {"sensor.series": ("0.30", "series"), "sensor.spread": ("0.010", "V")},
     )
 
     async def change():
-        _set_source(hass, "sensor.series", "updated", None)
+        _set_source(hass, "sensor.series", "0.31", "series")
         _set_source(hass, "sensor.spread", "0.012", "V")
 
     observed, data = await _observe_renewal(coordinator, change)
@@ -4652,12 +4668,12 @@ async def test_soft_and_hard_change_together_cancel_renewal(coordinator, hass, e
     await _confirm_first_command(
         coordinator, hass, entry,
         {"forecast_remaining": "sensor.fc", "price_current": "sensor.price"},
-        {"sensor.fc": ("5.1", "kWh"), "sensor.price": ("25", "ct/kWh")},
+        {"sensor.fc": ("5.1", "kWh"), "sensor.price": ("0.25", "EUR/kWh")},
     )
 
     async def change():
         _set_source(hass, "sensor.fc", "5.0", "kWh")
-        _set_source(hass, "sensor.price", "26", "ct/kWh")
+        _set_source(hass, "sensor.price", "0.26", "EUR/kWh")
 
     observed, _data = await _observe_renewal(coordinator, change)
     await _release_renewal_test(coordinator)

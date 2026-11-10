@@ -846,6 +846,69 @@ async def test_leaving_fast_discharge_clears_positive_setpoint_first(device, fol
     assert (40149, 0) not in raw_writes(unit)
 
 
+@pytest.mark.parametrize("previous", [sma.GRID_CHARGE, sma.FAST_CHARGE, sma.CHARGE_02C])
+@pytest.mark.parametrize("follow_up", [sma.AUTO, sma.FAST_DISCHARGE])
+async def test_leaving_charge_rail_clears_negative_setpoint_first(device, previous, follow_up):
+    """A stale -W in 40149 must not charge under Automatic's 802 renewal pulse."""
+    adapter, unit, _ = device
+    await adapter.async_apply(previous, PARAMETERS, lambda: True)
+    assert adapter._charge_setpoint_armed
+    unit.writes.clear()
+    await adapter.async_apply(follow_up, PARAMETERS, lambda: True)
+    writes = raw_writes(unit)
+    assert writes[0] == (40149, 0)
+    assert all(not (address == 40149 and value < 0) for address, value in writes)
+    assert not adapter._charge_setpoint_armed
+    unit.writes.clear()
+    await adapter.async_apply(follow_up, PARAMETERS, lambda: True)
+    assert (40149, 0) not in raw_writes(unit)
+
+
+@pytest.mark.parametrize("follow_up", [sma.GRID_CHARGE, sma.FAST_CHARGE, sma.CHARGE_02C])
+async def test_charge_rail_to_charge_rail_needs_no_clear(device, follow_up):
+    adapter, unit, _ = device
+    await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
+    unit.writes.clear()
+    await adapter.async_apply(follow_up, PARAMETERS, lambda: True)
+    writes = raw_writes(unit)
+    assert (40149, 0) not in writes
+    assert writes[-1][0] == 40149 and writes[-1][1] < 0
+    assert adapter._charge_setpoint_armed
+
+
+@pytest.mark.parametrize("lock", [sma.PAUSE, sma.ONLY_CHARGE, sma.DYNAMIC])
+async def test_charge_setpoint_via_lock_to_automatic_never_charges(device, lock):
+    """Issue #186: grid charge, a lock, then Automatic must not pulse-charge."""
+    adapter, unit, _ = device
+    await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
+    await adapter.async_apply(lock, PARAMETERS, lambda: True)
+    assert adapter._charge_setpoint_armed  # inert under 803, still on the device
+    unit.writes.clear()
+    await adapter.async_apply(sma.AUTO, PARAMETERS, lambda: True)
+    writes = raw_writes(unit)
+    rail = writes.index((40151, 802))
+    assert writes[rail + 1] == (40149, 0)
+    assert writes[-1] == (40151, 803)
+    assert not adapter._charge_setpoint_armed
+
+
+async def test_automatic_clears_armed_setpoint_under_its_own_802(device):
+    """Armed after an unconfirmed rail: clear inside the 802 window, before 803."""
+    adapter, unit, _ = device
+    await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+    assert not adapter._rail_confirmed
+    adapter._charge_setpoint_armed = True
+    unit.writes.clear()
+    await adapter.async_apply(sma.AUTO, PARAMETERS, lambda: True)
+    writes = raw_writes(unit)
+    assert writes[-3:] == [(40151, 802), (40149, 0), (40151, 803)]
+    assert not adapter._charge_setpoint_armed
+    unit.writes.clear()
+    await adapter.async_apply(sma.AUTO, PARAMETERS, lambda: True)
+    assert raw_writes(unit)[-2:] == [(40151, 802), (40151, 803)]
+    assert not any(address == 40149 for address, _ in unit.writes)
+
+
 async def test_cleanup_after_fast_discharge_clears_setpoint_before_pause(device):
     adapter, unit, _ = device
 

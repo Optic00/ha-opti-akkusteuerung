@@ -8,6 +8,16 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- SMA Sunny Island als ausschließlich lesendes Testprofil über Modbus TCP
+  ([#194](https://github.com/Optic00/ha-opti-akkusteuerung/issues/194)). Es läuft
+  wie das SBS-Profil immer im Shadow-Modus und weist jeden Schreibversuch ab.
+  Fehlen die Register für Lade- und Entladeleistung, zeigt die Akkuleistung die
+  AC-Leistung des Sunny Island mit umgekehrtem Vorzeichen. Diagnose und
+  Registerabzug dienen dem [Sunny-Island-Lesetest](docs/sunny-island-lesetest.md);
+  Werte, Vorzeichen und Skalierung am Gerät sind noch nicht bestätigt.
+
 ## [2026.11-beta2] - 2026-11-05
 
 ### Hinzugefügt

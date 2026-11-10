@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Willkommen: Wechselrichter verbinden",
-        "description": "Wähle die Anbindung deiner Batterie: SMA STP SE, SMA Sunny Boy Storage (lesender Test) oder eine vorhandene Huawei-Solar-Integration. Verbindung und Betriebsweise richtest du in den folgenden Schritten ein.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.\n\nWenn bereits ein Shadow-Eintrag geladen ist, erscheint die zusätzliche Auswahl „Shadow-Einstellungen für aktive Steuerung übernehmen“.",
+        "description": "Wähle die Anbindung deiner Batterie: SMA STP SE, SMA Sunny Boy Storage oder SMA Sunny Island (beide als lesender Test) oder eine vorhandene Huawei-Solar-Integration. Verbindung und Betriebsweise richtest du in den folgenden Schritten ein.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.\n\nWenn bereits ein Shadow-Eintrag geladen ist, erscheint die zusätzliche Auswahl „Shadow-Einstellungen für aktive Steuerung übernehmen“.",
         "data": {
           "backend": "Einrichtung",
           "host": "Host",
@@ -17,7 +17,7 @@
       },
       "sma_connection": {
         "title": "SMA-Wechselrichter verbinden",
-        "description": "Die Verbindungsprüfung liest nur. Das Profil SMA Sunny Boy Storage ist ein lesender Test: Es läuft immer im Shadow-Modus und steuert den Akku nie. PV-Erzeugung gesamt und die AC-Leistung des Sunny Tripower trägst du als Quellen ein.",
+        "description": "Die Verbindungsprüfung liest nur. Die Profile SMA Sunny Boy Storage und SMA Sunny Island sind lesende Tests: Sie laufen immer im Shadow-Modus und steuern den Akku nie. PV-Erzeugung gesamt und die AC-Leistung deiner PV-Wechselrichter trägst du als Quellen ein.",
         "data": {
           "host": "Host",
           "port": "Port",
@@ -1414,7 +1414,8 @@
     "profile": {
       "options": {
         "sma_stp_se": "SMA STP SE",
-        "sma_sbs": "SMA Sunny Boy Storage (lesender Test)"
+        "sma_sbs": "SMA Sunny Boy Storage (lesender Test)",
+        "sma_sunny_island": "SMA Sunny Island (lesender Test)"
       }
     }
   }

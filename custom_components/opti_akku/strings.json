@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Welcome: connect your inverter",
-        "description": "Choose your battery connection: SMA STP SE, SMA Sunny Boy Storage (read-only test) or an existing Huawei Solar integration. Configure the connection and operating mode in the following steps.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.\n\nIf a Shadow entry is already loaded, setup also offers “Copy Shadow settings for active control”.",
+        "description": "Choose your battery connection: SMA STP SE, SMA Sunny Boy Storage or SMA Sunny Island (both read-only tests) or an existing Huawei Solar integration. Configure the connection and operating mode in the following steps.\n\nWarning: With write access enabled, Opti Akku actively controls battery charging and discharging. Incorrect settings or errors may cause additional electricity costs, unintended operation or damage. Follow the manufacturer’s requirements and disable other writing controllers before enabling write access. Shadow mode remains strictly read-only.\n\nIf a Shadow entry is already loaded, setup also offers “Copy Shadow settings for active control”.",
         "data": {
           "backend": "Setup",
           "host": "Host",
@@ -17,7 +17,7 @@
       },
       "sma_connection": {
         "title": "Connect SMA inverter",
-        "description": "The connection check reads only. The SMA Sunny Boy Storage profile is a read-only test: it always runs in shadow mode and never controls the battery. Configure total PV generation and the Sunny Tripower's AC power as sources.",
+        "description": "The connection check reads only. The SMA Sunny Boy Storage and SMA Sunny Island profiles are read-only tests: they always run in shadow mode and never control the battery. Configure total PV generation and the AC power of your PV inverters as sources.",
         "data": {
           "host": "Host",
           "port": "Port",
@@ -1414,7 +1414,8 @@
     "profile": {
       "options": {
         "sma_stp_se": "SMA STP SE",
-        "sma_sbs": "SMA Sunny Boy Storage (read-only test)"
+        "sma_sbs": "SMA Sunny Boy Storage (read-only test)",
+        "sma_sunny_island": "SMA Sunny Island (read-only test)"
       }
     }
   }

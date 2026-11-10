@@ -1156,3 +1156,63 @@ async def test_command_signature_of_invalid_or_unverified_input_stays_exact(devi
     bad = dict(PARAMETERS, charge_power_w=float("nan"))
     assert adapter.command_signature(sma.DYNAMIC, bad) != adapter.command_signature(sma.DYNAMIC, PARAMETERS)
     assert adapter.command_signature(sma.DYNAMIC, bad)[0] == "exact"
+
+
+@pytest.mark.parametrize("error", ["ModbusConnectionError", "ModbusDesyncError", "ModbusTimeoutError"])
+async def test_link_error_on_the_serial_is_not_a_missing_serial(device, error):
+    import modbus_connection
+
+    adapter, unit, _ = device
+    unit.fail_once, unit.fail_once_error = {30057}, getattr(modbus_connection, error)
+    with pytest.raises(unit.fail_once_error):
+        await adapter.async_probe()
+    assert unit.reads.count((30057, 2)) == 1
+
+
+async def test_unreadable_serial_without_link_error_still_reports_none(device):
+    adapter, unit, _ = device
+    unit.fail_reads = {30057}
+    identity = await adapter.async_probe()
+    assert identity["serial_number"] is None
+    assert unit.reads.count((30057, 2)) == 2
+
+
+async def test_single_status_error_is_retried_in_probe_and_write_gate(device):
+    adapter, unit, _ = device
+    unit.fail_once = {33003}
+    identity = await adapter.async_probe()
+    assert identity["inverter_status"] == 235
+    unit.reads.clear()
+    unit.fail_once = {33003}
+    await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+    assert unit.reads.count((33003, 2)) == 2
+    assert last_bms(unit)[41259] == 303
+
+
+async def test_status_gate_never_retries_a_link_error(device):
+    from modbus_connection import ModbusDesyncError
+
+    adapter, unit, _ = device
+    await adapter.async_probe()
+    unit.reads.clear()
+    unit.fail_once, unit.fail_once_error = {33003}, ModbusDesyncError
+    with pytest.raises(ModbusDesyncError):
+        await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+    assert unit.reads.count((33003, 2)) == 1
+    assert not unit.writes
+
+
+@pytest.mark.parametrize("mode", [sma.FAST_CHARGE, sma.FAST_DISCHARGE, sma.GRID_CHARGE, sma.CHARGE_02C])
+async def test_rail_signature_follows_registers_actually_rewritten(device, mode):
+    """A repeat of an active rail writes only 802 and the setpoint."""
+    adapter, unit, _ = await _probed(device)
+    await adapter.async_apply(mode, PARAMETERS, lambda: True)
+    before = adapter.command_signature(mode, PARAMETERS)
+    limits = dict(PARAMETERS, max_charge_w=9000, max_discharge_w=7000)
+    assert adapter.command_signature(mode, limits) == before
+    unit.writes.clear()
+    await adapter.async_apply(mode, limits, lambda: True)
+    assert {address for address, _ in unit.writes} <= {40151, 40149}
+    # A limit that clamps the effective setpoint is still a new command.
+    clamped = dict(PARAMETERS, max_charge_w=1000, max_discharge_w=1000)
+    assert adapter.command_signature(mode, clamped) != before

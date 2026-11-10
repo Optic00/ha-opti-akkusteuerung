@@ -4414,7 +4414,10 @@ async def test_single_serial_read_error_keeps_real_sma_driver_online(hass, entry
         await c._async_update_data()
         c.write_enabled = True
         unit.fail_once = {30057}
+        unit.reads.clear()
         data = await c._async_update_data()
+        assert unit.failed == [30057]
+        assert unit.reads.count(30057) == 2
         assert data["online"] is True
         assert data["identity"]["serial_number"] == "123456789"
         assert data["command_result_this_update"] == "confirmed"
@@ -4434,12 +4437,16 @@ class SmaUnit:
                        30775: 3000, 30865: 0, 30867: 2200, 30773: 1600, 30961: 1600}
         self.fail_once = set()
         self.writes = []
+        self.reads = []
+        self.failed = []
 
     def set_message_spacing(self, value):
         pass
 
     async def read_holding_registers(self, address, count):
+        self.reads.append(address)
         if address in self.fail_once:
+            self.failed.append(address)
             self.fail_once.discard(address)
             raise ModbusError("busy")
         value = self.values[address]
@@ -4447,3 +4454,17 @@ class SmaUnit:
 
     async def write_registers(self, address, values):
         self.writes.append((address, (values[0] << 16) | values[1]))
+
+
+async def test_superseded_command_keeps_an_earlier_write_error(coordinator):
+    """Only a confirmed write clears a write error, never a superseded one."""
+    from custom_components.opti_akku.device import StaleCommandError
+
+    coordinator.write_enabled = True
+    coordinator.device.async_apply.side_effect = OSError("bus")
+    await coordinator._async_update_data()
+    assert coordinator._last_error == "Schreibvorgang nicht bestätigt: OSError"
+    coordinator.device.async_apply.side_effect = StaleCommandError("changed")
+    data = await coordinator._async_update_data()
+    assert data["command_result_this_update"] == "superseded"
+    assert data["last_error"] == "Schreibvorgang nicht bestätigt: OSError"

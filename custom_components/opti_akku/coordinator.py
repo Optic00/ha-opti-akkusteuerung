@@ -467,8 +467,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _clear_write_error(self) -> None:
         """A confirmed device write resolves only communication/write errors.
 
-        Restore warnings and rejected settings stay visible until something
-        else replaces them; they are not fixed by a successful write.
+        Called only after a confirmed write; a superseded command clears
+        nothing. Restore warnings and rejected settings stay visible until
+        something else replaces them; they are not fixed by a successful write.
         """
         if self._last_error and self._last_error.startswith(WRITE_ERROR_PREFIXES):
             self._last_error = None
@@ -1246,10 +1247,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._last_signature = None
                 # Superseded decisions are expected when sources change during I/O.
                 # Keep the original write age; repeated supersession still trips the watchdog.
+                # Nothing was confirmed: keep any earlier error visible.
                 if err.cleanup_failed:
                     self._last_error = "Schreibvorgang nicht bestätigt: Sicherheits-Pause fehlgeschlagen"
-                else:
-                    self._clear_write_error()
             except Exception as err:
                 command_result = "failed"
                 write_failed = True

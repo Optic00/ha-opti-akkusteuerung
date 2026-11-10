@@ -280,8 +280,9 @@ Nach dem Wechsel in **Akku Dynamisch** begrenzt der SMA-Treiber die Ladeleistung
 330 Sekunden lang auf höchstens 500 W. Folgt auf Dynamisch nur eine Pause von
 weniger als 60 Sekunden (etwa eine kurze Schutzpause), läuft diese Begrenzung ab
 ihrem ursprünglichen Beginn weiter, statt neu zu starten. Nach einer längeren
-Pause, einem anderen Modus dazwischen oder einer Sicherheits-Pause nach einem
-Schreibfehler beginnt sie neu.
+Pause, einem anderen Modus dazwischen, einer Sicherheits-Pause nach einem
+Schreibfehler sowie nach jedem Neustart oder Neuladen der Integration beginnt sie
+neu.
 Sicherheitsgrenzen für SoC, Messwerte und Quellen gelten auch im
 manuellen Betrieb.
 
@@ -418,7 +419,8 @@ quittierte Werte ausgegeben. Ohne neue quittierte Werte bleibt der vorherige
 Nachweis mit seinem ursprünglichen Zeitpunkt stehen. Den aktuellen Fehler
 zusätzlich unter **Letzter Fehler** und **Befehlsnachweis** prüfen.
 Ein später bestätigter Schreibvorgang löscht unter **Letzter Fehler** nur Lese-,
-Schreib- und Sperrverletzungsfehler. Warnungen beim Wiederherstellen nach einem
+Schreib- und Sperrverletzungsfehler. Ein überholter Befehl ohne bestätigten
+Schreibvorgang löscht nichts. Warnungen beim Wiederherstellen nach einem
 Neustart und nicht übernommene Einstellungen bleiben sichtbar, bis ein anderer
 Fehler sie ersetzt oder die Integration neu geladen wird.
 

@@ -230,7 +230,9 @@ class SmaDevice:
         # Invalidate the cache before I/O so failures cannot leave an old gate open.
         self._status = None
         self._status_at = None
-        value = await self._read(33003)
+        # One fresh retry for a plain Modbus exception; the gate still only
+        # opens on a value actually read now, stamped after that read.
+        value = await self._read_retry(33003)
         self._status, self._status_at = value, self._monotonic()
         return value
 
@@ -248,7 +250,9 @@ class SmaDevice:
         self._model_id = model_id
         try:
             serial_number = await self._read_retry(30057)
-        except ModbusError, InvalidDataError, TimeoutError:
+        except LINK_ERRORS:
+            raise  # A lost link is a transport failure, not a missing serial.
+        except ModbusError, InvalidDataError:
             serial_number = 0
         return {
             "inverter_status": status,
@@ -448,8 +452,12 @@ class SmaDevice:
 
         if mode == PAUSE:
             return (mode,)
-        values = windows if mode not in RAIL_MODES or mode == AUTO else (*windows, power or 0)
-        return (mode, *map(q, values))
+        if mode in RAIL_MODES and mode != AUTO:
+            # async_apply writes these BMS windows only when entering the rail
+            # family, which is always a mode change; a repeat writes only 802
+            # and the (clamped) setpoint, so only that counts here.
+            return (mode, q(power or 0))
+        return (mode, *map(q, windows))
 
     async def _write(self, address: int, value: int) -> None:
         if self._read_only:

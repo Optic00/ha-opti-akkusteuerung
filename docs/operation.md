@@ -154,6 +154,14 @@ setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, s
 erreicht ist. So geht Solarüberschuss während einer Abendspitze in den Akku
 statt ins Netz. Nachts bleibt es bei „Akku nur Entladen“.
 
+Tagsüber leert ein guter Tages-Score (über 2) den Horizont der Peak-Reserve,
+weil PV den Akku bis zum Abend wieder füllen soll. Das gilt nur, solange noch
+mindestens drei Stunden bis Sonnenuntergang bleiben. Bei fast vollem Akku ist
+der Score auch kurz vor Sonnenuntergang hoch, weil kaum noch Ladebedarf
+besteht; ohne diese Grenze ignorierte die Reserve eine Abendspitze am frühen
+Winterabend. Danach und bei fehlendem Sonnenuntergang gilt der normale
+Nachthorizont bis zum nächsten Sonnenaufgang.
+
 Die prognose- und SoC-abhängige Ladedrossel (schonendes Laden an guten Tagen)
 wird bei PV-Spitzen gelöst: Ist **PV-Überschussladen erlauben** eingeschaltet,
 steht die Strategie auf „Akku Dynamisch“ oder „Akku nur Laden“ und gingen mehr

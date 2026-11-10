@@ -863,8 +863,13 @@ template_blocks:
          (1 h bei binary_sensor.opti_pv_reichtag on, sonst 3 h), solange fuer
          den Tag dieses Sonnenaufgangs ein guter Score in Sicht ist; sonst
          36 h.
-         Tagsueber + guter Heute-Score -> leer. #}
-      {% set s_heute = states('sensor.opti_forecast_score') | float(-1) %} {% set horizont_max = ((now() | as_utc) + timedelta(hours=36)) | as_local %} {% if is_state('sun.sun', 'above_horizon') and s_heute > 2 %}
+         Tagsueber + guter Heute-Score -> leer, aber nur bei mindestens 3 h
+         bis Sonnenuntergang. Der Tages-Score ist ein Fit-Quotient
+         Ueberschuss/Bedarf; bei fast vollem Akku geht der Bedarf gegen 0 und
+         der Score wird hoch, auch kurz vor Sonnenuntergang (8.11.2026 15:47,
+         Untergang 16:45: voller Akku entlud bei 53-55 ct nicht). Fehlt der
+         Sonnenuntergang oder ist er ungueltig, gilt der Nachthorizont. #}
+      {% set s_heute = states('sensor.opti_forecast_score') | float(-1) %} {% set horizont_max = ((now() | as_utc) + timedelta(hours=36)) | as_local %} {% set setting_dt = state_attr('sun.sun', 'next_setting') | as_datetime(none) %} {% set h_sunset = (setting_dt - now()).total_seconds() / 3600 if setting_dt is not none else none %} {% if is_state('sun.sun', 'above_horizon') and s_heute > 2 and h_sunset is not none and h_sunset >= 3 %}
         {# Auf die volle Stunde gekappt (== Fensterstart), damit das Fenster
            wirklich leer ist - now() liesse die laufende Stunde durchrutschen,
            sobald Minute > 0. #}

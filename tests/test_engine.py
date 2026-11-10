@@ -2064,3 +2064,76 @@ def test_fractional_raster_steps_do_not_lose_samples(steps_per_hour):
                                  start + dt.timedelta(seconds=index * 3600 / steps_per_hour))
     assert result.attributes[DAILY]["sample_coverage_ratio"] >= 0.99
     assert result.attributes[DAILY]["coverage_ok"] is True
+
+
+def _afternoon_peak_inputs(now, setting):
+    """8.11.: fast voller Akku am Nachmittag, Abendspitze nach Sonnenuntergang."""
+    states = measurements(**{
+        SOC: 97, CAPACITY: 10, MODE: "Akku Dynamisch",
+        "input_number.maxsoc": 100,
+        "sensor.opti_price_current_ct_kwh": 30,
+        "sensor.opti_forecast_remaining_today_kwh": 1,
+        "sun.sun": "above_horizon",
+    })
+    attrs = {"sun.sun": {"next_rising": (now + dt.timedelta(days=1)).replace(hour=7, minute=40).isoformat()}}
+    if setting is not None:
+        attrs["sun.sun"]["next_setting"] = setting
+    attrs["sensor.opti_price_series"] = {
+        "today": [30] * 17 + [55] * 4 + [30] * 3,
+        "tomorrow": [30] * 24,
+    }
+    return states, attrs
+
+
+@pytest.mark.parametrize("now,setting,collapsed", [
+    # Mehr als drei Stunden bis Sonnenuntergang: Tag-Score darf den Horizont leeren.
+    (dt.datetime(2026, 11, 8, 12, 0, tzinfo=TZ), "2026-11-08T16:45:00+01:00", True),
+    (dt.datetime(2026, 11, 8, 13, 45, tzinfo=TZ), "2026-11-08T16:45:00+01:00", True),
+    # Unter drei Stunden: der volle Akku muss für die Abendspitze zählen.
+    (dt.datetime(2026, 11, 8, 13, 46, tzinfo=TZ), "2026-11-08T16:45:00+01:00", False),
+    (dt.datetime(2026, 11, 8, 15, 47, tzinfo=TZ), "2026-11-08T16:45:00+01:00", False),
+    # Fehlender oder ungültiger Sonnenuntergang: konservativ Nachthorizont.
+    (dt.datetime(2026, 11, 8, 12, 0, tzinfo=TZ), None, False),
+    (dt.datetime(2026, 11, 8, 12, 0, tzinfo=TZ), "kaputt", False),
+])
+def test_day_horizon_collapses_only_with_three_hours_to_sunset(now, setting, collapsed):
+    # Der Tages-Score ist hier Eingang: Bei fast vollem Akku geht der Bedarf
+    # gegen 0 und der Fit-Quotient wird hoch, unabhängig von der Restzeit.
+    resources = load_resources()
+    for block in resources["template_blocks"]:
+        block["sensor"] = [item for item in block.get("sensor", [])
+                           if item["unique_id"] != "opti_forecast_score"]
+    states, attrs = _afternoon_peak_inputs(now, setting)
+    states["sensor.opti_forecast_score"] = 10
+    result = evaluate(StrategyEngine(resources), states, attrs, now)
+
+    ende = dt.datetime.fromisoformat(result.attributes["sensor.opti_peak_reserve_soc"]["horizont_ende"])
+    if collapsed:
+        assert ende == now.replace(minute=0)
+        assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "off"
+    else:
+        assert ende > now.replace(hour=21)
+        assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "on"
+    # Ein ungültiger Sonnenuntergang stört andere Sensoren (Ziel-SoC), nicht die Reserve.
+    errors = result.attributes["sensor.opti_engine_diagnostics"].get("template_errors", {})
+    assert not any("peak" in entity for entity in errors)
+    if setting != "kaputt":
+        assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+
+
+def test_full_battery_discharges_into_afternoon_peak_shortly_before_sunset():
+    now = dt.datetime(2026, 11, 8, 15, 47, tzinfo=TZ)
+    resources = load_resources()
+    for block in resources["template_blocks"]:
+        block["sensor"] = [item for item in block.get("sensor", [])
+                           if item["unique_id"] != "opti_forecast_score"]
+    states, attrs = _afternoon_peak_inputs(now, "2026-11-08T16:45:00+01:00")
+    attrs["sensor.opti_price_series"]["today"] = [30] * 15 + [53, 54, 55, 55, 54] + [30] * 4
+    states["sensor.opti_price_current_ct_kwh"] = 53
+    states["sensor.opti_forecast_score"] = 10
+    result = evaluate(StrategyEngine(resources), states, attrs, now)
+
+    assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "on"
+    assert result.decision_id in ("peak_l1", "peak_l2")
+    assert result.mode in ("Akku nur Entladen", "Akku Dynamisch")
+    assert result.states["sensor.opti_strategie_vorschau"] == result.mode

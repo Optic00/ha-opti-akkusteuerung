@@ -10,12 +10,15 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Behoben
 
-- SMA: Ein negativer Sollwert in 40149 (nach „schnell Laden“, „Netzladen“ oder
-  „0.2C Laden“) wird vor „Akku Automatisch“ und „schnell Entladen“ unter
-  bestätigtem 802 auf 0 gesetzt. Bisher wurden nur positive Werte gelöscht; die
-  Automatik-Erneuerung 802 → 2 s → 803 konnte dadurch alle 120 s kurz mit dem
-  alten Ladesollwert laden. Unter 803-Sperren bleibt der Wert wirkungslos und
-  wird erst vor dem nächsten 802 ohne eigenen Ladesollwert gelöscht.
+- SMA: Ein alter Sollwert in 40149 wirkt nicht mehr in den 2 s nach einem 802.
+  Bisher wurde nur ein positiver Entladesollwert gelöscht; ein negativer
+  Ladesollwert (nach „schnell Laden“, „Netzladen“ oder „0.2C Laden“) blieb
+  stehen, und die Automatik-Erneuerung 802 → 2 s → 803 konnte dadurch alle
+  120 s kurz mit ihm laden. Jetzt wird ein Sollwert mit anderer Wirkrichtung
+  als der neue Befehl unter bestätigtem 802 auf 0 gesetzt, notfalls direkt nach
+  dem eigenen 802 vor der Wartezeit. Nach Neustart oder Neuladen ist der
+  Gerätewert unbekannt; die erste Automatik setzt ihn deshalb einmal auf 0.
+  Unter 803-Sperren bleibt er wirkungslos stehen.
 
 ## [2026.11-beta2] - 2026-11-05
 

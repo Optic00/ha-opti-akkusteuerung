@@ -155,6 +155,9 @@ class SmaDevice:
         # A negative 40149 (fast/grid/0.2C charge) survives 803 as well. Automatic
         # renews with 802 -> 2 s -> 803 and would charge with it for those 2 s.
         self._charge_setpoint_armed = False
+        # A new instance (setup, reload, restart) cannot know what 40149 still
+        # holds on the device. Automatic clears it once under its own 802.
+        self._setpoint_unknown = True
         # True only after an acknowledged 802 with no 803 attempted since.
         self._rail_confirmed = False
         self.last_write: datetime | None = None
@@ -371,6 +374,8 @@ class SmaDevice:
         await self.unit.write_registers(address, encode_s32(value))
         if address == 40151 and value == 802:
             self._rail_confirmed = True
+        if address == 40149:
+            self._setpoint_unknown = False
         if self._write_trace is not None:
             self._write_trace.append((address, value))
             self._last_acknowledged_write_at = datetime.now(UTC)
@@ -523,9 +528,12 @@ class SmaDevice:
                     guard()
                     touched = True  # A timed-out write may still have reached the device.
                     await self._write(40151, 802)
-                    if mode == AUTO and self._setpoint_armed:
-                        # No setpoint follows in Automatic: an older value from
-                        # before an unconfirmed 802 would act for the 2 s below.
+                    if (self._setpoint_armed and not self._setpoint_survives(mode)) or (
+                        mode == AUTO and self._setpoint_unknown
+                    ):
+                        # An older value from before an unconfirmed 802 (or an
+                        # unknown one after a restart, where Automatic writes no
+                        # setpoint of its own) would act during the 2 s below.
                         await self._disarm_discharge_setpoint()
                     await self._sleep(COMMAND_DELAY_SECONDS)
                     guard()

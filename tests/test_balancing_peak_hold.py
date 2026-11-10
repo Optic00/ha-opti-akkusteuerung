@@ -5,6 +5,7 @@ import datetime as dt
 
 import pytest
 
+from tests.battery_model_fixture import model_attributes, model_states
 from tests.test_balancing_window import HOURS, PREVIEW, WINDOW, assert_parity
 from tests.test_engine import (
     DONE_AT, DONE_VALID, NOW, POWER, SOC, StrategyEngine, evaluate, load_resources,
@@ -40,14 +41,16 @@ def peak_states(level="VERY_EXPENSIVE", **overrides):
         "input_boolean.opti_prognose_netzladen": "off",
         "input_number.maxsoc": 100,
         "sensor.opti_peak_reserve_soc": 30,
-        OPTION: "on", PRICE: 50, PEAK: "on", LEVEL: level, **overrides,
+        OPTION: "on", PRICE: 50, PEAK: "on", LEVEL: level, **model_states(), **overrides,
     }
 
 
 def peak_attrs():
     return {"sensor.opti_peak_reserve_soc": {"reserve_ve_soc": 30,
                                              "min_preis_vor_peak_ct": 50,
-                                             "peak_preis_avg_ct": 100}}
+                                             "peak_preis_avg_ct": 100,
+                                             "peak_preis_kuenftig_ct": 100},
+            **model_attributes()}
 
 
 @pytest.mark.parametrize("level,peak", [("VERY_EXPENSIVE", "peak_l1"), ("EXPENSIVE", "peak_l2")])

@@ -5082,3 +5082,116 @@ async def test_enabling_writes_during_incident_retries_pause_at_once(coordinator
         assert [written for _, written in writes] == ([] if was_enabled else ["Akku Pause"])
         control["apply_error"] = None
     coordinator.write_enabled = False
+
+BATTERY_MODEL_OPTIONS = {
+    "enabled": True,
+    "battery_price_eur": 6000,
+    "degradation_percent": 20,
+    "cycles": 6000,
+    "usable_capacity_kwh": 12.8,
+    "charge_efficiency_percent": 95,
+    "discharge_efficiency_percent": 95,
+    "margin_ct": 1,
+}
+
+
+@pytest.mark.parametrize(
+    ("arbitrage", "expected"),
+    [
+        (None, "default"),
+        (BATTERY_MODEL_OPTIONS, "configured"),
+        ({**BATTERY_MODEL_OPTIONS, "cycles": 0}, "invalid"),
+    ],
+)
+async def test_battery_model_is_published_each_cycle(coordinator, hass, entry, arbitrage, expected):
+    options = {key: value for key, value in entry.options.items() if key != "arbitrage_estimate"}
+    if arbitrage is not None:
+        options["arbitrage_estimate"] = arbitrage
+    hass.config_entries.async_update_entry(entry, options=options)
+    data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_battery_model"] == expected
+    attrs = data["attributes"]["sensor.opti_battery_model"]
+    assert attrs["source"] == expected
+    assert attrs["discharge_efficiency"] == (0.95 if expected == "configured" else 0.9)
+    assert coordinator._metadata["sensor.opti_battery_model"]["name"].startswith("Akkumodell")
+    if expected == "invalid":
+        assert data["arbitrage_estimate"]["status"] == "invalid"
+        assert data["last_error"] is None
+
+
+async def test_plan_shadow_gets_the_battery_model_unless_wear_is_set(coordinator, hass, entry):
+    enable_plan_shadow(hass, entry)
+    captured = []
+
+    def fake_evaluate(self, now, timezone, inputs):
+        captured.append(inputs)
+        return {"status": "data_missing", "observation_only": True, "controls_battery": False}
+
+    with patch("custom_components.opti_akku.coordinator.PlannerShadow.evaluate", fake_evaluate):
+        await coordinator._async_update_data()
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, "arbitrage_estimate": BATTERY_MODEL_OPTIONS})
+        await coordinator._async_update_data()
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, "planner": {"wear_ct_kwh": 5}})
+        await coordinator._async_update_data()
+    default, configured, explicit = captured
+    assert (default.eta_charge, default.eta_discharge) == (0.9, 0.9)
+    assert default.wear_ct_kwh == pytest.approx(3.0 / 0.9)
+    assert (configured.eta_charge, configured.eta_discharge) == (0.95, 0.95)
+    assert configured.wear_ct_kwh == pytest.approx(2 * 0.78125 / 0.95)
+    assert explicit.wear_ct_kwh == 5
+
+
+async def test_peak_rank_assumptions_include_the_model_discharge_efficiency(coordinator, hass, entry):
+    await coordinator._async_update_data()
+    assert coordinator._stored_data()["peak_rank"]["assumptions"][0] == 0.9
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "arbitrage_estimate": BATTERY_MODEL_OPTIONS})
+    await coordinator._async_update_data()
+    assert coordinator._stored_data()["peak_rank"]["assumptions"][0] == 0.95
+
+
+async def test_peak_rank_totals_survive_a_restart_with_the_model_assumption(coordinator, hass, entry):
+    from custom_components.opti_akku.peak_rank import PeakRankShadow
+
+    await coordinator._async_update_data()
+    saved = coordinator._stored_data()["peak_rank"]
+    restored = PeakRankShadow()
+    restored.restore(saved)
+    assert restored.data["assumptions"] == saved["assumptions"]
+
+
+async def test_negative_price_hold_assumptions_include_the_model_charge_efficiency(coordinator, hass, entry):
+    await coordinator._async_update_data()
+    assert coordinator._stored_data()["negative_price_hold"]["assumptions"][0] == 0.9
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "arbitrage_estimate": BATTERY_MODEL_OPTIONS})
+    await coordinator._async_update_data()
+    assert coordinator._stored_data()["negative_price_hold"]["assumptions"][0] == 0.95
+
+
+async def test_reserve_plan_reports_precharge_economics_with_the_cycle_model(coordinator, hass, entry):
+    data = await coordinator._async_update_data()
+    assert data["reserve_plan"]["precharge"]["model_source"] == "default"
+    assert data["reserve_plan"]["precharge"]["compares"] == "economic_criterion_only"
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "arbitrage_estimate": {**BATTERY_MODEL_OPTIONS, "cycles": 0}})
+    data = await coordinator._async_update_data()
+    assert data["reserve_plan"]["precharge"]["model_source"] == "invalid"
+
+
+@pytest.mark.parametrize(("arbitrage", "expected"), [
+    (None, [0.9, 0.9, 1.5, 0.0, True]),
+    (BATTERY_MODEL_OPTIONS, [0.95, 0.95, 0.78125, 1.0, True]),
+    ({**BATTERY_MODEL_OPTIONS, "cycles": 0}, [0.9, 0.9, 1.5, 0.0, False]),
+])
+async def test_peak_rank_assumptions_cover_the_precharge_economics(coordinator, hass, entry, arbitrage, expected):
+    options = {key: value for key, value in entry.options.items() if key != "arbitrage_estimate"}
+    if arbitrage is not None:
+        options["arbitrage_estimate"] = arbitrage
+    hass.config_entries.async_update_entry(entry, options=options)
+    await coordinator._async_update_data()
+    assumptions = coordinator._stored_data()["peak_rank"]["assumptions"]
+    assert assumptions[:5] == expected  # exact: unchanged defaults must not reset
+    assert assumptions[4] is expected[4]

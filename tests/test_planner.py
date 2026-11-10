@@ -754,3 +754,24 @@ def test_history_rejects_unpacked_or_misaligned_rows():
 
 
 HISTORY_STAMP = int(T0.timestamp())
+
+
+def test_shadow_battery_takes_the_model_efficiencies():
+    now, pv = day_context(6, {11: (0.6, 2.5), 12: (0.8, 3.0), 13: (0.8, 3.0)})
+    battery, problem = planner_shadow._battery(inputs(now, pv))
+    assert problem is None and (battery.eta_charge, battery.eta_discharge) == (0.95, 0.95)
+    battery, problem = planner_shadow._battery(inputs(now, pv, eta_charge=0.9, eta_discharge=0.85))
+    assert problem is None and (battery.eta_charge, battery.eta_discharge) == (0.9, 0.85)
+    _, problem = planner_shadow._battery(inputs(now, pv, eta_discharge=0))
+    assert problem == "battery_invalid"
+
+
+def test_shadow_plan_differs_between_battery_models():
+    now, pv = day_context(6, {11: (0.6, 2.5), 12: (0.8, 3.0), 13: (0.8, 3.0)})
+    efficient = PlannerShadow().evaluate(now, TZ, inputs(now, pv, eta_charge=1.0, eta_discharge=1.0,
+                                                          wear_ct_kwh=0.0))
+    lossy = PlannerShadow().evaluate(now, TZ, inputs(now, pv, eta_charge=0.5, eta_discharge=0.5,
+                                                      wear_ct_kwh=20.0))
+    assert efficient["status"] == lossy["status"] == "ready"
+    assert efficient["verdict"] == GRID_CHARGE
+    assert lossy["verdict"] != GRID_CHARGE

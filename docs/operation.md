@@ -153,6 +153,25 @@ Sperre wäre das Fenster dann offen und der Akku könnte mitten in der Spitze
 laden, obwohl Stunden später günstigere Preise folgen. Laden bei negativen
 Preisen ist davon nicht betroffen.
 
+Peak-Vorladen muss sich außerdem rechnen. Der feste **Preisabstand für Netzladen**
+(Standard 10 ct/kWh) bleibt als Mindestdifferenz zum Peak-Durchschnitt bestehen.
+Zusätzlich muss der erwartete Spitzenpreis die Ladekosten samt Lade- und
+Entladeverlusten und Zykluskosten decken:
+`Spitzenpreis ≥ (Ladepreis / η_Laden + Zykluskosten + Marge) / η_Entladen`.
+Als Spitzenpreis zählt der mit der erwarteten Last gewichtete Mittelpreis der noch
+kommenden Spitzen-Slots (`peak_preis_kuenftig_ct` an der Peak-Reserve); bereits
+abgelaufene Viertelstunden zählen nicht. Die Werte kommen aus dem Akkumodell
+(`sensor.opti_battery_model`). Ohne eigene Annahmen gelten 90 % Lade- und
+Entladewirkungsgrad, 3 ct/kWh Zykluskosten und keine Marge. Faustregel: Bis etwa
+28 ct Ladepreis entscheidet wie bisher der feste Preisabstand, darüber die neue
+Schwelle; sie verlangt je 10 ct höherem Ladepreis rund 2,3 ct mehr Abstand (bei
+38 ct rund 12 ct, bei 48 ct rund 15 ct). Läuft `Akku Netzladen` bereits, darf der
+Spitzenpreis bis zu 1 ct/kWh unter der Schwelle liegen, damit der Modus an der
+Schwelle nicht im Viertelstundentakt wechselt. Eigene Werte unter **Konfigurieren →
+Optionale Funktionen → Wirtschaftlichkeitsvergleich** verschieben die Schwelle;
+sind sie ungültig, findet kein Peak-Vorladen statt, bis sie korrigiert sind. Ob und
+warum Vorladen wirtschaftlich zulässig ist, zeigt der Reserveplan unter `precharge`.
+
 In teuren und sehr teuren Preisphasen entlädt der Akku bei Hausbedarf. Tagsüber
 setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, solange
 **PV-Überschussladen erlauben** eingeschaltet ist und der Ladedeckel nicht
@@ -751,8 +770,12 @@ Entität (Grenze aus **Maximales Alter von Prognosen**, Standard zwölf
 Stunden), was den tatsächlichen Abrufzeitpunkt bei Solcast nur annähert. Fehlt bei aktivem `grid_check_quantile` das Prüfquantil, gibt es
 keine Netzladeempfehlung (`grid_check_p50_missing`).
 
+Lade- und Entladewirkungsgrad des Planers kommen aus dem Akkumodell
+(`sensor.opti_battery_model`, Standard je 90 %).
 Ohne Oberfläche einstellbar über die Optionen des Eintrags: `planner.wear_ct_kwh`
-(Zyklenkosten, 3 ct/kWh Entladung), `planner.terminal_factor` (0,8),
+(Zyklenkosten je entladener kWh; ohne Angabe aus dem Akkumodell, Standard
+3,33 ct, also 2 × 1,5 ct Durchsatzkosten / 90 % Entladewirkungsgrad),
+`planner.terminal_factor` (0,8),
 `planner.quantile` (`p10`), `planner.min_benefit_ct` (Variante A: Plan nur,
 wenn sein erwarteter Vorteil gegenüber Eigenverbrauch über den Horizont diesen
 Betrag erreicht, sonst Eigenverbrauch; `plan_source` zeigt es) und

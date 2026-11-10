@@ -1,4 +1,4 @@
-"""All 22 original decision branches run through StrategyEngine.evaluate.
+"""All 20 original decision branches run through StrategyEngine.evaluate.
 
 The L3 boundary fixture uses SoC equal to VE reserve after the 0.5.2b3
 hysteresis correction; original +3 entry padding is intentionally removed.
@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from custom_components.opti_akku.ev_preparation import apply_preparation
+from tests.battery_model_fixture import model_attributes, model_states
 
 _SPEC = importlib.util.spec_from_file_location(
     "opti_parity_engine", Path(__file__).parents[1] / "custom_components/opti_akku/engine.py"
@@ -57,7 +58,7 @@ BASE = {'sensor.opti_soc': '40',
  'input_boolean.opti_ev_akku_pause': 'off',
  'binary_sensor.opti_ev_schnellladung': 'off'}
 
-ORIGINAL_DECISION_IDS = ["minimum_soc", "negative_price", "peak_precharge", "peak_l1", "peak_l2", "balancing_pv", "balancing_grid", "maximum_soc", "reserve_low", "reserve_forecast", "reserve_winter", "reserve_today_low", "reserve_cheap", "ev_lock", "surplus_70", "surplus_ac", "battery_full", "peak_l3", "peak_l4", "surplus_veto", "below_target", "above_target"]
+ORIGINAL_DECISION_IDS = ["minimum_soc", "negative_price", "peak_precharge", "peak_l1", "peak_l2", "balancing_pv", "balancing_grid", "maximum_soc", "reserve_winter", "reserve_today_low", "reserve_cheap", "ev_lock", "surplus_70", "surplus_ac", "battery_full", "peak_l3", "peak_l4", "surplus_veto", "below_target", "above_target"]
 
 BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'MinSOC-Schutz'),
  (1,
@@ -73,10 +74,13 @@ BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'Mi
    'sensor.opti_peak_reserve_soc': '35',
    'binary_sensor.opti_peak_reserve_aktiv': 'on',
    'sensor.opti_soc': '15',
+   **model_states(),
    '_attrs': {'sensor.opti_peak_reserve_soc': {'reserve_ve_soc': 25.0,
                                                'min_preis_vor_peak_ct': 50.0,
                                                'peak_preis_avg_ct': 200.0,
-                                               'peak_preis_ve_avg_ct': 200.0}}},
+                                               'peak_preis_kuenftig_ct': 200.0,
+                                               'peak_preis_ve_avg_ct': 200.0},
+              **model_attributes()}},
   'Akku Netzladen',
   'Peak-Vorladen'),
  (3,
@@ -121,22 +125,6 @@ BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'Mi
   'Balancing-Watchdog (Netz'),
  (7, 'ladedeckel', {'sensor.opti_soc': '96'}, 'Akku nur Entladen', 'Ladedeckel'),
  (8,
-  'soc20_prognose',
-  {'sensor.opti_soc': '18',
-   'sensor.opti_forecast_score': '1',
-   'sensor.opti_forecast_score_tomorrow': '1',
-   'sensor.opti_price_level': 'NORMAL'},
-  'Akku nur Laden',
-  'SOC<20'),
- (9,
-  'soc75_prognose',
-  {'sensor.opti_soc': '50',
-   'sensor.opti_forecast_score': '1',
-   'sensor.opti_forecast_score_tomorrow': '1',
-   'sensor.opti_price_level': 'NORMAL'},
-  'Akku nur Laden',
-  'SOC<75'),
- (10,
   'soc80_wintermodus',
   {'sensor.opti_soc': '78',
    'sensor.opti_forecast_score': '1',
@@ -144,17 +132,17 @@ BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'Mi
    'sensor.opti_price_level': 'EXPENSIVE'},
   'Akku nur Laden',
   'SOC<80 Wintermodus'),
- (11,
+ (9,
   'soc15_notfall',
   {'sensor.opti_soc': '12', 'sensor.opti_forecast_score': '1', 'sensor.opti_price_level': 'NORMAL'},
   'Akku nur Laden',
   'SOC<15 Notfall'),
- (12,
+ (10,
   'soc45_sehr_guenstig',
   {'sensor.opti_soc': '30', 'sensor.opti_forecast_score': '1', 'sensor.opti_price_level': 'CHEAP'},
   'Akku nur Laden',
   'SOC<45'),
- (13,
+ (11,
   'ev_sperre_schattet_ueberschuss',
   {'sun.sun': 'above_horizon',
    'sensor.opti_soc': '70',
@@ -164,7 +152,7 @@ BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'Mi
    'binary_sensor.opti_ev_schnellladung': 'on'},
   'Akku nur Laden',
   'EV-Sperre'),
- (14,
+ (12,
   'ueberschuss_70',
   {'sun.sun': 'above_horizon',
    'sensor.opti_soc': '70',
@@ -172,7 +160,7 @@ BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'Mi
    'binary_sensor.opti_ueberschuss_70_aktiv': 'on'},
   'Akku Dynamisch',
   '70% Ueberschuss'),
- (15,
+ (13,
   'ueberschuss_ac',
   {'sun.sun': 'above_horizon',
    'sensor.opti_soc': '70',
@@ -182,7 +170,7 @@ BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'Mi
   'AC Ueberschuss'),
  # With a valid Max-SoC, the ladedeckel now intentionally owns this boundary.
  # An unavailable limit isolates the historical full-battery fallback itself.
- (16,
+ (14,
   'akku_voll',
   {'sensor.opti_soc': '100',
    'input_number.maxsoc': 'unavailable',
@@ -193,7 +181,7 @@ BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'Mi
                                                'peak_preis_ve_avg_ct': 200.0}}},
   'Akku Dynamisch',
   'Akku voll'),
- (17,
+ (15,
   'leiter_l3_halten',
   {'sensor.opti_forecast_score': '1',
    'sensor.opti_forecast_score_tomorrow': '1',
@@ -210,7 +198,7 @@ BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'Mi
                                                'peak_preis_ve_avg_ct': 55.0}}},
   'Akku nur Laden',
   'Peak-Leiter L3'),
- (18,
+ (16,
   'leiter_l4_halten',
   {'sensor.opti_forecast_score': '1',
    'sensor.opti_forecast_score_tomorrow': '1',
@@ -226,7 +214,7 @@ BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'Mi
                                                'peak_preis_ve_avg_ct': 200.0}}},
   'Akku nur Laden',
   'Peak-Leiter L4'),
- (19,
+ (17,
   'ueberschuss_veto_sticht_ziel_soc',
   {'sun.sun': 'above_horizon',
    'sensor.opti_soc': '70',
@@ -234,12 +222,12 @@ BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'Mi
    'binary_sensor.opti_ueberschuss_veto_aktiv': 'on'},
   'Akku Dynamisch',
   'Ueberschuss-Veto'),
- (20,
+ (18,
   'dyn_bis_ziel',
   {'sun.sun': 'above_horizon', 'sensor.opti_soc': '40', 'sensor.opti_target_soc': '60'},
   'Akku Dynamisch',
   'dyn bis Ziel'),
- (21,
+ (19,
   'ueber_ziel_soc',
   {'sensor.opti_soc': '70', 'sensor.opti_target_soc': '60'},
   'Akku nur Entladen',
@@ -290,7 +278,7 @@ def test_all_original_branches_have_explicit_golden_case():
     assert actual.pop(2) == "minimum_soc"
     actual.insert(0, "minimum_soc")
     assert actual.pop(actual.index("balancing_hold")) == "balancing_hold"
-    assert actual.pop(17) == "extreme_peak_hold"
+    assert actual.pop(15) == "extreme_peak_hold"
     assert actual == ORIGINAL_DECISION_IDS
     assert len(actual) == len(BRANCHES) - 1
     assert [case[0] for case in BRANCHES[:-1]] == list(range(len(actual)))
@@ -372,8 +360,10 @@ def test_extreme_hold_blocks_relative_peak_discharge(decision_engine, price_leve
     ({"sensor.opti_soc": "93", "binary_sensor.opti_ladedeckel_aktiv": "on"},
      {"binary_sensor.opti_ladedeckel_aktiv": {"maxsoc": 95}}, "maximum_soc"),
     ({"input_boolean.opti_ev_akku_pause": "on", "binary_sensor.opti_ev_schnellladung": "on"}, {}, "ev_lock"),
-    ({"input_boolean.opti_prognose_netzladen": "on"},
-     {"sensor.opti_peak_reserve_soc": {"min_preis_vor_peak_ct": 50, "peak_preis_avg_ct": 100}}, "peak_precharge"),
+    ({"input_boolean.opti_prognose_netzladen": "on", **model_states()},
+     {"sensor.opti_peak_reserve_soc": {"min_preis_vor_peak_ct": 50, "peak_preis_avg_ct": 100,
+                                       "peak_preis_kuenftig_ct": 100},
+      **model_attributes()}, "peak_precharge"),
 ])
 def test_extreme_hold_preserves_existing_priority(decision_engine, changes, attrs, expected):
     states = {**BASE, "input_boolean.akku_opti_automatik": "on",

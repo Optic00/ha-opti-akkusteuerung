@@ -17,7 +17,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   120 s kurz mit ihm laden. Jetzt wird ein Sollwert mit anderer Wirkrichtung
   als der neue Befehl unter bestätigtem 802 auf 0 gesetzt, notfalls direkt nach
   dem eigenen 802 vor der Wartezeit. Nach Neustart oder Neuladen ist der
-  Gerätewert unbekannt; die erste Automatik setzt ihn deshalb einmal auf 0.
+  Gerätewert unbekannt; der erste Befehl mit 802 setzt ihn deshalb einmal
+  vor der Wartezeit auf 0.
   Unter 803-Sperren bleibt er wirkungslos stehen.
 
 ## [2026.11-beta2] - 2026-11-05

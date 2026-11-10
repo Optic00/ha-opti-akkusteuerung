@@ -118,6 +118,17 @@ class FakeUnit:
 @pytest.fixture
 def device():
     unit, clock = FakeUnit(), Clock()
+    adapter = sma.SmaDevice(unit, monotonic=clock, sleep=clock.sleep)
+    # Most sequence tests model a device with a known clear 40149. The unknown
+    # state of a real new driver instance is covered by fresh_device below.
+    adapter._setpoint_unknown = False
+    return adapter, unit, clock
+
+
+@pytest.fixture
+def fresh_device():
+    """A new driver instance (setup, reload, restart): 40149 is unknown."""
+    unit, clock = FakeUnit(), Clock()
     return sma.SmaDevice(unit, monotonic=clock, sleep=clock.sleep), unit, clock
 
 
@@ -249,8 +260,8 @@ async def test_all_four_command_modes(device, mode, power):
     assert adapter.last_error is None
 
 
-async def test_automatic_preserves_reset_sequence(device):
-    adapter, unit, _ = device
+async def test_automatic_preserves_reset_sequence(fresh_device):
+    adapter, unit, _ = fresh_device
     # A new driver cannot know 40149: the first Automatic clears it once
     # under its own 802 (restart/reload case), later renewals keep 802 -> 803.
     await adapter.async_apply(sma.AUTO, {}, lambda: True)
@@ -949,14 +960,30 @@ async def test_positive_setpoint_never_acts_before_a_charge_after_a_lock(device,
     assert "delay" in events[start:]
 
 
-async def test_new_driver_neutralizes_unknown_setpoint_for_automatic(device):
+async def test_new_driver_neutralizes_unknown_setpoint_for_automatic(fresh_device):
     """Restart/reload: a stale -W on the device must not charge every 120 s."""
-    adapter, unit, clock = device  # fresh driver: 40149 on the device is unknown
+    adapter, unit, clock = fresh_device
     events = record_rail_window(adapter, unit, clock)
     for _ in range(2):
         await adapter.async_apply(sma.AUTO, PARAMETERS, lambda: True)
     assert setpoint_during_delay(events) == [0, 0]
     assert events.count((40149, 0)) == 1
+
+
+@pytest.mark.parametrize(
+    ("mode", "setpoint"),
+    [(sma.FAST_DISCHARGE, 2500), (sma.FAST_CHARGE, -2000), (sma.GRID_CHARGE, -3000), (sma.CHARGE_02C, -2560)],
+)
+async def test_new_driver_neutralizes_unknown_setpoint_before_any_rail_setpoint(fresh_device, mode, setpoint):
+    """Grid charge, pause, restart, then a rail command: no stale value in the 2 s."""
+    adapter, unit, clock = fresh_device
+    events = record_rail_window(adapter, unit, clock)
+    await adapter.async_apply(mode, PARAMETERS, lambda: True)
+    assert setpoint_during_delay(events) == [0]
+    assert raw_writes(unit)[-1] == (40149, setpoint)
+    unit.writes.clear()
+    await adapter.async_apply(mode, PARAMETERS, lambda: True)
+    assert raw_writes(unit) == [(40151, 802), (40149, setpoint)]
 
 
 async def test_automatic_clears_armed_setpoint_under_its_own_802(device):

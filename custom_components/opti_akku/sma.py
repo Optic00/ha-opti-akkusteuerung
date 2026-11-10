@@ -156,7 +156,7 @@ class SmaDevice:
         # renews with 802 -> 2 s -> 803 and would charge with it for those 2 s.
         self._charge_setpoint_armed = False
         # A new instance (setup, reload, restart) cannot know what 40149 still
-        # holds on the device. Automatic clears it once under its own 802.
+        # holds on the device. The first rail command clears it under its own 802.
         self._setpoint_unknown = True
         # True only after an acknowledged 802 with no 803 attempted since.
         self._rail_confirmed = False
@@ -528,12 +528,12 @@ class SmaDevice:
                     guard()
                     touched = True  # A timed-out write may still have reached the device.
                     await self._write(40151, 802)
-                    if (self._setpoint_armed and not self._setpoint_survives(mode)) or (
-                        mode == AUTO and self._setpoint_unknown
+                    if self._setpoint_unknown or (
+                        self._setpoint_armed and not self._setpoint_survives(mode)
                     ):
-                        # An older value from before an unconfirmed 802 (or an
-                        # unknown one after a restart, where Automatic writes no
-                        # setpoint of its own) would act during the 2 s below.
+                        # An older value from before an unconfirmed 802, or an
+                        # unknown one after a restart (either sign), would act
+                        # during the 2 s below.
                         await self._disarm_discharge_setpoint()
                     await self._sleep(COMMAND_DELAY_SECONDS)
                     guard()

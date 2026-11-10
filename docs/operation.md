@@ -280,6 +280,12 @@ werden nie weiterverwendet. Scheitert auch der zweite Versuch, fehlt der Wert, u
 es gilt die Pause wie bisher (etwa ohne gültige Ein-Wechselrichter-Bilanz,
 SoC, Batterietemperatur oder Batterieleistung). Verbindungsfehler und
 Zeitüberschreitungen werden nicht wiederholt.
+Nach dem Wechsel in **Akku Dynamisch** begrenzt der SMA-Treiber die Ladeleistung
+330 Sekunden lang auf höchstens 500 W. Folgt auf Dynamisch nur eine Pause von
+weniger als 60 Sekunden (etwa eine kurze Schutzpause), läuft diese Begrenzung ab
+ihrem ursprünglichen Beginn weiter, statt neu zu starten. Nach einer längeren
+Pause, einem anderen Modus dazwischen oder einer Sicherheits-Pause nach einem
+Schreibfehler beginnt sie neu.
 Sicherheitsgrenzen für SoC, Messwerte und Quellen gelten auch im
 manuellen Betrieb.
 

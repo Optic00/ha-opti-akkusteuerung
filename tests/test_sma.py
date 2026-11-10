@@ -998,3 +998,56 @@ async def test_persistent_register_error_is_retried_only_once(device):
     assert values["sensor.opti_house_balance_w"] is None
     assert "sensor.opti_grid_import_w" in adapter.last_read_errors
     assert unit.reads.count((30865, 2)) == 2
+
+
+async def test_short_protective_pause_does_not_restart_dynamic_settling(device):
+    """A pause under 60 s keeps the running settling clock (C3c)."""
+    adapter, unit, clock = device
+    await adapter.async_apply(sma.DYNAMIC, PARAMETERS, lambda: True)
+    clock.now += 400
+    await adapter.async_apply(sma.DYNAMIC, PARAMETERS, lambda: True)
+    assert last_bms(unit)[40795] == 3000
+    await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+    clock.now += 20
+    await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+    clock.now += 20
+    unit.writes.clear()
+    await adapter.async_apply(sma.DYNAMIC, PARAMETERS, lambda: True)
+    assert last_bms(unit)[40795] == 3000
+
+
+async def test_short_pause_during_settling_continues_the_original_settling(device):
+    adapter, unit, clock = device
+    await adapter.async_apply(sma.DYNAMIC, PARAMETERS, lambda: True)
+    clock.now += 200
+    await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+    clock.now += 30
+    await adapter.async_apply(sma.DYNAMIC, PARAMETERS, lambda: True)
+    assert last_bms(unit)[40795] == 500
+    clock.now += 120
+    await adapter.async_apply(sma.DYNAMIC, PARAMETERS, lambda: True)
+    assert last_bms(unit)[40795] == 3000
+
+
+@pytest.mark.parametrize("interruption", ["long_pause", "other_mode", "cleanup"])
+async def test_long_or_other_interruption_restarts_dynamic_settling(device, interruption):
+    adapter, unit, clock = device
+    await adapter.async_apply(sma.DYNAMIC, PARAMETERS, lambda: True)
+    clock.now += 400
+    await adapter.async_apply(sma.DYNAMIC, PARAMETERS, lambda: True)
+    if interruption == "long_pause":
+        await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+        clock.now += 60
+    elif interruption == "other_mode":
+        await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+        await adapter.async_apply(sma.ONLY_DISCHARGE, PARAMETERS, lambda: True)
+        await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+    else:
+        unit.fail_write_number = len(unit.writes) + 2
+        with pytest.raises(ModbusError):
+            await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+        unit.fail_write_number = None
+        assert adapter.last_mode == sma.PAUSE
+    clock.now += 5
+    await adapter.async_apply(sma.DYNAMIC, PARAMETERS, lambda: True)
+    assert last_bms(unit)[40795] == 500

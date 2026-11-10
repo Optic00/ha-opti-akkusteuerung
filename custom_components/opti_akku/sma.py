@@ -66,6 +66,9 @@ def ac_surplus_suggestion_w(model_id: object) -> int | None:
 RECONCILE_SECONDS = 120
 SETTLING_SECONDS = 330
 SETTLING_CHARGE_W = 500
+# A pause shorter than this (e.g. a brief protective pause after one missing
+# reading) does not restart the Dynamic settling cap.
+SHORT_PAUSE_SECONDS = 60
 REGISTER_GAP_SECONDS = 0.5
 COMMAND_DELAY_SECONDS = 2.0
 DISARM_TIMEOUT_SECONDS = 3.0
@@ -149,6 +152,8 @@ class SmaDevice:
         self._status: int | None = None
         self._status_at: float | None = None
         self._dynamic_since: float | None = None
+        # (settling start, pause start) while a pause directly follows Dynamic.
+        self._dynamic_resume: tuple[float, float] | None = None
         # A positive 40149 (fast discharge) survives 803 and would discharge for
         # the 2 s after a later 802 until the new setpoint lands.
         self._discharge_setpoint_armed = False
@@ -435,6 +440,7 @@ class SmaDevice:
         self.last_mode = PAUSE
         self.last_write = datetime.now(UTC)
         self._dynamic_since = None
+        self._dynamic_resume = None
 
     async def _disarm_discharge_setpoint(self) -> None:
         # Reference sequence 802 -> 40149 -> 803: clear it while 802 is active.
@@ -495,10 +501,27 @@ class SmaDevice:
                 def guard() -> None:
                     self._ensure_current(is_current)
 
+                now = self._monotonic()
                 if mode == DYNAMIC:
                     if self.last_mode != DYNAMIC or self._dynamic_since is None:
-                        self._dynamic_since = self._monotonic()
+                        resume = self._dynamic_resume
+                        # Only a plain short pause straight from Dynamic keeps
+                        # the settling clock; anything else settles again.
+                        if (
+                            self.last_mode == PAUSE
+                            and resume is not None
+                            and now - resume[1] < SHORT_PAUSE_SECONDS
+                        ):
+                            self._dynamic_since = resume[0]
+                        else:
+                            self._dynamic_since = now
+                    self._dynamic_resume = None
+                elif mode == PAUSE and self.last_mode == DYNAMIC and self._dynamic_since is not None:
+                    self._dynamic_resume = (self._dynamic_since, now)
+                    self._dynamic_since = None
                 else:
+                    if not (mode == PAUSE and self.last_mode == PAUSE):
+                        self._dynamic_resume = None
                     self._dynamic_since = None
 
                 # Only clear under a confirmed 802; 40149 under 803 is unverified.

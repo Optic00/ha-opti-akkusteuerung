@@ -290,7 +290,8 @@ def test_explained_efficiency_matches_shipped_strategy():
     resources = json.loads(Path(reporting.__file__).with_name('resources').joinpath('strategy.json').read_text())
     # The displayed assumption must change if the strategy's formula changes.
     block = next(block for block in resources['template_blocks'] if 'peak' in block.get('variables', {}))
-    eta = float(re.search(r"set eta = ([0-9.]+)", block['variables']['peak']).group(1))
+    # Without a battery model the template falls back to this literal.
+    eta = float(re.search(r"set eta = eta_roh if .*? else ([0-9.]+) %}", block['variables']['peak']).group(1))
     assert reserve_plan(sample(), SETTINGS, NOW, shadow=False)['assumed_discharge_efficiency'] == eta
 
 
@@ -307,3 +308,17 @@ def test_extreme_report_rounding_does_not_change_input_or_hold_threshold():
     assert report['hold_threshold_soc'] == 35.6789
     assert report['release_threshold_soc'] == pytest.approx(37.6789)
     assert data == before
+
+
+@pytest.mark.parametrize(('model', 'expected'), [
+    (None, 0.9),
+    ({'discharge_efficiency': 0.95}, 0.95),
+    ({'discharge_efficiency': 0}, 0.9),
+    ({'discharge_efficiency': 1.5}, 0.9),
+    ({'discharge_efficiency': 'abc'}, 0.9),
+])
+def test_plan_reports_the_discharge_efficiency_of_the_reserve_template(model, expected):
+    data = sample()
+    if model is not None:
+        data['attributes']['sensor.opti_battery_model'] = model
+    assert reserve_plan(data, SETTINGS, NOW, shadow=False)['assumed_discharge_efficiency'] == expected

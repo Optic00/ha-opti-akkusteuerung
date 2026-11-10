@@ -730,8 +730,12 @@ Entität (Grenze aus **Maximales Alter von Prognosen**, Standard zwölf
 Stunden), was den tatsächlichen Abrufzeitpunkt bei Solcast nur annähert. Fehlt bei aktivem `grid_check_quantile` das Prüfquantil, gibt es
 keine Netzladeempfehlung (`grid_check_p50_missing`).
 
+Lade- und Entladewirkungsgrad des Planers kommen aus dem Akkumodell
+(`sensor.opti_battery_model`, Standard je 90 %).
 Ohne Oberfläche einstellbar über die Optionen des Eintrags: `planner.wear_ct_kwh`
-(Zyklenkosten, 3 ct/kWh Entladung), `planner.terminal_factor` (0,8),
+(Zyklenkosten je entladener kWh; ohne Angabe aus dem Akkumodell, Standard
+3,33 ct, also 2 × 1,5 ct Durchsatzkosten / 90 % Entladewirkungsgrad),
+`planner.terminal_factor` (0,8),
 `planner.quantile` (`p10`), `planner.min_benefit_ct` (Variante A: Plan nur,
 wenn sein erwarteter Vorteil gegenüber Eigenverbrauch über den Horizont diesen
 Betrag erreicht, sonst Eigenverbrauch; `plan_source` zeigt es) und

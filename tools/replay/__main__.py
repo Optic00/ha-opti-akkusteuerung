@@ -58,7 +58,8 @@ def build_policy(spec: str, plant: dict, sun: SunModel, hours=None, params: Batt
         house_daily = "lastprofil" if head.endswith("+lastprofil") else "engine"
         # The long-window statistics sample once per simulation step.
         return StrategyPolicy(plant, ref or None, sun=sun, name=spec, house_daily=house_daily,
-                              sample_interval_s=3600.0 / steps_per_hour)
+                              sample_interval_s=3600.0 / steps_per_hour, battery=params,
+                              wear_ct=planner.get("wear_ct", 3.0))
     if spec == "oracle" or spec.startswith("oracle@"):
         terminal = spec.partition("@")[2] or "hold"
         return OraclePolicy(hours, plant, params, wear_ct=planner.get("wear_ct", 3.0), terminal=terminal,

@@ -1051,3 +1051,44 @@ async def test_long_or_other_interruption_restarts_dynamic_settling(device, inte
     clock.now += 5
     await adapter.async_apply(sma.DYNAMIC, PARAMETERS, lambda: True)
     assert last_bms(unit)[40795] == 500
+
+
+def test_command_signature_ignores_parameters_without_register_effect():
+    base = dict(PARAMETERS, max_soc=90)
+    changed = dict(base, charge_power_w=9000, charge_setpoint_w=9000, discharge_setpoint_w=9000,
+                   min_charge_w=900, max_charge_w=9000, min_discharge_w=900,
+                   max_discharge_w=9000, capacity_wh=99000, max_soc=50)
+    assert sma.command_signature(sma.PAUSE, base) == sma.command_signature(sma.PAUSE, changed)
+    for mode in sma.MODES:
+        if mode != sma.PAUSE:
+            assert sma.command_signature(mode, base) != sma.command_signature(mode, changed), mode
+    # Max-SoC is never written by the SMA driver.
+    for mode in sma.MODES:
+        assert sma.command_signature(mode, base) == sma.command_signature(mode, dict(base, max_soc=50))
+    assert (sma.command_signature(sma.ONLY_DISCHARGE, base)
+            == sma.command_signature(sma.ONLY_DISCHARGE, dict(base, charge_power_w=10, min_charge_w=0)))
+    assert (sma.command_signature(sma.FAST_CHARGE, base)
+            == sma.command_signature(sma.FAST_CHARGE, dict(base, charge_power_w=10, discharge_setpoint_w=0)))
+
+
+@pytest.mark.parametrize(
+    "mode,key,before,after,same",
+    [
+        (sma.DYNAMIC, "charge_power_w", 3000, 3020, True),
+        (sma.DYNAMIC, "charge_power_w", 3000, 3060, False),
+        (sma.DYNAMIC, "min_discharge_w", 0, 20, False),  # zero/non-zero is exact
+        (sma.ONLY_CHARGE, "charge_power_w", 210, 190, False),  # crossing the floor
+        (sma.GRID_CHARGE, "charge_power_w", 3000, 3010, True),
+        (sma.CHARGE_02C, "capacity_wh", 12800, 12850, True),
+        (sma.CHARGE_02C, "capacity_wh", 12800, 13200, False),
+    ],
+)
+def test_command_signature_quantizes_power_but_keeps_window_structure(mode, key, before, after, same):
+    first = sma.command_signature(mode, dict(PARAMETERS, **{key: before}))
+    second = sma.command_signature(mode, dict(PARAMETERS, **{key: after}))
+    assert (first == second) is same
+
+
+def test_command_signature_of_invalid_parameters_stays_exact():
+    bad = dict(PARAMETERS, charge_power_w=float("nan"))
+    assert sma.command_signature(sma.DYNAMIC, bad) != sma.command_signature(sma.DYNAMIC, PARAMETERS)

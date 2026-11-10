@@ -388,6 +388,14 @@ Opti Akku erneuert die Sollwerte danach höchstens dreimal im Abstand von
 mindestens 30 Sekunden. Hält die Verletzung an, bleibt die Meldung aktiv, und
 es gilt wieder der reguläre Erneuerungsabstand von 120 Sekunden.
 
+Ohne Moduswechsel schreibt Opti Akku einen Befehl vor Ablauf der regulären
+Erneuerung nach 120 Sekunden nur neu, wenn sich ein Wert ändert, der im aktuellen
+Modus tatsächlich in SMA-Register geht. Leistungswerte zählen dabei in 50-W-Stufen;
+ob ein Lade- oder Entladefenster offen oder geschlossen ist, zählt exakt.
+Geschrieben wird immer der tatsächliche Wert. In **Akku Pause** löst etwa eine
+geänderte Ladeleistung keine neue Schreibfolge aus. Bei Huawei führt weiterhin
+jede Parameteränderung zu einem neuen Befehl.
+
 Der ältere Sensor **Befehlsbestätigung** bleibt aus Kompatibilitätsgründen
 erhalten. Sein Zustand **Kein offener Befehl** sagt nur, dass aktuell keine
 Transaktion aussteht.

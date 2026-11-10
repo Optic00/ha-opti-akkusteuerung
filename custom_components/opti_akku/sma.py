@@ -119,6 +119,62 @@ def power_window(target: int, floor: int, *, locked: bool = False) -> tuple[int,
     return (floor if 0 < floor < ceiling else 0, ceiling)
 
 
+SIGNATURE_QUANTUM_W = 50
+_SIGNATURE_KEYS = (
+    "charge_power_w",
+    "charge_setpoint_w",
+    "discharge_setpoint_w",
+    "min_charge_w",
+    "max_charge_w",
+    "min_discharge_w",
+    "max_discharge_w",
+    "capacity_wh",
+)
+
+
+def command_signature(mode: str, parameters: Mapping[str, Any]) -> tuple:
+    """Compare commands by their register effect, never to choose written values.
+
+    Mirrors the register mapping of SmaDevice.async_apply: only parameters that
+    reach a register in this mode count. Powers are compared in 50 W steps, but
+    whether a power window value is zero stays exact, so opening or closing a
+    window (including a target crossing its floor) is always a new command.
+    The model rating clamp is left out; it can only add a renewal, never hide one.
+    Invalid or incomplete parameters fall back to an exact comparison.
+    """
+    try:
+        if any(isinstance(parameters[key], bool) for key in _SIGNATURE_KEYS):
+            raise ValueError
+        numbers = {key: float(parameters[key]) for key in _SIGNATURE_KEYS}
+        if not all(math.isfinite(value) for value in numbers.values()):
+            raise ValueError
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return ("exact", mode, *sorted((key, repr(value)) for key, value in parameters.items()))
+    value = {key: max(0, int(number)) for key, number in numbers.items()}
+
+    def q(power: int) -> tuple[bool, int]:
+        return power > 0, round(power / SIGNATURE_QUANTUM_W)
+
+    max_charge, max_discharge = value["max_charge_w"], value["max_discharge_w"]
+    charge = power_window(min(value["charge_power_w"], max_charge), value["min_charge_w"])
+    discharge = power_window(max_discharge, value["min_discharge_w"])
+    rail = (q(max_charge), q(max_discharge))
+    effect: tuple | None = {
+        PAUSE: (),
+        ONLY_CHARGE: (*map(q, charge),),
+        ONLY_DISCHARGE: (*map(q, discharge),),
+        DYNAMIC: (*map(q, charge), *map(q, discharge)),
+        AUTO: rail,
+        FAST_CHARGE: (*rail, q(min(value["charge_setpoint_w"], max_charge))),
+        FAST_DISCHARGE: (*rail, q(min(value["discharge_setpoint_w"], max_discharge))),
+        GRID_CHARGE: (*rail, q(min(value["charge_power_w"], max_charge))),
+        CHARGE_02C: (*rail, q(min(max_charge, max(0, round(0.2 * numbers["capacity_wh"]))))),
+    }.get(mode)
+    if effect is None:
+        return ("exact", mode, *sorted((key, repr(value)) for key, value in parameters.items()))
+    return (mode, *effect)
+
+
 class SmaDevice:
     """One verified STP SE unit; never opens or closes a connection itself."""
 

@@ -2131,11 +2131,12 @@ async def test_backward_clock_keeps_coordinator_safety_evaluation(coordinator, h
     hass.config_entries.async_update_entry(coordinator.entry, options={**coordinator.entry.options,
         "plant_mode": "balance", "plant_meter_confirmed": True, "forecast_min_load_w": 0})
     coordinator.write_enabled = True
-    # Without export the PV peak release stays off, so the planned charge power
-    # follows the SoC step and the command signature changes with the SoC below.
     coordinator.device.async_read.return_value["sensor.opti_grid_export_w"] = 0
     await coordinator._async_update_data()
     coordinator.device.async_apply.reset_mock()
+    # A Pause signature ignores charge power (no register effect), so force a
+    # new command to prove the backward clock still reaches the write path.
+    coordinator._last_signature = None
     coordinator.device.async_read.return_value["sensor.opti_soc"] = 1
     with patch("custom_components.opti_akku.coordinator.dt_util.utcnow", return_value=dt_util.utcnow() - timedelta(minutes=2)):
         data = await coordinator._async_update_data()
@@ -4318,3 +4319,48 @@ async def test_identity_without_serial_is_not_cached(coordinator):
     await coordinator._async_update_data()
     await coordinator._async_update_data()
     assert coordinator.device.async_probe.await_count == 2
+
+
+async def test_pause_is_not_rewritten_for_parameters_without_register_effect(coordinator):
+    """Charge power following the surplus has no effect in Pause (C7)."""
+    coordinator.write_enabled = True
+    base = coordinator._parameters({})
+    values = iter([1000, 1800, 2600, 3400])
+    with patch.object(coordinator, "_parameters",
+                      side_effect=lambda states: {**base, "charge_power_w": next(values)}):
+        for _ in range(4):
+            data = await coordinator._async_update_data()
+            assert data["mode"] == "Akku Pause"
+    assert coordinator.device.async_apply.await_count == 1
+
+
+async def test_dynamic_rewrites_only_for_power_changes_beyond_the_quantum(coordinator):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.manual_mode = "Akku Dynamisch"
+    coordinator.write_enabled = True
+    base = coordinator._parameters({})
+    values = iter([1000, 1010, 1020, 1100, 1100])
+    written = []
+    coordinator.device.async_apply.side_effect = (
+        lambda mode, params, current: written.append((mode, params["charge_power_w"])))
+    with patch.object(coordinator, "_parameters",
+                      side_effect=lambda states: {**base, "charge_power_w": next(values)}):
+        for _ in range(5):
+            await coordinator._async_update_data()
+    # The real value is written, the quantum only decides whether to write.
+    assert written == [("Akku Dynamisch", 1000), ("Akku Dynamisch", 1100)]
+
+
+async def test_huawei_signature_keeps_every_parameter(coordinator, hass, entry):
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "backend": "huawei_solar"})
+    coordinator.device.last_read_errors = {}
+    coordinator.device.async_probe.return_value = {
+        **coordinator.device.async_probe.return_value, "backend_health": True}
+    coordinator.write_enabled = True
+    base = coordinator._parameters({})
+    values = iter([1000, 1010])
+    with patch.object(coordinator, "_parameters",
+                      side_effect=lambda states: {**base, "charge_power_w": next(values)}):
+        for _ in range(2):
+            await coordinator._async_update_data()
+    assert coordinator.device.async_apply.await_count == 2

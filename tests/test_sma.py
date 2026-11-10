@@ -123,6 +123,17 @@ class FakeUnit:
 @pytest.fixture
 def device():
     unit, clock = FakeUnit(), Clock()
+    adapter = sma.SmaDevice(unit, monotonic=clock, sleep=clock.sleep)
+    # Most sequence tests model a device with a known clear 40149. The unknown
+    # state of a real new driver instance is covered by fresh_device below.
+    adapter._setpoint_unknown = False
+    return adapter, unit, clock
+
+
+@pytest.fixture
+def fresh_device():
+    """A new driver instance (setup, reload, restart): 40149 is unknown."""
+    unit, clock = FakeUnit(), Clock()
     return sma.SmaDevice(unit, monotonic=clock, sleep=clock.sleep), unit, clock
 
 
@@ -254,8 +265,13 @@ async def test_all_four_command_modes(device, mode, power):
     assert adapter.last_error is None
 
 
-async def test_automatic_preserves_reset_sequence(device):
-    adapter, unit, _ = device
+async def test_automatic_preserves_reset_sequence(fresh_device):
+    adapter, unit, _ = fresh_device
+    # A new driver cannot know 40149: the first Automatic clears it once
+    # under its own 802 (restart/reload case), later renewals keep 802 -> 803.
+    await adapter.async_apply(sma.AUTO, {}, lambda: True)
+    assert raw_writes(unit)[-3:] == [(40151, 802), (40149, 0), (40151, 803)]
+    unit.writes.clear()
     await adapter.async_apply(sma.AUTO, {}, lambda: True)
     assert raw_writes(unit)[-2:] == [(40151, 802), (40151, 803)]
     assert not any(address == 40149 for address, _ in unit.writes)
@@ -506,7 +522,7 @@ async def test_interrupt_midflight_setpoint_waits_for_complete_cleanup(device, i
     current = True
 
     async def block(address, values):
-        if address == 40149:
+        if address == 40149 and sma.decode_s32(values) != 0:
             # The device may already have accepted this final setpoint even
             # when cancellation prevents its response reaching the adapter.
             in_setpoint.set()
@@ -764,7 +780,9 @@ async def test_longest_failed_sequence_keeps_cleanup_and_previous_evidence(devic
     unit.on_write = supersede_after_setpoint
     with pytest.raises(sma.StaleCommandError):
         await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: current)
-    assert len(raw_writes(unit)) == 16
+    # Command (14 incl. the 40149 setpoint), cleanup clears it under 802, then the pause.
+    assert len(raw_writes(unit)) == 17
+    assert raw_writes(unit)[-8] == (40149, 0)
     evidence = adapter.last_write_values
     assert len(evidence["summary"]) <= 255
     assert evidence["status"] == "superseded_safe_pause"
@@ -851,6 +869,147 @@ async def test_leaving_fast_discharge_clears_positive_setpoint_first(device, fol
     assert (40149, 0) not in raw_writes(unit)
 
 
+@pytest.mark.parametrize("previous", [sma.GRID_CHARGE, sma.FAST_CHARGE, sma.CHARGE_02C])
+@pytest.mark.parametrize("follow_up", [sma.AUTO, sma.FAST_DISCHARGE])
+async def test_leaving_charge_rail_clears_negative_setpoint_first(device, previous, follow_up):
+    """A stale -W in 40149 must not charge under Automatic's 802 renewal pulse."""
+    adapter, unit, _ = device
+    await adapter.async_apply(previous, PARAMETERS, lambda: True)
+    assert adapter._charge_setpoint_armed
+    unit.writes.clear()
+    await adapter.async_apply(follow_up, PARAMETERS, lambda: True)
+    writes = raw_writes(unit)
+    assert writes[0] == (40149, 0)
+    assert all(not (address == 40149 and value < 0) for address, value in writes)
+    assert not adapter._charge_setpoint_armed
+    unit.writes.clear()
+    await adapter.async_apply(follow_up, PARAMETERS, lambda: True)
+    assert (40149, 0) not in raw_writes(unit)
+
+
+@pytest.mark.parametrize("follow_up", [sma.GRID_CHARGE, sma.FAST_CHARGE, sma.CHARGE_02C])
+async def test_charge_rail_to_charge_rail_needs_no_clear(device, follow_up):
+    adapter, unit, _ = device
+    await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
+    unit.writes.clear()
+    await adapter.async_apply(follow_up, PARAMETERS, lambda: True)
+    writes = raw_writes(unit)
+    assert (40149, 0) not in writes
+    assert writes[-1][0] == 40149 and writes[-1][1] < 0
+    assert adapter._charge_setpoint_armed
+
+
+@pytest.mark.parametrize("lock", [sma.PAUSE, sma.ONLY_CHARGE, sma.DYNAMIC])
+async def test_charge_setpoint_via_lock_to_automatic_never_charges(device, lock):
+    """Issue #186: grid charge, a lock, then Automatic must not pulse-charge."""
+    adapter, unit, _ = device
+    await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
+    await adapter.async_apply(lock, PARAMETERS, lambda: True)
+    assert adapter._charge_setpoint_armed  # inert under 803, still on the device
+    unit.writes.clear()
+    await adapter.async_apply(sma.AUTO, PARAMETERS, lambda: True)
+    writes = raw_writes(unit)
+    rail = writes.index((40151, 802))
+    assert writes[rail + 1] == (40149, 0)
+    assert writes[-1] == (40151, 803)
+    assert not adapter._charge_setpoint_armed
+
+
+def record_rail_window(adapter, unit, clock):
+    """Log writes and the 802 command delay in order (the 2 s the stale value acts)."""
+    events = []
+
+    async def on_write(address, values):
+        events.append((address, sma.decode_s32(values)))
+
+    async def on_sleep(seconds):
+        if seconds == sma.COMMAND_DELAY_SECONDS:
+            events.append("delay")
+
+    unit.on_write, clock.on_sleep = on_write, on_sleep
+    return events
+
+
+def setpoint_during_delay(events):
+    """The 40149 value the device holds while each 802 command delay runs."""
+    value, seen = None, []
+    for event in events:
+        if event == "delay":
+            seen.append(value)
+        elif event[0] == 40149:
+            value = event[1]
+    return seen
+
+
+@pytest.mark.parametrize("lock", [sma.PAUSE, sma.ONLY_CHARGE, sma.ONLY_DISCHARGE, sma.DYNAMIC])
+@pytest.mark.parametrize("follow_up", [sma.AUTO, sma.FAST_DISCHARGE])
+async def test_negative_setpoint_never_acts_after_a_lock(device, lock, follow_up):
+    """Charge -> 803 lock -> Automatic/discharge: no charge during the 2 s delay."""
+    adapter, unit, clock = device
+    events = record_rail_window(adapter, unit, clock)
+    await adapter.async_apply(sma.FAST_CHARGE, PARAMETERS, lambda: True)
+    await adapter.async_apply(lock, PARAMETERS, lambda: True)
+    start = len(events)
+    await adapter.async_apply(follow_up, PARAMETERS, lambda: True)
+    assert setpoint_during_delay(events)[-1] == 0
+    assert "delay" in events[start:]
+
+
+@pytest.mark.parametrize("lock", [sma.PAUSE, sma.ONLY_CHARGE, sma.ONLY_DISCHARGE, sma.DYNAMIC])
+async def test_positive_setpoint_never_acts_before_a_charge_after_a_lock(device, lock):
+    adapter, unit, clock = device
+    events = record_rail_window(adapter, unit, clock)
+    await adapter.async_apply(sma.FAST_DISCHARGE, PARAMETERS, lambda: True)
+    await adapter.async_apply(lock, PARAMETERS, lambda: True)
+    start = len(events)
+    await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
+    assert setpoint_during_delay(events)[-1] == 0
+    assert "delay" in events[start:]
+
+
+async def test_new_driver_neutralizes_unknown_setpoint_for_automatic(fresh_device):
+    """Restart/reload: a stale -W on the device must not charge every 120 s."""
+    adapter, unit, clock = fresh_device
+    events = record_rail_window(adapter, unit, clock)
+    for _ in range(2):
+        await adapter.async_apply(sma.AUTO, PARAMETERS, lambda: True)
+    assert setpoint_during_delay(events) == [0, 0]
+    assert events.count((40149, 0)) == 1
+
+
+@pytest.mark.parametrize(
+    ("mode", "setpoint"),
+    [(sma.FAST_DISCHARGE, 2500), (sma.FAST_CHARGE, -2000), (sma.GRID_CHARGE, -3000), (sma.CHARGE_02C, -2560)],
+)
+async def test_new_driver_neutralizes_unknown_setpoint_before_any_rail_setpoint(fresh_device, mode, setpoint):
+    """Grid charge, pause, restart, then a rail command: no stale value in the 2 s."""
+    adapter, unit, clock = fresh_device
+    events = record_rail_window(adapter, unit, clock)
+    await adapter.async_apply(mode, PARAMETERS, lambda: True)
+    assert setpoint_during_delay(events) == [0]
+    assert raw_writes(unit)[-1] == (40149, setpoint)
+    unit.writes.clear()
+    await adapter.async_apply(mode, PARAMETERS, lambda: True)
+    assert raw_writes(unit) == [(40151, 802), (40149, setpoint)]
+
+
+async def test_automatic_clears_armed_setpoint_under_its_own_802(device):
+    """Armed after an unconfirmed rail: clear inside the 802 window, before 803."""
+    adapter, unit, _ = device
+    await adapter.async_apply(sma.PAUSE, PARAMETERS, lambda: True)
+    assert not adapter._rail_confirmed
+    adapter._charge_setpoint_armed = True
+    unit.writes.clear()
+    await adapter.async_apply(sma.AUTO, PARAMETERS, lambda: True)
+    writes = raw_writes(unit)
+    assert writes[-3:] == [(40151, 802), (40149, 0), (40151, 803)]
+    assert not adapter._charge_setpoint_armed
+    unit.writes.clear()
+    await adapter.async_apply(sma.AUTO, PARAMETERS, lambda: True)
+    assert raw_writes(unit)[-2:] == [(40151, 802), (40151, 803)]
+    assert not any(address == 40149 for address, _ in unit.writes)
+
+
 async def test_cleanup_after_fast_discharge_clears_setpoint_before_pause(device):
     adapter, unit, _ = device
 
@@ -864,6 +1023,24 @@ async def test_cleanup_after_fast_discharge_clears_setpoint_before_pause(device)
         await adapter.async_apply(sma.FAST_DISCHARGE, PARAMETERS, lambda: True)
     writes = raw_writes(unit)
     assert writes.index((40149, 0)) < len(writes) - 1 - writes[::-1].index((40151, 803))
+    assert adapter.last_mode == sma.PAUSE
+
+
+async def test_cleanup_after_charge_rail_clears_negative_setpoint_before_pause(device):
+    """Sourcery #208: a failed 803 in cleanup must not leave 802 with the old charge."""
+    adapter, unit, _ = device
+
+    async def fail_after_setpoint(address, values):
+        if address == 40149 and sma.decode_s32(values) < 0:
+            unit.on_write = None
+            raise ModbusError("injected timeout after the setpoint reached the device")
+
+    unit.on_write = fail_after_setpoint
+    with pytest.raises(ModbusError):
+        await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
+    writes = raw_writes(unit)
+    assert writes.index((40149, 0)) < len(writes) - 1 - writes[::-1].index((40151, 803))
+    assert not adapter._charge_setpoint_armed
     assert adapter.last_mode == sma.PAUSE
 
 
@@ -897,8 +1074,11 @@ async def test_setpoint_is_never_cleared_under_803(device):
     adapter._discharge_setpoint_armed = True
     unit.writes.clear()
     await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
-    assert (40149, 0) not in raw_writes(unit)
-    # The charge setpoint itself replaced the stale value.
+    writes = raw_writes(unit)
+    # Never under 803: the clear follows the command's own acknowledged 802,
+    # so the stale +W cannot discharge during the 2 s before the charge setpoint.
+    assert writes.index((40149, 0)) == writes.index((40151, 802)) + 1
+    assert writes[-1][0] == 40149 and writes[-1][1] < 0
     assert not adapter._discharge_setpoint_armed
 
 

@@ -59,17 +59,29 @@ Umbenennen oder Austauschen verlangt erneute Konfiguration.
 Aktueller Preis und Planung stammen aus demselben vollständig datierten Snapshot.
 Intervallenden werden nur aus einem lückenlos nachgewiesenen Tagesraster gebildet;
 fehlende Zeitpunkte werden nicht aufgefüllt. Der Cache liegt ausschließlich im
-Speicher. Erfolgreiche Abrufe werden spätestens nach 30 Minuten beziehungsweise
-vor dem eingestellten Höchstalter erneuert. Das maximale Preisalter muss für
-Tibber mindestens 60 Sekunden betragen. Fehler verlängern keine Gültigkeit; der
-Abruf wird nach fünf Minuten erneut versucht. Ein gültiger Cache kann solange
-weiterverwendet werden, wie Alter, Kontobindung und zeitliche Abdeckung passen.
+Speicher. Erfolgreiche Abrufe werden nach 30 Minuten erneuert, bei kürzerem
+Höchstalter schon nach dessen Hälfte. Das maximale Preisalter
+muss für Tibber mindestens 60 Sekunden betragen. Fehlgeschlagene Abrufe werden
+nach fünf Minuten wiederholt und als `price_provider_error` gemeldet;
+`price_last_success` zeigt den letzten erfolgreichen Abruf.
+
+Ob der Snapshot gilt, entscheiden die datierten Intervalle, nicht das Abrufalter:
+Day-Ahead-Preise stehen nach ihrer Veröffentlichung fest, ein später erneuter
+Abruf liefert dieselben Werte. Der Cache bleibt deshalb gültig, solange
+Kontobindung passt, der heutige Tag vollständig enthalten ist und ein Intervall
+den aktuellen Zeitpunkt abdeckt, auch wenn `price_max_age` überschritten ist.
+Als Fail-safe gilt eine harte Obergrenze von 24 Stunden seit dem letzten
+erfolgreichen Abruf (bei größerem `price_max_age` dieses). Danach sind aktueller
+Preis und Planung ungültig (`missing_or_stale`), auch wenn noch datierte
+Intervalle vorliegen. Ohne Preise für den neuen Tag endet die Gültigkeit schon
+um Mitternacht (`invalid_price_series`); die Tageslänge folgt den echten
+Zeitstempeln, also auch 92 oder 100 Viertelstunden an Umstellungstagen.
 HA kann selbst gecachte Anbieterpreise liefern: Die Empfangszeit belegt nur den
 Serviceabruf. Datierte Abdeckung wird unabhängig geprüft.
 
 Abrufe laufen außerhalb der Gerätesperre und werden beim Entladen abgebrochen.
-Unmittelbar vor einem Schreibbefehl werden Preisalter und aktuelle Intervall-
-abdeckung nochmals geprüft. Ein zwischenzeitlicher Intervallwechsel verwirft
+Unmittelbar vor einem Schreibbefehl werden die harte Altersgrenze und die
+aktuelle Intervallabdeckung nochmals geprüft. Ein zwischenzeitlicher Intervallwechsel verwirft
 stattdessen den veralteten Befehl. Ohne gültigen Tibber-Snapshot sind sowohl
 aktueller Preis als auch Planung ungültig.
 

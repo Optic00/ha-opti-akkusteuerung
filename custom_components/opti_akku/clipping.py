@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta, tzinfo
 from math import isfinite
 from typing import Any
 
-from .source_quality import DEFAULT_FORECAST_MAX_AGE
+from .source_quality import DEFAULT_FORECAST_MAX_AGE, reported_at
 
 SLOT = timedelta(minutes=30)
 ESTIMATES = (("p50", "pv_estimate"), ("p10", "pv_estimate10"), ("p90", "pv_estimate90"))
@@ -47,7 +47,7 @@ def _slots(state: Any, now: datetime, timezone: tzinfo, max_age: float):
     if not isinstance(detail, list) or not detail or len(detail) > 100:
         return "no_detail", {}
     try:
-        age = (now - _instant(state.last_reported or state.last_updated)).total_seconds()
+        age = (now - _instant(reported_at(state))).total_seconds()
     except ValueError, TypeError, AttributeError:
         return "invalid", {}
     if max_age > 0 and not -60 <= age <= max_age:

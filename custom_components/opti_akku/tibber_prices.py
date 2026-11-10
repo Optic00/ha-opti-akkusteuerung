@@ -16,6 +16,11 @@ FETCH_TIMEOUT_SECONDS = 15
 REFRESH_SECONDS = 1800
 RETRY_SECONDS = 300
 READINESS_RETRY_SECONDS = 15
+# Fail-safe for a snapshot that can no longer be refreshed. Day-ahead prices
+# are fixed once published, so the dated intervals covering ``now`` decide
+# validity, not the fetch age; ``price_max_age`` (at most 24 h in the options)
+# only paces the refresh. A snapshot never outlives this cap.
+HARD_MAX_AGE_SECONDS = 86400
 
 
 class TibberPriceError(ValueError):
@@ -46,12 +51,17 @@ class TibberPriceSnapshot:
     def normalized(
         self, now: datetime, max_age: float, home: str
     ) -> tuple[float, dict[str, Any], dict[str, Any]]:
-        """Select today's actual intervals, never relabel the day of a cached array."""
+        """Select today's actual intervals, never relabel the day of a cached array.
+
+        Validity follows the dated intervals covering ``now``. The fetch age
+        only has to stay within ``max(max_age, HARD_MAX_AGE_SECONDS)``; a
+        failed refresh is reported separately as the provider error.
+        """
         if home != self.home:
             raise TibberPriceError("tibber_home_mismatch")
         age = (now - self.fetched_at).total_seconds()
         limit = finite(max_age)
-        if limit is None or limit <= 0 or not -60 <= age <= limit:
+        if limit is None or limit <= 0 or not -60 <= age <= max(limit, HARD_MAX_AGE_SECONDS):
             raise TibberPriceError("missing_or_stale")
         today = dt_util.start_of_local_day(dt_util.as_local(now))
         tomorrow = today + timedelta(days=1)

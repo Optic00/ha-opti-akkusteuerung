@@ -21,7 +21,7 @@ from time import perf_counter
 from typing import Any
 
 from .arbitrage import _price_periods
-from .source_quality import DEFAULT_FORECAST_MAX_AGE
+from .source_quality import DEFAULT_FORECAST_MAX_AGE, reported_at
 from .planner import (
     DYNAMIC,
     GRID_CHARGE,
@@ -41,7 +41,7 @@ from .planner import (
 FORECAST_ATTRIBUTES = (("detailedForecast", timedelta(minutes=30)), ("detailedHourly", timedelta(hours=1)))
 QUANTILE_KEYS = {"p10": "pv_estimate10", "p50": "pv_estimate"}
 QUANTILES = tuple(QUANTILE_KEYS)
-# The entity's last update is only a proxy for the fetch time; the forecast
+# The entity's last report is only a proxy for the fetch time; the forecast
 # must additionally cover the current hour. The coordinator passes the
 # configured ``forecast_max_age`` option (#103).
 FORECAST_MAX_AGE = DEFAULT_FORECAST_MAX_AGE
@@ -62,9 +62,15 @@ MAX_INTERVAL = 90
 # Load and PV rates in the cache fingerprint are quantised to this (kWh per
 # hour) so measurement noise does not force a new plan every cycle.
 FINGERPRINT_KWH = 0.05
+# ``ladder_unrated``: the ladder is in a mode outside the planner's language
+# (e.g. "Akku Automatisch", "Akku schnell Entladen", observation). Such time
+# is neither agreement nor disagreement and leaves the disagreement share.
 DEVIATIONS = ("planner_grid_charge", "ladder_grid_charge", "planner_hold", "planner_discharge",
-              "planner_no_charge", "indifferent", "other")
+              "planner_no_charge", "indifferent", "other", "ladder_unrated")
 _COUNTERS = ("ready_seconds", "agree_seconds", *(f"{name}_seconds" for name in DEVIATIONS))
+# Added after version 1 was first stored; missing in older saves means zero.
+_COUNTERS_ADDED = frozenset({"ladder_unrated_seconds"})
+_UNDECIDED = ("indifferent_seconds", "ladder_unrated_seconds")
 HISTORY_DAYS = 60
 HISTORY_MAX_ENTRIES = 2400
 HISTORY_VERSION = 3  # 3: packed comma strings; 2: plain number lists (migrated on restore)
@@ -129,7 +135,7 @@ def pv_forecast_hourly(states: Sequence[Any], now: datetime,
         if len(detail) > FORECAST_ROW_LIMIT:
             return "invalid", {}
         try:
-            age = (now - _instant(state.last_updated)).total_seconds()
+            age = (now - _instant(reported_at(state))).total_seconds()
         except ValueError, TypeError, AttributeError:
             return "invalid", {}
         if max_age > 0 and not -60 <= age <= max_age:
@@ -254,7 +260,7 @@ def _battery(inputs: PlannerInputs) -> tuple[Battery | None, str | None]:
 def deviation(planner_mode: str, ladder_mode: Any) -> str:
     """Classify why planner and ladder differ; ``agree`` when they do not."""
     if ladder_mode not in MODES:
-        return "other"
+        return "ladder_unrated"
     if planner_mode == ladder_mode:
         return "agree"
     if planner_mode == GRID_CHARGE:
@@ -342,7 +348,8 @@ class PlannerShadow:
                 raw = saved.get(bucket)
                 if not isinstance(raw, Mapping):
                     return
-                counters = {key: _number(raw.get(key)) for key in _COUNTERS}
+                counters = {key: _number(raw.get(key, 0.0 if key in _COUNTERS_ADDED else None))
+                            for key in _COUNTERS}
                 if any(value is None or value < 0 for value in counters.values()):
                     return
                 buckets[bucket] = counters
@@ -479,8 +486,8 @@ class PlannerShadow:
 
     @staticmethod
     def _share(bucket: Mapping[str, float]) -> float | None:
-        """Disagreement among the seconds in which a decision was possible."""
-        decided = bucket["ready_seconds"] - bucket["indifferent_seconds"]
+        """Disagreement among the seconds in which a comparable decision was possible."""
+        decided = bucket["ready_seconds"] - sum(bucket[key] for key in _UNDECIDED)
         return round((decided - bucket["agree_seconds"]) / decided * 100, 1) if decided > 0 else None
 
     def observe(self, now: datetime, timezone: tzinfo, check: Mapping[str, Any]) -> dict[str, Any]:

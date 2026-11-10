@@ -8,6 +8,36 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Behoben
+
+- Der Horizont-Planer misst das Prognosealter wie Bedarfsprofil und
+  Clipping-Abschätzung ab `last_reported`. Eine unverändert neu abgerufene
+  Solcast-Prognose galt dort bisher nach Ablauf der Altersgrenze als veraltet
+  (`pv_forecast_stale`).
+- Leitermodi außerhalb der Planer-Sprache (etwa `Akku Automatisch`,
+  `Akku schnell Entladen`, Beobachtung) zählen im Schattenplaner als eigene
+  Kategorie `ladder_unrated` statt als Abweichung `other` und verzerren die
+  Uneinigkeitsquote nicht mehr. Bestehende Zähler bleiben erhalten; ihre
+  bisherigen `other`-Sekunden werden nicht nachträglich aufgeteilt.
+- Native Tibber-Preise bleiben gültig, solange ihre datierten Intervalle den
+  aktuellen Zeitpunkt abdecken. Bisher verwarf ein über `price_max_age` hinaus
+  gealterter Abruf den ganzen Snapshot, obwohl die Day-Ahead-Preise noch galten.
+  `price_max_age` steuert nun nur noch den Abrufrhythmus; harte Obergrenze sind
+  24 Stunden seit dem letzten erfolgreichen Abruf. Fehlgeschlagene Abrufe
+  bleiben als `price_provider_error` sichtbar. Siehe [Preisquellen](PRICE_SOURCES.md).
+- SMA: Ein alter Sollwert in 40149 wirkt nicht mehr in den 2 s nach einem 802.
+  Bisher wurde nur ein positiver Entladesollwert gelöscht; ein negativer
+  Ladesollwert (nach „schnell Laden“, „Netzladen“ oder „0.2C Laden“) blieb
+  stehen, und die Automatik-Erneuerung 802 → 2 s → 803 konnte dadurch alle
+  120 s kurz mit ihm laden. Jetzt wird ein Sollwert mit anderer Wirkrichtung
+  als der neue Befehl unter bestätigtem 802 auf 0 gesetzt, notfalls direkt nach
+  dem eigenen 802 vor der Wartezeit. Nach Neustart oder Neuladen ist der
+  Gerätewert unbekannt; der erste Befehl mit 802 setzt ihn deshalb einmal
+  vor der Wartezeit auf 0.
+  Unter 803-Sperren bleibt er wirkungslos stehen. Die Sicherheits-Pause nach
+  einem Schreibfehler löscht einen Sollwert beider Richtungen, solange 802 noch
+  bestätigt ist.
+
 ## [2026.11-beta2] - 2026-11-05
 
 ### Hinzugefügt

@@ -6,8 +6,14 @@ import datetime as dt
 from dataclasses import dataclass, field
 from typing import Any
 
-from .battery import DYNAMIC, MODES
-from .resources import describe_engine, describe_strategy, load_engine_module, load_strategy
+from .battery import DYNAMIC, MODES, BatteryParams
+from .resources import (
+    describe_engine,
+    describe_strategy,
+    load_battery_model_module,
+    load_engine_module,
+    load_strategy,
+)
 from .sun import SunModel
 
 CAPACITY = "sensor.opti_battery_capacity_kwh"
@@ -99,6 +105,10 @@ class StrategyPolicy:
     resources: dict | None = None  # overrides strategy_ref (tests, patched variants)
     house_daily: str = "engine"  # "lastprofil": 24-h load statistic replaced by the previous month's mean daily load
     sample_interval_s: float = 900.0  # raster of the long-window statistics = simulation step (live: 60 s)
+    # Replay plant parameters for sensor.opti_battery_model; without them the
+    # integration's default model applies.
+    battery: BatteryParams | None = None
+    wear_ct: float | None = None  # ct per discharged AC kWh, as --wear-ct
 
     def __post_init__(self) -> None:
         if self.house_daily not in HOUSE_DAILY_MODES:
@@ -126,6 +136,20 @@ class StrategyPolicy:
                 value = self.plant[key]
                 self.settings[entity] = ("on" if value else "off") if isinstance(value, bool) else value
         self.settings.update(self.plant.get("settings", {}))
+        self.battery_model_state = self._battery_model_state()
+
+    def _battery_model_state(self) -> tuple[str, dict[str, Any]]:
+        """Engine state of the battery model from the replay's battery parameters."""
+        model_module = load_battery_model_module()
+        if self.battery is None and self.wear_ct is None:
+            return model_module.BatteryModel.default().engine_state()
+        default = model_module.BatteryModel.default()
+        charge = self.battery.eta_charge if self.battery is not None else default.charge_efficiency
+        discharge = self.battery.eta_discharge if self.battery is not None else default.discharge_efficiency
+        # --wear-ct is ct per discharged AC kWh = 2 * c / eta_discharge.
+        throughput = (self.wear_ct * discharge / 2 if self.wear_ct is not None
+                      else default.throughput_cost_ct_kwh)
+        return model_module.BatteryModel(charge, discharge, throughput, 0.0, "configured").engine_state()
 
     def decide(self, context: StepContext) -> Decision:
         sun_state, sun_attrs = self.sun.state(context.now)
@@ -144,6 +168,9 @@ class StrategyPolicy:
             "sun.sun": sun_state,
         }
         attributes: dict[str, dict] = {"sun.sun": sun_attrs}
+        model_state, model_attributes = self.battery_model_state
+        states["sensor.opti_battery_model"] = model_state
+        attributes["sensor.opti_battery_model"] = dict(model_attributes)
         if self.house_daily == "lastprofil" and context.load_day_kwh is not None:
             # Variant C: the learned profile's daily demand stands in for the 24-h statistic.
             states[DAILY_LOAD_STATISTIC] = round(context.load_day_kwh / 24 * 1000)
@@ -201,6 +228,7 @@ class StrategyPolicy:
             "charge_limit_unknown_steps": self.charge_limit_unknown_steps,
             "block_restarts": self.resets,
             "sun_source": self.sun.source,
+            "battery_model": dict(self.battery_model_state[1]),
             "battery_temp_c": self.battery_temp_c,
             "house_daily": self.house_daily,
         }

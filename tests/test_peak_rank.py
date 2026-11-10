@@ -46,7 +46,7 @@ def check(**overrides):
                 horizon_end=local(19, 11, 1).isoformat(), load_hours=MORNING_LOAD,
                 fallback_load_kw=0.8, surcharge_ct=5, soc=23, capacity_kwh=12.8, minsoc=5,
                 decision_id="peak_l1", peak_reserve_active=True, grid_charging=True,
-                spread_ct=10, feed_in_ct=7, score=1)
+                spread_ct=10, feed_in_ct=7, score=1, discharge_efficiency=0.9)
     args.update(overrides)
     return peak_rank_check(**args)
 
@@ -360,7 +360,7 @@ def test_invalid_profile_values_fall_back_to_fixed_load():
     assert result["demand_kwh"] == check(load_hours={})["demand_kwh"] > check(fallback_load_kw=0.4, load_hours={})["demand_kwh"]
 
 
-ASSUMPTIONS = [5, 10, 5, 7, True, 0.8]
+ASSUMPTIONS = [0.9, 5, 10, 5, 7, True, 0.8]
 
 
 def test_shadow_counts_hold_time_and_discharged_energy():
@@ -432,3 +432,12 @@ def test_uncertain_intervals_never_enter_persistent_totals(uncertain):
     assert totals["ready_seconds"] == totals["peak_seconds"] == 0
     totals = shadow.observe(start + timedelta(seconds=240), check(), ASSUMPTIONS, -2000)
     assert totals["hold_seconds"] == 60
+
+
+def test_usable_energy_follows_the_model_discharge_efficiency():
+    base = check()
+    better = check(discharge_efficiency=0.95)
+    # 12.8 kWh * (23 - 5) % = 2.304 kWh stored
+    assert base["usable_kwh"] == pytest.approx(round(2.304 * 0.9, 3))
+    assert better["usable_kwh"] == pytest.approx(round(2.304 * 0.95, 3))
+    assert better["usable_kwh"] / base["usable_kwh"] == pytest.approx(0.95 / 0.9, abs=1e-3)

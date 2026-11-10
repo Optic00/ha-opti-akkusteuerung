@@ -30,7 +30,7 @@ def pv(kw=6.0, first=6, last=20):
 def check(**overrides):
     args = dict(now=NOW, timezone=TZ, price_series=prices(), feed_in_ct=7.0, pv_slots=pv(),
                 load_w=500, score=4, soc=40, capacity_kwh=10, minsoc=10, maxsoc=90,
-                peak_reserve_active=False, peak_reserve_soc=None)
+                peak_reserve_active=False, peak_reserve_soc=None, charge_efficiency=0.9)
     args.update(overrides)
     return negative_price_hold_check(**args)
 
@@ -159,3 +159,10 @@ def test_snapshot_round_trip_and_invalid_restore():
         target.restore(bad)
         assert target.totals()["ready_seconds"] == 0
         assert target.snapshot()["assumptions"] is None
+
+
+def test_pv_surplus_follows_the_model_charge_efficiency():
+    base = check()
+    lossless = check(charge_efficiency=1.0)
+    assert base["pv_surplus_from_window_kwh"] == 39.6
+    assert lossless["pv_surplus_from_window_kwh"] == pytest.approx(39.6 / 0.9, abs=0.01)

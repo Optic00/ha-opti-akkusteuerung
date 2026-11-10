@@ -18,7 +18,6 @@ from .arbitrage import _price_periods
 # P10 PV surplus after the window start must exceed the missing energy by this
 # factor; charging losses and load errors are covered by the same margin.
 PV_MARGIN = 1.2
-CHARGE_EFFICIENCY = 0.9
 GOOD_SCORE = 3
 MAX_INTERVAL = 90
 _COUNTERS = (
@@ -78,8 +77,12 @@ def negative_price_hold_check(
     maxsoc: Any,
     peak_reserve_active: bool,
     peak_reserve_soc: Any,
+    charge_efficiency: float,
 ) -> dict[str, Any]:
-    """Return the verdict for this cycle; never raises on bad input."""
+    """Return the verdict for this cycle; never raises on bad input.
+
+    ``charge_efficiency`` kommt aus dem Akkumodell (AC -> stored).
+    """
     out: dict[str, Any] = {"observation_only": True, "controls_battery": False}
     threshold = _number(feed_in_ct)
     if threshold is None:
@@ -125,7 +128,7 @@ def negative_price_hold_check(
         if finish > begin:
             surplus = max(0.0, pv_w - values["load"])
             available += surplus * (finish - begin).total_seconds() / 3600 / 1000
-    available *= CHARGE_EFFICIENCY
+    available *= charge_efficiency
     out["pv_surplus_from_window_kwh"] = round(available, 2)
     hold = available >= needed * PV_MARGIN
     return {**out, "status": "ready", "verdict": "hold" if hold else "insufficient_pv"}

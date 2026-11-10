@@ -28,7 +28,6 @@ from typing import Any
 
 from .arbitrage import _instant, _price_periods
 
-DISCHARGE_EFFICIENCY = 0.9
 PEAK_PERCENTILE = 0.60
 WEAK_SCORE = 3
 # Same entry band as the precharge window in decisions.yaml.
@@ -36,6 +35,8 @@ WINDOW_BAND_CT = 0.5
 HOLD_WINDOW_BAND_CT = 1.5
 PEAK_DECISIONS = frozenset({"peak_l1", "peak_l2"})
 MAX_INTERVAL = 90
+# Model discharge efficiency plus six settings, as the coordinator passes them.
+ASSUMPTION_COUNT = 7
 _COUNTERS = (
     "ready_seconds",
     "peak_seconds",
@@ -164,9 +165,12 @@ def peak_rank_check(
     spread_ct: Any,
     feed_in_ct: Any,
     score: Any,
+    discharge_efficiency: float,
     maxsoc: Any = 95,
 ) -> dict[str, Any]:
     """Return the rank verdict for this cycle; never raises on bad input.
+
+    ``discharge_efficiency`` kommt aus dem Akkumodell (stored -> AC).
 
     ``score`` ist ein heutiger Messwert, keine Freigabe für künftiges Netzladen.
     """
@@ -232,7 +236,7 @@ def peak_rank_check(
         {current, *(i for i in peaks if current < i and periods[i][0] < boundary)},
         key=lambda i: (-periods[i][2], periods[i][0]),
     )
-    usable = values["capacity"] * max(0.0, values["soc"] - values["minsoc"]) / 100 * DISCHARGE_EFFICIENCY
+    usable = values["capacity"] * max(0.0, values["soc"] - values["minsoc"]) / 100 * discharge_efficiency
     remaining = usable
     demand = 0.0
     served: list[int] = []
@@ -320,7 +324,7 @@ class PeakRankShadow:
                     return
             assumptions = saved.get("assumptions")
             if assumptions is not None and (
-                not isinstance(assumptions, list) or len(assumptions) != 6
+                not isinstance(assumptions, list) or len(assumptions) != ASSUMPTION_COUNT
                 or any(item is not None and not isinstance(item, bool) and _number(item) is None
                        for item in assumptions)
             ):

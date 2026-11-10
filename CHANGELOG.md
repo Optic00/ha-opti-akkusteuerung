@@ -10,6 +10,12 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Geändert
 
+- Wirkungsgrad und Zykluskosten des Akkus kommen jetzt für alle Berechnungen aus
+  einem gemeinsamen Akkumodell. Ohne konfigurierte Arbitrage-Annahmen gelten 90 %
+  Lade- und 90 % Entladewirkungsgrad und 3 ct/kWh Zykluskosten; die Steuerung rechnet
+  damit wie bisher. Die Werte stehen im neuen Diagnosesensor „Akkumodell“.
+- Der Horizont-Planer (Schattenbetrieb) rechnet mit denselben Werten statt fest mit
+  95 % und 3 ct. Seine Vergleichszahlen sind mit früheren nicht direkt vergleichbar.
 - Zwei Reservezweige der Strategie (SoC unter 20 % und SoC unter 75 % bei
   schwacher Prognose heute und morgen) sind entfernt. Sie waren vollständig vom
   Zweig „SoC unter 80 %“ überdeckt und lieferten denselben Modus. Der Akkumodus

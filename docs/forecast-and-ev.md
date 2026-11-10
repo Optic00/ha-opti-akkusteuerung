@@ -40,11 +40,12 @@ allein noch kein Nachweis einer besseren Strategie.
   ein rechnerisch passendes, aber energetisch bedeutungsloses Schwachlichtfenster
   nicht als Wiederaufladebeginn gewertet.
 - Der Vorschlag deckt das größte kumulierte Energiedefizit bis dahin, mit
-  20 % plus 0,2 kWh Puffer, 90 % Entladewirkungsgrad und eingestelltem Mindest-SoC.
+  20 % plus 0,2 kWh Puffer, dem Entladewirkungsgrad des Akkumodells (Standard 90 %)
+  und eingestelltem Mindest-SoC.
   Eine über der nutzbaren Kapazität liegende Anforderung wird separat ausgewiesen.
   Zusätzlich zeigt der Bericht den danach innerhalb des ab Berechnungszeitpunkt
-  maximal 24-stündigen Horizonts verfügbaren Nettoüberschuss, mit 90 %
-  Ladeeffizienz, und ob dieser den errechneten
+  maximal 24-stündigen Horizonts verfügbaren Nettoüberschuss, mit dem
+  Ladewirkungsgrad des Akkumodells (Standard 90 %), und ob dieser den errechneten
   Batteriebedarf innerhalb der nutzbaren Min-/Max-SoC-Spanne wieder auffüllen
   könnte. Potenziell verfügbare und tatsächlich speicherbare Energie werden
   getrennt gezeigt. Zwischenzeitliche Defizite werden vom aufgebauten Überschuss
@@ -353,6 +354,27 @@ ihren bisherigen Sechs-Stunden-Ersatz. Bei freigegebenem Netzladen gilt auch im
 Vergleich Max-SoC.
 Der Support-Export enthält hiervon nur Status und Grundcodes, keine Energiewerte,
 Zeitfenster, Profile oder Quellnamen.
+
+### Akkumodell
+
+Lade- und Entladewirkungsgrad sowie die Zykluskosten des Hausakkus stehen an einer
+Stelle, im Diagnosesensor `sensor.opti_battery_model` („Akkumodell“). Ist unter
+**Konfigurieren → Optionale Funktionen → Wirtschaftlichkeitsvergleich** der Vergleich
+eingeschaltet und sind alle Annahmen gültig, kommen die Werte von dort (Zustand
+`configured`): Wirkungsgrade aus den Prozentangaben, Durchsatzkosten je kWh aus
+Akkuanteil am Preis mal Wertverlust, geteilt durch zweimal Vollzyklen mal nutzbare
+Kapazität, dazu die Marge. Ohne diese Konfiguration gelten 90 % Lade- und 90 %
+Entladewirkungsgrad, 1,5 ct Durchsatzkosten je kWh (also 3 ct je gespeicherter und
+wieder entnommener kWh) und keine Marge (Zustand `default`). Ist der Vergleich
+eingeschaltet, aber eine Annahme ungültig, gelten ebenfalls diese Standardwerte und der
+Zustand heißt `invalid`.
+
+Das Akkumodell nutzen die Bedarfsprognose (Vorschlag „gesamter Bedarf bis PV“ und
+Refill-Felder), die Schattenvergleiche PV-Ladung bis zum Preisfenster und
+Peak-Rangfolge, der Horizont-Planer im Schattenbetrieb (Verschleiß je entladener kWh
+`2 × Durchsatzkosten / Entladewirkungsgrad`, sofern unter `planner` kein eigener
+`wear_ct_kwh` gesetzt ist) und die Arbitrage-Anzeige. Die Anzeige selbst bleibt ohne
+Konfiguration bei `not_configured` und zeigt keine angenommenen Zahlen.
 
 ### Schattenvergleich der Peak-Vorladeschwelle
 

@@ -103,3 +103,32 @@ def test_ev_lock_still_pauses_without_reserve(engine):
     })
     assert result.mode == "Akku Pause"
     assert result.reason == "Ladedeckel (maxsoc erreicht; EV-Entladesperre)"
+
+
+def test_pause_held_by_the_cap_keeps_the_hold_band_without_flapping(engine):
+    """Review: ohne Band in der eigenen Pause flatterte 95,0 -> Pause, 95,1 -> Entladen."""
+    mode = "Akku nur Laden"
+    seen = []
+    for soc in ("95.0", "95.1", "95.0", "95.1", "96.9", "97.0"):
+        result = run(engine, mode=mode, **{RESERVE: "95", "sensor.opti_soc": soc})
+        seen.append(result.mode)
+        mode = result.mode
+    assert seen == ["Akku Pause"] * 6
+    # Oberhalb Reserve + 2 hält auch die Pause nicht mehr.
+    above = run(engine, mode="Akku Pause", **{RESERVE: "95", "sensor.opti_soc": "97.1"})
+    assert above.mode == "Akku nur Entladen"
+    assert above.reason == "Ladedeckel (maxsoc erreicht)"
+
+
+def test_cap_band_does_not_leak_into_the_real_l4_branch(engine):
+    # Unter dem Ladedeckel gilt für L4 weiterhin nur das Band im Modus 'nur Laden'.
+    states = {**BASE, "input_boolean.akku_opti_automatik": "on",
+              "input_boolean.opti_prognose_netzladen": "off",
+              "sensor.opti_soc": "41", "input_number.maxsoc": "95",
+              "binary_sensor.opti_peak_reserve_aktiv": "on", RESERVE: "40",
+              MODE: "Akku Pause"}
+    attrs = {RESERVE: {"reserve_ve_soc": 30.0, "peak_preis_ve_avg_ct": 60.0,
+                       "peak_preis_avg_ct": 60.0, "min_preis_vor_peak_ct": 30.0}}
+    result = engine.evaluate(states, attrs, NOW)
+    assert result.decision_id != "peak_l4"
+    assert result.states[PREVIEW] == result.mode

@@ -396,7 +396,10 @@ strategy:
                         and is_state('binary_sensor.opti_ev_schnellladung', 'on') %}
             {% set aktiv = is_state('binary_sensor.opti_peak_reserve_aktiv', 'on') %}
             {% set soc = states('sensor.opti_soc') | float(none) %}
-            {% set band = 2 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden') else 0 %}
+            {# Halteband wie L3/L4, zusätzlich in der Pause, die dieser Zweig selbst
+               hält: sonst entfiele das Band nach dem Wechsel auf Pause und der Modus
+               flatterte an der Reservegrenze zwischen Pause und nur Entladen. #}
+            {% set band = 2 if states('input_select.akkusteuerung_modus') in ['Akku nur Laden', 'Akku Pause'] else 0 %}
             {% set ve = state_attr('sensor.opti_peak_reserve_soc', 'reserve_ve_soc') | float(none) %}
             {% set ges = states('sensor.opti_peak_reserve_soc') | float(none) %}
             {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_ve_avg_ct') | float(none) %}

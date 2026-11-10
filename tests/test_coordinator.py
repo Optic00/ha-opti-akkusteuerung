@@ -5024,6 +5024,64 @@ async def test_holding_phase_and_error_path_share_pause_throttle(coordinator):
 
 
 async def test_open_phase_continues_despite_earlier_failed_pause_attempts(coordinator):
+    class PhasedDevice(AsyncMock):
+        PHASED = True
+
+    phased = PhasedDevice()
+    template = coordinator.device
+    for name in ("command_execution_basis", "setpoint_readback_capability", "setpoint_readback_limitation"):
+        setattr(phased, name, getattr(template, name))
+    phased.async_probe.return_value = template.async_probe.return_value
+    phased.async_read.return_value = template.async_read.return_value
+    phased.last_write = None
+    phased.supported_modes = ("Akku Pause", "Akku Dynamisch", "Akku nur Laden", "Akku nur Entladen")
+    coordinator.device = phased
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        control["apply_error"] = TimeoutError()
+        while coordinator._failsafe_failed_attempts < 4:
+            await _cycle(coordinator, clock, True, control)
+        control["apply_error"] = PendingCommandError("phase")
+        resumed = clock.t + 120 - 15  # The fourth failure throttles for 120 s.
+        while clock.t <= resumed + 15:
+            await _cycle(coordinator, clock, True, control)
+        attempts = [at for at, _ in writes]
+        assert attempts[-2:] == [resumed, resumed + 15]
+        control["apply_error"] = None
+    coordinator.write_enabled = False
+
+
+async def test_failing_pause_signature_keeps_confirmed_pause(coordinator):
+    _sma_signed(coordinator, pause_signature_error=RuntimeError("signature"))
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        first = clock.t
+        for _ in range(4):
+            data = await _cycle(coordinator, clock, True, control)
+        assert writes == [(first + 30, "Akku Pause")]
+        assert coordinator._applied_mode == "Akku Pause"
+        assert data["internal_error"]["pause"] == "confirmed"
+        assert "internal" in coordinator.alerts._active
+
+
+@pytest.mark.parametrize("was_enabled", [False, True])
+async def test_enabling_writes_during_incident_retries_pause_at_once(coordinator, was_enabled):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        control["apply_error"] = TimeoutError()
+        while coordinator._failsafe_failed_attempts < 4:
+            await _cycle(coordinator, clock, True, control)
+        writes.clear()
+        coordinator.write_enabled = was_enabled
+        with patch.object(coordinator, "async_refresh", AsyncMock()):
+            await coordinator.async_set_write_enabled(True)
+        await _cycle(coordinator, clock, True, control)
+        # Only the off -> on transition resets the incident throttle.
+        assert [written for _, written in writes] == ([] if was_enabled else ["Akku Pause"])
+        control["apply_error"] = None
+    coordinator.write_enabled = False
 
 # C14: a renewal of the confirmed mode is not cancelled by pure information
 # updates (forecasts, price series, cell spread, Tibber cache). Hard causes
@@ -5304,53 +5362,6 @@ async def test_phased_device_renewal_is_cancelled_by_forecast_change(coordinator
     phased.last_write = None
     phased.supported_modes = ("Akku Pause", "Akku Dynamisch", "Akku nur Laden", "Akku nur Entladen")
     coordinator.device = phased
-    with _failure_harness(coordinator) as (clock, control, writes):
-        await _confirmed(coordinator, clock, control, writes)
-        writes.clear()
-        control["apply_error"] = TimeoutError()
-        while coordinator._failsafe_failed_attempts < 4:
-            await _cycle(coordinator, clock, True, control)
-        control["apply_error"] = PendingCommandError("phase")
-        resumed = clock.t + 120 - 15  # The fourth failure throttles for 120 s.
-        while clock.t <= resumed + 15:
-            await _cycle(coordinator, clock, True, control)
-        attempts = [at for at, _ in writes]
-        assert attempts[-2:] == [resumed, resumed + 15]
-        control["apply_error"] = None
-    coordinator.write_enabled = False
-
-
-async def test_failing_pause_signature_keeps_confirmed_pause(coordinator):
-    _sma_signed(coordinator, pause_signature_error=RuntimeError("signature"))
-    with _failure_harness(coordinator) as (clock, control, writes):
-        await _confirmed(coordinator, clock, control, writes)
-        writes.clear()
-        first = clock.t
-        for _ in range(4):
-            data = await _cycle(coordinator, clock, True, control)
-        assert writes == [(first + 30, "Akku Pause")]
-        assert coordinator._applied_mode == "Akku Pause"
-        assert data["internal_error"]["pause"] == "confirmed"
-        assert "internal" in coordinator.alerts._active
-
-
-@pytest.mark.parametrize("was_enabled", [False, True])
-async def test_enabling_writes_during_incident_retries_pause_at_once(coordinator, was_enabled):
-    with _failure_harness(coordinator) as (clock, control, writes):
-        await _confirmed(coordinator, clock, control, writes)
-        control["apply_error"] = TimeoutError()
-        while coordinator._failsafe_failed_attempts < 4:
-            await _cycle(coordinator, clock, True, control)
-        writes.clear()
-        coordinator.write_enabled = was_enabled
-        with patch.object(coordinator, "async_refresh", AsyncMock()):
-            await coordinator.async_set_write_enabled(True)
-        await _cycle(coordinator, clock, True, control)
-        # Only the off -> on transition resets the incident throttle.
-        assert [written for _, written in writes] == ([] if was_enabled else ["Akku Pause"])
-        control["apply_error"] = None
-    coordinator.write_enabled = False
-
     await _confirm_first_command(
         coordinator, hass, entry, {"forecast_remaining": "sensor.fc"}, {"sensor.fc": ("5.1", "kWh")}
     )

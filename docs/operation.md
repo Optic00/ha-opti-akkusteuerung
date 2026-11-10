@@ -329,7 +329,8 @@ Stelle auch halten würde: L3 (teurer Slot, SoC höchstens an der Reserve für
 sehr teure Slots, ausreichender Halte-Spread), L4 (Preis höchstens NORMAL, SoC
 höchstens an der Gesamtreserve) oder die Extrempreis-Reserve, jeweils mit dem
 Halteband von 2 Prozentpunkten im Modus „Akku nur Laden“ und in der vom
-Ladedeckel selbst gehaltenen Pause. Liegt der SoC deutlich
+Ladedeckel selbst gehaltenen Pause; dasselbe Band gilt dann auch für die
+vorgelagerte L2-Entladung. Liegt der SoC deutlich
 über der benötigten Reserve, bleibt Entladen erlaubt, bis die Reserve erreicht
 ist. Die geplante Entladung während eines teuren Peak-Fensters
 bleibt davon unberührt.

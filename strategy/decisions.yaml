@@ -305,9 +305,14 @@ strategy:
         entity_id: sensor.opti_price_level
         state: EXPENSIVE
       - condition: template
-        value_template: '{% set soc = states(''sensor.opti_soc'') | float(none) %} {% set ve = state_attr(''sensor.opti_peak_reserve_soc'',
-          ''reserve_ve_soc'') | float(none) %} {% set band = 2 if is_state(''input_select.akkusteuerung_modus'',
-          ''Akku nur Laden'') else 0 %} {{ soc is not none and ve is not none and soc > ve + band }}'
+        # Halteband wie L3. Zusätzlich in der Pause, die der aktive Ladedeckel
+        # selbst hält: sonst entlädt L2 sie im nächsten Durchlauf mit Band 0, bevor
+        # der Ladedeckel seinen L3-Haltefall erreicht (Flattern Pause/nur Entladen).
+        value_template: |-
+          {% set soc = states('sensor.opti_soc') | float(none) %} {% set ve = state_attr('sensor.opti_peak_reserve_soc',
+            'reserve_ve_soc') | float(none) %} {% set maximum = states('input_number.maxsoc') | float(95) %} {% set deckel = is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
+            and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc') | float(-1) == maximum %} {% set band = 2 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden')
+            or (is_state('input_select.akkusteuerung_modus', 'Akku Pause') and deckel) else 0 %} {{ soc is not none and ve is not none and soc > ve + band }}
       - alias: EV-Sperre inaktiv (Schnellladung sperrt Entladung)
         condition: template
         value_template: |-

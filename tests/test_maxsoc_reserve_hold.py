@@ -132,3 +132,56 @@ def test_cap_band_does_not_leak_into_the_real_l4_branch(engine):
     result = engine.evaluate(states, attrs, NOW)
     assert result.decision_id != "peak_l4"
     assert result.states[PREVIEW] == result.mode
+
+
+DECKEL = "binary_sensor.opti_ladedeckel_aktiv"
+
+
+def run_expensive(engine, mode, soc, deckel="on", deckel_maxsoc=95.0):
+    """EXPENSIVE, maxsoc = reserve_ve_soc = 95, Halte-Spread ausreichend."""
+    states = {
+        **BASE,
+        "input_boolean.akku_opti_automatik": "on",
+        "input_boolean.opti_prognose_netzladen": "off",
+        "input_number.maxsoc": "95",
+        "binary_sensor.opti_peak_reserve_aktiv": "on",
+        RESERVE: "95",
+        "sensor.opti_price_level": "EXPENSIVE",
+        "sensor.opti_price_current_ct_kwh": "30",
+        "input_number.opti_halte_spread_ct": "3",
+        "sensor.opti_soc": soc,
+        DECKEL: deckel,
+        MODE: mode,
+    }
+    attrs = {RESERVE: {"reserve_ve_soc": 95.0, "min_preis_vor_peak_ct": 30.0,
+                       "peak_preis_avg_ct": 60.0, "peak_preis_ve_avg_ct": 60.0},
+             DECKEL: {"maxsoc": deckel_maxsoc}}
+    result = engine.evaluate(states, attrs, NOW)
+    assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+    assert result.states[PREVIEW] == result.mode
+    assert result.attributes[PREVIEW]["grund"] == result.reason
+    return result
+
+
+@pytest.mark.parametrize("socs", [
+    ("95.0", "95.1", "95.0", "95.1", "96.9", "95.2"),  # schwankend
+    ("95.5",) * 6,                                      # konstant
+])
+def test_l2_respects_the_pause_held_by_the_active_cap(engine, socs):
+    """Re-Review: L2 entlud die Ladedeckel-Pause mit Band 0, bevor L3 halten konnte."""
+    mode = "Akku nur Laden"
+    seen = []
+    for soc in socs:
+        result = run_expensive(engine, mode, soc)
+        seen.append((result.decision_id, result.mode))
+        mode = result.mode
+    assert seen == [("maximum_soc", "Akku Pause")] * len(socs)
+    # Oberhalb VE-Reserve + 2 entlädt L2 auch aus der Pause.
+    above = run_expensive(engine, "Akku Pause", "97.1")
+    assert (above.decision_id, above.mode) == ("peak_l2", "Akku nur Entladen")
+
+
+@pytest.mark.parametrize("deckel,deckel_maxsoc", [("off", 95.0), ("on", 90.0)])
+def test_l2_still_discharges_a_pause_without_active_cap(engine, deckel, deckel_maxsoc):
+    result = run_expensive(engine, "Akku Pause", "95.5", deckel=deckel, deckel_maxsoc=deckel_maxsoc)
+    assert (result.decision_id, result.mode) == ("peak_l2", "Akku nur Entladen")

@@ -1252,7 +1252,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # counting from the end of the standby.
         if night_standby({"connection_status": connection, "online": self._online, "states": result.states, "mode": mode}):
             self._write_stall_paused_at = monotonic_now
-        stall_reference = self._last_apply or self._write_monitor_since
+        # Count from the later of the last confirmed write and the start of
+        # this write session: an old write must not trip the watchdog at once
+        # after writes were re-enabled.
+        stall_reference = max((value for value in (self._last_apply, self._write_monitor_since)
+                               if value is not None), default=None)
         if stall_reference is not None and self._write_stall_paused_at is not None:
             stall_reference = max(stall_reference, self._write_stall_paused_at)
         result.states["binary_sensor.opti_write_stalled"] = "on" if not self.shadow_mode and self.write_enabled and self._write_monitor_since is not None and monotonic_now - stall_reference > 240 else "off"

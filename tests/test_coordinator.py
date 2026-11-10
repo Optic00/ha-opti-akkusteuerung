@@ -4364,3 +4364,25 @@ async def test_huawei_signature_keeps_every_parameter(coordinator, hass, entry):
         for _ in range(2):
             await coordinator._async_update_data()
     assert coordinator.device.async_apply.await_count == 2
+
+
+async def test_write_stall_counts_from_reactivation_after_a_long_disable(coordinator):
+    """An old successful write must not trip the stall report at once (C12)."""
+    clock = [10000.0]
+    with patch("custom_components.opti_akku.coordinator.time.monotonic", side_effect=lambda: clock[0]):
+        coordinator.write_enabled = True
+        await coordinator._async_update_data()
+        assert coordinator._last_apply == 10000.0
+        coordinator.write_enabled = False
+        await coordinator._async_update_data()
+        clock[0] += 3600
+        coordinator.write_enabled = True
+        coordinator.device.async_apply.side_effect = OSError("bus")
+        data = await coordinator._async_update_data()
+        assert data["states"]["binary_sensor.opti_write_stalled"] == "off"
+        clock[0] += 200
+        data = await coordinator._async_update_data()
+        assert data["states"]["binary_sensor.opti_write_stalled"] == "off"
+        clock[0] += 60
+        data = await coordinator._async_update_data()
+        assert data["states"]["binary_sensor.opti_write_stalled"] == "on"

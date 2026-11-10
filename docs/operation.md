@@ -513,6 +513,10 @@ Abfragen keine erneute Meldung. Nach 60 Sekunden ohne Fehler wird der Vorfall
 beendet. Schreibstillstand, Sperrverletzung und eine ausstehende Pause werden
 ohne diese Wartefrist gemeldet; für den ersten Tibber-Abruf gilt die gesonderte
 Startfrist.
+Schreibstillstand bedeutet: bei freigegebenen Schreibzugriffen seit mehr als
+240 Sekunden kein bestätigter Schreibvorgang. Die Frist läuft ab dem späteren
+Zeitpunkt von letztem bestätigtem Schreibvorgang und Einschalten der
+Schreibfreigabe; nach langer abgeschalteter Freigabe beginnt sie also neu.
 
 Beim nativen Tibber-Preisbezug wartet Opti Akku, bis die Tibber-Integration
 vollständig geladen und ihr Preisdienst verfügbar ist. Die Bereitschaft wird

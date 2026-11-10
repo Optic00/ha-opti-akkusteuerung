@@ -281,7 +281,15 @@ class SmaDevice:
             for name, address, signed, scale, minimum, maximum in specs:
                 key = f"sensor.opti_{name}"
                 try:
-                    raw = await self._read(address, signed=signed)
+                    try:
+                        raw = await self._read(address, signed=signed)
+                    except (ModbusConnectionError, TimeoutError):
+                        raise
+                    except ModbusError:
+                        # One fresh retry for a single Modbus exception, so a
+                        # transient error does not void the balance or force a
+                        # pause. No value is ever held from an earlier cycle.
+                        raw = await self._read(address, signed=signed)
                     value = raw * scale
                     if not minimum <= value <= maximum:
                         raise InvalidDataError(f"Register {address} outside plausible range")

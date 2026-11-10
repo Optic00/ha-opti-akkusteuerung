@@ -90,6 +90,7 @@ class FakeUnit:
         self.writes = []
         self.on_write = None
         self.fail_reads = set()
+        self.fail_once = set()
         self.fail_write_number = None
         self.fail_all_writes = False
         self.spacing = None
@@ -101,6 +102,9 @@ class FakeUnit:
         self.reads.append((address, count))
         if address in self.fail_reads:
             raise ModbusError("injected read failure")
+        if address in self.fail_once:
+            self.fail_once.discard(address)
+            raise ModbusError("injected single read failure")
         raw = self.values[address]
         if isinstance(raw, list):
             return raw
@@ -968,3 +972,29 @@ async def test_transport_error_or_missing_serial_invalidates_identity(device):
     identity = await adapter.async_probe()
     assert identity["serial_number"] is None
     assert adapter.identity_current is False
+
+
+@pytest.mark.parametrize("address", [30775, 30865, 30867, 30845, 31393])
+async def test_single_register_error_is_retried_once_with_a_fresh_read(device, address):
+    """One transient Modbus exception must not void the balance or SoC (C3b)."""
+    adapter, unit, _ = device
+    await adapter.async_probe()
+    unit.reads.clear()
+    unit.fail_once = {address}
+    values = await adapter.async_read()
+    assert values["sensor.opti_house_balance_w"] == 2200
+    assert values["sensor.opti_soc"] == 54
+    assert values["sensor.opti_battery_power_w"] == 2000
+    assert adapter.last_read_errors == {}
+    assert unit.reads.count((address, 2)) == 2
+
+
+async def test_persistent_register_error_is_retried_only_once(device):
+    adapter, unit, _ = device
+    await adapter.async_probe()
+    unit.reads.clear()
+    unit.fail_reads = {30865}
+    values = await adapter.async_read()
+    assert values["sensor.opti_house_balance_w"] is None
+    assert "sensor.opti_grid_import_w" in adapter.last_read_errors
+    assert unit.reads.count((30865, 2)) == 2

@@ -274,6 +274,12 @@ Dazwischen gilt die bestätigte Identität weiter, damit ein einzelnes nicht les
 Seriennummer-Register die Steuerung nicht unterbricht. Meldet die erneute Prüfung
 eine andere oder fehlende Seriennummer, geht die Verbindung auf `offline` und die
 Schreibsperre greift wie bisher.
+Meldet ein SMA-Messregister im Abruf einen einzelnen Modbus-Fehler, liest der
+Treiber genau dieses Register sofort ein zweites Mal. Werte aus früheren Abrufen
+werden nie weiterverwendet. Scheitert auch der zweite Versuch, fehlt der Wert, und
+es gilt die Pause wie bisher (etwa ohne gültige Ein-Wechselrichter-Bilanz,
+SoC, Batterietemperatur oder Batterieleistung). Verbindungsfehler und
+Zeitüberschreitungen werden nicht wiederholt.
 Sicherheitsgrenzen für SoC, Messwerte und Quellen gelten auch im
 manuellen Betrieb.
 

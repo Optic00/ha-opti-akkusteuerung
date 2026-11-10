@@ -4264,3 +4264,57 @@ async def test_balancing_hold_never_forces_minimum_grid_charge(
     assert params["min_charge_w"] == expected
     note = "Balancing-Haltefenster: kein Mindestladen aus dem Netz"
     assert (note in data["reason_details"]["charge_power_limits"]) == (expected == 0)
+
+
+async def test_confirmed_identity_is_reused_between_good_reads(coordinator, hass, entry):
+    """A single unreadable serial between good reads must not stop control (C3a)."""
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "serial_number": "123456789"})
+    coordinator.device.identity_current = True
+    await coordinator._async_update_data()
+    coordinator.write_enabled = True
+    coordinator.device.async_probe.return_value = {
+        **coordinator.device.async_probe.return_value, "serial_number": None}
+    data = await coordinator._async_update_data()
+    assert data["online"] is True
+    assert coordinator.device.async_probe.await_count == 1
+    coordinator.device.async_apply.assert_awaited()
+    assert data["identity"]["serial_number"] == "123456789"
+
+
+async def test_identity_is_checked_again_after_an_offline_read(coordinator, hass, entry):
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "serial_number": "123456789"})
+    coordinator.device.identity_current = True
+    await coordinator._async_update_data()
+    coordinator.device.async_read.side_effect = OSError("lost")
+    assert (await coordinator._async_update_data())["online"] is False
+    coordinator.device.async_read.side_effect = None
+    coordinator.write_enabled = True
+    coordinator.device.async_probe.return_value = {
+        **coordinator.device.async_probe.return_value, "serial_number": "987654321"}
+    data = await coordinator._async_update_data()
+    assert coordinator.device.async_probe.await_count == 2
+    assert data["online"] is False
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+async def test_identity_is_checked_again_when_the_driver_saw_a_reconnect(coordinator, hass, entry):
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "serial_number": "123456789"})
+    coordinator.device.identity_current = True
+    await coordinator._async_update_data()
+    coordinator.device.identity_current = False
+    coordinator.write_enabled = True
+    coordinator.device.async_probe.return_value = {
+        **coordinator.device.async_probe.return_value, "serial_number": None}
+    data = await coordinator._async_update_data()
+    assert coordinator.device.async_probe.await_count == 2
+    assert data["online"] is False
+    coordinator.device.async_apply.assert_not_awaited()
+
+
+async def test_identity_without_serial_is_not_cached(coordinator):
+    coordinator.device.identity_current = True
+    coordinator.device.async_probe.return_value = {
+        **coordinator.device.async_probe.return_value, "serial_number": None}
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+    assert coordinator.device.async_probe.await_count == 2

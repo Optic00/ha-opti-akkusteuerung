@@ -266,7 +266,14 @@ Ein erzwungener manueller Modus wird nach einem Neustart nicht fortgesetzt.
 Ohne aktivierte Strategie wird auch die Schreibfreigabe nicht wiederhergestellt.
 Zuerst wieder einen manuellen Modus wählen, dann die Schreibfreigabe setzen.
 Vor jeder Steuerungsbewertung müssen die Profilprüfung und aktuelle Messungen erfolgreich
-sein. Ohne lesbare Seriennummer bleibt die Schreibfreigabe gesperrt.
+sein. Ohne lesbare Seriennummer bleibt die Schreibfreigabe gesperrt. Bei SMA STP SE
+prüft Opti Akku die Geräteidentität (Gerätetyp, Modell, Seriennummer) beim ersten
+Abruf und erneut nach jedem Abruf ohne Verbindung, nach einem Transport- oder
+Schreibfehler und nachdem der Treiber eine getrennte Modbus-Verbindung gesehen hat.
+Dazwischen gilt die bestätigte Identität weiter, damit ein einzelnes nicht lesbares
+Seriennummer-Register die Steuerung nicht unterbricht. Meldet die erneute Prüfung
+eine andere oder fehlende Seriennummer, geht die Verbindung auf `offline` und die
+Schreibsperre greift wie bisher.
 Sicherheitsgrenzen für SoC, Messwerte und Quellen gelten auch im
 manuellen Betrieb.
 

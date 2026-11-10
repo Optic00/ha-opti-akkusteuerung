@@ -59,6 +59,15 @@ async def test_runstt_wins_when_the_device_reports_it(unit):
     assert (probe["inverter_status"], probe["status_register"]) == (235, 33003)
 
 
+async def test_runstt_is_rechecked_after_opermode_answered(unit):
+    """Review finding: a cached OperMode must not hide a later RunStt value."""
+    unit.values[33003] = 16777213
+    device = si.SunnyIslandDevice(unit)
+    assert (await device.async_read())["sensor.opti_inverter_status"] == 569
+    unit.values[33003] = 1463
+    assert (await device.async_read())["sensor.opti_inverter_status"] == 1463
+
+
 async def test_probe_rejects_an_stp_se_identity(unit):
     unit.values.update({30051: 8009, 30053: 19051})
     with pytest.raises(sma.UnsupportedDeviceError):

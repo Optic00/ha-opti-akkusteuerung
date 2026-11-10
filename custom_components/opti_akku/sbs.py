@@ -64,6 +64,8 @@ class SbsDevice:
     model_label = "SMA Sunny Boy Storage"
     status_registers: tuple[int, ...] = STATUS_REGISTERS
     probe_registers: tuple[tuple[int, bool, str], ...] = REGISTER_PROBE
+    # True: the register that last answered is tried first. False: fixed priority.
+    status_register_sticky = True
     supported_modes: tuple[str, ...] = ()
     supports_control_release = False
     command_execution_basis = "none_read_only_profile"
@@ -109,7 +111,7 @@ class SbsDevice:
         real status wins, otherwise that code is reported as it is.
         """
         # The last real answer is tried first, never exclusively.
-        addresses = self.status_registers if self._status_address is None else (
+        addresses = self.status_registers if self._status_address is None or not self.status_register_sticky else (
             self._status_address, *(address for address in self.status_registers if address != self._status_address))
         last_error: Exception | None = None
         placeholder: tuple[int, int] | None = None

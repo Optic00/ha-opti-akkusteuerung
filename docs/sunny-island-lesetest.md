@@ -54,7 +54,9 @@ Akkuleistung die AC-Leistung aus 30775 mit umgekehrtem Vorzeichen. Das ist die
 Leistung am Wechselrichter, nicht an der Batterie. Welche Register geantwortet
 haben, steht in der Diagnose.
 
-Beim Gerätestatus gilt 569 aus Register 40029 als „eingeschaltet“. Andere Werte
+Opti Akku liest den Gerätestatus bei jeder Abfrage in dieser Reihenfolge und
+nimmt das erste Register mit einem echten Wert. Als bereit gelten 235 und 2119
+wie beim STP SE sowie 569 („eingeschaltet“ aus Register 40029). Andere Werte
 zeigt Opti Akku als nicht bereit an, bis ihre Bedeutung am Gerät bestätigt ist.
 
 ## Was ich zurück brauche

@@ -51,6 +51,8 @@ class SunnyIslandDevice(SbsDevice):
     profile = PROFILE_SMA_SUNNY_ISLAND
     model_label = "SMA Sunny Island"
     status_registers = STATUS_REGISTERS
+    # RunStt and OperMode use different codes; RunStt must win whenever it answers.
+    status_register_sticky = False
     allowed_statuses = ALLOWED_STATUSES
     probe_registers = (
         *(row for row in REGISTER_PROBE if row[0] not in _SI_ADDRESSES),

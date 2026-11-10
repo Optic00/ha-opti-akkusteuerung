@@ -401,3 +401,6 @@ async def test_sbs_shadow_entry_is_not_offered_for_active_control(hass, profile)
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER},
         data={"backend": "shadow_copy"})
     assert result["reason"] == "no_shadow_entries"
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    assert "active_setup" not in menu["menu_options"]

@@ -1316,7 +1316,8 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
                 self._settings.update({k: v for k, v in stored.get("settings", {}).items() if k in DEFINITIONS})
                 self._merge_pending_settings(stored.get("settings_revision"))
         menu = ["sources", "battery", "tariff", "forecast", "features", "maintenance", "finish"]
-        if self._entry.data.get("shadow_mode") is True:
+        # Read-only test profiles cannot be copied into an active entry.
+        if self._entry.data.get("shadow_mode") is True and self._entry.data.get(CONF_PROFILE) not in READ_ONLY_SMA_PROFILES:
             menu.insert(0, "active_setup")
         return self.async_show_menu(step_id="init", menu_options=menu)
 

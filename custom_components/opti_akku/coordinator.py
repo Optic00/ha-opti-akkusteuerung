@@ -1400,7 +1400,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Reporting failures must not interrupt an already evaluated command."""
         try:
             data["ev_preparation"] = {**ev_report, "controls_battery": bool(ev_report.get("controls_battery") and self.write_enabled and not self.shadow_mode and safety_reason is None), "observation_only": self.shadow_mode or not self.write_enabled}
-            data["reserve_plan"] = reserve_plan(data, self.settings, now, shadow=self.shadow_mode)
+            data["reserve_plan"] = reserve_plan(data, self.settings, now, shadow=self.shadow_mode,
+                                                model=self._battery_model)
             data["operating_report"] = self._operating_report.observe(now, data, data["reserve_plan"], write_failed=write_failed)
         except Exception as err:  # Reporting must never interrupt battery control.
             _LOGGER.debug("Operating report unavailable: %s", type(err).__name__)
@@ -1473,6 +1474,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
                 score=states.get("sensor.opti_forecast_score"),
                 discharge_efficiency=self._battery_model.discharge_efficiency,
+                battery_model=self._battery_model,
             )
             # The model's discharge efficiency restarts the totals when it changes.
             assumptions = [self._battery_model.discharge_efficiency, *(settings.get(name) for name in (

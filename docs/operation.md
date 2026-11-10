@@ -153,6 +153,25 @@ Sperre wäre das Fenster dann offen und der Akku könnte mitten in der Spitze
 laden, obwohl Stunden später günstigere Preise folgen. Laden bei negativen
 Preisen ist davon nicht betroffen.
 
+Peak-Vorladen muss sich außerdem rechnen. Der feste **Preisabstand für Netzladen**
+(Standard 10 ct/kWh) bleibt als Mindestdifferenz zum Peak-Durchschnitt bestehen.
+Zusätzlich muss der erwartete Spitzenpreis die Ladekosten samt Lade- und
+Entladeverlusten und Zykluskosten decken:
+`Spitzenpreis ≥ (Ladepreis / η_Laden + Zykluskosten + Marge) / η_Entladen`.
+Als Spitzenpreis zählt der mit der erwarteten Last gewichtete Mittelpreis der noch
+kommenden Spitzen-Slots (`peak_preis_kuenftig_ct` an der Peak-Reserve); bereits
+abgelaufene Viertelstunden zählen nicht. Die Werte kommen aus dem Akkumodell
+(`sensor.opti_battery_model`). Ohne eigene Annahmen gelten 90 % Lade- und
+Entladewirkungsgrad, 3 ct/kWh Zykluskosten und keine Marge. Faustregel: Bis etwa
+28 ct Ladepreis entscheidet wie bisher der feste Preisabstand, darüber die neue
+Schwelle; sie verlangt je 10 ct höherem Ladepreis rund 2,3 ct mehr Abstand (bei
+38 ct rund 12 ct, bei 48 ct rund 15 ct). Läuft `Akku Netzladen` bereits, darf der
+Spitzenpreis bis zu 1 ct/kWh unter der Schwelle liegen, damit der Modus an der
+Schwelle nicht im Viertelstundentakt wechselt. Eigene Werte unter **Konfigurieren →
+Optionale Funktionen → Wirtschaftlichkeitsvergleich** verschieben die Schwelle;
+sind sie ungültig, findet kein Peak-Vorladen statt, bis sie korrigiert sind. Ob und
+warum Vorladen wirtschaftlich zulässig ist, zeigt der Reserveplan unter `precharge`.
+
 In teuren und sehr teuren Preisphasen entlädt der Akku bei Hausbedarf. Tagsüber
 setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, solange
 **PV-Überschussladen erlauben** eingeschaltet ist und der Ladedeckel nicht

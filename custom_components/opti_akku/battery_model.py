@@ -137,6 +137,16 @@ class BatteryModel:
             low_price_ct / self.charge_efficiency + self.cycle_cost_floor_ct_kwh
         ) / self.discharge_efficiency
 
+    @property
+    def precharge_price_factor(self) -> float:
+        """Factor on the charge price in ``minimum_high_price`` (>= 1)."""
+        return 1 / (self.charge_efficiency * self.discharge_efficiency)
+
+    @property
+    def precharge_price_offset_ct(self) -> float:
+        """Offset in ``minimum_high_price``: cycle cost floor after discharge losses."""
+        return self.cycle_cost_floor_ct_kwh / self.discharge_efficiency
+
     def engine_state(self) -> tuple[str, dict[str, Any]]:
         """State and attributes of ``sensor.opti_battery_model``."""
         return self.source, {
@@ -147,6 +157,9 @@ class BatteryModel:
             "cycle_cost_floor_ct_kwh": round(self.cycle_cost_floor_ct_kwh, 3),
             "margin_ct": round(self.margin_ct, 3),
             "source": self.source,
+            # Unrounded: the precharge condition computes cur * factor + offset.
+            "precharge_price_factor": self.precharge_price_factor,
+            "precharge_price_offset_ct": self.precharge_price_offset_ct,
         }
 
 

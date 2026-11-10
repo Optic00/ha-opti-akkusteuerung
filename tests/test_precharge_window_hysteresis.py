@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.battery_model_fixture import model_attributes, model_states
 from tests.test_engine_parity import BASE, NOW, StrategyEngine, load_resources
 
 MODE = "input_select.akkusteuerung_modus"
@@ -30,14 +31,17 @@ PEAK_STATES = {
     "sensor.opti_price_level": "NORMAL",
     "sensor.opti_peak_reserve_soc": "32.8",
     "binary_sensor.opti_peak_reserve_aktiv": "on",
+    **model_states(),
 }
 PEAK_ATTRS = {
     "sensor.opti_peak_reserve_soc": {
         "reserve_ve_soc": 20.0,
         "min_preis_vor_peak_ct": MIN_BEFORE_PEAK,
         "peak_preis_avg_ct": 60.0,
+        "peak_preis_kuenftig_ct": 60.0,
         "peak_preis_ve_avg_ct": 60.0,
-    }
+    },
+    **model_attributes(),
 }
 
 
@@ -87,7 +91,7 @@ def test_rolling_minimum_preserves_hold_until_price_exits(engine):
     minimums = [36.72] * 6 + [36.78] * 11 + [36.99]
     seen = []
     for price, minimum in zip(ISSUE_PRICES, minimums, strict=True):
-        attrs = {"sensor.opti_peak_reserve_soc": {
+        attrs = {**model_attributes(), "sensor.opti_peak_reserve_soc": {
             **PEAK_ATTRS["sensor.opti_peak_reserve_soc"],
             "min_preis_vor_peak_ct": minimum,
         }}
@@ -128,7 +132,7 @@ def test_entry_edge_stays_at_half_cent_without_prior_grid_charging(engine, mode)
 
 
 def test_missing_window_minimum_keeps_charging_regardless_of_mode(engine):
-    attrs = {"sensor.opti_peak_reserve_soc": {**PEAK_ATTRS["sensor.opti_peak_reserve_soc"], "min_preis_vor_peak_ct": None}}
+    attrs = {**model_attributes(), "sensor.opti_peak_reserve_soc": {**PEAK_ATTRS["sensor.opti_peak_reserve_soc"], "min_preis_vor_peak_ct": None}}
     for mode in ("Akku Dynamisch", "Akku Netzladen"):
         assert run(engine, PEAK_STATES, attrs, mode, 45.0).decision_id == "peak_precharge"
 
@@ -163,7 +167,7 @@ def test_negative_price_window_uses_same_hysteresis(engine):
 @pytest.mark.parametrize("level", ["EXPENSIVE", "VERY_EXPENSIVE"])
 def test_expensive_level_blocks_precharge_without_window_minimum(engine, mode, level):
     # Laufender Slot ist Peak: min_preis_vor_peak_ct fehlt, das Fenster wäre offen.
-    attrs = {"sensor.opti_peak_reserve_soc": {**PEAK_ATTRS["sensor.opti_peak_reserve_soc"],
+    attrs = {**model_attributes(), "sensor.opti_peak_reserve_soc": {**PEAK_ATTRS["sensor.opti_peak_reserve_soc"],
                                               "min_preis_vor_peak_ct": None}}
     states = {**PEAK_STATES, "sensor.opti_soc": "15", "sensor.opti_price_level": level}
     result = run(engine, states, attrs, mode, 45.0)
@@ -175,12 +179,12 @@ def test_expensive_level_blocks_precharge_without_window_minimum(engine, mode, l
 @pytest.mark.parametrize("flag", [True, "True", "true"])
 @pytest.mark.parametrize("mode", ["Akku Dynamisch", "Akku Netzladen"])
 def test_current_peak_slot_blocks_precharge_at_normal_level(engine, mode, flag):
-    attrs = {"sensor.opti_peak_reserve_soc": {**PEAK_ATTRS["sensor.opti_peak_reserve_soc"],
+    attrs = {**model_attributes(), "sensor.opti_peak_reserve_soc": {**PEAK_ATTRS["sensor.opti_peak_reserve_soc"],
                                               "min_preis_vor_peak_ct": None,
                                               "aktueller_slot_peak": flag}}
     result = run(engine, PEAK_STATES, attrs, mode, 45.0)
     assert result.decision_id == "peak_l4"
-    no_peak = {"sensor.opti_peak_reserve_soc": {**attrs["sensor.opti_peak_reserve_soc"],
+    no_peak = {**model_attributes(), "sensor.opti_peak_reserve_soc": {**attrs["sensor.opti_peak_reserve_soc"],
                                                 "aktueller_slot_peak": False}}
     assert run(engine, PEAK_STATES, no_peak, mode, 45.0).decision_id == "peak_precharge"
 

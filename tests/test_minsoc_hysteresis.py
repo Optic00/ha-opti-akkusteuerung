@@ -7,6 +7,7 @@ import json
 import pytest
 
 from tests.test_engine import NOW, SOC, StrategyEngine, evaluate, load_resources, measurements
+from tests.battery_model_fixture import model_attributes, model_states
 from tests.test_engine_parity import BASE
 from custom_components.opti_akku.ev_preparation import apply_preparation
 
@@ -130,9 +131,10 @@ def test_held_band_does_not_block_authorized_grid_charging(charging):
         # Peak-Vorladen ist bei EXPENSIVE/VERY_EXPENSIVE gesperrt; der Vorrang vor
         # dem MinSOC-Halteband gilt für einen zulässigen, also nicht teuren Slot.
         overrides = {"sensor.opti_peak_reserve_soc": 35, "sensor.opti_price_current_ct_kwh": 50,
-                     "sensor.opti_price_level": "NORMAL"}
+                     "sensor.opti_price_level": "NORMAL", **model_states()}
         attributes = {"sensor.opti_peak_reserve_soc": {
-            "reserve_ve_soc": 25, "min_preis_vor_peak_ct": 50, "peak_preis_avg_ct": 200}}
+            "reserve_ve_soc": 25, "min_preis_vor_peak_ct": 50, "peak_preis_avg_ct": 200,
+            "peak_preis_kuenftig_ct": 200}, **model_attributes()}
     else:
         overrides = {"sensor.opti_balancing_watchdog": "netz"}
     result = engine.evaluate(inputs(11, **overrides), attributes, NOW)
@@ -182,13 +184,32 @@ def test_empty_battery_precharges_before_morning_peak(price, expected, mode):
     states = {"input_number.minsoc": 5, "input_select.akkusteuerung_modus": "Akku nur Laden",
               "input_boolean.opti_prognose_netzladen": "on",
               "sensor.opti_price_level": "NORMAL", "sensor.opti_forecast_score": 10,
-              "sensor.opti_peak_reserve_soc": 39.7, "sensor.opti_price_current_ct_kwh": price}
+              "sensor.opti_peak_reserve_soc": 39.7, "sensor.opti_price_current_ct_kwh": price,
+              **model_states()}
+    # The future peak price clears the default model's threshold p_min(37.31) = 49.40;
+    # with 48 ct the economic rule would block (test_issue_154_peak_is_no_longer_economic).
     attributes = {"sensor.opti_peak_reserve_soc": {
-        "reserve_ve_soc": 36.2, "min_preis_vor_peak_ct": 37.31, "peak_preis_avg_ct": 48.0}}
+        "reserve_ve_soc": 36.2, "min_preis_vor_peak_ct": 37.31, "peak_preis_avg_ct": 48.0,
+        "peak_preis_kuenftig_ct": 50.0}, **model_attributes()}
     for soc in (5, 4):
         result = decision_engine().evaluate(inputs(soc, **states), attributes, NOW)
         assert result.decision_id == expected
         assert result.mode == result.states[PREVIEW] == mode
+
+
+def test_issue_154_peak_is_no_longer_economic():
+    """With 48 ct ahead, charging at 37.31 ct does not cover losses and wear (A3/B2)."""
+    states = {"input_number.minsoc": 5, "input_select.akkusteuerung_modus": "Akku nur Laden",
+              "input_boolean.opti_prognose_netzladen": "on",
+              "sensor.opti_price_level": "NORMAL", "sensor.opti_forecast_score": 10,
+              "sensor.opti_peak_reserve_soc": 39.7, "sensor.opti_price_current_ct_kwh": 37.31,
+              **model_states()}
+    attributes = {"sensor.opti_peak_reserve_soc": {
+        "reserve_ve_soc": 36.2, "min_preis_vor_peak_ct": 37.31, "peak_preis_avg_ct": 48.0,
+        "peak_preis_kuenftig_ct": 48.0}, **model_attributes()}
+    result = decision_engine().evaluate(inputs(5, **states), attributes, NOW)
+    assert result.decision_id == "minimum_soc"
+    assert result.mode == result.states[PREVIEW] == "Akku nur Laden"
 
 
 CELL = "sensor.opti_cell_voltage_min_v"

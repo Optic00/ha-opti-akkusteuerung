@@ -8,6 +8,7 @@ import pytest
 
 from custom_components.opti_akku.definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
 from custom_components.opti_akku.migration import MIGRATABLE
+from tests.battery_model_fixture import model_attributes, model_states
 from tests.test_engine import (
     DAYS, DONE_AT, DONE_VALID, MINUTES, NOW, POWER, SOC, StrategyEngine, load_resources, solar_attrs,
 )
@@ -258,11 +259,13 @@ def test_higher_priority_still_wins_with_active_window(changes, expected):
     resources["balancing_automations"] = []
     result = StrategyEngine(resources).evaluate({
         **BASE, SOC: 100, HOURS: 4, DONE_VALID: "on", DONE_AT: NOW.isoformat(),
-        "input_boolean.akku_opti_automatik": "on", **changes,
+        "input_boolean.akku_opti_automatik": "on", **model_states(), **changes,
     }, {"sensor.opti_peak_reserve_soc": {"reserve_ve_soc": 30,
                                           "min_preis_vor_peak_ct": 30,
-                                          "peak_preis_avg_ct": 100},
-        "binary_sensor.opti_minsoc_schutz_aktiv": {"release_soc": 93}}, NOW)
+                                          "peak_preis_avg_ct": 100,
+                                          "peak_preis_kuenftig_ct": 100},
+        "binary_sensor.opti_minsoc_schutz_aktiv": {"release_soc": 93},
+        **model_attributes()}, NOW)
     assert result.states[WINDOW] == "on"
     assert result.decision_id == expected
     assert_parity(result)

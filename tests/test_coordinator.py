@@ -4568,3 +4568,13 @@ async def test_negative_price_hold_assumptions_include_the_model_charge_efficien
         entry, options={**entry.options, "arbitrage_estimate": BATTERY_MODEL_OPTIONS})
     await coordinator._async_update_data()
     assert coordinator._stored_data()["negative_price_hold"]["assumptions"][0] == 0.95
+
+
+async def test_reserve_plan_reports_precharge_economics_with_the_cycle_model(coordinator, hass, entry):
+    data = await coordinator._async_update_data()
+    assert data["reserve_plan"]["precharge"]["model_source"] == "default"
+    assert data["reserve_plan"]["precharge"]["compares"] == "economic_criterion_only"
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "arbitrage_estimate": {**BATTERY_MODEL_OPTIONS, "cycles": 0}})
+    data = await coordinator._async_update_data()
+    assert data["reserve_plan"]["precharge"]["model_source"] == "invalid"

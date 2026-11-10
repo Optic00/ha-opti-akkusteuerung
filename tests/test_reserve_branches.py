@@ -17,6 +17,7 @@ from tests.test_engine_parity import BASE, NOW, StrategyEngine, load_resources
 
 SOC = (3, 14, 15, 19.9, 20, 44, 45, 74.9, 75, 79.9, 80, 90)
 SCORES = ("1", "2.9", "3", "unavailable")
+WINTER_GATE = "binary_sensor.opti_winter_charging_allowed"
 PRICES = ("VERY_CHEAP", "CHEAP", "NORMAL", "EXPENSIVE", "VERY_EXPENSIVE", "unavailable")
 SWITCH = ("on", "off")
 
@@ -27,7 +28,13 @@ def _decision_only(resource):
         for definition in block.get("sensor", [])
         if definition["unique_id"] == "opti_strategie_vorschau"
     )
-    resource["template_blocks"] = [{"sensor": [preview]}]
+    # Keep the real winter gate template: the overlap proof depends on it.
+    winter_gate = next(
+        definition for block in resource["template_blocks"]
+        for definition in block.get("binary_sensor", [])
+        if definition["unique_id"] == "opti_winter_charging_allowed"
+    )
+    resource["template_blocks"] = [{"binary_sensor": [winter_gate]}, {"sensor": [preview]}]
     resource["statistics"] = []
     resource["balancing_automations"] = []
     return resource
@@ -57,7 +64,7 @@ def _former_branches(winter):
     forecast = copy.deepcopy(winter)
     forecast["conditions"] = [
         c for c in forecast["conditions"]
-        if c.get("entity_id") != "binary_sensor.opti_winter_charging_allowed"
+        if c.get("entity_id") != WINTER_GATE
     ]
     _with_soc_bound(forecast, 75)
     price = next(c for c in forecast["conditions"] if c.get("condition") == "or")
@@ -79,8 +86,9 @@ def engines():
 
 
 def _states(soc, today, tomorrow, price, switch, previous):
+    base = {key: value for key, value in BASE.items() if key != WINTER_GATE}
     return {
-        **BASE,
+        **base,
         "input_boolean.akku_opti_automatik": "on",
         "sensor.opti_soc": str(soc),
         "sensor.opti_forecast_score": today,
@@ -103,6 +111,7 @@ def test_removed_branches_never_change_the_mode(engines):
         case = (soc, today, tomorrow, price, switch, previous)
         assert new.mode == old.mode, case
         assert new.states["sensor.opti_strategie_vorschau"] == new.mode, case
+        assert new.states[WINTER_GATE] == "on", case
         if old.decision_id in ("reserve_low", "reserve_forecast"):
             assert new.decision_id == "reserve_winter", case
             renamed += 1
@@ -147,3 +156,11 @@ def test_strategy_has_no_trace_of_the_removed_branches():
     text = repr(preview)
     for needle in ("SOC<20", "SOC<75", "soc < 20", "soc < 75"):
         assert needle not in text
+
+
+def test_overlap_depends_on_the_winter_gate(engines):
+    """Guard: with the gate off the removed SOC<75 branch would have mattered."""
+    current, former = engines
+    states = {**_states(50, "1", "1", "NORMAL", "on", "Akku Dynamisch"), WINTER_GATE: "off"}
+    assert former.evaluate(states, {}, NOW).decision_id == "reserve_forecast"
+    assert current.evaluate(states, {}, NOW).mode != "Akku nur Laden"

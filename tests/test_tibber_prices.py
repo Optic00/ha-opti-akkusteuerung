@@ -456,7 +456,7 @@ async def test_final_write_guard_rechecks_native_snapshot_without_hardware(coord
     checked = []
 
     async def capture(_mode, _params, current):
-        assert current()
+        checked.append(current())
         if expire == "entry":
             MockConfigEntry(domain="tibber", title="Synthetic second").add_to_hass(hass)
         elif expire == "provider":
@@ -467,7 +467,7 @@ async def test_final_write_guard_rechecks_native_snapshot_without_hardware(coord
 
     coordinator.device.async_apply.side_effect = capture
     await coordinator._async_update_data()
-    assert checked == [False]
+    assert checked == [True, False]
     coordinator.write_enabled = False
     coordinator.device.async_apply.reset_mock()
 

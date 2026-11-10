@@ -19,6 +19,10 @@ from .arbitrage import _price_periods
 # factor; charging losses and load errors are covered by the same margin.
 PV_MARGIN = 1.2
 GOOD_SCORE = 3
+# Model charge efficiency plus feed-in tariff, MinSOC and MaxSOC.
+ASSUMPTION_COUNT = 4
+# Snapshots before the battery model had three assumptions and charged with 0.9.
+LEGACY_CHARGE_EFFICIENCY = 0.9
 MAX_INTERVAL = 90
 _COUNTERS = (
     "ready_seconds",
@@ -138,7 +142,8 @@ class NegativePriceHoldShadow:
     """Time-weighted totals; zero-order hold over the previous check.
 
     Gaps over 90 s, the first check after a restart and backwards clock steps
-    never count. A changed feed-in tariff or SoC range restarts the totals.
+    never count. A changed charge efficiency, feed-in tariff or SoC range restarts
+    the totals.
     """
 
     def __init__(self) -> None:
@@ -164,8 +169,10 @@ class NegativePriceHoldShadow:
                 if raw is not None and datetime.fromisoformat(raw).tzinfo is None:
                     return
             assumptions = saved.get("assumptions")
+            if isinstance(assumptions, list) and len(assumptions) == ASSUMPTION_COUNT - 1:
+                assumptions = [LEGACY_CHARGE_EFFICIENCY, *assumptions]
             if assumptions is not None and (
-                not isinstance(assumptions, list) or len(assumptions) != 3
+                not isinstance(assumptions, list) or len(assumptions) != ASSUMPTION_COUNT
                 or any(item is not None and _number(item) is None for item in assumptions)
             ):
                 return

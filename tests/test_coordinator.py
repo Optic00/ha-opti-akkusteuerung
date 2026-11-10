@@ -4559,3 +4559,12 @@ async def test_peak_rank_totals_survive_a_restart_with_the_model_assumption(coor
     restored = PeakRankShadow()
     restored.restore(saved)
     assert restored.data["assumptions"] == saved["assumptions"]
+
+
+async def test_negative_price_hold_assumptions_include_the_model_charge_efficiency(coordinator, hass, entry):
+    await coordinator._async_update_data()
+    assert coordinator._stored_data()["negative_price_hold"]["assumptions"][0] == 0.9
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "arbitrage_estimate": BATTERY_MODEL_OPTIONS})
+    await coordinator._async_update_data()
+    assert coordinator._stored_data()["negative_price_hold"]["assumptions"][0] == 0.95

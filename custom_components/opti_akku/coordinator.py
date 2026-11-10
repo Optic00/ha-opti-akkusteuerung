@@ -1435,7 +1435,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 peak_reserve_soc=states.get("sensor.opti_peak_reserve_soc"),
                 charge_efficiency=self._battery_model.charge_efficiency,
             )
-            assumptions = [self.settings.get("input_number.opti_einspeiseverguetung_ct"),
+            assumptions = [self._battery_model.charge_efficiency,
+                           self.settings.get("input_number.opti_einspeiseverguetung_ct"),
                            self.settings.get("input_number.minsoc"), self.settings.get("input_number.maxsoc")]
             check["source"] = forecast_entity
             check["totals"] = self._negative_price_hold.observe(

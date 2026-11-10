@@ -19,6 +19,12 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Kategorie `ladder_unrated` statt als Abweichung `other` und verzerren die
   Uneinigkeitsquote nicht mehr. Bestehende Zähler bleiben erhalten; ihre
   bisherigen `other`-Sekunden werden nicht nachträglich aufgeteilt.
+- Native Tibber-Preise bleiben gültig, solange ihre datierten Intervalle den
+  aktuellen Zeitpunkt abdecken. Bisher verwarf ein über `price_max_age` hinaus
+  gealterter Abruf den ganzen Snapshot, obwohl die Day-Ahead-Preise noch galten.
+  `price_max_age` steuert nun nur noch den Abrufrhythmus; harte Obergrenze sind
+  24 Stunden seit dem letzten erfolgreichen Abruf. Fehlgeschlagene Abrufe
+  bleiben als `price_provider_error` sichtbar. Siehe [Preisquellen](PRICE_SOURCES.md).
 
 ## [2026.11-beta2] - 2026-11-05
 

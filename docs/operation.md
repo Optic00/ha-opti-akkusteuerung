@@ -610,8 +610,14 @@ Zum Auswerten nach einigen Wochen:
   Planer würde aus dem Netz laden, die Leiter nicht; `planner_hold`: der
   Planer würde Energie halten, wo die Leiter entlädt; `planner_discharge`
   umgekehrt; `indifferent`: kein Modus könnte Energie bewegen (Akku leer oder
-  voll), zählt nicht als Abweichung. `today_disagreement_percent` fasst das
-  zusammen. `executable_mode` mit `planned_charge_w`/`planned_discharge_w`
+  voll), zählt nicht als Abweichung; `ladder_unrated`: die Leiter steht in
+  einem Modus außerhalb der Planer-Sprache (etwa `Akku Automatisch`,
+  `Akku schnell Entladen` oder Beobachtung), auch das ist weder Einigkeit noch
+  Abweichung; `other`: sonstige Abweichung zwischen zwei Planer-Modi.
+  `today_disagreement_percent` und `total_disagreement_percent` fassen das
+  zusammen, ohne `indifferent`- und `ladder_unrated`-Zeiten im Nenner. Vor
+  dieser Aufteilung gespeicherte Zähler werden weiter geladen; ihre
+  `other`-Sekunden können noch Zeiten mit solchen Leitermodi enthalten. `executable_mode` mit `planned_charge_w`/`planned_discharge_w`
   ist der Zug, der den Planfluss exakt reproduziert (auch Teilflüsse); der
   Zustand ist die gröbere Einordnung in die Leiter-Sprache.
 - `expected_saving_eur`: erwartete Ersparnis des Plans gegenüber reinem

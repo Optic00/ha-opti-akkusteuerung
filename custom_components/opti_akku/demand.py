@@ -10,7 +10,7 @@ from statistics import median
 from .load_profile import LoadProfile
 from .demand_accuracy import DemandAccuracy
 from .demand_history import HistoricalPrior, CONTEXT_KEYS
-from .source_quality import DEFAULT_FORECAST_MAX_AGE, measurement_max_age, reported_recently
+from .source_quality import DEFAULT_FORECAST_MAX_AGE, measurement_max_age, reported_at, reported_recently
 
 
 SOURCE_KEYS = (
@@ -70,7 +70,7 @@ def source_value(states, entity_id, now, *, kind, source_max_age=900):
             age = (
                 0
                 if kind == "target"
-                else (now - instant(s.last_reported or s.last_updated)).total_seconds()
+                else (now - instant(reported_at(s))).total_seconds()
             )
         except TypeError, ValueError, AttributeError:
             return None
@@ -168,7 +168,7 @@ def pv_intervals(states, sources, now, max_age=DEFAULT_FORECAST_MAX_AGE):
         if s is None or s.state in ("unknown", "unavailable"):
             continue
         try:
-            age = (now - instant(s.last_reported or s.last_updated)).total_seconds()
+            age = (now - instant(reported_at(s))).total_seconds()
             detail = s.attributes.get("detailedForecast")
             if not -60 <= age <= max_age or not isinstance(detail, list) or len(detail) > 100:
                 continue

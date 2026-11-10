@@ -296,6 +296,9 @@ ihrem ursprünglichen Beginn weiter, statt neu zu starten. Nach einer längeren
 Pause, einem anderen Modus dazwischen, einer Sicherheits-Pause nach einem
 Schreibfehler sowie nach jedem Neustart oder Neuladen der Integration beginnt sie
 neu.
+Aktualisiert sich während einer Erneuerung des bereits aktiven Modus nur eine
+Prognose, die Preisreihe oder der Tibber-Cache, schreibt Opti Akku die Erneuerung
+zu Ende und bewertet danach neu; eine Sicherheits-Pause entsteht dadurch nicht.
 Sicherheitsgrenzen für SoC, Messwerte und Quellen gelten auch im
 manuellen Betrieb.
 

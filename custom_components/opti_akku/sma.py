@@ -152,6 +152,12 @@ class SmaDevice:
         # A positive 40149 (fast discharge) survives 803 and would discharge for
         # the 2 s after a later 802 until the new setpoint lands.
         self._discharge_setpoint_armed = False
+        # A negative 40149 (fast/grid/0.2C charge) survives 803 as well. Automatic
+        # renews with 802 -> 2 s -> 803 and would charge with it for those 2 s.
+        self._charge_setpoint_armed = False
+        # A new instance (setup, reload, restart) cannot know what 40149 still
+        # holds on the device. The first rail command clears it under its own 802.
+        self._setpoint_unknown = True
         # True only after an acknowledged 802 with no 803 attempted since.
         self._rail_confirmed = False
         self.last_write: datetime | None = None
@@ -368,6 +374,8 @@ class SmaDevice:
         await self.unit.write_registers(address, encode_s32(value))
         if address == 40151 and value == 802:
             self._rail_confirmed = True
+        if address == 40149:
+            self._setpoint_unknown = False
         if self._write_trace is not None:
             self._write_trace.append((address, value))
             self._last_acknowledged_write_at = datetime.now(UTC)
@@ -402,7 +410,9 @@ class SmaDevice:
             # limit; judge cleanup by a fresh read, not by that leftover.
             await self._read_status()
             self._ensure_status()
-            if self._discharge_setpoint_armed and self._rail_confirmed:
+            # Clear an armed setpoint of either sign while 802 is confirmed, so
+            # a failed 803 below cannot leave the old charge or discharge active.
+            if self._setpoint_armed and self._rail_confirmed:
                 try:
                     async with asyncio.timeout(DISARM_TIMEOUT_SECONDS):
                         await self._disarm_discharge_setpoint()
@@ -420,6 +430,19 @@ class SmaDevice:
         await self._write(40149, 0)
         await self._sleep(REGISTER_GAP_SECONDS)
         self._discharge_setpoint_armed = False
+        self._charge_setpoint_armed = False
+
+    @property
+    def _setpoint_armed(self) -> bool:
+        return self._discharge_setpoint_armed or self._charge_setpoint_armed
+
+    def _setpoint_survives(self, mode: str) -> bool:
+        """Whether the next command keeps an armed 40149 harmless without a clear."""
+        if self._discharge_setpoint_armed and mode != FAST_DISCHARGE:
+            return False
+        # Under 803 locks a charge setpoint is inert; only a later 802 without a
+        # new charge setpoint (Automatic, fast discharge) would let it charge.
+        return not (self._charge_setpoint_armed and mode in (AUTO, FAST_DISCHARGE))
 
     async def _protected_cleanup(self) -> str | None:
         # Keep the serialization lock until cleanup has actually ended, even if
@@ -482,8 +505,8 @@ class SmaDevice:
 
                 # Only clear under a confirmed 802; 40149 under 803 is unverified.
                 if (
-                    self._discharge_setpoint_armed
-                    and mode != FAST_DISCHARGE
+                    self._setpoint_armed
+                    and not self._setpoint_survives(mode)
                     and self._rail_confirmed
                 ):
                     guard()
@@ -505,6 +528,13 @@ class SmaDevice:
                     guard()
                     touched = True  # A timed-out write may still have reached the device.
                     await self._write(40151, 802)
+                    if self._setpoint_unknown or (
+                        self._setpoint_armed and not self._setpoint_survives(mode)
+                    ):
+                        # An older value from before an unconfirmed 802, or an
+                        # unknown one after a restart (either sign), would act
+                        # during the 2 s below.
+                        await self._disarm_discharge_setpoint()
                     await self._sleep(COMMAND_DELAY_SECONDS)
                     guard()
                     if mode == AUTO:
@@ -518,9 +548,13 @@ class SmaDevice:
                         }[mode]
                         if power > 0:
                             self._discharge_setpoint_armed = True
+                        elif power < 0:
+                            self._charge_setpoint_armed = True
                         await self._write(40149, power)
                         if power <= 0:
                             self._discharge_setpoint_armed = False
+                        if power >= 0:
+                            self._charge_setpoint_armed = False
                     guard()
                 else:
                     target = p["charge_power_w"]

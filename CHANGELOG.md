@@ -25,6 +25,18 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   `price_max_age` steuert nun nur noch den Abrufrhythmus; harte Obergrenze sind
   24 Stunden seit dem letzten erfolgreichen Abruf. Fehlgeschlagene Abrufe
   bleiben als `price_provider_error` sichtbar. Siehe [Preisquellen](PRICE_SOURCES.md).
+- SMA: Ein alter Sollwert in 40149 wirkt nicht mehr in den 2 s nach einem 802.
+  Bisher wurde nur ein positiver Entladesollwert gelöscht; ein negativer
+  Ladesollwert (nach „schnell Laden“, „Netzladen“ oder „0.2C Laden“) blieb
+  stehen, und die Automatik-Erneuerung 802 → 2 s → 803 konnte dadurch alle
+  120 s kurz mit ihm laden. Jetzt wird ein Sollwert mit anderer Wirkrichtung
+  als der neue Befehl unter bestätigtem 802 auf 0 gesetzt, notfalls direkt nach
+  dem eigenen 802 vor der Wartezeit. Nach Neustart oder Neuladen ist der
+  Gerätewert unbekannt; der erste Befehl mit 802 setzt ihn deshalb einmal
+  vor der Wartezeit auf 0.
+  Unter 803-Sperren bleibt er wirkungslos stehen. Die Sicherheits-Pause nach
+  einem Schreibfehler löscht einen Sollwert beider Richtungen, solange 802 noch
+  bestätigt ist.
 - Ladedeckel: Pause nur noch, wenn L3, L4, die Extrempreis-Reserve oder die
   EV-Sperre an dieser Stelle tatsächlich halten würden. Eine bloß aktive
   Peak-Reserve weit unter dem SoC hielt den Akku sonst dauerhaft in Pause.

@@ -420,6 +420,35 @@ def test_indifferent_time_is_not_disagreement():
     assert totals["today"]["indifferent_seconds"] == 30 and totals["today_disagreement_percent"] is None
 
 
+def test_ladder_modes_outside_the_planner_language_are_not_disagreement():
+    shadow = PlannerShadow()
+    now = T0
+    shadow.observe(now, TZ, {"status": "ready", "deviation": "agree"})
+    shadow.observe(now + timedelta(seconds=30), TZ, {"status": "ready", "deviation": "ladder_unrated"})
+    totals = shadow.observe(now + timedelta(seconds=90), TZ, {"status": "ready", "deviation": "agree"})
+    assert totals["today"]["agree_seconds"] == 30 and totals["today"]["ladder_unrated_seconds"] == 60
+    assert totals["today"]["other_seconds"] == 0
+    assert totals["today_disagreement_percent"] == 0.0
+
+
+def test_counter_restore_keeps_counters_saved_before_the_unrated_bucket():
+    # Exactly the version-1 layout written before ``ladder_unrated`` existed.
+    old_keys = ("ready_seconds", "agree_seconds", "planner_grid_charge_seconds", "ladder_grid_charge_seconds",
+                "planner_hold_seconds", "planner_discharge_seconds", "planner_no_charge_seconds",
+                "indifferent_seconds", "other_seconds")
+    total = {**dict.fromkeys(old_keys, 0.0), "ready_seconds": 50.0, "agree_seconds": 40.0, "other_seconds": 10.0}
+    saved = {"version": 1, "started_at": "2026-01-20T05:00:00+00:00", "last_observation": None,
+             "day": "2026-01-20", "today": dict.fromkeys(old_keys, 1.0), "total": total}
+    shadow = PlannerShadow()
+    shadow.restore(saved)
+    assert shadow.data["total"]["ready_seconds"] == 50.0 and shadow.data["total"]["other_seconds"] == 10.0
+    assert shadow.data["total"]["ladder_unrated_seconds"] == 0.0
+    assert shadow.totals()["total_disagreement_percent"] == 20.0
+    missing_old = {**saved, "total": {k: v for k, v in total.items() if k != "other_seconds"}}
+    shadow.restore(missing_old)
+    assert shadow.data["total"]["ready_seconds"] == 0
+
+
 def test_cached_plan_stays_consistent_with_the_shrinking_first_slot():
     # Review reproduction: flat prices, no PV, nothing to gain. Nine minutes into
     # the cached plan the saving must not turn negative through mismatched horizons.
@@ -521,7 +550,9 @@ def test_deviation_classes():
     assert deviation("Akku nur Entladen", "Akku Pause") == "planner_discharge"
     assert deviation(ONLY_CHARGE, "Akku Pause") == "other"
     assert deviation("Akku nur Entladen", DYNAMIC) == "planner_no_charge"
-    assert deviation(DYNAMIC, None) == "other"
+    assert deviation(DYNAMIC, None) == "ladder_unrated"
+    for ladder in ("Akku Automatisch", "Akku schnell Entladen", "Beobachtung"):
+        assert deviation(DYNAMIC, ladder) == "ladder_unrated"
 
 
 # -- forecast history ----------------------------------------------------------

@@ -14,6 +14,11 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Clipping-Abschätzung ab `last_reported`. Eine unverändert neu abgerufene
   Solcast-Prognose galt dort bisher nach Ablauf der Altersgrenze als veraltet
   (`pv_forecast_stale`).
+- Leitermodi außerhalb der Planer-Sprache (etwa `Akku Automatisch`,
+  `Akku schnell Entladen`, Beobachtung) zählen im Schattenplaner als eigene
+  Kategorie `ladder_unrated` statt als Abweichung `other` und verzerren die
+  Uneinigkeitsquote nicht mehr. Bestehende Zähler bleiben erhalten; ihre
+  bisherigen `other`-Sekunden werden nicht nachträglich aufgeteilt.
 
 ## [2026.11-beta2] - 2026-11-05
 

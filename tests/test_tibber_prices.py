@@ -397,6 +397,9 @@ async def test_tibber_reload_retains_dated_cache_only_until_the_hard_cap(
     clock.tick(timedelta(seconds=15))
     await coordinator.async_refresh()
     await coordinator._price_task
+    # The fetch task only requests a debounced refresh; render the new
+    # snapshot explicitly instead of racing that debouncer.
+    await coordinator.async_refresh()
     assert coordinator._price_snapshot is not snapshot
     assert coordinator._price_last_success == dt_util.utcnow()
     assert coordinator.data["price_status"] == "ready"

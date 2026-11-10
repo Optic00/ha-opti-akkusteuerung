@@ -8,8 +8,26 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Geändert
+
+- Der Sperrgrund im manuellen Betrieb nennt den wirksamen Grenzwert und die
+  Freigabeschwelle, etwa „Max-SoC 95 % sperrt manuelle Ladung (frei ab 92 %)“.
+  Automationen, die den bisherigen Text wörtlich auswerten, müssen angepasst
+  werden.
+- Die Entitäten „Minimaler Ladestand“ und „Maximaler Ladestand“ sind bei neuen
+  Installationen aktiviert. Bestehende Installationen bleiben unverändert; die
+  Entitäten lassen sich in der Entitätsverwaltung aktivieren (Home Assistant lädt
+  die Integration danach neu), die Werte bleiben auch unter „Konfigurieren →
+  Akku“ einstellbar.
+
 ### Behoben
 
+- Manuelle SoC-Sperren gelten nur noch für die laufende manuelle Sitzung. Bisher
+  blieb eine einmal gesetzte Lade- oder Entladesperre über den Wechsel zur
+  Strategie, über Neustarts und über eine geänderte Min-/Max-SoC-Grenze hinweg
+  bestehen und sperrte später einen manuellen Modus, obwohl der SoC innerhalb der
+  Grenzen lag. Die Sperren werden jetzt bei jedem Moduswechsel, bei geändertem
+  Min- oder Max-SoC und beim Start zurückgesetzt und sofort neu bestimmt.
 - Der Horizont-Planer misst das Prognosealter wie Bedarfsprofil und
   Clipping-Abschätzung ab `last_reported`. Eine unverändert neu abgerufene
   Solcast-Prognose galt dort bisher nach Ablauf der Altersgrenze als veraltet

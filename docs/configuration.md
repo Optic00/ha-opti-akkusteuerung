@@ -20,7 +20,11 @@ Entitäts-IDs bleiben erhalten, auch wenn die angezeigten Namen kürzer werden.
 Bei neuen Installationen sind einzelne Zahlen- und technische Schalterentitäten
 standardmäßig deaktiviert: Die Konfiguration erfolgt über das Menü. Wer diese
 Entitäten für eigene Automationen benötigt, kann sie in der Entitätsverwaltung
-aktivieren. Die Hauptfreigabe und Betriebsart bleiben direkt bedienbar. Bestehende
+aktivieren. Die Hauptfreigabe und Betriebsart bleiben direkt bedienbar, ebenso
+„Minimaler Ladestand“ und „Maximaler Ladestand“, die bei neuen Installationen
+aktiviert sind. In bestehenden Installationen lassen sich diese beiden
+Entitäten in der Entitätsverwaltung aktivieren; Home Assistant lädt die
+Integration danach neu. Bestehende
 Entitäten und deren Aktivierungszustand werden beim Upgrade nicht verändert. Interne Rechensensoren sind Diagnose und bei neuen
 Einträgen standardmäßig deaktiviert. Bereits aktivierte Diagnosen werden beim
 Upgrade nicht gegen die Auswahl des Benutzers deaktiviert.

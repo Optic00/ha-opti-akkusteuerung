@@ -449,8 +449,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # A forced manual charging/discharging command is never resumed after
         # a restart. Strategy decisions are recomputed from current inputs.
         self.manual_mode = None
-        self._manual_charge_blocked = stored.get("manual_charge_blocked") is True
-        self._manual_discharge_blocked = stored.get("manual_discharge_blocked") is True
+        # SoC blocks belong to one manual session; the first cycle after a
+        # start derives them from the current SoC. Old stored keys are ignored.
+        self._reset_manual_soc_blocks()
         self._manual_ev_latched = stored.get("manual_ev_latched") is True
         self._manual_cell_latched = stored.get("manual_cell_latched") is True
         self._manual_cell_reserve_v = finite(stored.get("manual_cell_reserve_v")) or (
@@ -522,8 +523,6 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "pause_pending": self._pause_pending,
                 "pause_binding": self._pause_binding,
                 "strategy_enabled": self.strategy_enabled,
-                "manual_charge_blocked": self._manual_charge_blocked,
-                "manual_discharge_blocked": self._manual_discharge_blocked,
                 "manual_ev_latched": self._manual_ev_latched,
                 "manual_cell_latched": self._manual_cell_latched,
                 "manual_cell_reserve_v": self._manual_cell_reserve_v,
@@ -621,6 +620,19 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._manual_cell_latched = reserve > 0 and (debounced or held)
         self._manual_cell_reserve_v = reserve
 
+    def _reset_manual_soc_blocks(self) -> None:
+        """End the manual SoC hysteresis; the next cycle derives it from the SoC."""
+        self._manual_charge_blocked = False
+        self._manual_discharge_blocked = False
+
+    def _manual_limits(self) -> dict[str, Any]:
+        minimum = self.settings["input_number.minsoc"]
+        maximum = self.settings["input_number.maxsoc"]
+        return {"minsoc": float(minimum), "maxsoc": float(maximum),
+                "hysteresis": float(min(3, (maximum - minimum) / 2)),
+                "charge_blocked": self._manual_charge_blocked,
+                "discharge_blocked": self._manual_discharge_blocked}
+
     def _safe_mode(self, requested: str, states: dict, attributes: dict | None = None) -> tuple[str, str | None]:
         soc = finite(states.get("sensor.opti_soc"))
         capacity = finite(states.get("sensor.opti_battery_capacity_kwh"))
@@ -658,10 +670,14 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 reasons.append("Temperaturgrenze sperrt manuelle Ladung")
             if self._manual_charge_blocked:
                 charge_allowed = False
-                reasons.append("Max-SoC sperrt manuelle Ladung")
+                reasons.append(
+                    f"Max-SoC {maximum:g} % sperrt manuelle Ladung (frei ab {maximum - hysteresis:g} %)"
+                )
             if self._manual_discharge_blocked:
                 discharge_allowed = False
-                reasons.append("Min-SoC sperrt manuelle Entladung")
+                reasons.append(
+                    f"Min-SoC {minimum:g} % sperrt manuelle Entladung (frei ab {minimum + hysteresis:g} %)"
+                )
             # Unknown engine state/origin cannot prove cell discharge is safe.
             # Without strategy evaluation use the independent manual cell hold.
             cell_hold = (attributes or {}).get("binary_sensor.opti_minsoc_schutz_aktiv", {})
@@ -1296,7 +1312,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "mode": mode, "reason": reason, "decision_id": result.decision_id,
                 "reason_details": {"decision_id": result.decision_id,
                                    "engine_mode": result.mode,
-                                   "charge_power_limits": charge_power_limits},
+                                   "charge_power_limits": charge_power_limits,
+                                   **({"manual_limits": self._manual_limits()} if self.manual_mode else {})},
                 "engine_requested_mode": result.mode,
                 "engine_base_mode": engine_base_mode,
                 "command_result_this_update": command_result, "write_enabled": self.write_enabled and not self.shadow_mode,
@@ -1943,6 +1960,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             value = validate_setting(key, value, self.settings)
             if key == "input_boolean.opti_ev_akku_pause":
                 self._validate_ev_enable({key: value})
+            if key in ("input_number.minsoc", "input_number.maxsoc") and value != self.settings.get(key):
+                self._reset_manual_soc_blocks()
             self.settings[key] = value
             self._revision += 1
         await self._store.async_save(self._stored_data())
@@ -1955,6 +1974,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             validated = {key: validate_setting(key, value, merged) for key, value in merged.items()}
             if "input_boolean.opti_ev_akku_pause" in settings:
                 self._validate_ev_enable(validated)
+            if any(validated.get(key) != self.settings.get(key)
+                   for key in ("input_number.minsoc", "input_number.maxsoc")):
+                self._reset_manual_soc_blocks()
             self.settings = validated
             self._settings_revision = revision
             self._revision += 1
@@ -1971,6 +1993,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_set_mode(self, mode: str) -> None:
         if mode == "Beobachtung" and not self.strategy_enabled:
             await self.async_set_write_enabled(False)
+            if self.manual_mode is not None:
+                self._reset_manual_soc_blocks()
             self.manual_mode = None
             self._revision += 1
             await self.async_refresh()
@@ -1979,7 +2003,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("Strategie zuerst in den Optionen aktivieren")
         if mode != "Strategie" and mode not in self.supported_modes:
             raise HomeAssistantError("Unbekannter Akkumodus")
-        self.manual_mode = None if mode == "Strategie" else mode
+        new_manual = None if mode == "Strategie" else mode
+        # A different selection starts a new manual session. Repeating the
+        # same selection keeps the running hysteresis.
+        if new_manual != self.manual_mode:
+            self._reset_manual_soc_blocks()
+        self.manual_mode = new_manual
         self._revision += 1
         await self.async_refresh()
 

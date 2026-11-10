@@ -305,7 +305,6 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._probed = False
         self._online = False
         self._identity: dict = {}
-        self._identity_confirmed = False
         self._last_signature: tuple | None = None
         self._last_apply: float | None = None
         self._write_monitor_since: float | None = None
@@ -798,17 +797,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         read_errors = {}
         try:
             async with asyncio.timeout(25):
-                # Check the identity on the first read and after any offline
-                # cycle or link loss the driver saw. In between, reuse the
-                # confirmed identity: one unreadable serial register must not
-                # take control offline. Devices without the flag probe always.
-                if not (self._identity_confirmed and self._online
-                        and self._identity.get("serial_number")
-                        and getattr(self.device, "identity_current", False) is True):
-                    self._identity_confirmed = False
-                    self._identity = await self.device.async_probe()
-                    self._claim_device(self._identity)
-                    self._identity_confirmed = True
+                self._identity = await self.device.async_probe()
+                self._claim_device(self._identity)
                 self._probed = True
                 self._measurements = await self.device.async_read()
                 # SMA values originate in this Modbus transaction. Huawei's
@@ -830,7 +820,6 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:  # Device/protocol failures must never retain valid telemetry.
             _LOGGER.debug("Opti measurement update failed: %s", type(err).__name__)
             read_errors = {"transport": type(err).__name__}
-            self._identity_confirmed = False
             self._online = False
             self._measurements = {key: "unavailable" for key in self._measurements}
             self._last_error = f"Lesefehler: {type(err).__name__}"

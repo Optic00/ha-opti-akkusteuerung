@@ -267,19 +267,15 @@ Ohne aktivierte Strategie wird auch die Schreibfreigabe nicht wiederhergestellt.
 Zuerst wieder einen manuellen Modus wählen, dann die Schreibfreigabe setzen.
 Vor jeder Steuerungsbewertung müssen die Profilprüfung und aktuelle Messungen erfolgreich
 sein. Ohne lesbare Seriennummer bleibt die Schreibfreigabe gesperrt. Bei SMA STP SE
-prüft Opti Akku die Geräteidentität (Gerätetyp, Modell, Seriennummer) beim ersten
-Abruf und erneut nach jedem Abruf ohne Verbindung, nach einem Transport- oder
-Schreibfehler und nachdem der Treiber eine getrennte Modbus-Verbindung gesehen hat.
-Dazwischen gilt die bestätigte Identität weiter, damit ein einzelnes nicht lesbares
-Seriennummer-Register die Steuerung nicht unterbricht. Meldet die erneute Prüfung
-eine andere oder fehlende Seriennummer, geht die Verbindung auf `offline` und die
-Schreibsperre greift wie bisher.
-Meldet ein SMA-Messregister im Abruf einen einzelnen Modbus-Fehler, liest der
-Treiber genau dieses Register sofort ein zweites Mal. Werte aus früheren Abrufen
+prüft Opti Akku die Geräteidentität (Gerätetyp, Modell, Seriennummer) in jedem Abruf.
+Meldet ein SMA-Identitäts- oder Messregister einen einzelnen Modbus-Fehler, liest
+der Treiber genau dieses Register sofort ein zweites Mal. Werte aus früheren Abrufen
 werden nie weiterverwendet. Scheitert auch der zweite Versuch, fehlt der Wert, und
 es gilt die Pause wie bisher (etwa ohne gültige Ein-Wechselrichter-Bilanz,
-SoC, Batterietemperatur oder Batterieleistung). Verbindungsfehler und
-Zeitüberschreitungen werden nicht wiederholt.
+SoC, Batterietemperatur oder Batterieleistung; ohne Seriennummer geht die
+Verbindung auf `offline`). Verbindungsfehler, Zeitüberschreitungen und vertauschte
+Antworten, nach denen die Modbus-Bibliothek die Verbindung trennt, werden nicht
+wiederholt, sondern wie ein Verbindungsfehler behandelt.
 Nach dem Wechsel in **Akku Dynamisch** begrenzt der SMA-Treiber die Ladeleistung
 330 Sekunden lang auf höchstens 500 W. Folgt auf Dynamisch nur eine Pause von
 weniger als 60 Sekunden (etwa eine kurze Schutzpause), läuft diese Begrenzung ab

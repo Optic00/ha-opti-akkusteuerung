@@ -224,16 +224,6 @@ class SmaDevice:
         self.unit.set_message_spacing(0.06)
         self._write_trace: list[tuple[int, int]] | None = None
         self._last_acknowledged_write_at: datetime | None = None
-        # True only after a probe confirmed a serial number on the current
-        # link. Any transport loss or seen disconnect requires a new probe.
-        self._identity_verified = False
-
-    @property
-    def identity_current(self) -> bool:
-        """Whether the last confirmed identity still belongs to this link."""
-        if getattr(self.unit, "connected", False) is not True:
-            self._identity_verified = False
-        return self._identity_verified
 
     def _publish_write_trace(self, mode: str, status: str) -> None:
         """Expose only register writes acknowledged by the Modbus transport."""
@@ -280,7 +270,6 @@ class SmaDevice:
         return value
 
     async def _probe(self) -> dict[str, Any]:
-        self._identity_verified = False
         self.last_probe_registers = {}
         device_class = await self._read(30051)
         self.last_probe_registers["device_class"] = device_class
@@ -296,7 +285,6 @@ class SmaDevice:
             serial_number = await self._read(30057)
         except ModbusError, InvalidDataError, TimeoutError:
             serial_number = 0
-        self._identity_verified = bool(serial_number)
         return {
             "inverter_status": status,
             "device_class": device_class,
@@ -359,7 +347,6 @@ class SmaDevice:
                         self._status, self._status_at = raw, self._monotonic()
                 except (ModbusConnectionError, TimeoutError) as err:
                     self.last_read_errors["transport"] = str(err)
-                    self._identity_verified = False
                     break  # Do not hammer an unreachable device once per sensor.
                 except (ModbusError, InvalidDataError) as err:
                     readings[key] = None
@@ -659,9 +646,6 @@ class SmaDevice:
                 self._publish_write_trace(mode, "completed")
             except BaseException as err:
                 self.last_error = f"{type(err).__name__}: {err}"
-                # A failed transaction may hide a lost link: confirm the
-                # identity again before the coordinator trusts it.
-                self._identity_verified = False
                 cleanup_error = None
                 if touched:
                     cleanup_error = await self._protected_cleanup()

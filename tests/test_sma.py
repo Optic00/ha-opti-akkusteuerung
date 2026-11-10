@@ -935,45 +935,6 @@ async def test_cleanup_does_not_clear_setpoint_under_803(device):
     assert adapter._discharge_setpoint_armed
 
 
-async def test_identity_stays_current_only_while_the_link_is_unbroken(device):
-    adapter, unit, _ = device
-    unit.connected = True
-    assert adapter.identity_current is False
-    await adapter.async_probe()
-    assert adapter.identity_current is True
-    await adapter.async_read()
-    assert adapter.identity_current is True
-    unit.connected = False
-    assert adapter.identity_current is False
-    unit.connected = True
-    # A reconnect in between still requires a fresh identity check.
-    assert adapter.identity_current is False
-    await adapter.async_probe()
-    assert adapter.identity_current is True
-
-
-async def test_transport_error_or_missing_serial_invalidates_identity(device):
-    from modbus_connection import ModbusConnectionError
-
-    adapter, unit, _ = device
-    unit.connected = True
-    await adapter.async_probe()
-
-    async def lost(address, count):
-        raise ModbusConnectionError("lost")
-
-    original = unit.read_holding_registers
-    unit.read_holding_registers = lost
-    await adapter.async_read()
-    assert "transport" in adapter.last_read_errors
-    assert adapter.identity_current is False
-    unit.read_holding_registers = original
-    unit.fail_reads = {30057}
-    identity = await adapter.async_probe()
-    assert identity["serial_number"] is None
-    assert adapter.identity_current is False
-
-
 @pytest.mark.parametrize("address", [30775, 30865, 30867, 30845, 31393])
 async def test_single_register_error_is_retried_once_with_a_fresh_read(device, address):
     """One transient Modbus exception must not void the balance or SoC (C3b)."""

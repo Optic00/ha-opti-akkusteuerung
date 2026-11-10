@@ -190,7 +190,9 @@ def test_without_peak_mode_is_unchanged_and_reason_stays_neutral(hold_engine, op
 
 @pytest.mark.parametrize("level,holding", [
     ("VERY_EXPENSIVE", False), ("EXPENSIVE", False),
-    ("NORMAL", True), ("CHEAP", True), ("VERY_CHEAP", True), ("unavailable", True),
+    ("NORMAL", True), ("CHEAP", True), ("VERY_CHEAP", True),
+    # Unbekanntes Preisniveau gilt nicht als "nicht teuer": kein Halten.
+    ("unavailable", False), ("unknown", False),
 ])
 def test_normal_window_does_not_hold_a_full_battery_at_expensive_prices(hold_engine, level, holding):
     """8.11.: ohne Peak-Reserve hielt das Fenster 3 h einen vollen Akku bei 53-55 ct.

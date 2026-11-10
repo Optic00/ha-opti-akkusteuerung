@@ -329,7 +329,8 @@ Stelle auch halten würde: L3 (teurer Slot, SoC höchstens an der Reserve für
 sehr teure Slots, ausreichender Halte-Spread), L4 (Preis höchstens NORMAL, SoC
 höchstens an der Gesamtreserve) oder die Extrempreis-Reserve. L3 und L4 nutzen
 das Halteband von 2 Prozentpunkten im Modus „Akku nur Laden“ und in der vom
-Ladedeckel selbst gehaltenen Pause; dasselbe Band gilt dann auch für die
+Ladedeckel selbst gehaltenen Pause (aktiver Ladedeckel mit unverändertem
+`maxsoc`; eine Pause aus anderem Grund erhält kein Band); dasselbe Band gilt dann auch für die
 vorgelagerte L2-Entladung. Die Extrempreis-Reserve gewährt ihr Band weiterhin
 nur im Modus „Akku nur Laden“; in der Deckel-Pause kann sie daher knapp über
 der Reserve abfallen, und L1 entlädt bis zur Reserve. Liegt der SoC deutlich
@@ -347,7 +348,8 @@ die Entladesperre aufrecht und erlaubt PV-Nachladen mit den bestehenden strengen
 Balancing-Ladegrenzen (ab 96 % höchstens 0,02C, davor ab 92 % höchstens 0,05C).
 Es wird kein Mindestladen aus dem Netz erzwungen. Ohne PV bezieht das Haus während
 des Haltens seinen Bedarf jedoch aus dem Netz; dadurch können Stromkosten entstehen.
-Bei Preisniveau EXPENSIVE oder VERY_EXPENSIVE hält das Fenster nicht: Dann
+Das Fenster hält nur bei erkanntem Preisniveau VERY_CHEAP, CHEAP oder NORMAL.
+Bei EXPENSIVE, VERY_EXPENSIVE oder fehlendem Preisniveau hält es nicht: Dann
 entscheiden die nachfolgenden Regeln, meist der Ladedeckel mit Entladen. Das
 Fenster selbst, seine Frist und der bestätigte Abschluss bleiben davon
 unberührt. Ein vorzeitiges Ende anhand von BMS-Daten gibt es nicht.

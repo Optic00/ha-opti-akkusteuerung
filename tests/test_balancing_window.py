@@ -9,10 +9,23 @@ import pytest
 from custom_components.opti_akku.definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
 from custom_components.opti_akku.migration import MIGRATABLE
 from tests.test_engine import (
-    DAYS, DONE_AT, DONE_VALID, MINUTES, NOW, POWER, SOC, StrategyEngine, evaluate, load_resources, measurements,
-    solar_attrs,
+    DAYS, DONE_AT, DONE_VALID, MINUTES, NOW, POWER, SOC, StrategyEngine, load_resources, solar_attrs,
 )
+from tests.test_engine import evaluate as _evaluate
+from tests.test_engine import measurements as _measurements
 from tests.test_engine_parity import BASE
+
+
+def measurements(**overrides):
+    # Das Haltefenster hält nur bei erkanntem Preisniveau bis NORMAL; ein
+    # flacher Preis ergibt NORMAL ohne Peak-Reserve.
+    return _measurements(**{"sensor.opti_price_current_ct_kwh": 30, **overrides})
+
+
+def evaluate(engine=None, states=None, attributes=None, now=NOW):
+    attributes = solar_attrs(now) if attributes is None else attributes
+    attributes.setdefault("sensor.opti_price_series", {"today": [30] * 24, "tomorrow": [30] * 24})
+    return _evaluate(engine, measurements() if states is None else states, attributes, now)
 
 HOURS = "input_number.opti_balancing_haltezeit_h"
 WINDOW = "binary_sensor.opti_balancing_haltefenster_aktiv"

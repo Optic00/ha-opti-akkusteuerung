@@ -171,11 +171,13 @@ def test_expensive_level_blocks_precharge_without_window_minimum(engine, mode, l
     assert result.mode != "Akku Netzladen"
 
 
+# Die Engine liefert ein bool; robust auch gegen eine Textdarstellung.
+@pytest.mark.parametrize("flag", [True, "True", "true"])
 @pytest.mark.parametrize("mode", ["Akku Dynamisch", "Akku Netzladen"])
-def test_current_peak_slot_blocks_precharge_at_normal_level(engine, mode):
+def test_current_peak_slot_blocks_precharge_at_normal_level(engine, mode, flag):
     attrs = {"sensor.opti_peak_reserve_soc": {**PEAK_ATTRS["sensor.opti_peak_reserve_soc"],
                                               "min_preis_vor_peak_ct": None,
-                                              "aktueller_slot_peak": True}}
+                                              "aktueller_slot_peak": flag}}
     result = run(engine, PEAK_STATES, attrs, mode, 45.0)
     assert result.decision_id == "peak_l4"
     no_peak = {"sensor.opti_peak_reserve_soc": {**attrs["sensor.opti_peak_reserve_soc"],

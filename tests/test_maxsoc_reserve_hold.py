@@ -45,7 +45,8 @@ def run(engine, mode="Akku Dynamisch", ve=30.0, ve_avg=60.0, **changes):
         **changes,
     }
     attrs = {RESERVE: {"reserve_ve_soc": ve, "min_preis_vor_peak_ct": 30.0,
-                       "peak_preis_avg_ct": 60.0, "peak_preis_ve_avg_ct": ve_avg}}
+                       "peak_preis_avg_ct": 60.0, "peak_preis_ve_avg_ct": ve_avg},
+             "binary_sensor.opti_ladedeckel_aktiv": {"maxsoc": 95.0}}
     result = engine.evaluate(states, attrs, NOW)
     assert result.states["sensor.opti_engine_diagnostics"] == "ok"
     assert result.decision_id == "maximum_soc"
@@ -110,12 +111,14 @@ def test_pause_held_by_the_cap_keeps_the_hold_band_without_flapping(engine):
     mode = "Akku nur Laden"
     seen = []
     for soc in ("95.0", "95.1", "95.0", "95.1", "96.9", "97.0"):
-        result = run(engine, mode=mode, **{RESERVE: "95", "sensor.opti_soc": soc})
+        result = run(engine, mode=mode, **{RESERVE: "95", "sensor.opti_soc": soc,
+                                           "binary_sensor.opti_ladedeckel_aktiv": "on"})
         seen.append(result.mode)
         mode = result.mode
     assert seen == ["Akku Pause"] * 6
     # Oberhalb Reserve + 2 hält auch die Pause nicht mehr.
-    above = run(engine, mode="Akku Pause", **{RESERVE: "95", "sensor.opti_soc": "97.1"})
+    above = run(engine, mode="Akku Pause", **{RESERVE: "95", "sensor.opti_soc": "97.1",
+                                              "binary_sensor.opti_ladedeckel_aktiv": "on"})
     assert above.mode == "Akku nur Entladen"
     assert above.reason == "Ladedeckel (maxsoc erreicht)"
 
@@ -185,3 +188,22 @@ def test_l2_respects_the_pause_held_by_the_active_cap(engine, socs):
 def test_l2_still_discharges_a_pause_without_active_cap(engine, deckel, deckel_maxsoc):
     result = run_expensive(engine, "Akku Pause", "95.5", deckel=deckel, deckel_maxsoc=deckel_maxsoc)
     assert (result.decision_id, result.mode) == ("peak_l2", "Akku nur Entladen")
+
+
+@pytest.mark.parametrize("deckel,expected", [
+    ("on", "Akku Pause"),           # eigene Pause des aktiven Ladedeckels: Band 2
+    ("off", "Akku nur Entladen"),   # fremde Pause (Deckel noch nicht aktiv): kein Band
+])
+def test_only_the_caps_own_pause_gets_the_hold_band(engine, deckel, expected):
+    result = run(engine, mode="Akku Pause", **{RESERVE: "93.5",
+                                               "binary_sensor.opti_ladedeckel_aktiv": deckel})
+    assert result.mode == expected
+
+
+def test_cap_latched_for_another_maxsoc_gives_no_pause_band(engine):
+    # Deckel-Latch stammt von maxsoc 95, aktuell gilt 96: wie bei L2 kein Band.
+    result = run(engine, mode="Akku Pause", **{
+        RESERVE: "95.5", "sensor.opti_soc": "96", "input_number.maxsoc": "96",
+        "binary_sensor.opti_ladedeckel_aktiv": "on",
+    })
+    assert result.mode == "Akku nur Entladen"

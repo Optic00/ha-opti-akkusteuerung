@@ -19,8 +19,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 - Ein guter Tages-Score leert den Peak-Horizont nur noch bei mindestens drei
   Stunden bis Sonnenuntergang; sonst gilt der Nachthorizont. Ein fast voller
   Akku entlud sonst am frühen Winterabend nicht in die Spitze.
-- Das Balancing-Haltefenster hält bei Preisniveau EXPENSIVE oder
-  VERY_EXPENSIVE nicht mehr; die Option „Balancing-Halten vor Preisspitzen“
+- Das Balancing-Haltefenster hält nur noch bei erkanntem Preisniveau bis
+  NORMAL, also nicht bei EXPENSIVE, VERY_EXPENSIVE oder fehlendem Niveau; die Option „Balancing-Halten vor Preisspitzen“
   behält ihren 60-ct-Deckel. Siehe [Betrieb](docs/operation.md).
 
 ## [2026.11-beta2] - 2026-11-05

@@ -354,11 +354,18 @@ strategy:
           option: Akku Netzladen
         target:
           entity_id: input_select.akkusteuerung_modus
+    # Das Haltefenster hält nur unterhalb EXPENSIVE. Bei teurem Preis fällt die
+    # Entscheidung auf Ladedeckel und Entladen durch, statt den vollen Akku
+    # stundenlang gegen teuren Netzbezug zu halten (8.11.2026: 3 h bei 53-55 ct).
+    # Der optionale Vorrang-Zweig oben behält seinen eigenen 60-ct-Deckel.
     - alias: 'Balancing-Watchdog (Haltefenster)'
       conditions:
       - condition: state
         entity_id: binary_sensor.opti_balancing_haltefenster_aktiv
         state: 'on'
+      - alias: Preisniveau nicht EXPENSIVE oder VERY_EXPENSIVE
+        condition: template
+        value_template: "{{ states('sensor.opti_price_level') not in ['EXPENSIVE', 'VERY_EXPENSIVE'] }}"
       sequence:
       - action: input_select.select_option
         decision_id: balancing_hold

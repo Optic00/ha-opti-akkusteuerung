@@ -330,6 +330,10 @@ die Entladesperre aufrecht und erlaubt PV-Nachladen mit den bestehenden strengen
 Balancing-Ladegrenzen (ab 96 % höchstens 0,02C, davor ab 92 % höchstens 0,05C).
 Es wird kein Mindestladen aus dem Netz erzwungen. Ohne PV bezieht das Haus während
 des Haltens seinen Bedarf jedoch aus dem Netz; dadurch können Stromkosten entstehen.
+Bei Preisniveau EXPENSIVE oder VERY_EXPENSIVE hält das Fenster nicht: Dann
+entscheiden die nachfolgenden Regeln, meist der Ladedeckel mit Entladen. Das
+Fenster selbst, seine Frist und der bestätigte Abschluss bleiben davon
+unberührt. Ein vorzeitiges Ende anhand von BMS-Daten gibt es nicht.
 MinSOC-Schutz, zulässiges Netzladen, Peak-Vorladen und Peak-Entladung haben standardmäßig Vorrang.
 
 Die Option **Balancing-Halten vor Preisspitzen**

@@ -407,7 +407,10 @@ def test_invalid_profile_values_fall_back_to_fixed_load():
     assert result["demand_kwh"] == check(load_hours={})["demand_kwh"] > check(fallback_load_kw=0.4, load_hours={})["demand_kwh"]
 
 
-ASSUMPTIONS = [0.9, 5, 10, 5, 7, True, 0.8]
+SETTINGS = [5, 10, 5, 7, True, 0.8]
+# Default model: discharge and charge efficiency, throughput cost, margin, valid.
+MODEL_ASSUMPTIONS = [0.9, 0.9, 1.5, 0.0, True]
+ASSUMPTIONS = [*MODEL_ASSUMPTIONS, *SETTINGS]
 
 
 def test_shadow_counts_hold_time_and_discharged_energy():
@@ -498,7 +501,7 @@ def test_restore_migrates_snapshots_without_the_model_efficiency():
     shadow.observe(start + timedelta(seconds=60), check(), ASSUMPTIONS, -2000)
     saved = shadow.snapshot()
     assert saved["hold_seconds"] == 60
-    legacy = {**saved, "assumptions": ASSUMPTIONS[1:]}
+    legacy = {**saved, "assumptions": SETTINGS}
     restored = PeakRankShadow()
     restored.restore(legacy)
     assert restored.data["assumptions"] == ASSUMPTIONS
@@ -508,3 +511,14 @@ def test_restore_migrates_snapshots_without_the_model_efficiency():
     assert totals["hold_seconds"] == 60
     totals = restored.observe(start + timedelta(seconds=180), check(), [0.95, *ASSUMPTIONS[1:]], -2000)
     assert totals["hold_seconds"] == 0
+
+
+def test_restore_migrates_snapshots_with_only_the_discharge_efficiency():
+    shadow = PeakRankShadow()
+    start = local(18, 17, 0)
+    shadow.observe(start, check(), ASSUMPTIONS, -2000)
+    shadow.observe(start + timedelta(seconds=60), check(), ASSUMPTIONS, -2000)
+    restored = PeakRankShadow()
+    restored.restore({**shadow.snapshot(), "assumptions": [0.9, *SETTINGS]})
+    assert restored.data["assumptions"] == ASSUMPTIONS
+    assert restored.data["hold_seconds"] == 60

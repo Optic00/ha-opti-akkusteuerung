@@ -27,7 +27,12 @@ from math import isfinite
 from typing import Any
 
 from .arbitrage import _instant, _price_periods
-from .battery_model import BatteryModel
+from .battery_model import (
+    DEFAULT_CHARGE_EFFICIENCY,
+    DEFAULT_MARGIN_CT,
+    DEFAULT_THROUGHPUT_COST_CT_KWH,
+    BatteryModel,
+)
 
 PEAK_PERCENTILE = 0.60
 WEAK_SCORE = 3
@@ -38,11 +43,15 @@ HOLD_WINDOW_BAND_CT = 1.5
 ECONOMIC_HOLD_BAND_CT = 1.0
 PEAK_DECISIONS = frozenset({"peak_l1", "peak_l2"})
 MAX_INTERVAL = 90
-# Model discharge efficiency plus six settings, as the coordinator passes them.
-ASSUMPTION_COUNT = 7
+# Model assumptions (model_assumptions) plus six settings, as the coordinator
+# passes them.
+SETTING_COUNT = 6
+ASSUMPTION_COUNT = 5 + SETTING_COUNT
 # Snapshots before the battery model had only the six settings; the template
 # then always calculated with 0.9.
 LEGACY_DISCHARGE_EFFICIENCY = 0.9
+LEGACY_ECONOMICS = (DEFAULT_CHARGE_EFFICIENCY, DEFAULT_THROUGHPUT_COST_CT_KWH,
+                    DEFAULT_MARGIN_CT, True)
 _COUNTERS = (
     "ready_seconds",
     "peak_seconds",
@@ -156,6 +165,12 @@ def _refill(slots: Sequence[Slot], peaks: set[int], first: int, end: datetime, t
         if kind is not None:
             return index, kind
     return None
+
+
+def model_assumptions(model: BatteryModel) -> list[Any]:
+    """Model values the verdict depends on; a change restarts the totals."""
+    return [model.discharge_efficiency, model.charge_efficiency,
+            model.throughput_cost_ct_kwh, model.margin_ct, model.economics_valid]
 
 
 def peak_rank_check(
@@ -338,8 +353,12 @@ class PeakRankShadow:
                 if raw is not None and datetime.fromisoformat(raw).tzinfo is None:
                     return
             assumptions = saved.get("assumptions")
-            if isinstance(assumptions, list) and len(assumptions) == ASSUMPTION_COUNT - 1:
+            if isinstance(assumptions, list) and len(assumptions) == SETTING_COUNT:
                 assumptions = [LEGACY_DISCHARGE_EFFICIENCY, *assumptions]
+            if isinstance(assumptions, list) and len(assumptions) == SETTING_COUNT + 1:
+                # Only the discharge efficiency was stored; the precharge
+                # economics did not exist and correspond to the default model.
+                assumptions = [assumptions[0], *LEGACY_ECONOMICS, *assumptions[1:]]
             if assumptions is not None and (
                 not isinstance(assumptions, list) or len(assumptions) != ASSUMPTION_COUNT
                 or any(item is not None and not isinstance(item, bool) and _number(item) is None

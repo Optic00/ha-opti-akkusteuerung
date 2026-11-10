@@ -311,7 +311,13 @@ Prozentpunkten Hysterese aktiv. Ohne weitere Sperre bleibt Entladen erlaubt.
 Trifft der Ladedeckel auf einen Reserve-Haltefall oder die aktive
 EV-Schnelllade-Sperre, setzt die Strategie stattdessen Pause. So entlädt sie den
 Akku nicht selbst unter den Ladedeckel, um ihn anschließend wieder bis zur
-Reserve zu laden. Die geplante Entladung während eines teuren Peak-Fensters
+Reserve zu laden. Als Reserve-Haltefall gilt nur, was die Peak-Leiter an dieser
+Stelle auch halten würde: L3 (teurer Slot, SoC höchstens an der Reserve für
+sehr teure Slots, ausreichender Halte-Spread), L4 (Preis höchstens NORMAL, SoC
+höchstens an der Gesamtreserve) oder die Extrempreis-Reserve, jeweils mit dem
+Halteband von 2 Prozentpunkten im Modus „Akku nur Laden“. Liegt der SoC deutlich
+über der benötigten Reserve, bleibt Entladen erlaubt, bis die Reserve erreicht
+ist. Die geplante Entladung während eines teuren Peak-Fensters
 bleibt davon unberührt.
 Ein fälliger Balancing-Zyklus hat weiterhin Vorrang und darf den Akku gezielt
 bis 100 Prozent laden.

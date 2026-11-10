@@ -835,7 +835,9 @@ def test_peak_precharge_requires_full_entry_gap_but_continues_below_reserve(
         (94.9, "Akku nur Laden", "Peak-Leiter L4"),
         (95, "Akku Pause", "Ladedeckel"),
         (96, "Akku Pause", "Ladedeckel"),
-        (98, "Akku Pause", "Ladedeckel"),
+        # Reserve 95 % plus L4-Halteband 2 (Modus 'nur Laden') = 97 %: darüber
+        # hält nichts mehr, der Überschuss über der Reserve darf entladen werden.
+        (98, "Akku nur Entladen", "Ladedeckel"),
     ],
 )
 def test_maxsoc_precedes_peak_reserve_holding(soc, expected_mode, reason_prefix):

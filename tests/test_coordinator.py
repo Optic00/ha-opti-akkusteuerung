@@ -5064,3 +5064,21 @@ async def test_failing_pause_signature_keeps_confirmed_pause(coordinator):
         assert coordinator._applied_mode == "Akku Pause"
         assert data["internal_error"]["pause"] == "confirmed"
         assert "internal" in coordinator.alerts._active
+
+
+@pytest.mark.parametrize("was_enabled", [False, True])
+async def test_enabling_writes_during_incident_retries_pause_at_once(coordinator, was_enabled):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        control["apply_error"] = TimeoutError()
+        while coordinator._failsafe_failed_attempts < 4:
+            await _cycle(coordinator, clock, True, control)
+        writes.clear()
+        coordinator.write_enabled = was_enabled
+        with patch.object(coordinator, "async_refresh", AsyncMock()):
+            await coordinator.async_set_write_enabled(True)
+        await _cycle(coordinator, clock, True, control)
+        # Only the off -> on transition resets the incident throttle.
+        assert [written for _, written in writes] == ([] if was_enabled else ["Akku Pause"])
+        control["apply_error"] = None
+    coordinator.write_enabled = False

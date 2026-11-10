@@ -2312,6 +2312,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 except Exception as err:
                     self._last_error = f"Pause beim Abschalten nicht bestätigt: {type(err).__name__}"
         else:
+            if not self.write_enabled:
+                # Newly granted permission during an incident: the next failed
+                # cycle tries the safety pause at once.
+                self._failsafe_attempt_at = None
+                self._failsafe_failed_attempts = 0
             self.write_enabled = True
             if getattr(type(self.device), "PHASED", False):
                 # Saved before the first control call. Survives a crash or an

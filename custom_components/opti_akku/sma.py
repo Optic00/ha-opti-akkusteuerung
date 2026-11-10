@@ -125,59 +125,6 @@ def power_window(target: int, floor: int, *, locked: bool = False) -> tuple[int,
 
 
 SIGNATURE_QUANTUM_W = 50
-_SIGNATURE_KEYS = (
-    "charge_power_w",
-    "charge_setpoint_w",
-    "discharge_setpoint_w",
-    "min_charge_w",
-    "max_charge_w",
-    "min_discharge_w",
-    "max_discharge_w",
-    "capacity_wh",
-)
-
-
-def command_signature(mode: str, parameters: Mapping[str, Any]) -> tuple:
-    """Compare commands by their register effect, never to choose written values.
-
-    Mirrors the register mapping of SmaDevice.async_apply: only parameters that
-    reach a register in this mode count. Powers are compared in 50 W steps, but
-    whether a power window value is zero stays exact, so opening or closing a
-    window (including a target crossing its floor) is always a new command.
-    The model rating clamp is left out; it can only add a renewal, never hide one.
-    Invalid or incomplete parameters fall back to an exact comparison.
-    """
-    try:
-        if any(isinstance(parameters[key], bool) for key in _SIGNATURE_KEYS):
-            raise ValueError
-        numbers = {key: float(parameters[key]) for key in _SIGNATURE_KEYS}
-        if not all(math.isfinite(value) for value in numbers.values()):
-            raise ValueError
-    except (KeyError, TypeError, ValueError, OverflowError):
-        return ("exact", mode, *sorted((key, repr(value)) for key, value in parameters.items()))
-    value = {key: max(0, int(number)) for key, number in numbers.items()}
-
-    def q(power: int) -> tuple[bool, int]:
-        return power > 0, round(power / SIGNATURE_QUANTUM_W)
-
-    max_charge, max_discharge = value["max_charge_w"], value["max_discharge_w"]
-    charge = power_window(min(value["charge_power_w"], max_charge), value["min_charge_w"])
-    discharge = power_window(max_discharge, value["min_discharge_w"])
-    rail = (q(max_charge), q(max_discharge))
-    effect: tuple | None = {
-        PAUSE: (),
-        ONLY_CHARGE: (*map(q, charge),),
-        ONLY_DISCHARGE: (*map(q, discharge),),
-        DYNAMIC: (*map(q, charge), *map(q, discharge)),
-        AUTO: rail,
-        FAST_CHARGE: (*rail, q(min(value["charge_setpoint_w"], max_charge))),
-        FAST_DISCHARGE: (*rail, q(min(value["discharge_setpoint_w"], max_discharge))),
-        GRID_CHARGE: (*rail, q(min(value["charge_power_w"], max_charge))),
-        CHARGE_02C: (*rail, q(min(max_charge, max(0, round(0.2 * numbers["capacity_wh"]))))),
-    }.get(mode)
-    if effect is None:
-        return ("exact", mode, *sorted((key, repr(value)) for key, value in parameters.items()))
-    return (mode, *effect)
 
 
 class SmaDevice:
@@ -438,6 +385,72 @@ class SmaDevice:
         )
         return result
 
+    def _next_dynamic_since(self, mode: str, now: float) -> float | None:
+        """Settling start the next command of this mode uses; never mutates."""
+        if mode != DYNAMIC:
+            return None
+        if self.last_mode == DYNAMIC and self._dynamic_since is not None:
+            return self._dynamic_since
+        resume = self._dynamic_resume
+        # Only a plain short pause straight from Dynamic keeps the settling
+        # clock; anything else settles again.
+        if self.last_mode == PAUSE and resume is not None and now - resume[1] < SHORT_PAUSE_SECONDS:
+            return resume[0]
+        return now
+
+    @staticmethod
+    def _register_plan(
+        mode: str, p: Mapping[str, int], dynamic_since: float | None, now: float
+    ) -> tuple[tuple[int, int, int, int], int | None]:
+        """Effective register values: BMS windows and the 40149 setpoint.
+
+        The single source for both the written sequence and the signature.
+        """
+        if mode in RAIL_MODES:
+            power = None if mode == AUTO else {
+                FAST_CHARGE: -p["charge_setpoint_w"],
+                FAST_DISCHARGE: p["discharge_setpoint_w"],
+                GRID_CHARGE: -p["charge_power_w"],
+                CHARGE_02C: -p["power_02c_w"],
+            }[mode]
+            return (0, p["max_charge_w"], 0, p["max_discharge_w"]), power
+        target = p["charge_power_w"]
+        if mode == DYNAMIC and dynamic_since is not None and now - dynamic_since < SETTLING_SECONDS:
+            target = min(target, SETTLING_CHARGE_W)
+        charge = power_window(target, p["min_charge_w"], locked=mode in (PAUSE, ONLY_DISCHARGE))
+        discharge = power_window(
+            p["max_discharge_w"], p["min_discharge_w"], locked=mode in (PAUSE, ONLY_CHARGE)
+        )
+        return (charge[0], charge[1], discharge[0], discharge[1]), None
+
+    def command_signature(self, mode: str, parameters: Mapping[str, Any]) -> tuple:
+        """Compare commands by their effective register values.
+
+        Uses the same plan as async_apply, including the model rating clamp
+        and the current Dynamic settling cap, then compares powers in 50 W
+        steps. Whether a value is zero, and its sign, stay exact, so opening
+        or closing a window is always a new command. The end of the settling
+        cap changes the signature. Invalid parameters or an unverified model
+        fall back to an exact comparison; the caller only uses this to decide
+        whether to write, never which values to write.
+        """
+        try:
+            if mode not in MODES:
+                raise InvalidDataError("Unknown adapter mode")
+            p = self._parameters(mode, parameters)
+        except SmaError:
+            return ("exact", mode, *sorted((key, repr(value)) for key, value in parameters.items()))
+        now = self._monotonic()
+        windows, power = self._register_plan(mode, p, self._next_dynamic_since(mode, now), now)
+
+        def q(value: int) -> tuple[int, int]:
+            return (value > 0) - (value < 0), round(value / SIGNATURE_QUANTUM_W)
+
+        if mode == PAUSE:
+            return (mode,)
+        values = windows if mode not in RAIL_MODES or mode == AUTO else (*windows, power or 0)
+        return (mode, *map(q, values))
+
     async def _write(self, address: int, value: int) -> None:
         if self._read_only:
             self.blocked_write_attempts += 1
@@ -555,19 +568,9 @@ class SmaDevice:
                     self._ensure_current(is_current)
 
                 now = self._monotonic()
+                since = self._next_dynamic_since(mode, now)
                 if mode == DYNAMIC:
-                    if self.last_mode != DYNAMIC or self._dynamic_since is None:
-                        resume = self._dynamic_resume
-                        # Only a plain short pause straight from Dynamic keeps
-                        # the settling clock; anything else settles again.
-                        if (
-                            self.last_mode == PAUSE
-                            and resume is not None
-                            and now - resume[1] < SHORT_PAUSE_SECONDS
-                        ):
-                            self._dynamic_since = resume[0]
-                        else:
-                            self._dynamic_since = now
+                    self._dynamic_since = since
                     self._dynamic_resume = None
                 elif mode == PAUSE and self.last_mode == DYNAMIC and self._dynamic_since is not None:
                     self._dynamic_resume = (self._dynamic_since, now)
@@ -596,7 +599,8 @@ class SmaDevice:
                     touched = True
                     await self._write(40151, 803)
                     await self._sleep(REGISTER_GAP_SECONDS)
-                    await self._bms((0, p["max_charge_w"], 0, p["max_discharge_w"]), 1438, guard)
+                    rail_windows, _ = self._register_plan(mode, p, None, now)
+                    await self._bms(rail_windows, 1438, guard)
                     guard()
                 if mode in RAIL_MODES:
                     guard()
@@ -604,15 +608,11 @@ class SmaDevice:
                     await self._write(40151, 802)
                     await self._sleep(COMMAND_DELAY_SECONDS)
                     guard()
-                    if mode == AUTO:
+                    _, setpoint = self._register_plan(mode, p, None, now)
+                    if setpoint is None:
                         await self._write(40151, 803)
                     else:
-                        power = {
-                            FAST_CHARGE: -p["charge_setpoint_w"],
-                            FAST_DISCHARGE: p["discharge_setpoint_w"],
-                            GRID_CHARGE: -p["charge_power_w"],
-                            CHARGE_02C: -p["power_02c_w"],
-                        }[mode]
+                        power = setpoint
                         if power > 0:
                             self._discharge_setpoint_armed = True
                         await self._write(40149, power)
@@ -620,20 +620,9 @@ class SmaDevice:
                             self._discharge_setpoint_armed = False
                     guard()
                 else:
-                    target = p["charge_power_w"]
-                    if (
-                        mode == DYNAMIC
-                        and self._dynamic_since is not None
-                        and self._monotonic() - self._dynamic_since < SETTLING_SECONDS
-                    ):
-                        target = min(target, SETTLING_CHARGE_W)
-                    charge = power_window(
-                        target, p["min_charge_w"], locked=mode in (PAUSE, ONLY_DISCHARGE)
-                    )
-                    discharge = power_window(
-                        p["max_discharge_w"],
-                        p["min_discharge_w"],
-                        locked=mode in (PAUSE, ONLY_CHARGE),
+                    # Settling is judged at write time, as before the refactor.
+                    windows, _ = self._register_plan(
+                        mode, p, self._dynamic_since, self._monotonic()
                     )
                     guard()
                     touched = True
@@ -645,7 +634,7 @@ class SmaDevice:
                         mode
                     ]
                     await self._bms(
-                        (*charge, *discharge),
+                        windows,
                         opmod,
                         guard,
                         opmod_address=40236 if mode == DYNAMIC else 41259,

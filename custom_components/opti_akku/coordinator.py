@@ -48,7 +48,6 @@ from .const import (
 )
 from .definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
 from .sources import build_inputs, finite
-from .sma import command_signature as sma_command_signature
 from .plant import plant_entity_ids, plant_semantic_fingerprint
 from .load_profile import LoadProfile
 from .clipping import clipping_forecast
@@ -1135,11 +1134,15 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 params["min_charge_w"] = 0
                 params["charge_power_w"] = min(params["charge_power_w"], ev_report.get("surplus_before_battery_w", 0))
                 charge_power_limits.append("Auto-Vorbereitung: nur PV-Überschuss vor dem Akku")
-        # Rewrite only for a change that reaches SMA registers in this mode;
-        # the periodic renewal below is unchanged. Huawei targets also depend
-        # on live entity limits, so every parameter stays exact there.
-        signature = (sma_command_signature(mode, params)
-                     if self.entry.data.get("backend", "sma") in ("sma", "sma_modbus")
+        # Rewrite early only for a change of the effective register values,
+        # which only the SMA driver knows (model clamp, settling cap). The
+        # periodic renewal below is unchanged. Huawei targets also depend on
+        # live entity limits, so every parameter stays exact there, as for
+        # any device without its own signature.
+        device_signature = getattr(type(self.device), "command_signature", None)
+        signature = (device_signature(self.device, mode, params)
+                     if callable(device_signature)
+                     and self.entry.data.get("backend", "sma") in ("sma", "sma_modbus")
                      else (mode, *sorted(params.items())))
         battery = finite(result.states.get("sensor.opti_battery_power_w"))
         # Judge only the confirmed command for this mode, after the device ramp.

@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
+from modbus_connection import ModbusError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -4266,34 +4267,66 @@ async def test_balancing_hold_never_forces_minimum_grid_charge(
     assert (note in data["reason_details"]["charge_power_limits"]) == (expected == 0)
 
 
-async def test_pause_is_not_rewritten_for_parameters_without_register_effect(coordinator):
+async def _real_sma(hass, entry):
+    from custom_components.opti_akku.sma import SmaDevice
+
+    async def no_time(seconds):
+        await asyncio.sleep(0)
+
+    clock = [1000.0]
+    unit = SmaUnit()
+    device = SmaDevice(unit, sleep=no_time, monotonic=lambda: clock[0])
+    applied = []
+    original = device.async_apply
+
+    async def spy(mode, params, current):
+        applied.append((mode, params["charge_power_w"]))
+        await original(mode, params, current)
+
+    device.async_apply = spy
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    c = OptiCoordinator(hass, entry, device, engine)
+    await c.async_restore()
+    await c._async_update_data()
+    await c._async_update_data()
+    return c, unit, clock, applied
+
+
+async def test_pause_is_not_rewritten_for_parameters_without_register_effect(hass, entry):
     """Charge power following the surplus has no effect in Pause (C7)."""
-    coordinator.write_enabled = True
-    base = coordinator._parameters({})
-    values = iter([1000, 1800, 2600, 3400])
-    with patch.object(coordinator, "_parameters",
-                      side_effect=lambda states: {**base, "charge_power_w": next(values)}):
-        for _ in range(4):
-            data = await coordinator._async_update_data()
-            assert data["mode"] == "Akku Pause"
-    assert coordinator.device.async_apply.await_count == 1
+    c, _, _, applied = await _real_sma(hass, entry)
+    try:
+        c.write_enabled = True
+        base = c._parameters({})
+        values = iter([1000, 1800, 2600, 3400])
+        with patch.object(c, "_parameters", side_effect=lambda states: {**base, "charge_power_w": next(values)}):
+            for _ in range(4):
+                data = await c._async_update_data()
+                assert data["mode"] == "Akku Pause"
+        assert applied == [("Akku Pause", 1000)]
+    finally:
+        await c.async_stop()
 
 
-async def test_dynamic_rewrites_only_for_power_changes_beyond_the_quantum(coordinator):
-    coordinator.settings["input_boolean.akku_opti_automatik"] = True
-    coordinator.manual_mode = "Akku Dynamisch"
-    coordinator.write_enabled = True
-    base = coordinator._parameters({})
-    values = iter([1000, 1010, 1020, 1100, 1100])
-    written = []
-    coordinator.device.async_apply.side_effect = (
-        lambda mode, params, current: written.append((mode, params["charge_power_w"])))
-    with patch.object(coordinator, "_parameters",
-                      side_effect=lambda states: {**base, "charge_power_w": next(values)}):
-        for _ in range(5):
-            await coordinator._async_update_data()
-    # The real value is written, the quantum only decides whether to write.
-    assert written == [("Akku Dynamisch", 1000), ("Akku Dynamisch", 1100)]
+async def test_dynamic_rewrites_only_for_effective_register_changes(hass, entry):
+    c, unit, clock, applied = await _real_sma(hass, entry)
+    try:
+        c.settings["input_boolean.akku_opti_automatik"] = True
+        c.manual_mode = "Akku Dynamisch"
+        c.write_enabled = True
+        base = {**c._parameters({}), "min_charge_w": 0}
+        values = iter([1000, 1100, 1010, 1020, 1100, 1100])
+        with patch.object(c, "_parameters", side_effect=lambda states: {**base, "charge_power_w": next(values)}):
+            await c._async_update_data()   # settling: window capped at 500 W
+            await c._async_update_data()   # 1100 W is still capped: no rewrite
+            clock[0] += 330                # settling ends: a new command by itself
+            for _ in range(4):
+                await c._async_update_data()
+        # The real value is written; quantization only decides whether to write.
+        assert applied == [("Akku Dynamisch", 1000), ("Akku Dynamisch", 1010), ("Akku Dynamisch", 1100)]
+        assert (40795, 1100) in unit.writes
+    finally:
+        await c.async_stop()
 
 
 async def test_huawei_signature_keeps_every_parameter(coordinator, hass, entry):
@@ -4369,35 +4402,10 @@ async def test_confirmed_write_clears_write_and_read_errors(coordinator, failure
 
 async def test_single_serial_read_error_keeps_real_sma_driver_online(hass, entry):
     """Identity is checked every cycle; one ModbusError on 30057 is retried."""
-    from modbus_connection import ModbusError
-
     from custom_components.opti_akku.sma import SmaDevice
 
-    class Unit:
-        connected = True
-
-        def __init__(self):
-            self.values = {30051: 8009, 30053: 19051, 30057: 123456789, 33003: 235,
-                           30845: 60, 30849: 220, 40187: 12800, 31393: 0, 31395: 0,
-                           30775: 3000, 30865: 0, 30867: 2200, 30773: 1600, 30961: 1600}
-            self.fail_once = set()
-            self.writes = []
-
-        def set_message_spacing(self, value):
-            pass
-
-        async def read_holding_registers(self, address, count):
-            if address in self.fail_once:
-                self.fail_once.discard(address)
-                raise ModbusError("busy")
-            value = self.values[address]
-            return [value >> 16, value & 0xFFFF]
-
-        async def write_registers(self, address, values):
-            self.writes.append(address)
-
     hass.config_entries.async_update_entry(entry, data={**entry.data, "serial_number": "123456789"})
-    unit = Unit()
+    unit = SmaUnit()
     engine = await hass.async_add_executor_job(StrategyEngine)
     c = OptiCoordinator(hass, entry, SmaDevice(unit, sleep=AsyncMock()), engine)
     await c.async_restore()
@@ -4413,3 +4421,29 @@ async def test_single_serial_read_error_keeps_real_sma_driver_online(hass, entry
         assert unit.writes
     finally:
         await c.async_stop()
+
+
+class SmaUnit:
+    """Minimal raw unit for the real SMA driver in coordinator tests."""
+
+    connected = True
+
+    def __init__(self):
+        self.values = {30051: 8009, 30053: 19051, 30057: 123456789, 33003: 235,
+                       30845: 60, 30849: 220, 40187: 12800, 31393: 0, 31395: 0,
+                       30775: 3000, 30865: 0, 30867: 2200, 30773: 1600, 30961: 1600}
+        self.fail_once = set()
+        self.writes = []
+
+    def set_message_spacing(self, value):
+        pass
+
+    async def read_holding_registers(self, address, count):
+        if address in self.fail_once:
+            self.fail_once.discard(address)
+            raise ModbusError("busy")
+        value = self.values[address]
+        return [value >> 16, value & 0xFFFF]
+
+    async def write_registers(self, address, values):
+        self.writes.append((address, (values[0] << 16) | values[1]))

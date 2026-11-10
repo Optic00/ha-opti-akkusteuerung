@@ -186,11 +186,13 @@ def test_empty_battery_precharges_before_morning_peak(price, expected, mode):
               "sensor.opti_price_level": "NORMAL", "sensor.opti_forecast_score": 10,
               "sensor.opti_peak_reserve_soc": 39.7, "sensor.opti_price_current_ct_kwh": price,
               **model_states()}
-    # The future peak price clears the default model's threshold p_min(37.31) = 49.40;
-    # with 48 ct the economic rule would block (test_issue_154_peak_is_no_longer_economic).
+    # The future peak price clears the default model's threshold at both prices,
+    # p_min(37.31) = 49.40 and p_min(37.85) = 50.06, so only the charging window
+    # separates the two cases. With 48 ct the economic rule would block
+    # (test_issue_154_peak_is_no_longer_economic).
     attributes = {"sensor.opti_peak_reserve_soc": {
         "reserve_ve_soc": 36.2, "min_preis_vor_peak_ct": 37.31, "peak_preis_avg_ct": 48.0,
-        "peak_preis_kuenftig_ct": 50.0}, **model_attributes()}
+        "peak_preis_kuenftig_ct": 51.0}, **model_attributes()}
     for soc in (5, 4):
         result = decision_engine().evaluate(inputs(soc, **states), attributes, NOW)
         assert result.decision_id == expected

@@ -244,8 +244,9 @@ async def test_settings_entities_opt_in_and_ev_requires_sources(hass, simulator)
     registry = er.async_get(hass)
     entities = er.async_entries_for_config_entry(registry, entry.entry_id)
     config_entities = [e for e in entities if "_input_number." in e.unique_id or "_input_boolean." in e.unique_id]
+    enabled_by_default = ("_input_boolean.akku_opti_automatik", "_input_number.minsoc", "_input_number.maxsoc")
     for entity in config_entities:
-        if entity.unique_id.endswith("_input_boolean.akku_opti_automatik"):
+        if entity.unique_id.endswith(enabled_by_default):
             assert entity.disabled_by is None
         else:
             assert entity.disabled_by == er.RegistryEntryDisabler.INTEGRATION
@@ -256,7 +257,7 @@ async def test_settings_entities_opt_in_and_ev_requires_sources(hass, simulator)
     with pytest.raises(HomeAssistantError, match="evcc"):
         await coordinator.async_apply_settings({"input_boolean.opti_ev_akku_pause": True}, "invalid-ev")
     # Explicit user enablement must survive a reload, with the same entity ID.
-    number = next(e for e in config_entities if e.unique_id.endswith("_input_number.minsoc"))
+    number = next(e for e in config_entities if e.unique_id.endswith("_input_number.ladepreis"))
     registry.async_update_entity(number.entity_id, disabled_by=None)
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()

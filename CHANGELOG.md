@@ -10,6 +10,15 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Geändert
 
+- Der Sperrgrund im manuellen Betrieb nennt den wirksamen Grenzwert und die
+  Freigabeschwelle, etwa „Max-SoC 95 % sperrt Ladung (frei ab 92 %)“.
+  Automationen, die den bisherigen Text wörtlich auswerten, müssen angepasst
+  werden.
+- Die Entitäten „Minimaler Ladestand“ und „Maximaler Ladestand“ sind bei neuen
+  Installationen aktiviert. Bestehende Installationen bleiben unverändert; die
+  Entitäten lassen sich in der Entitätsverwaltung aktivieren (Home Assistant lädt
+  die Integration danach neu), die Werte bleiben auch unter „Konfigurieren →
+  Akku“ einstellbar.
 - **Peak-Vorladen aus dem Netz rechnet jetzt mit Verlusten und Zykluskosten.**
   Bisher genügte ein fester Preisabstand zur kommenden Spitze (Standard 10 ct).
   Jetzt muss der erwartete Spitzenpreis zusätzlich die Ladekosten samt Lade- und
@@ -46,6 +55,12 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Behoben
 
+- Manuelle SoC-Sperren gelten nur noch für die laufende manuelle Sitzung. Bisher
+  blieb eine einmal gesetzte Lade- oder Entladesperre über den Wechsel zur
+  Strategie, über Neustarts und über eine geänderte Min-/Max-SoC-Grenze hinweg
+  bestehen und sperrte später einen manuellen Modus, obwohl der SoC innerhalb der
+  Grenzen lag. Die Sperren werden jetzt bei jedem Moduswechsel, bei geändertem
+  Min- oder Max-SoC und beim Start zurückgesetzt und sofort neu bestimmt.
 - Eine laufende Erneuerung des bereits aktiven Modus wird nicht mehr abgebrochen,
   wenn sich währenddessen nur eine PV-Prognose, die Preisreihe, die Zellspreizung
   oder der Tibber-Cache aktualisiert. Bisher folgten darauf eine Sicherheits-Pause

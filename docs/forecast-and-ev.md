@@ -467,8 +467,8 @@ mit einem Preis unter `opti_einspeiseverguetung_ct`. Vor dem Fenster lautet das
 Urteil `hold`, wenn der Prognose-Score mindestens 3 beträgt, der Ladestand über
 dem Mindest-SoC und einer aktiven Peak-Reserve liegt und der P10-Überschuss ab
 Fensterbeginn bis Mitternacht nach Abzug der aktuellen Hauslast (60-Minuten-Wert)
-und 90 % Ladewirkungsgrad mindestens das 1,2-Fache der bis zum maximalen
-Ladestand fehlenden Energie deckt. Sonst nennt das Urteil den Grund:
+und mit dem Ladewirkungsgrad des Akkumodells (Standard 90 %) mindestens das
+1,2-Fache der bis zum maximalen Ladestand fehlenden Energie deckt. Sonst nennt das Urteil den Grund:
 `no_window`, `in_window`, `forecast_weak`, `min_soc`, `peak_reserve`, `full`
 oder `insufficient_pv`. Ist die Peak-Reserve aktiv, ihr Wert aber unbekannt,
 gibt es kein Urteil (`data_missing`). Benötigt wird das `detailedForecast` der
@@ -534,7 +534,8 @@ Horizont kein solcher Sonderpfad den Akku nachlädt.
 
 Jeder Slot bekommt die erwartete Hauslast aus dem Peak-Lastprofil
 (`sensor.opti_peak_load_profile`), ersatzweise `opti_peak_verbrauch_kw`. Der
-nutzbare Inhalt über dem Mindest-SoC mit 90 % Entladewirkungsgrad wird vom
+nutzbare Inhalt über dem Mindest-SoC mit dem Entladewirkungsgrad des Akkumodells
+(Standard 90 %) wird vom
 teuersten Slot abwärts verteilt; `threshold_price_ct` ist der Preis des letzten
 bedienten Slots. Liegt der laufende Slot unter den bedienten, lautet das Urteil
 während L1 oder L2 `discharge`, sonst `hold`. Bei jeder anderen Entscheidung

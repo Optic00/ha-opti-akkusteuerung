@@ -4753,11 +4753,13 @@ async def test_alternating_failures_reach_failsafe_and_only_pause_is_written(coo
         assert {written for _, written in writes} == {"Akku Pause"}
 
 
-def _sma_signed(coordinator):
+def _sma_signed(coordinator, pause_signature_error=None):
     """Fake device with the SMA rule that a pause signature ignores parameters."""
 
     class SignedDevice(AsyncMock):
         def command_signature(self, mode, params):
+            if mode == "Akku Pause" and pause_signature_error is not None:
+                raise pause_signature_error
             return (mode,) if mode == "Akku Pause" else (mode, *sorted(params.items()))
 
     signed = SignedDevice()
@@ -4984,3 +4986,81 @@ async def test_unbuildable_degraded_data_raises_update_failed(coordinator):
             patch.object(coordinator, "_write_stalled", side_effect=ValueError("broken")):
         with pytest.raises(UpdateFailed):
             await coordinator._async_update_data()
+
+
+# Review follow-ups for C2: the write decision follows the current control
+# state, and holding phase and error path share one throttle per incident.
+
+
+async def test_failsafe_decision_ignores_stale_observation_display(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes), \
+            patch("custom_components.opti_akku.coordinator.build_command_evidence",
+                  side_effect=RuntimeError("report")):
+        coordinator.data = {"mode": "Beobachtung", "states": {}}
+        coordinator.manual_mode = "Akku schnell Laden"
+        coordinator.write_enabled = True
+        first = clock.t
+        for _ in range(3):
+            data = await _cycle(coordinator, clock, False, control)
+        assert writes == [(first, "Akku schnell Laden"), (first + 30, "Akku Pause")]
+        assert data["mode"] == "Akku Pause"
+        assert data["internal_error"]["pause"] == "confirmed"
+
+
+async def test_holding_phase_and_error_path_share_pause_throttle(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes), \
+            patch("custom_components.opti_akku.coordinator.build_command_evidence",
+                  side_effect=RuntimeError("report")):
+        coordinator.write_enabled = True
+        control["apply_error"] = TimeoutError()
+        first = clock.t
+        for _ in range(30):
+            await _cycle(coordinator, clock, False, control)
+        pauses = [at - first for at, written in writes if written == "Akku Pause"]
+        assert pauses[:5] == [30, 60, 90, 120, 240]
+        gaps = [later - earlier for earlier, later in zip(pauses, pauses[1:], strict=False)]
+        assert all(gap >= 120 for gap in gaps[3:])
+        assert coordinator._failsafe_failed_attempts >= 4
+
+
+async def test_open_phase_continues_despite_earlier_failed_pause_attempts(coordinator):
+    class PhasedDevice(AsyncMock):
+        PHASED = True
+
+    phased = PhasedDevice()
+    template = coordinator.device
+    for name in ("command_execution_basis", "setpoint_readback_capability", "setpoint_readback_limitation"):
+        setattr(phased, name, getattr(template, name))
+    phased.async_probe.return_value = template.async_probe.return_value
+    phased.async_read.return_value = template.async_read.return_value
+    phased.last_write = None
+    phased.supported_modes = ("Akku Pause", "Akku Dynamisch", "Akku nur Laden", "Akku nur Entladen")
+    coordinator.device = phased
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        control["apply_error"] = TimeoutError()
+        while coordinator._failsafe_failed_attempts < 4:
+            await _cycle(coordinator, clock, True, control)
+        control["apply_error"] = PendingCommandError("phase")
+        resumed = clock.t + 120 - 15  # The fourth failure throttles for 120 s.
+        while clock.t <= resumed + 15:
+            await _cycle(coordinator, clock, True, control)
+        attempts = [at for at, _ in writes]
+        assert attempts[-2:] == [resumed, resumed + 15]
+        control["apply_error"] = None
+    coordinator.write_enabled = False
+
+
+async def test_failing_pause_signature_keeps_confirmed_pause(coordinator):
+    _sma_signed(coordinator, pause_signature_error=RuntimeError("signature"))
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        first = clock.t
+        for _ in range(4):
+            data = await _cycle(coordinator, clock, True, control)
+        assert writes == [(first + 30, "Akku Pause")]
+        assert coordinator._applied_mode == "Akku Pause"
+        assert data["internal_error"]["pause"] == "confirmed"
+        assert "internal" in coordinator.alerts._active

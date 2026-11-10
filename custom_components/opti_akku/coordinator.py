@@ -1216,8 +1216,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         write_failed = False
         last_write_before_command = getattr(self.device, "last_write", None)
         due = self._last_apply is None or monotonic_now - self._last_apply >= RECONCILE_SECONDS
+        # Holding-phase pause writes share the incident throttle with the error path.
+        failsafe_hold = self._failsafe_active and mode == "Akku Pause"
         if (not self.shadow_mode and self.write_enabled and self._online and connection["write_ready"] and self._identity.get("serial_number") and not self._stopping
                 and mode in self.supported_modes
+                and not (failsafe_hold and self._failsafe_throttled(monotonic_now))
                 and (due or signature != self._last_signature or renew)):
             # Continuing a phased command is not another renewal.
             if renew and not self._command_pending:
@@ -1308,6 +1311,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._command_pending = False
                 self._last_signature = None
                 self._last_error = f"Schreibvorgang nicht bestätigt: {type(err).__name__}"
+            if failsafe_hold:
+                self._record_failsafe_attempt(monotonic_now, command_result == "confirmed", write_failed)
         if persistent_violation and not renew and not write_failed and self._violation_renewals >= VIOLATION_MAX_RENEWALS:
             self._last_error = f"Sperrverletzung hält trotz {VIOLATION_MAX_RENEWALS} Erneuerungen an"
         result.states["binary_sensor.opti_connection"] = "on" if self._online else "off"
@@ -1455,6 +1460,24 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {"pending": "pending", "safe_phase_confirmed": "pending",
                 "failed": "failed"}.get(command_result, "waiting")
 
+    def _failsafe_throttled(self, monotonic_now: float) -> bool:
+        """Spacing of safety-pause attempts after failures, for the whole incident."""
+        if self._command_pending:
+            # A running phase continues in the next cycle.
+            return False
+        if not self._failsafe_failed_attempts or self._failsafe_attempt_at is None:
+            return False
+        interval = (FAILSAFE_RETRY_SECONDS if self._failsafe_failed_attempts <= FAILSAFE_FAST_RETRIES
+                    else RECONCILE_SECONDS)
+        return monotonic_now - self._failsafe_attempt_at < interval
+
+    def _record_failsafe_attempt(self, monotonic_now: float, confirmed: bool, failed: bool) -> None:
+        self._failsafe_attempt_at = monotonic_now
+        if confirmed:
+            self._failsafe_failed_attempts = 0
+        elif failed:
+            self._failsafe_failed_attempts += 1
+
     async def _async_failsafe_pause(self, monotonic_now: float, connection: Mapping[str, Any]) -> tuple[str, str]:
         """Write the safety pause after an internal error; return (pause, command_result)."""
         if (self.shadow_mode or not self.write_enabled or self._stopping
@@ -1465,12 +1488,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if (self._applied_mode == "Akku Pause" and self._last_apply is not None
                 and monotonic_now - self._last_apply < RECONCILE_SECONDS):
             return "confirmed", "not_attempted"
-        if self._failsafe_failed_attempts and self._failsafe_attempt_at is not None:
-            interval = (FAILSAFE_RETRY_SECONDS if self._failsafe_failed_attempts <= FAILSAFE_FAST_RETRIES
-                        else RECONCILE_SECONDS)
-            if monotonic_now - self._failsafe_attempt_at < interval:
-                return "waiting", "not_attempted"
-        self._failsafe_attempt_at = monotonic_now
+        if self._failsafe_throttled(monotonic_now):
+            return "waiting", "not_attempted"
         try:
             try:
                 params = self._parameters((self.data or {}).get("states", {}))
@@ -1480,6 +1499,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "Akku Pause", params, lambda: self.write_enabled and not self._stopping)
         except PendingCommandError as err:
             # Huawei continues its phases in the next failed cycle; no throttle.
+            self._record_failsafe_attempt(monotonic_now, False, False)
             if err.confirmed:
                 self._last_apply = time.monotonic()
             if self._applied_mode != "Akku Pause":
@@ -1489,12 +1509,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return "pending", "pending"
         except StaleCommandError:
             # Write permission was withdrawn; the disable path writes its own pause.
+            self._record_failsafe_attempt(monotonic_now, False, False)
             self._applied_mode = None
             self._command_pending = False
             self._last_signature = None
             return ("not_required" if not self.write_enabled else "waiting"), "superseded"
         except Exception as err:
-            self._failsafe_failed_attempts += 1
+            self._record_failsafe_attempt(monotonic_now, False, True)
             self._applied_mode = None
             self._command_pending = False
             self._last_signature = None
@@ -1506,14 +1527,18 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._applied_mode, self._applied_mode_since = "Akku Pause", self._last_apply
         # The holding phase renews this pause with the regular interval
         # instead of rewriting it in the next successful cycle.
-        device_signature = getattr(type(self.device), "command_signature", None)
-        self._last_signature = (device_signature(self.device, "Akku Pause", params)
-                                if callable(device_signature)
-                                and self.entry.data.get("backend", "sma") in ("sma", "sma_modbus")
-                                else ("Akku Pause", *sorted(params.items())))
         self._command_pending = False
-        self._failsafe_failed_attempts = 0
+        self._record_failsafe_attempt(monotonic_now, True, False)
         self._clear_write_error()
+        device_signature = getattr(type(self.device), "command_signature", None)
+        try:
+            self._last_signature = (device_signature(self.device, "Akku Pause", params)
+                                    if callable(device_signature)
+                                    and self.entry.data.get("backend", "sma") in ("sma", "sma_modbus")
+                                    else ("Akku Pause", *sorted(params.items())))
+        except Exception:
+            # The confirmed pause stands; only an earlier renewal may follow.
+            self._last_signature = None
         return "confirmed", "confirmed"
 
     async def _async_cycle_failed(self, err: Exception, now: datetime, monotonic_now: float,
@@ -1531,8 +1556,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if monotonic_now - self._cycle_fail_first >= CYCLE_FAILURE_GRACE_SECONDS:
                 self._failsafe_active = True
             previous = self.data if isinstance(self.data, dict) else {}
-            observation = (previous.get("mode") == "Beobachtung"
-                           or (not self.strategy_enabled and self.manual_mode is None))
+            # Current control state, never the previously displayed mode.
+            observation = not self.strategy_enabled and self.manual_mode is None
             if not self._failsafe_active:
                 pause = ("not_required" if self.shadow_mode or not self.write_enabled or observation
                          else "waiting")

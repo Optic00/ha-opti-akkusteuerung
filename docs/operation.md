@@ -327,10 +327,12 @@ Akku nicht selbst unter den Ladedeckel, um ihn anschließend wieder bis zur
 Reserve zu laden. Als Reserve-Haltefall gilt nur, was die Peak-Leiter an dieser
 Stelle auch halten würde: L3 (teurer Slot, SoC höchstens an der Reserve für
 sehr teure Slots, ausreichender Halte-Spread), L4 (Preis höchstens NORMAL, SoC
-höchstens an der Gesamtreserve) oder die Extrempreis-Reserve, jeweils mit dem
-Halteband von 2 Prozentpunkten im Modus „Akku nur Laden“ und in der vom
+höchstens an der Gesamtreserve) oder die Extrempreis-Reserve. L3 und L4 nutzen
+das Halteband von 2 Prozentpunkten im Modus „Akku nur Laden“ und in der vom
 Ladedeckel selbst gehaltenen Pause; dasselbe Band gilt dann auch für die
-vorgelagerte L2-Entladung. Liegt der SoC deutlich
+vorgelagerte L2-Entladung. Die Extrempreis-Reserve gewährt ihr Band weiterhin
+nur im Modus „Akku nur Laden“; in der Deckel-Pause kann sie daher knapp über
+der Reserve abfallen, und L1 entlädt bis zur Reserve. Liegt der SoC deutlich
 über der benötigten Reserve, bleibt Entladen erlaubt, bis die Reserve erreicht
 ist. Die geplante Entladung während eines teuren Peak-Fensters
 bleibt davon unberührt.

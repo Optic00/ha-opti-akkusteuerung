@@ -5024,6 +5024,274 @@ async def test_holding_phase_and_error_path_share_pause_throttle(coordinator):
 
 
 async def test_open_phase_continues_despite_earlier_failed_pause_attempts(coordinator):
+
+# C14: a renewal of the confirmed mode is not cancelled by pure information
+# updates (forecasts, price series, cell spread, Tibber cache). Hard causes
+# still cancel at once.
+
+SOFT_UNITS = {
+    "forecast_today": ("5.1", "5.0", "kWh"),
+    "forecast_tomorrow": ("5.1", "5.0", "kWh"),
+    "forecast_remaining": ("5.1", "5.0", "kWh"),
+    "price_series": ("0.30", "0.31", "series"),
+    "cell_spread": ("0.010", "0.012", "V"),
+}
+
+
+def _price_series_attributes(price):
+    from tests.test_price_sources import dated_prices
+
+    today = dt_util.now().date()
+    return {"unit_of_measurement": "EUR/kWh",
+            "today": dated_prices(today, timezone=dt_util.DEFAULT_TIME_ZONE, price=price),
+            "tomorrow": dated_prices(today + timedelta(days=1), timezone=dt_util.DEFAULT_TIME_ZONE, price=price)}
+
+
+def _set_source(hass, entity_id, state, unit):
+    # A valid price series has a numeric state and dated intervals; an update
+    # changes both the state and the interval prices.
+    attributes = (_price_series_attributes(float(state)) if unit == "series"
+                  else {"unit_of_measurement": unit} if unit else {})
+    hass.states.async_set(entity_id, state, attributes)
+
+
+async def _confirm_first_command(coordinator, hass, entry, sources, initial):
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "sources": sources})
+    for entity_id, (state, unit) in initial.items():
+        _set_source(hass, entity_id, state, unit)
+    coordinator.async_listen_sources()
+    coordinator.write_enabled = True
+    data = await coordinator._async_update_data()
+    assert data["command_result_this_update"] == "confirmed"
+    assert coordinator._applied_mode is not None
+    # Every configured source is valid; otherwise the guard proves nothing.
+    assert not set(sources) & set(data["source_errors"]), data["source_errors"]
+    # Make the next cycle due with the same mode: a renewal.
+    coordinator._last_signature = None
+    return coordinator._applied_mode
+
+
+async def _observe_renewal(coordinator, change):
+    observed = []
+
+    async def apply(mode, params, current):
+        observed.append(("mode", mode))
+        observed.append(current())
+        await change()
+        await asyncio.sleep(0)
+        observed.append(current())
+
+    coordinator.device.async_apply.side_effect = apply
+    data = await coordinator._async_update_data()
+    coordinator.device.async_apply.side_effect = None
+    return observed, data
+
+
+async def _release_renewal_test(coordinator):
+    coordinator.write_enabled = False
+    await coordinator.async_stop()
+    coordinator._unsubscribe()
+
+
+async def test_renewal_finishes_when_forecast_changes_during_write(coordinator, hass, entry):
+    mode = await _confirm_first_command(
+        coordinator, hass, entry, {"forecast_remaining": "sensor.fc"}, {"sensor.fc": ("5.1", "kWh")}
+    )
+
+    async def change():
+        _set_source(hass, "sensor.fc", "5.0", "kWh")
+
+    observed, data = await _observe_renewal(coordinator, change)
+    signature = coordinator._last_signature
+    applied = coordinator._applied_mode
+    await _release_renewal_test(coordinator)
+    assert observed == [("mode", mode), True, True]
+    assert data["command_result_this_update"] == "confirmed"
+    assert applied == mode
+    assert signature is not None
+
+
+@pytest.mark.parametrize("previous", [None, "other"])
+async def test_mode_change_is_cancelled_when_forecast_changes_during_write(coordinator, hass, entry, previous):
+    mode = await _confirm_first_command(
+        coordinator, hass, entry, {"forecast_remaining": "sensor.fc"}, {"sensor.fc": ("5.1", "kWh")}
+    )
+    other = "Akku Dynamisch" if mode != "Akku Dynamisch" else "Akku Pause"
+    coordinator._applied_mode = None if previous is None else other
+
+    async def change():
+        _set_source(hass, "sensor.fc", "5.0", "kWh")
+
+    observed, data = await _observe_renewal(coordinator, change)
+    await _release_renewal_test(coordinator)
+    assert observed == [("mode", mode), True, False]
+
+
+async def test_renewal_is_cancelled_when_forecast_becomes_unavailable(coordinator, hass, entry):
+    await _confirm_first_command(
+        coordinator, hass, entry, {"forecast_remaining": "sensor.fc"}, {"sensor.fc": ("5.1", "kWh")}
+    )
+    revision = coordinator._revision
+
+    async def change():
+        _set_source(hass, "sensor.fc", "unavailable", "kWh")
+
+    observed, _data = await _observe_renewal(coordinator, change)
+    hard = coordinator._revision - revision
+    await _release_renewal_test(coordinator)
+    assert observed[1:] == [True, False]
+    assert hard >= 1
+
+
+async def test_renewal_is_cancelled_when_current_price_changes(coordinator, hass, entry):
+    await _confirm_first_command(
+        coordinator, hass, entry, {"price_current": "sensor.price"}, {"sensor.price": ("0.25", "EUR/kWh")}
+    )
+
+    async def change():
+        _set_source(hass, "sensor.price", "0.26", "EUR/kWh")
+
+    observed, _data = await _observe_renewal(coordinator, change)
+    await _release_renewal_test(coordinator)
+    assert observed[1:] == [True, False]
+
+
+async def test_renewal_is_cancelled_when_entity_is_current_price_and_series(coordinator, hass, entry):
+    await _confirm_first_command(
+        coordinator, hass, entry,
+        {"price_current": "sensor.price", "price_series": "sensor.price"},
+        {"sensor.price": ("0.25", "series")},
+    )
+
+    async def change():
+        _set_source(hass, "sensor.price", "0.26", "series")
+
+    observed, _data = await _observe_renewal(coordinator, change)
+    await _release_renewal_test(coordinator)
+    assert observed[1:] == [True, False]
+
+
+@pytest.mark.parametrize("key", sorted(SOFT_UNITS))
+async def test_renewal_ignores_valid_update_of_every_soft_source(coordinator, hass, entry, key):
+    before, after, unit = SOFT_UNITS[key]
+    await _confirm_first_command(coordinator, hass, entry, {key: "sensor.soft"}, {"sensor.soft": (before, unit)})
+    revision, soft = coordinator._revision, coordinator._soft_revision
+
+    async def change():
+        _set_source(hass, "sensor.soft", after, unit)
+
+    observed, data = await _observe_renewal(coordinator, change)
+    counters = (coordinator._revision - revision, coordinator._soft_revision - soft)
+    await _release_renewal_test(coordinator)
+    assert key not in data["source_errors"]
+    assert observed[1:] == [True, True]
+    assert data["command_result_this_update"] == "confirmed"
+    assert counters[0] == 0 and counters[1] >= 1
+
+
+async def test_renewal_ignores_price_series_and_cell_spread_together(coordinator, hass, entry):
+    await _confirm_first_command(
+        coordinator, hass, entry,
+        {"price_series": "sensor.series", "cell_spread": "sensor.spread"},
+        {"sensor.series": ("0.30", "series"), "sensor.spread": ("0.010", "V")},
+    )
+
+    async def change():
+        _set_source(hass, "sensor.series", "0.31", "series")
+        _set_source(hass, "sensor.spread", "0.012", "V")
+
+    observed, data = await _observe_renewal(coordinator, change)
+    await _release_renewal_test(coordinator)
+    assert observed[1:] == [True, True]
+    assert data["command_result_this_update"] == "confirmed"
+
+
+async def test_soft_and_hard_change_together_cancel_renewal(coordinator, hass, entry):
+    await _confirm_first_command(
+        coordinator, hass, entry,
+        {"forecast_remaining": "sensor.fc", "price_current": "sensor.price"},
+        {"sensor.fc": ("5.1", "kWh"), "sensor.price": ("0.25", "EUR/kWh")},
+    )
+
+    async def change():
+        _set_source(hass, "sensor.fc", "5.0", "kWh")
+        _set_source(hass, "sensor.price", "0.26", "EUR/kWh")
+
+    observed, _data = await _observe_renewal(coordinator, change)
+    await _release_renewal_test(coordinator)
+    assert observed[1:] == [True, False]
+
+
+@pytest.mark.parametrize("cause", ["mode", "write_off", "stop", "options"])
+async def test_renewal_is_cancelled_by_operator_causes(coordinator, hass, entry, cause):
+    await _confirm_first_command(
+        coordinator, hass, entry, {"forecast_remaining": "sensor.fc"}, {"sensor.fc": ("5.1", "kWh")}
+    )
+    tasks = []
+
+    async def change():
+        if cause == "mode":
+            tasks.append(asyncio.create_task(coordinator.async_set_mode("Akku Pause")))
+        elif cause == "write_off":
+            coordinator.write_enabled = False
+        elif cause == "stop":
+            coordinator._stopping = True
+        else:
+            hass.config_entries.async_update_entry(
+                entry, options={**entry.options, "notification_service": "notify.other"}
+            )
+
+    observed, _data = await _observe_renewal(coordinator, change)
+    for task in tasks:
+        await task
+    coordinator._stopping = False
+    await _release_renewal_test(coordinator)
+    assert observed[1:] == [True, False]
+
+
+async def test_valid_forecast_change_raises_soft_counter_and_invalid_one_hard_counter(coordinator, hass, entry):
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "sources": {"forecast_remaining": "sensor.fc"}}
+    )
+    _set_source(hass, "sensor.fc", "5.1", "kWh")
+    coordinator.async_listen_sources()
+    revision, soft = coordinator._revision, coordinator._soft_revision
+    _set_source(hass, "sensor.fc", "5.0", "kWh")
+    await hass.async_block_till_done()
+    valid = (coordinator._revision - revision, coordinator._soft_revision - soft)
+    for state in ("unavailable", "unknown", "invalid"):
+        _set_source(hass, "sensor.fc", state, "kWh")
+        await hass.async_block_till_done()
+    invalid = (coordinator._revision - revision, coordinator._soft_revision - soft)
+    await _release_renewal_test(coordinator)
+    assert valid == (0, 1)
+    assert invalid == (3, 1)
+
+
+async def test_soft_change_during_cycle_suppresses_helper_updates(coordinator, hass, entry):
+    key = "input_number.ladepreis"
+    original = coordinator.engine.evaluate
+    bump = {"soft": True}
+
+    def evaluate(*args, **kwargs):
+        result = replace(original(*args, **kwargs), helper_updates={key: 0.31})
+        if bump["soft"]:
+            coordinator._soft_revision += 1
+        return result
+
+    before = coordinator.settings[key]
+    with patch.object(coordinator.engine, "evaluate", side_effect=evaluate):
+        await coordinator._async_update_data()
+        suppressed = coordinator.settings[key]
+        bump["soft"] = False
+        await coordinator._async_update_data()
+        taken = coordinator.settings[key]
+    assert before != 0.31
+    assert suppressed == before
+    assert taken == 0.31
+
+
+async def test_phased_device_renewal_is_cancelled_by_forecast_change(coordinator, hass, entry):
     class PhasedDevice(AsyncMock):
         PHASED = True
 
@@ -5082,6 +5350,17 @@ async def test_enabling_writes_during_incident_retries_pause_at_once(coordinator
         assert [written for _, written in writes] == ([] if was_enabled else ["Akku Pause"])
         control["apply_error"] = None
     coordinator.write_enabled = False
+
+    await _confirm_first_command(
+        coordinator, hass, entry, {"forecast_remaining": "sensor.fc"}, {"sensor.fc": ("5.1", "kWh")}
+    )
+
+    async def change():
+        _set_source(hass, "sensor.fc", "5.0", "kWh")
+
+    observed, _data = await _observe_renewal(coordinator, change)
+    await _release_renewal_test(coordinator)
+    assert observed[1:] == [True, False]
 
 BATTERY_MODEL_OPTIONS = {
     "enabled": True,

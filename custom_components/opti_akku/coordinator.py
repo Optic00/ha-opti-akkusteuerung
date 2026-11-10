@@ -86,6 +86,13 @@ WRITE_ERROR_PREFIXES = (
     "Pause beim Abschalten nicht bestätigt",
 )
 
+# Sources whose valid updates only add information. During a renewal of the
+# already confirmed mode they do not cancel the running write sequence; the
+# next evaluation uses them. Everything else invalidates at once.
+SOFT_SOURCE_KEYS = frozenset(
+    {"forecast_today", "forecast_tomorrow", "forecast_remaining", "price_series", "cell_spread"}
+)
+
 # Top-level fields ShadowRecorder.record reads from a coordinator result.
 _JOURNAL_SAMPLE_KEYS = ("mode", "reason", "online", "source_errors", "write_enabled",
                         "strategy_enabled", "command_confirmation", "device_errors",
@@ -312,6 +319,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.write_enabled = False
         self._write_restore_blocked: str | None = None
         self._revision = 0
+        self._soft_revision = 0
         self._stopping = False
         self._probed = False
         self._online = False
@@ -568,14 +576,26 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             new_state = event.data.get("new_state")
             # A live power meter (or cell-voltage reading) may report every
             # second. Such observations queue reevaluation without cancelling
-            # every multi-second write. Invalid data, EV state, prices and
-            # forecasts invalidate at once.
+            # every multi-second write. Valid forecast, price series and cell
+            # spread updates only count as information (SOFT_SOURCE_KEYS).
+            # Invalid data, EV state and the current price invalidate at once.
             ordinary_power = all(
                 (key in SOURCE_DEFINITIONS and SOURCE_DEFINITIONS[key][2] in ("power", "voltage"))
                 or key in ("ev1_power", "ev2_power") for key in keys
             )
             if not ordinary_power or new_state is None or finite(new_state.state) is None:
-                self._revision += 1
+                soft = (
+                    bool(keys)
+                    and all(key in SOFT_SOURCE_KEYS for key in keys)
+                    and new_state is not None
+                    and new_state.state not in ("unavailable", "unknown")
+                    and all(key == "price_series" or finite(new_state.state) is not None
+                            for key in keys)
+                )
+                if soft:
+                    self._soft_revision += 1
+                else:
+                    self._revision += 1
             self.entry.async_create_background_task(self.hass, self.async_request_refresh(),
                                                    "Opti source refresh")
 
@@ -816,7 +836,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             max_age = finite(self.entry.options.get("price_max_age", 7200)) or 60
             refresh = min(REFRESH_SECONDS, max(15, max_age / 2))
             self._price_next_fetch = dt_util.utcnow() + timedelta(seconds=refresh)
-            self._revision += 1
+            self._soft_revision += 1
         if not self._stopping:
             await self.async_request_refresh()
 
@@ -832,6 +852,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._stopping:
             return self.data or {}
         revision = self._revision
+        soft_revision = self._soft_revision
         read_started = time.monotonic()
         battery_power_observed_at = None
         read_errors = {}
@@ -884,7 +905,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._write_monitor_since = (self._write_monitor_since or monotonic_now) if self.write_enabled and not self.shadow_mode else None
         try:
             data = await self._async_cycle_body(
-                revision, read_started, battery_power_observed_at, read_errors,
+                revision, soft_revision, read_started, battery_power_observed_at, read_errors,
                 now, monotonic_now, connection,
             )
         except Exception as err:  # Not BaseException: cancellation stays cancellation.
@@ -893,8 +914,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._cycle_succeeded(monotonic_now)
         return data
 
-    async def _async_cycle_body(self, revision, read_started, battery_power_observed_at,
-                                read_errors, now, monotonic_now, connection) -> dict[str, Any]:
+    async def _async_cycle_body(self, revision, soft_revision, read_started,
+                                battery_power_observed_at, read_errors, now, monotonic_now,
+                                connection) -> dict[str, Any]:
         """Evaluate, write and report one cycle after the device read."""
         captured_options = dict(self.entry.options)
         score_binding = _score_load_binding(self._load_source_fingerprint, captured_options)
@@ -1148,7 +1170,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 hold_controls_battery=False,
             )
         for key, value in result.helper_updates.items():
-            if key in self.settings and revision == self._revision:
+            if (key in self.settings and revision == self._revision
+                    and soft_revision == self._soft_revision):
                 try:
                     self.settings[key] = validate_setting(key, value in (True, "on", "true") if key in SWITCH_DEFINITIONS else value, self.settings)
                 except HomeAssistantError:
@@ -1234,9 +1257,14 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Continuing a phased command is not another renewal.
             if renew and not self._command_pending:
                 self._violation_renewals += 1
+            # A renewal of the confirmed mode may finish despite a pure
+            # information update; phased devices keep the strict rule.
+            renewal = self._applied_mode == mode and not getattr(type(self.device), "PHASED", False)
             try:
                 def current() -> bool:
                     if not self.write_enabled or self._stopping or self._revision != revision:
+                        return False
+                    if self._soft_revision != soft_revision and not renewal:
                         return False
                     if dict(self.entry.options) != captured_options:
                         return False

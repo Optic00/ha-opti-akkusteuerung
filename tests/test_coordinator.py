@@ -4,6 +4,7 @@ import asyncio
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 import json
+import math
 from threading import Event
 import time
 from unittest.mock import AsyncMock, Mock, patch
@@ -15,7 +16,7 @@ from modbus_connection import ModbusError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.opti_akku.coordinator import OptiCoordinator, validate_setting
+from custom_components.opti_akku.coordinator import OptiCoordinator, _percent, validate_setting
 from custom_components.opti_akku.engine import StrategyEngine
 from custom_components.opti_akku.shadow import ShadowRecorder
 
@@ -4629,6 +4630,8 @@ async def test_restore_ignores_stored_soc_blocks_and_does_not_store_them(hass, e
     (10, 95, "Akku schnell Laden", "Max-SoC 95 % sperrt Ladung (frei ab 92 %)"),
     (10, 10, "Akku schnell Entladen", "Min-SoC 10 % sperrt Entladung (frei ab 13 %)"),
     (91, 95, "Akku schnell Laden", "Max-SoC 95 % sperrt Ladung (frei ab 93 %)"),
+    # Release 93.502 % is shown rounded up, never as an earlier release.
+    (92.004, 92, "Akku schnell Entladen", "Min-SoC 92 % sperrt Entladung (frei ab 93.51 %)"),
 ])
 async def test_soc_block_reason_names_limit_and_release(coordinator, minimum, soc, requested, expected):
     coordinator.settings["input_boolean.akku_opti_automatik"] = True
@@ -4640,6 +4643,14 @@ async def test_soc_block_reason_names_limit_and_release(coordinator, minimum, so
     # The reason does not follow the SoC inside the hysteresis band.
     if requested == "Akku schnell Laden":
         assert (await _manual_cycle(coordinator, soc - 1))["reason"] == expected
+
+
+@pytest.mark.parametrize("value,rounding,expected", [
+    (95.004, math.ceil, "95.01"), (96.996, math.floor, "96.99"), (13.1, math.ceil, "13.1"),
+    (95, math.ceil, "95"), (99.999, round, "100"), (1.23457e-05, round, "0"),
+])
+def test_percent_rounds_release_thresholds_conservatively(value, rounding, expected):
+    assert _percent(value, rounding) == expected
 
 
 @pytest.mark.parametrize("minimum,maximum", [(100, 100), (99.5, 99.5), (99.999, 99.999), (1.23457e-05, 1.23457e-05), (94.5, 99.5), (0.5, 99.5)])

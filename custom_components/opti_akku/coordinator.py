@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Coroutine
+import math
 from copy import deepcopy
 from datetime import datetime, timedelta
 import logging
@@ -76,9 +77,14 @@ WRITE_ERROR_PREFIXES = (
     "Pause beim Abschalten nicht bestätigt",
 )
 
-def _percent(value: float) -> str:
-    """Bounded SoC text for a state (at most 255 characters in total)."""
-    return f"{round(value, 2):g}"
+def _percent(value: float, rounding: Callable[[float], float] = round) -> str:
+    """Bounded SoC text for a state (at most 255 characters in total).
+
+    Two decimals keep the text short. A release threshold passes ``math.floor``
+    or ``math.ceil`` so the shown value never promises an earlier release.
+    """
+    # round(..., 6) first: 13.1 * 100 is 1310.0000000000002 in binary floats.
+    return f"{rounding(round(value * 100, 6)) / 100:g}"
 
 
 # Top-level fields ShadowRecorder.record reads from a coordinator result.
@@ -676,12 +682,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._manual_charge_blocked:
                 charge_allowed = False
                 reasons.append(
-                    f"Max-SoC {_percent(maximum)} % sperrt Ladung (frei ab {_percent(maximum - hysteresis)} %)"
+                    f"Max-SoC {_percent(maximum)} % sperrt Ladung (frei ab {_percent(maximum - hysteresis, math.floor)} %)"
                 )
             if self._manual_discharge_blocked:
                 discharge_allowed = False
                 reasons.append(
-                    f"Min-SoC {_percent(minimum)} % sperrt Entladung (frei ab {_percent(minimum + hysteresis)} %)"
+                    f"Min-SoC {_percent(minimum)} % sperrt Entladung (frei ab {_percent(minimum + hysteresis, math.ceil)} %)"
                 )
             # Unknown engine state/origin cannot prove cell discharge is safe.
             # Without strategy evaluation use the independent manual cell hold.

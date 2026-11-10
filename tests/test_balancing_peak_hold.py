@@ -89,8 +89,9 @@ def test_running_or_unknown_watchdog_does_not_gain_priority(hold_engine, level, 
      {"ausloeser": "zellspannung", "zell_min_v": 3.0, "release_zell_v": 3.2}, "minimum_soc"),
     ({"binary_sensor.opti_minsoc_schutz_aktiv": "on", WATCHDOG: "netz"},
      {"release_soc": 93}, "balancing_grid"),
-    ({"input_boolean.opti_prognose_netzladen": "on", "sensor.opti_peak_reserve_soc": 100},
-     {}, "peak_precharge"),
+    # Peak-Vorladen ist bei EXPENSIVE/VERY_EXPENSIVE gesperrt, daher NORMAL.
+    ({"input_boolean.opti_prognose_netzladen": "on", "sensor.opti_peak_reserve_soc": 100,
+      LEVEL: "NORMAL"}, {}, "peak_precharge"),
     ({"input_boolean.opti_prognose_netzladen": "on", "sensor.opti_forecast_score": 1,
       PRICE: -1}, {}, "negative_price"),
 ])
@@ -115,7 +116,10 @@ def test_ev_and_extreme_reserve_never_discharge(hold_engine, level, changes, exp
         for hours in (4, 0):
             result = hold_engine.evaluate(
                 peak_states(level, **{OPTION: option, HOURS: hours, **changes}), peak_attrs(), NOW)
-            assert result.decision_id == ("balancing_hold" if hours else expected)
+            # Ohne Option hält das normale Haltefenster bei EXPENSIVE/VERY_EXPENSIVE
+            # nicht mehr; die EV- bzw. Extrempreis-Sperre hält dann selbst.
+            holding = hours and option == "on"
+            assert result.decision_id == ("balancing_hold" if holding else expected)
             assert result.mode == "Akku nur Laden"
             assert_parity(result)
 
@@ -181,4 +185,48 @@ def test_without_peak_mode_is_unchanged_and_reason_stays_neutral(hold_engine, op
     assert result.decision_id == "balancing_hold"
     assert result.mode == "Akku nur Laden"
     assert result.reason == expected_reason
+    assert_parity(result)
+
+
+@pytest.mark.parametrize("level,holding", [
+    ("VERY_EXPENSIVE", False), ("EXPENSIVE", False),
+    ("NORMAL", True), ("CHEAP", True), ("VERY_CHEAP", True),
+    # Unbekanntes Preisniveau gilt nicht als "nicht teuer": kein Halten.
+    ("unavailable", False), ("unknown", False),
+])
+def test_normal_window_does_not_hold_a_full_battery_at_expensive_prices(hold_engine, level, holding):
+    """8.11.: ohne Peak-Reserve hielt das Fenster 3 h einen vollen Akku bei 53-55 ct.
+
+    Der normale Haltefenster-Zweig hält nur noch unterhalb EXPENSIVE; bei teurem
+    Preis fällt die Entscheidung auf den Ladedeckel durch. Das Fenster selbst und
+    der bestätigte Abschluss bleiben unberührt.
+    """
+    result = hold_engine.evaluate(
+        peak_states(level, **{OPTION: "off", PEAK: "off", SOC: 95, "input_number.maxsoc": 95,
+                              PRICE: 54}),
+        peak_attrs(), NOW)
+    assert result.states[WINDOW] == "on"
+    assert result.decision_id == ("balancing_hold" if holding else "maximum_soc")
+    assert result.mode == ("Akku nur Laden" if holding else "Akku nur Entladen")
+    assert result.reason == ("Balancing-Watchdog (Haltefenster)" if holding
+                             else "Ladedeckel (maxsoc erreicht)")
+    assert_parity(result)
+
+
+@pytest.mark.parametrize("level", ["VERY_EXPENSIVE", "EXPENSIVE"])
+def test_expensive_window_below_cap_falls_through_to_following_branches(hold_engine, level):
+    result = hold_engine.evaluate(
+        peak_states(level, **{OPTION: "off", PEAK: "off", PRICE: 54}), peak_attrs(), NOW)
+    assert result.states[WINDOW] == "on"
+    assert result.decision_id == "above_target"
+    assert result.mode == "Akku nur Entladen"
+    assert_parity(result)
+
+
+@pytest.mark.parametrize("level", ["VERY_EXPENSIVE", "EXPENSIVE"])
+def test_opt_in_priority_branch_keeps_its_own_60_ct_cap(hold_engine, level):
+    result = hold_engine.evaluate(
+        peak_states(level, **{OPTION: "on", PEAK: "off", PRICE: 54}), peak_attrs(), NOW)
+    assert result.decision_id == "balancing_hold"
+    assert result.reason == REASON
     assert_parity(result)

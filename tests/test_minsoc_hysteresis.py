@@ -127,7 +127,10 @@ def test_held_band_does_not_block_authorized_grid_charging(charging):
     if charging == "negative_price":
         overrides = {"sensor.opti_price_current_ct_kwh": 3, "sensor.opti_forecast_score": 1}
     elif charging == "peak_precharge":
-        overrides = {"sensor.opti_peak_reserve_soc": 35, "sensor.opti_price_current_ct_kwh": 50}
+        # Peak-Vorladen ist bei EXPENSIVE/VERY_EXPENSIVE gesperrt; der Vorrang vor
+        # dem MinSOC-Halteband gilt für einen zulässigen, also nicht teuren Slot.
+        overrides = {"sensor.opti_peak_reserve_soc": 35, "sensor.opti_price_current_ct_kwh": 50,
+                     "sensor.opti_price_level": "NORMAL"}
         attributes = {"sensor.opti_peak_reserve_soc": {
             "reserve_ve_soc": 25, "min_preis_vor_peak_ct": 50, "peak_preis_avg_ct": 200}}
     else:

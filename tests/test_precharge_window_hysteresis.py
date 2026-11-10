@@ -157,3 +157,38 @@ def test_negative_price_window_uses_same_hysteresis(engine):
     assert run(engine, states, attrs, "Akku Dynamisch", 4.2).decision_id != "negative_price"
     assert run(engine, states, attrs, "Akku Netzladen", 4.2).decision_id == "negative_price"
     assert run(engine, states, attrs, "Akku Netzladen", 4.6).decision_id != "negative_price"
+
+
+@pytest.mark.parametrize("mode", ["Akku Dynamisch", "Akku Netzladen"])
+@pytest.mark.parametrize("level", ["EXPENSIVE", "VERY_EXPENSIVE"])
+def test_expensive_level_blocks_precharge_without_window_minimum(engine, mode, level):
+    # Laufender Slot ist Peak: min_preis_vor_peak_ct fehlt, das Fenster wäre offen.
+    attrs = {"sensor.opti_peak_reserve_soc": {**PEAK_ATTRS["sensor.opti_peak_reserve_soc"],
+                                              "min_preis_vor_peak_ct": None}}
+    states = {**PEAK_STATES, "sensor.opti_soc": "15", "sensor.opti_price_level": level}
+    result = run(engine, states, attrs, mode, 45.0)
+    assert result.decision_id != "peak_precharge"
+    assert result.mode != "Akku Netzladen"
+
+
+# Die Engine liefert ein bool; robust auch gegen eine Textdarstellung.
+@pytest.mark.parametrize("flag", [True, "True", "true"])
+@pytest.mark.parametrize("mode", ["Akku Dynamisch", "Akku Netzladen"])
+def test_current_peak_slot_blocks_precharge_at_normal_level(engine, mode, flag):
+    attrs = {"sensor.opti_peak_reserve_soc": {**PEAK_ATTRS["sensor.opti_peak_reserve_soc"],
+                                              "min_preis_vor_peak_ct": None,
+                                              "aktueller_slot_peak": flag}}
+    result = run(engine, PEAK_STATES, attrs, mode, 45.0)
+    assert result.decision_id == "peak_l4"
+    no_peak = {"sensor.opti_peak_reserve_soc": {**attrs["sensor.opti_peak_reserve_soc"],
+                                                "aktueller_slot_peak": False}}
+    assert run(engine, PEAK_STATES, no_peak, mode, 45.0).decision_id == "peak_precharge"
+
+
+@pytest.mark.parametrize("level", ["EXPENSIVE", "VERY_EXPENSIVE"])
+def test_negative_price_charging_is_not_blocked_by_precharge_gate(engine, level):
+    states = {**BASE, "input_boolean.akku_opti_automatik": "on",
+              "sensor.opti_forecast_score": "1", "sensor.opti_price_level": level}
+    attrs = {"sensor.opti_peak_reserve_soc": {"min_preis_vor_peak_ct": None,
+                                              "aktueller_slot_peak": True}}
+    assert run(engine, states, attrs, "Akku Dynamisch", 3.5).decision_id == "negative_price"

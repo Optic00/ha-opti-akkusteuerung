@@ -37,6 +37,18 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Unter 803-Sperren bleibt er wirkungslos stehen. Die Sicherheits-Pause nach
   einem Schreibfehler löscht einen Sollwert beider Richtungen, solange 802 noch
   bestätigt ist.
+- Ladedeckel: Pause nur noch, wenn L3, L4, die Extrempreis-Reserve oder die
+  EV-Sperre an dieser Stelle tatsächlich halten würden. Eine bloß aktive
+  Peak-Reserve weit unter dem SoC hielt den Akku sonst dauerhaft in Pause.
+- Kein Peak-Vorladen bei Preisniveau EXPENSIVE oder VERY_EXPENSIVE oder wenn
+  der laufende Slot selbst zur Spitze zählt (neues Attribut
+  `aktueller_slot_peak`). Negativpreis-Laden bleibt unverändert.
+- Ein guter Tages-Score leert den Peak-Horizont nur noch bei mindestens drei
+  Stunden bis Sonnenuntergang; sonst gilt der Nachthorizont. Ein fast voller
+  Akku entlud sonst am frühen Winterabend nicht in die Spitze.
+- Das Balancing-Haltefenster hält nur noch bei erkanntem Preisniveau bis
+  NORMAL, also nicht bei EXPENSIVE, VERY_EXPENSIVE oder fehlendem Niveau; die Option „Balancing-Halten vor Preisspitzen“
+  behält ihren 60-ct-Deckel. Siehe [Betrieb](docs/operation.md).
 
 ## [2026.11-beta2] - 2026-11-05
 

@@ -145,14 +145,27 @@ Einstieg bis 0,5 ct/kWh über dem Horizont-Tief `min_preis_vor_peak_ct`. Läuft
 `Akku Netzladen` bereits, hält das Fenster bis 1,5 ct/kWh über dem Tief. Diese
 Hysterese verhindert, dass Viertelstundenpreise mit Schwankungen um bis zu
 1 ct/kWh den Modus im Viertelstundentakt zwischen Vorladen und Reserve halten
-umschalten. Ein teurer Slot beendet das Vorladen unabhängig davon, weil der
-Spread zur Spitze dann fehlt.
+umschalten. Peak-Vorladen findet außerdem nie in einem teuren Slot statt:
+Bei Preisniveau EXPENSIVE oder VERY_EXPENSIVE oder wenn der laufende Slot selbst
+zur Spitze zählt (Attribut `aktueller_slot_peak` der Peak-Reserve), ist es
+gesperrt. Läuft die Spitze bereits, fehlt `min_preis_vor_peak_ct`; ohne diese
+Sperre wäre das Fenster dann offen und der Akku könnte mitten in der Spitze
+laden, obwohl Stunden später günstigere Preise folgen. Laden bei negativen
+Preisen ist davon nicht betroffen.
 
 In teuren und sehr teuren Preisphasen entlädt der Akku bei Hausbedarf. Tagsüber
 setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, solange
 **PV-Überschussladen erlauben** eingeschaltet ist und der Ladedeckel nicht
 erreicht ist. So geht Solarüberschuss während einer Abendspitze in den Akku
 statt ins Netz. Nachts bleibt es bei „Akku nur Entladen“.
+
+Tagsüber leert ein guter Tages-Score (über 2) den Horizont der Peak-Reserve,
+weil PV den Akku bis zum Abend wieder füllen soll. Das gilt nur, solange noch
+mindestens drei Stunden bis Sonnenuntergang bleiben. Bei fast vollem Akku ist
+der Score auch kurz vor Sonnenuntergang hoch, weil kaum noch Ladebedarf
+besteht; ohne diese Grenze ignorierte die Reserve eine Abendspitze am frühen
+Winterabend. Danach und bei fehlendem Sonnenuntergang gilt der normale
+Nachthorizont bis zum nächsten Sonnenaufgang.
 
 Die prognose- und SoC-abhängige Ladedrossel (schonendes Laden an guten Tagen)
 wird bei PV-Spitzen gelöst: Ist **PV-Überschussladen erlauben** eingeschaltet,
@@ -327,7 +340,18 @@ Prozentpunkten Hysterese aktiv. Ohne weitere Sperre bleibt Entladen erlaubt.
 Trifft der Ladedeckel auf einen Reserve-Haltefall oder die aktive
 EV-Schnelllade-Sperre, setzt die Strategie stattdessen Pause. So entlädt sie den
 Akku nicht selbst unter den Ladedeckel, um ihn anschließend wieder bis zur
-Reserve zu laden. Die geplante Entladung während eines teuren Peak-Fensters
+Reserve zu laden. Als Reserve-Haltefall gilt nur, was die Peak-Leiter an dieser
+Stelle auch halten würde: L3 (teurer Slot, SoC höchstens an der Reserve für
+sehr teure Slots, ausreichender Halte-Spread), L4 (Preis höchstens NORMAL, SoC
+höchstens an der Gesamtreserve) oder die Extrempreis-Reserve. L3 und L4 nutzen
+das Halteband von 2 Prozentpunkten im Modus „Akku nur Laden“ und in der vom
+Ladedeckel selbst gehaltenen Pause (aktiver Ladedeckel mit unverändertem
+`maxsoc`; eine Pause aus anderem Grund erhält kein Band); dasselbe Band gilt dann auch für die
+vorgelagerte L2-Entladung. Die Extrempreis-Reserve gewährt ihr Band weiterhin
+nur im Modus „Akku nur Laden“; in der Deckel-Pause kann sie daher knapp über
+der Reserve abfallen, und L1 entlädt bis zur Reserve. Liegt der SoC deutlich
+über der benötigten Reserve, bleibt Entladen erlaubt, bis die Reserve erreicht
+ist. Die geplante Entladung während eines teuren Peak-Fensters
 bleibt davon unberührt.
 Ein fälliger Balancing-Zyklus hat weiterhin Vorrang und darf den Akku gezielt
 bis 100 Prozent laden.
@@ -340,6 +364,11 @@ die Entladesperre aufrecht und erlaubt PV-Nachladen mit den bestehenden strengen
 Balancing-Ladegrenzen (ab 96 % höchstens 0,02C, davor ab 92 % höchstens 0,05C).
 Es wird kein Mindestladen aus dem Netz erzwungen. Ohne PV bezieht das Haus während
 des Haltens seinen Bedarf jedoch aus dem Netz; dadurch können Stromkosten entstehen.
+Das Fenster hält nur bei erkanntem Preisniveau VERY_CHEAP, CHEAP oder NORMAL.
+Bei EXPENSIVE, VERY_EXPENSIVE oder fehlendem Preisniveau hält es nicht: Dann
+entscheiden die nachfolgenden Regeln, meist der Ladedeckel mit Entladen. Das
+Fenster selbst, seine Frist und der bestätigte Abschluss bleiben davon
+unberührt. Ein vorzeitiges Ende anhand von BMS-Daten gibt es nicht.
 MinSOC-Schutz, zulässiges Netzladen, Peak-Vorladen und Peak-Entladung haben standardmäßig Vorrang.
 
 Die Option **Balancing-Halten vor Preisspitzen**

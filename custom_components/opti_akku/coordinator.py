@@ -76,6 +76,11 @@ WRITE_ERROR_PREFIXES = (
     "Pause beim Abschalten nicht bestätigt",
 )
 
+def _percent(value: float) -> str:
+    """Bounded SoC text for a state (at most 255 characters in total)."""
+    return f"{round(value, 2):g}"
+
+
 # Top-level fields ShadowRecorder.record reads from a coordinator result.
 _JOURNAL_SAMPLE_KEYS = ("mode", "reason", "online", "source_errors", "write_enabled",
                         "strategy_enabled", "command_confirmation", "device_errors",
@@ -671,12 +676,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._manual_charge_blocked:
                 charge_allowed = False
                 reasons.append(
-                    f"Max-SoC {maximum:g} % sperrt manuelle Ladung (frei ab {maximum - hysteresis:g} %)"
+                    f"Max-SoC {_percent(maximum)} % sperrt Ladung (frei ab {_percent(maximum - hysteresis)} %)"
                 )
             if self._manual_discharge_blocked:
                 discharge_allowed = False
                 reasons.append(
-                    f"Min-SoC {minimum:g} % sperrt manuelle Entladung (frei ab {minimum + hysteresis:g} %)"
+                    f"Min-SoC {_percent(minimum)} % sperrt Entladung (frei ab {_percent(minimum + hysteresis)} %)"
                 )
             # Unknown engine state/origin cannot prove cell discharge is safe.
             # Without strategy evaluation use the independent manual cell hold.

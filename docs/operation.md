@@ -310,7 +310,7 @@ aktiv. Treffen Entlade- und Ladesperren zusammen, folgt Pause. Eine EV-Sperre
 Max-SoC begrenzt auch alle manuellen Lademodi. Wer manuell darüber hinaus laden
 will, hebt Max-SoC vorübergehend an (Entität „Maximaler Ladestand“ oder
 „Konfigurieren → Akku“). Der Grund nennt Grenze und Freigabeschwelle, etwa
-„Max-SoC 95 % sperrt manuelle Ladung (frei ab 92 %)“.
+„Max-SoC 95 % sperrt Ladung (frei ab 92 %)“.
 
 Ab 45 °C begrenzt die berechnete Ladeleistung auch manuelle Schnell- und
 0.2C-Vorgaben. Manuelle SoC-Sperren lösen sich erst mit bis zu drei

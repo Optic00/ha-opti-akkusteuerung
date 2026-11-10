@@ -4626,9 +4626,9 @@ async def test_restore_ignores_stored_soc_blocks_and_does_not_store_them(hass, e
 
 
 @pytest.mark.parametrize("minimum,soc,requested,expected", [
-    (10, 95, "Akku schnell Laden", "Max-SoC 95 % sperrt manuelle Ladung (frei ab 92 %)"),
-    (10, 10, "Akku schnell Entladen", "Min-SoC 10 % sperrt manuelle Entladung (frei ab 13 %)"),
-    (91, 95, "Akku schnell Laden", "Max-SoC 95 % sperrt manuelle Ladung (frei ab 93 %)"),
+    (10, 95, "Akku schnell Laden", "Max-SoC 95 % sperrt Ladung (frei ab 92 %)"),
+    (10, 10, "Akku schnell Entladen", "Min-SoC 10 % sperrt Entladung (frei ab 13 %)"),
+    (91, 95, "Akku schnell Laden", "Max-SoC 95 % sperrt Ladung (frei ab 93 %)"),
 ])
 async def test_soc_block_reason_names_limit_and_release(coordinator, minimum, soc, requested, expected):
     coordinator.settings["input_boolean.akku_opti_automatik"] = True
@@ -4642,7 +4642,7 @@ async def test_soc_block_reason_names_limit_and_release(coordinator, minimum, so
         assert (await _manual_cycle(coordinator, soc - 1))["reason"] == expected
 
 
-@pytest.mark.parametrize("minimum,maximum", [(100, 100), (99.5, 99.5), (94.5, 99.5), (0.5, 99.5)])
+@pytest.mark.parametrize("minimum,maximum", [(100, 100), (99.5, 99.5), (99.999, 99.999), (1.23457e-05, 1.23457e-05), (94.5, 99.5), (0.5, 99.5)])
 async def test_all_manual_block_reasons_fit_a_state(coordinator, minimum, maximum):
     coordinator._online = True
     coordinator.manual_mode = "Akku Dynamisch"

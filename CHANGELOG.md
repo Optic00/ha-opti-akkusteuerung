@@ -11,7 +11,7 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 ### Geändert
 
 - Der Sperrgrund im manuellen Betrieb nennt den wirksamen Grenzwert und die
-  Freigabeschwelle, etwa „Max-SoC 95 % sperrt manuelle Ladung (frei ab 92 %)“.
+  Freigabeschwelle, etwa „Max-SoC 95 % sperrt Ladung (frei ab 92 %)“.
   Automationen, die den bisherigen Text wörtlich auswerten, müssen angepasst
   werden.
 - Die Entitäten „Minimaler Ladestand“ und „Maximaler Ladestand“ sind bei neuen

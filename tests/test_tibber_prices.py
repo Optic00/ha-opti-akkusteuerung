@@ -546,3 +546,39 @@ async def test_native_prices_remain_write_free_through_real_ha_tcp_shadow_lifecy
         if getattr(entry, "runtime_data", None) is not None:
             await hass.config_entries.async_unload(entry.entry_id)
         await simulator.close()
+
+
+@pytest.mark.parametrize("interval_change", [False, True])
+async def test_successful_fetch_during_renewal_does_not_cancel_it(coordinator, hass, clock, service, interval_change):
+    await coordinator._async_update_data()
+    await coordinator._price_task
+    coordinator.shadow_mode = False
+    coordinator.write_enabled = True
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator._price_next_fetch = dt_util.utcnow() + timedelta(hours=1)
+    await coordinator._async_update_data()
+    assert coordinator._applied_mode is not None
+    coordinator._last_signature = None
+    if interval_change:
+        clock.move_to(datetime(2026, 9, 13, 8, 59, 59, tzinfo=BERLIN))
+    checked = []
+    revision, soft = coordinator._revision, coordinator._soft_revision
+
+    async def capture(_mode, _params, current):
+        checked.append(current())
+        if interval_change:
+            clock.tick(timedelta(seconds=2))
+        with patch.object(coordinator, "async_request_refresh", AsyncMock()):
+            await coordinator._async_fetch_tibber()
+        checked.append(current())
+
+    coordinator.device.async_apply.side_effect = capture
+    data = await coordinator._async_update_data()
+    coordinator.device.async_apply.side_effect = None
+    counters = (coordinator._revision - revision, coordinator._soft_revision - soft)
+    coordinator.write_enabled = False
+    coordinator.device.async_apply.reset_mock()
+    assert counters == (0, 1)
+    assert checked == [True, not interval_change]
+    # The fake device ignores the guard; the real driver raises on False.
+    assert data["command_result_this_update"] == "confirmed"

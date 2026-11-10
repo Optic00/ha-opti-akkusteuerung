@@ -46,6 +46,14 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Behoben
 
+- Eine laufende Erneuerung des bereits aktiven Modus wird nicht mehr abgebrochen,
+  wenn sich währenddessen nur eine PV-Prognose, die Preisreihe, die Zellspreizung
+  oder der Tibber-Cache aktualisiert. Bisher folgten darauf eine Sicherheits-Pause
+  und in „Akku Dynamisch“ erneut 330 Sekunden Begrenzung auf 500 W. Die neue
+  Information wirkt mit der nächsten Bewertung. Moduswechsel, der aktuelle Preis,
+  EV-Zustände und ungültige Quellen brechen weiterhin sofort ab. Geänderte
+  Einstellungen werden wie bisher nach dem Ende der laufenden Schreibsequenz
+  übernommen. Huawei ist unverändert.
 - Der Horizont-Planer misst das Prognosealter wie Bedarfsprofil und
   Clipping-Abschätzung ab `last_reported`. Eine unverändert neu abgerufene
   Solcast-Prognose galt dort bisher nach Ablauf der Altersgrenze als veraltet

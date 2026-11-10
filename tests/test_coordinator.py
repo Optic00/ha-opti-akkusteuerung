@@ -1,7 +1,9 @@
 """HA lifecycle and coordinator safety with real strategy and a fake device."""
 
 import asyncio
+from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import json
 from threading import Event
@@ -10,6 +12,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from modbus_connection import ModbusError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -4480,3 +4483,504 @@ async def test_superseded_command_keeps_an_earlier_write_error(coordinator):
     data = await coordinator._async_update_data()
     assert data["command_result_this_update"] == "superseded"
     assert data["last_error"] == "Schreibvorgang nicht bestätigt: OSError"
+
+
+# C2: an exception in the control cycle body yields a degraded data set, a
+# safety pause after 30 s of failures, an alert and a lock-free watchdog.
+
+from custom_components.opti_akku.const import MODES  # noqa: E402
+from custom_components.opti_akku.device import PendingCommandError  # noqa: E402
+
+
+class FailClock:
+    """Shared monotonic and UTC clock, advanced in 15 s control steps."""
+
+    def __init__(self):
+        self.t = 1000.0
+        self.base = dt_util.utcnow()
+
+    def mono(self):
+        return self.t
+
+    def utc(self):
+        return self.base + timedelta(seconds=self.t - 1000.0)
+
+
+@contextmanager
+def _failure_harness(coordinator, mode="Akku Dynamisch"):
+    clock = FailClock()
+    control = {"fail": False, "error": RuntimeError("synthetic")}
+    original = coordinator.engine.evaluate
+
+    def evaluate(*args, **kwargs):
+        if control["fail"]:
+            raise control["error"]
+        return replace(original(*args, **kwargs), mode=mode)
+
+    writes = []
+
+    async def apply(mode_written, params, current):
+        writes.append((clock.t, mode_written))
+        error = control.get("apply_error")
+        if error is not None and mode_written == "Akku Pause":
+            raise error
+
+    coordinator.device.async_apply.side_effect = apply
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    with patch("custom_components.opti_akku.coordinator.time.monotonic", side_effect=clock.mono), \
+            patch("custom_components.opti_akku.coordinator.dt_util.utcnow", side_effect=clock.utc), \
+            patch.object(coordinator.engine, "evaluate", side_effect=evaluate):
+        yield clock, control, writes
+    coordinator.device.async_apply.side_effect = None
+
+
+async def _cycle(coordinator, clock, fail=None, control=None, step=15):
+    if fail is not None:
+        control["fail"] = fail
+    data = await coordinator._async_update_data()
+    coordinator.data = data  # As DataUpdateCoordinator does after a refresh.
+    clock.t += step
+    return data
+
+
+async def _confirmed(coordinator, clock, control, writes):
+    coordinator.write_enabled = True
+    data = await _cycle(coordinator, clock, False, control)
+    assert writes and writes[-1][1] == data["mode"]
+    return data["mode"]
+
+
+async def test_single_cycle_failure_neither_writes_nor_alarms(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        mode = await _confirmed(coordinator, clock, control, writes)
+        assert mode == "Akku Dynamisch"
+        writes.clear()
+        data = await _cycle(coordinator, clock, True, control)
+        assert writes == []
+        assert data["decision_id"] == "internal_error"
+        assert data["internal_error"]["active"] is False
+        assert data["internal_error"]["pause"] == "waiting"
+        assert data["reason"] == "Interner Fehler (RuntimeError): Bewertung ausgefallen, letzter Befehl gilt weiter"
+        assert "internal" not in coordinator.alerts._active
+        assert coordinator._last_error == "Interner Fehler: RuntimeError"
+        for _ in range(5):
+            data = await _cycle(coordinator, clock, False, control)
+        assert coordinator._cycle_fail_first is None and coordinator._failsafe_active is False
+        assert coordinator._last_error is None
+        data = await _cycle(coordinator, clock, False, control)
+        assert data["mode"] == "Akku Dynamisch"
+        assert data["internal_error"] is None
+        assert all(written == "Akku Dynamisch" for _, written in writes)
+
+
+async def test_persistent_failure_writes_one_safety_pause_and_alarms(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        first = clock.t
+        for _ in range(3):
+            data = await _cycle(coordinator, clock, True, control)
+        assert writes == [(first + 30, "Akku Pause")]
+        assert data["mode"] == "Akku Pause"
+        assert data["decision_id"] == "internal_error"
+        assert data["internal_error"]["active"] is True
+        assert data["internal_error"]["pause"] == "confirmed"
+        assert data["command_result_this_update"] == "confirmed"
+        assert data["reason"] == "Interner Fehler (RuntimeError): Sicherheits-Pause geschrieben"
+        assert "internal" in coordinator.alerts._active
+        assert coordinator._applied_mode == "Akku Pause"
+
+
+async def test_persistent_failure_renews_pause_at_most_every_120_seconds(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        for _ in range(42):  # a bit over 10 minutes
+            await _cycle(coordinator, clock, True, control)
+        times = [at for at, written in writes]
+        assert {written for _, written in writes} == {"Akku Pause"}
+        assert len(times) >= 4
+        assert all(later - earlier >= 120 for earlier, later in zip(times, times[1:], strict=False))
+
+
+async def test_failed_safety_pause_retries_bounded_and_reports_write_alarm(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        control["apply_error"] = TimeoutError()
+        first = clock.t
+        stalled_at = None
+        results = []
+        for _ in range(30):
+            data = await _cycle(coordinator, clock, True, control)
+            results.append((clock.t - 15, data["internal_error"]["pause"]))
+            if stalled_at is None and data["states"]["binary_sensor.opti_write_stalled"] == "on":
+                stalled_at = clock.t - 15
+        times = [at - first for at, _ in writes]
+        assert times[:5] == [30, 60, 90, 120, 240]
+        gaps = [later - earlier for earlier, later in zip(times, times[1:], strict=False)]
+        assert gaps[:3] == [30, 30, 30]
+        assert all(gap >= 120 for gap in gaps[3:])
+        assert {pause for at, pause in results if at - first in times} == {"failed"}
+        assert coordinator._last_error.startswith("Schreibvorgang nicht bestätigt")
+        assert "write" in coordinator.alerts._active
+        assert "internal" in coordinator.alerts._active
+        # The last confirmed write was the Dynamic command just before `first`.
+        assert stalled_at is not None and stalled_at - (first - 15) > 240
+
+
+async def test_manual_mode_is_paused_by_failsafe_and_resumed_afterwards(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await coordinator.async_set_mode("Akku schnell Laden")
+        mode = await _confirmed(coordinator, clock, control, writes)
+        assert mode == "Akku schnell Laden"
+        writes.clear()
+        for _ in range(3):
+            data = await _cycle(coordinator, clock, True, control)
+        assert writes == [(clock.t - 15, "Akku Pause")]
+        assert coordinator.manual_mode == "Akku schnell Laden"
+        assert data["manual_mode"] == "Akku schnell Laden"
+        for _ in range(6):
+            data = await _cycle(coordinator, clock, False, control)
+        assert data["mode"] == "Akku schnell Laden"
+        assert writes[-1][1] == "Akku schnell Laden"
+
+
+async def test_failsafe_without_write_permission_only_alarms(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _cycle(coordinator, clock, False, control)
+        for _ in range(4):
+            data = await _cycle(coordinator, clock, True, control)
+        assert writes == []
+        assert data["internal_error"]["pause"] == "not_required"
+        assert data["reason"] == "Interner Fehler (RuntimeError): keine Schreibfreigabe, kein Eingriff"
+        assert "internal" in coordinator.alerts._active
+
+
+async def test_failsafe_offline_waits_for_ready_device(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        coordinator.device.async_probe.side_effect = OSError("offline")
+        results = []
+        for _ in range(18):
+            data = await _cycle(coordinator, clock, True, control)
+            results.append(data)
+        assert writes == []
+        assert {data["internal_error"]["pause"] for data in results[2:]} == {"not_possible"}
+        assert "connection" in coordinator.alerts._active
+        assert results[-1]["states"]["binary_sensor.opti_write_stalled"] == "on"
+        coordinator.device.async_probe.side_effect = None
+        ready = []
+        for _ in range(3):
+            data = await _cycle(coordinator, clock, True, control)
+            ready.append(data["connection_status"]["write_ready"])
+        assert ready.count(True) >= 1
+        first_ready = ready.index(True)
+        assert len(writes) == 1 and writes[0] == (clock.t - 15 * (3 - first_ready), "Akku Pause")
+
+
+async def test_observation_failure_keeps_observation_without_writes(hass, entry):
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "strategy_enabled": False})
+    c = OptiCoordinator(hass, entry, device(), await hass.async_add_executor_job(StrategyEngine))
+    await c.async_restore()
+    try:
+        assert (await c._async_update_data())["mode"] == "Beobachtung"
+        c.write_enabled = True  # Guard check only; the UI refuses this combination.
+        with patch("custom_components.opti_akku.coordinator.build_inputs", side_effect=RuntimeError("x")), \
+                patch.object(c, "_cycle_fail_first", time.monotonic() - 60):
+            data = await c._async_update_data()
+        assert data["mode"] == "Beobachtung"
+        assert data["internal_error"]["active"] is True
+        assert data["internal_error"]["pause"] == "not_required"
+        c.device.async_apply.assert_not_awaited()
+    finally:
+        c.write_enabled = False
+        await c.async_stop()
+
+
+async def test_failure_while_stopping_never_writes_from_error_path(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        await _cycle(coordinator, clock, True, control)
+        await _cycle(coordinator, clock, True, control)
+        original = coordinator.engine.evaluate.side_effect
+
+        def stop_and_fail(*args, **kwargs):
+            coordinator._stopping = True
+            raise RuntimeError("synthetic")
+
+        coordinator.engine.evaluate.side_effect = stop_and_fail
+        data = await _cycle(coordinator, clock)
+        coordinator.engine.evaluate.side_effect = original
+        assert writes == []
+        assert data["internal_error"]["pause"] == "not_required"
+        coordinator._stopping = False
+        coordinator.write_enabled = False
+
+
+async def test_holding_phase_keeps_pause_until_60_seconds_without_failure(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        for _ in range(3):
+            await _cycle(coordinator, clock, True, control)
+        last_failure = clock.t - 15
+        data = await _cycle(coordinator, clock, False, control)
+        assert data["mode"] == "Akku Pause"
+        assert data["reason"] == "Interner Fehler: Pause bis 60 s fehlerfrei"
+        assert data["internal_error"]["active"] is True
+        while clock.t <= last_failure + 60:
+            data = await _cycle(coordinator, clock, False, control)
+            assert data["mode"] == "Akku Pause"
+        assert {written for _, written in writes} == {"Akku Pause"}
+        assert coordinator._failsafe_active is False and coordinator._cycle_fail_first is None
+        data = await _cycle(coordinator, clock, False, control)
+        assert data["mode"] == "Akku Dynamisch"
+        assert writes[-1][1] == "Akku Dynamisch"
+
+
+async def test_alternating_failures_reach_failsafe_and_only_pause_is_written(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        first = clock.t
+        for index in range(40):
+            await _cycle(coordinator, clock, index % 2 == 0, control)
+        assert coordinator._failsafe_active is True
+        assert writes and writes[0] == (first + 30, "Akku Pause")
+        assert {written for _, written in writes} == {"Akku Pause"}
+
+
+def _sma_signed(coordinator):
+    """Fake device with the SMA rule that a pause signature ignores parameters."""
+
+    class SignedDevice(AsyncMock):
+        def command_signature(self, mode, params):
+            return (mode,) if mode == "Akku Pause" else (mode, *sorted(params.items()))
+
+    signed = SignedDevice()
+    template = coordinator.device
+    for name in ("command_execution_basis", "setpoint_readback_capability", "setpoint_readback_limitation"):
+        setattr(signed, name, getattr(template, name))
+    signed.async_probe.return_value = template.async_probe.return_value
+    signed.async_read.return_value = template.async_read.return_value
+    signed.last_write = None
+    signed.supported_modes = tuple(MODES)
+    coordinator.device = signed
+
+
+async def test_failure_after_write_block_holds_pause_with_bounded_writes(coordinator):
+    _sma_signed(coordinator)
+    with _failure_harness(coordinator) as (clock, control, writes), \
+            patch("custom_components.opti_akku.coordinator.build_command_evidence",
+                  side_effect=RuntimeError("report")):
+        coordinator.write_enabled = True
+        first = clock.t
+        for _ in range(42):
+            await _cycle(coordinator, clock, False, control)
+        before = [(at, written) for at, written in writes if at < first + 30]
+        after = [(at, written) for at, written in writes if at >= first + 30]
+        assert before == [(first, "Akku Dynamisch")]
+        assert after[0] == (first + 30, "Akku Pause")
+        assert {written for _, written in after} == {"Akku Pause"}
+        times = [at for at, _ in after]
+        assert all(later - earlier >= 120 for earlier, later in zip(times, times[1:], strict=False))
+
+
+async def test_first_refresh_failure_still_sets_up_with_degraded_data(hass, entry):
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), \
+            patch("custom_components.opti_akku.SmaDevice", return_value=inverter), \
+            patch("custom_components.opti_akku.engine.StrategyEngine.evaluate",
+                  side_effect=RuntimeError("synthetic")):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        coordinator = entry.runtime_data
+        assert coordinator.data["decision_id"] == "internal_error"
+        registry = er.async_get(hass)
+        assert registry.async_get_entity_id("sensor", "opti_akku", f"{entry.entry_id}_diagnostic_connection_status")
+        assert coordinator._unsubscribe_watchdog is not None
+        inverter.async_apply.assert_not_awaited()
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert coordinator._unsubscribe_watchdog is None
+
+
+@pytest.mark.parametrize("confirmed", [False, True])
+async def test_phased_pending_pause_is_continued_without_counting_failures(coordinator, confirmed):
+    class PhasedDevice(AsyncMock):
+        PHASED = True
+
+    phased = PhasedDevice()
+    template = coordinator.device
+    for name in ("command_execution_basis", "setpoint_readback_capability", "setpoint_readback_limitation"):
+        setattr(phased, name, getattr(template, name))
+    phased.async_probe.return_value = template.async_probe.return_value
+    phased.async_read.return_value = template.async_read.return_value
+    phased.last_write = None
+    phased.supported_modes = ("Akku Pause", "Akku Dynamisch", "Akku nur Laden", "Akku nur Entladen")
+    coordinator.device = phased
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        error = PendingCommandError("phase")
+        error.confirmed = confirmed
+        control["apply_error"] = error
+        for _ in range(5):
+            data = await _cycle(coordinator, clock, True, control)
+        assert [at for at, _ in writes] == [1045, 1060, 1075]
+        assert coordinator._failsafe_failed_attempts == 0
+        assert data["internal_error"]["pause"] == "pending"
+        assert coordinator._command_pending is True
+        assert (coordinator._last_apply == 1075) is confirmed
+        # A successful cycle in the holding phase reports the open phase.
+        data = await _cycle(coordinator, clock, False, control)
+        assert data["mode"] == "Akku Pause"
+        assert data["internal_error"]["pause"] == "pending"
+        control["apply_error"] = None
+    coordinator.write_enabled = False
+
+
+async def test_superseded_safety_pause_is_not_counted_as_failure(coordinator):
+    from custom_components.opti_akku.device import StaleCommandError
+
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        writes.clear()
+        control["apply_error"] = StaleCommandError("superseded")
+        for _ in range(4):
+            data = await _cycle(coordinator, clock, True, control)
+        assert [at for at, _ in writes] == [1045, 1060]
+        assert coordinator._failsafe_failed_attempts == 0
+        assert data["internal_error"]["pause"] == "waiting"
+        assert data["command_result_this_update"] == "superseded"
+        assert coordinator._applied_mode is None
+        coordinator.write_enabled = False
+        data = await _cycle(coordinator, clock, True, control)
+        assert data["internal_error"]["pause"] == "not_required"
+        control["apply_error"] = None
+
+
+async def test_failed_write_in_holding_phase_is_reported(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        for _ in range(3):
+            await _cycle(coordinator, clock, True, control)
+        coordinator._last_signature = None  # Force the holding phase to write.
+        control["apply_error"] = TimeoutError()
+        data = await _cycle(coordinator, clock, False, control)
+        assert data["mode"] == "Akku Pause"
+        assert data["internal_error"]["pause"] == "failed"
+        coordinator.device.async_probe.side_effect = OSError("offline")
+        data = await _cycle(coordinator, clock, False, control)
+        assert data["internal_error"]["pause"] == "waiting"
+        coordinator.device.async_probe.side_effect = None
+        control["apply_error"] = None
+
+
+async def test_failsafe_pause_falls_back_to_empty_parameters(coordinator):
+    with _failure_harness(coordinator) as (clock, control, writes):
+        await _confirmed(coordinator, clock, control, writes)
+        expected = coordinator._parameters({})
+        real = coordinator._parameters
+
+        def parameters(states):
+            if states:
+                raise ValueError("old states")
+            return real(states)
+
+        coordinator.device.async_apply.reset_mock()
+        with patch.object(coordinator, "_parameters", side_effect=parameters):
+            for _ in range(3):
+                await _cycle(coordinator, clock, True, control)
+        pause_calls = [call for call in coordinator.device.async_apply.await_args_list
+                       if call.args[0] == "Akku Pause"]
+        assert len(pause_calls) == 1
+        assert pause_calls[0].args[1] == expected
+
+
+async def test_broken_alerting_does_not_fail_update(coordinator, caplog):
+    with patch.object(coordinator.alerts, "update", side_effect=RuntimeError("alerts")):
+        first = await coordinator._async_update_data()
+        second = await coordinator._async_update_data()
+    assert first["mode"] and second["mode"]
+    records = [r for r in caplog.records if "alerts step failed" in r.getMessage()]
+    assert len(records) == 1
+
+
+async def test_degraded_data_is_valid_for_every_entity(hass, entry, caplog):
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), \
+            patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        coordinator = entry.runtime_data
+        with patch.object(coordinator.engine, "evaluate", side_effect=RuntimeError("synthetic")):
+            caplog.clear()
+            await coordinator.async_refresh()
+            await hass.async_block_till_done()
+        assert coordinator.data["decision_id"] == "internal_error"
+        assert not [r for r in caplog.records
+                    if r.levelname in ("ERROR", "CRITICAL") and "control cycle failed" not in r.getMessage()]
+        registry = er.async_get(hass)
+        for item in er.async_entries_for_config_entry(registry, entry.entry_id):
+            state = hass.states.get(item.entity_id)
+            if state is None:
+                continue
+            options = state.attributes.get("options")
+            if options is not None:
+                assert state.state in (*options, "unknown", "unavailable"), item.entity_id
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def test_cycle_watchdog_reports_stalled_cycle_without_writing(coordinator):
+    coordinator.data = await coordinator._async_update_data()
+    coordinator.write_enabled = True
+    coordinator.device.async_apply.reset_mock()
+    before = coordinator.data
+    now = time.monotonic()
+    coordinator._cycle_finished_at = None
+    coordinator._async_cycle_watchdog()  # Neither started nor any finished cycle.
+    assert coordinator.data is before
+    coordinator._cycle_finished_at = now - 119
+    coordinator._async_cycle_watchdog()
+    assert coordinator.data is before
+    coordinator._stopping = True
+    coordinator._cycle_finished_at = now - 121
+    coordinator._async_cycle_watchdog()
+    assert coordinator.data is before
+    coordinator._stopping = False
+    coordinator._async_cycle_watchdog()
+    assert coordinator.data["internal_error"]["error_type"] == "cycle_stalled"
+    assert coordinator.data["last_error"] == "Interner Fehler: Steuerzyklus ohne Abschluss"
+    assert "internal" in coordinator.alerts._active
+    coordinator.device.async_apply.assert_not_awaited()
+    assert before.get("internal_error") is None
+    coordinator.write_enabled = False
+
+
+async def test_cycle_watchdog_timer_is_removed_on_stop(coordinator):
+    coordinator.async_start_watchdog()
+    coordinator.async_start_watchdog()
+    assert coordinator._unsubscribe_watchdog is not None
+    await coordinator.async_stop()
+    assert coordinator._unsubscribe_watchdog is None
+
+
+async def test_cancellation_from_cycle_body_is_not_swallowed(coordinator):
+    with patch.object(coordinator, "_async_cycle_body", AsyncMock(side_effect=asyncio.CancelledError)):
+        with pytest.raises(asyncio.CancelledError):
+            await coordinator._async_update_data()
+    assert coordinator._cycle_fail_first is None
+
+
+async def test_unbuildable_degraded_data_raises_update_failed(coordinator):
+    from homeassistant.helpers.update_coordinator import UpdateFailed
+
+    with patch.object(coordinator.engine, "evaluate", side_effect=RuntimeError("x")), \
+            patch.object(coordinator, "_write_stalled", side_effect=ValueError("broken")):
+        with pytest.raises(UpdateFailed):
+            await coordinator._async_update_data()

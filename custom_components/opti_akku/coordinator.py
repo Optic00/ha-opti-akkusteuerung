@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta
 import logging
@@ -17,9 +18,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import sun
 from homeassistant.util import dt as dt_util
@@ -36,7 +37,13 @@ from .command_evidence import build_command_evidence
 from .device import PendingCommandError, DeviceAdapter, StaleCommandError
 from .engine import Evaluation
 from .const import (
+    CYCLE_FAILURE_CLEAR_SECONDS,
+    CYCLE_FAILURE_GRACE_SECONDS,
+    CYCLE_STALL_SECONDS,
+    CYCLE_WATCHDOG_INTERVAL_SECONDS,
     DOMAIN,
+    FAILSAFE_FAST_RETRIES,
+    FAILSAFE_RETRY_SECONDS,
     MODES,
     NO_RELOAD_OPTION_KEYS,
     RECONCILE_SECONDS,
@@ -309,6 +316,18 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._write_monitor_since: float | None = None
         self._last_error: str | None = None
         self._unsubscribe_sources = None
+        # Internal cycle failure incident (memory only, never persisted).
+        self._cycle_fail_first: float | None = None
+        self._cycle_fail_last: float | None = None
+        self._cycle_fail_since: datetime | None = None
+        self._cycle_fail_type: str | None = None
+        self._failsafe_active = False
+        self._failsafe_attempt_at: float | None = None
+        self._failsafe_failed_attempts = 0
+        self._cycle_finished_at: float | None = None
+        self._watchdog_started_at: float | None = None
+        self._unsubscribe_watchdog = None
+        self._auxiliary_failures: set[str] = set()
         self._store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}", private=True)
         # Forecast snapshots grow to a few hundred kB; keep them out of the settings store.
         self._history_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.planner_history", private=True)
@@ -726,12 +745,28 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._schedule_price_fetch()
         async with self._update_lock:
             data = await self._async_update_locked()
-        self.alerts.update(data)
+        # Alerting and the journal must never fail the control cycle.
+        with self._auxiliary_guard("alerts"):
+            self.alerts.update(data)
         data["notification_error"] = self.alerts.delivery_error
         # Never await journal I/O here: HA serializes this whole method.
-        self._schedule_journal_record(data, dt_util.utcnow())
-        data.update(self._journal_status())
+        with self._auxiliary_guard("journal"):
+            self._schedule_journal_record(data, dt_util.utcnow())
+        with self._auxiliary_guard("journal_status"):
+            data.update(self._journal_status())
         return data
+
+    @contextmanager
+    def _auxiliary_guard(self, name: str):
+        """Log a failing auxiliary step once per incident and continue."""
+        try:
+            yield
+        except Exception:
+            if name not in self._auxiliary_failures:
+                self._auxiliary_failures.add(name)
+                _LOGGER.exception("Opti %s step failed; control continues", name)
+        else:
+            self._auxiliary_failures.discard(name)
 
     @callback
     def _schedule_price_fetch(self) -> None:
@@ -842,6 +877,20 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             connection = {**self._recovery.update(self._online, raw_status, monotonic_now, allowed),
                           "inverter_status": int(raw_status) if raw_status is not None else None}
         self._write_monitor_since = (self._write_monitor_since or monotonic_now) if self.write_enabled and not self.shadow_mode else None
+        try:
+            data = await self._async_cycle_body(
+                revision, read_started, battery_power_observed_at, read_errors,
+                now, monotonic_now, connection,
+            )
+        except Exception as err:  # Not BaseException: cancellation stays cancellation.
+            data = await self._async_cycle_failed(err, now, monotonic_now, connection, read_errors)
+        else:
+            self._cycle_succeeded(monotonic_now)
+        return data
+
+    async def _async_cycle_body(self, revision, read_started, battery_power_observed_at,
+                                read_errors, now, monotonic_now, connection) -> dict[str, Any]:
+        """Evaluate, write and report one cycle after the device read."""
         captured_options = dict(self.entry.options)
         score_binding = _score_load_binding(self._load_source_fingerprint, captured_options)
         if score_binding != self._score_load_fingerprint:
@@ -1100,6 +1149,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             mode, safety_reason = "Beobachtung", "Strategie deaktiviert; keine weiteren Steuerbefehle"
         else:
             mode, safety_reason = self._safe_mode(requested, result.states, result.attributes)
+        if self._failsafe_active and mode != "Beobachtung":
+            mode, safety_reason = "Akku Pause", "Interner Fehler: Pause bis 60 s fehlerfrei"
         reason = safety_reason or ("Manuelle Auswahl" if self.manual_mode else result.reason)
         params = self._parameters(result.states)
         # Text only, no wattage: values here change every update and would
@@ -1266,14 +1317,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # counting from the end of the standby.
         if night_standby({"connection_status": connection, "online": self._online, "states": result.states, "mode": mode}):
             self._write_stall_paused_at = monotonic_now
-        # Count from the later of the last confirmed write and the start of
-        # this write session: an old write must not trip the watchdog at once
-        # after writes were re-enabled.
-        stall_reference = max((value for value in (self._last_apply, self._write_monitor_since)
-                               if value is not None), default=None)
-        if stall_reference is not None and self._write_stall_paused_at is not None:
-            stall_reference = max(stall_reference, self._write_stall_paused_at)
-        result.states["binary_sensor.opti_write_stalled"] = "on" if not self.shadow_mode and self.write_enabled and self._write_monitor_since is not None and monotonic_now - stall_reference > 240 else "off"
+        result.states["binary_sensor.opti_write_stalled"] = "on" if self._write_stalled(monotonic_now) else "off"
         metadata = {key: dict(value) for key, value in self._metadata.items()}
         for identity in result.states:
             if identity.startswith("sensor.opti_") and identity.endswith("_w"):
@@ -1317,7 +1361,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "control_inactive": bool(self.strategy_enabled and not self.shadow_mode and not self.write_enabled
                                          and self.supported_modes
                                          and self.entry.options.get("single_writer_confirmed", False)),
-                "write_restore_blocked": self._write_restore_blocked}
+                "write_restore_blocked": self._write_restore_blocked,
+                "internal_error": self._internal_error_report(self._failsafe_pause_state(command_result))}
         self._update_operating_report(data, now, ev_report, safety_reason, write_failed)
         data["demand_forecast"] = demand_report
         if demand_comparison_enabled:
@@ -1362,6 +1407,234 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ) or previous_manual_cell != (self._manual_cell_latched, self._manual_cell_reserve_v)
         self._schedule_routine_save(monotonic_now, force=latch_changed)
         return data
+
+    def _write_stalled(self, monotonic_now: float) -> bool:
+        """True after 240 s without a confirmed write while writes are enabled."""
+        # Count from the later of the last confirmed write and the start of
+        # this write session: an old write must not trip the watchdog at once
+        # after writes were re-enabled.
+        stall_reference = max((value for value in (self._last_apply, self._write_monitor_since)
+                               if value is not None), default=None)
+        if stall_reference is not None and self._write_stall_paused_at is not None:
+            stall_reference = max(stall_reference, self._write_stall_paused_at)
+        return (not self.shadow_mode and self.write_enabled and self._write_monitor_since is not None
+                and stall_reference is not None and monotonic_now - stall_reference > 240)
+
+    def _cycle_succeeded(self, monotonic_now: float) -> None:
+        """End an internal-error incident after enough error-free time."""
+        self._cycle_finished_at = time.monotonic()
+        if (self._cycle_fail_last is not None
+                and monotonic_now - self._cycle_fail_last >= CYCLE_FAILURE_CLEAR_SECONDS):
+            self._cycle_fail_first = self._cycle_fail_last = None
+            self._cycle_fail_since = self._cycle_fail_type = None
+            self._failsafe_active = False
+            self._failsafe_attempt_at = None
+            self._failsafe_failed_attempts = 0
+            if self._last_error and self._last_error.startswith("Interner Fehler"):
+                self._last_error = None
+
+    def _internal_error_report(self, pause: str) -> dict[str, Any] | None:
+        if self._cycle_fail_first is None:
+            return None
+        return {"active": self._failsafe_active, "error_type": self._cycle_fail_type,
+                "since": self._cycle_fail_since.isoformat() if self._cycle_fail_since else None,
+                "pause": pause}
+
+    def _failsafe_pause_possible(self, connection: Mapping[str, Any]) -> bool:
+        return bool(self._online and connection.get("write_ready") and self._identity.get("serial_number")
+                    and "Akku Pause" in self.supported_modes and not self._stopping)
+
+    def _failsafe_pause_state(self, command_result: str) -> str:
+        """Pause status of a running incident as seen by a successful cycle."""
+        if self.shadow_mode or not self.write_enabled:
+            return "not_required"
+        if not self._failsafe_active:
+            return "waiting"
+        if self._applied_mode == "Akku Pause":
+            return "confirmed"
+        return {"pending": "pending", "safe_phase_confirmed": "pending",
+                "failed": "failed"}.get(command_result, "waiting")
+
+    async def _async_failsafe_pause(self, monotonic_now: float, connection: Mapping[str, Any]) -> tuple[str, str]:
+        """Write the safety pause after an internal error; return (pause, command_result)."""
+        if (self.shadow_mode or not self.write_enabled or self._stopping
+                or (self.manual_mode is None and not self.strategy_enabled)):
+            return "not_required", "not_attempted"
+        if not self._failsafe_pause_possible(connection):
+            return "not_possible", "not_attempted"
+        if (self._applied_mode == "Akku Pause" and self._last_apply is not None
+                and monotonic_now - self._last_apply < RECONCILE_SECONDS):
+            return "confirmed", "not_attempted"
+        if self._failsafe_failed_attempts and self._failsafe_attempt_at is not None:
+            interval = (FAILSAFE_RETRY_SECONDS if self._failsafe_failed_attempts <= FAILSAFE_FAST_RETRIES
+                        else RECONCILE_SECONDS)
+            if monotonic_now - self._failsafe_attempt_at < interval:
+                return "waiting", "not_attempted"
+        self._failsafe_attempt_at = monotonic_now
+        try:
+            try:
+                params = self._parameters((self.data or {}).get("states", {}))
+            except Exception:
+                params = self._parameters({})
+            await self.device.async_apply(
+                "Akku Pause", params, lambda: self.write_enabled and not self._stopping)
+        except PendingCommandError as err:
+            # Huawei continues its phases in the next failed cycle; no throttle.
+            if err.confirmed:
+                self._last_apply = time.monotonic()
+            if self._applied_mode != "Akku Pause":
+                self._applied_mode = None
+            self._command_pending = True
+            self._last_signature = None
+            return "pending", "pending"
+        except StaleCommandError:
+            # Write permission was withdrawn; the disable path writes its own pause.
+            self._applied_mode = None
+            self._command_pending = False
+            self._last_signature = None
+            return ("not_required" if not self.write_enabled else "waiting"), "superseded"
+        except Exception as err:
+            self._failsafe_failed_attempts += 1
+            self._applied_mode = None
+            self._command_pending = False
+            self._last_signature = None
+            self._last_error = ("Schreibvorgang nicht bestätigt: Sicherheits-Pause nach internem Fehler "
+                                f"fehlgeschlagen ({type(err).__name__})")
+            return "failed", "failed"
+        self._last_apply = time.monotonic()
+        if self._applied_mode != "Akku Pause":
+            self._applied_mode, self._applied_mode_since = "Akku Pause", self._last_apply
+        # The holding phase renews this pause with the regular interval
+        # instead of rewriting it in the next successful cycle.
+        device_signature = getattr(type(self.device), "command_signature", None)
+        self._last_signature = (device_signature(self.device, "Akku Pause", params)
+                                if callable(device_signature)
+                                and self.entry.data.get("backend", "sma") in ("sma", "sma_modbus")
+                                else ("Akku Pause", *sorted(params.items())))
+        self._command_pending = False
+        self._failsafe_failed_attempts = 0
+        self._clear_write_error()
+        return "confirmed", "confirmed"
+
+    async def _async_cycle_failed(self, err: Exception, now: datetime, monotonic_now: float,
+                                  connection: dict[str, Any], read_errors: Any) -> dict[str, Any]:
+        """Handle an unexpected exception in the cycle body with a degraded data set."""
+        try:
+            error_type = type(err).__name__
+            if self._cycle_fail_first is None or error_type != self._cycle_fail_type:
+                _LOGGER.error("Opti control cycle failed (%s); evaluation suspended",
+                              error_type, exc_info=err)
+            if self._cycle_fail_first is None:
+                self._cycle_fail_first, self._cycle_fail_since = monotonic_now, now
+            self._cycle_fail_last = monotonic_now
+            self._cycle_fail_type = error_type
+            if monotonic_now - self._cycle_fail_first >= CYCLE_FAILURE_GRACE_SECONDS:
+                self._failsafe_active = True
+            previous = self.data if isinstance(self.data, dict) else {}
+            observation = (previous.get("mode") == "Beobachtung"
+                           or (not self.strategy_enabled and self.manual_mode is None))
+            if not self._failsafe_active:
+                pause = ("not_required" if self.shadow_mode or not self.write_enabled or observation
+                         else "waiting")
+                command_result = "not_attempted"
+            elif observation:
+                pause, command_result = "not_required", "not_attempted"
+            else:
+                pause, command_result = await self._async_failsafe_pause(monotonic_now, connection)
+            if not self._last_error or self._last_error.startswith("Interner Fehler"):
+                self._last_error = f"Interner Fehler: {error_type}"
+            if not self._failsafe_active:
+                reason = f"Interner Fehler ({error_type}): Bewertung ausgefallen, letzter Befehl gilt weiter"
+            elif pause == "confirmed":
+                reason = f"Interner Fehler ({error_type}): Sicherheits-Pause geschrieben"
+            elif pause == "not_required":
+                reason = f"Interner Fehler ({error_type}): keine Schreibfreigabe, kein Eingriff"
+            else:
+                reason = (f"Interner Fehler ({error_type}): Pause nicht bestätigt, "
+                          "Gerät führt den letzten Befehl weiter")
+            previous_states = previous.get("states")
+            states = {key: "unavailable" for key in previous_states} if isinstance(previous_states, dict) else {}
+            states["binary_sensor.opti_connection"] = "on" if self._online else "off"
+            states["binary_sensor.opti_write_stalled"] = "on" if self._write_stalled(monotonic_now) else "off"
+            states["binary_sensor.opti_block_violation"] = "unavailable"
+            data = dict(previous)
+            data.update({
+                "states": states, "attributes": {}, "metadata": previous.get("metadata", {}),
+                "mode": "Beobachtung" if observation else "Akku Pause",
+                "reason": reason, "decision_id": "internal_error",
+                "reason_details": {"decision_id": "internal_error", "engine_mode": None,
+                                   "charge_power_limits": []},
+                "engine_requested_mode": "Akku Pause", "engine_base_mode": "Akku Pause",
+                "command_result_this_update": command_result,
+                "write_enabled": self.write_enabled and not self.shadow_mode,
+                "pause_pending": self._pause_pending and not self.write_enabled,
+                "command_confirmation": "waiting_ready" if self.write_enabled and not connection["write_ready"] else "pending" if self._command_pending else "idle_or_confirmed",
+                "last_write_values": getattr(self.device, "last_write_values", None),
+                "control_release": ("not_confirmed" if getattr(self.device, "supports_control_release", False) is True else "not_supported"),
+                "connection_status": connection,
+                "online": self._online, "last_write": getattr(self.device, "last_write", None),
+                "last_error": self._last_error,
+                "device_errors": dict(read_errors) if isinstance(read_errors, dict) else {},
+                "price_provider_error": self._price_provider_error,
+                "price_last_success": self._price_last_success,
+                "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled,
+                "control_inactive": bool(self.strategy_enabled and not self.shadow_mode and not self.write_enabled
+                                         and self.supported_modes
+                                         and self.entry.options.get("single_writer_confirmed", False)),
+                "write_restore_blocked": self._write_restore_blocked,
+                "reserve_plan": {"status": "no_valid_plan"},
+                "ev_preparation": {"status": "data_missing", "controls_battery": False, "observation_only": True},
+                "arbitrage_estimate": None,
+                "internal_error": self._internal_error_report(pause),
+            })
+        except Exception as build_err:
+            raise UpdateFailed(f"Opti control cycle failed: {type(err).__name__}") from build_err
+        finally:
+            self._cycle_finished_at = time.monotonic()
+        return data
+
+    @callback
+    def async_start_watchdog(self) -> None:
+        """Report a cycle that never finishes; the timer never writes or locks."""
+        if self._unsubscribe_watchdog is not None:
+            return
+        self._watchdog_started_at = time.monotonic()
+        self._unsubscribe_watchdog = async_track_time_interval(
+            self.hass, self._async_cycle_watchdog, timedelta(seconds=CYCLE_WATCHDOG_INTERVAL_SECONDS))
+        self.entry.async_on_unload(self._stop_watchdog)
+
+    @callback
+    def _stop_watchdog(self) -> None:
+        if self._unsubscribe_watchdog is not None:
+            unsubscribe, self._unsubscribe_watchdog = self._unsubscribe_watchdog, None
+            unsubscribe()
+
+    @callback
+    def _async_cycle_watchdog(self, _now: datetime | None = None) -> None:
+        if self._stopping:
+            return
+        reference = self._cycle_finished_at if self._cycle_finished_at is not None else self._watchdog_started_at
+        if reference is None:
+            return
+        monotonic_now = time.monotonic()
+        stalled_for = monotonic_now - reference
+        if stalled_for <= CYCLE_STALL_SECONDS:
+            return
+        data = dict(self.data) if isinstance(self.data, dict) else {}
+        states = dict(data.get("states", {})) if isinstance(data.get("states"), dict) else {}
+        states["binary_sensor.opti_write_stalled"] = "on" if self._write_stalled(monotonic_now) else "off"
+        data.update({
+            "states": states,
+            "internal_error": {"active": True, "error_type": "cycle_stalled",
+                               "since": (dt_util.utcnow() - timedelta(seconds=stalled_for)).isoformat(),
+                               "pause": "not_possible"},
+            "last_error": "Interner Fehler: Steuerzyklus ohne Abschluss",
+            "reason": "Interner Fehler (Steuerzyklus hängt): Gerät führt den letzten Befehl weiter",
+        })
+        with self._auxiliary_guard("alerts"):
+            self.alerts.update(data)
+        self.data = data
+        self.async_update_listeners()
 
     @callback
     def _schedule_routine_save(self, monotonic_now: float, *, force: bool = False) -> None:
@@ -2058,6 +2331,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._command_pending = False
         self._revision += 1
         self._unsubscribe()
+        self._stop_watchdog()
         await self.alerts.async_stop()
         if self._price_task is not None and not self._price_task.done():
             self._price_task.cancel()

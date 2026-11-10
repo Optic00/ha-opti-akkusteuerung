@@ -10,6 +10,16 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Behoben
 
+- Ein interner Fehler im Steuerzyklus bleibt nicht mehr unbemerkt. Bisher wurde
+  die Bewertung still ausgesetzt, das Gerät führte den letzten Befehl weiter,
+  und weder Störmeldung noch Schreibstillstand wurden ausgelöst. Hält ein
+  solcher Fehler 30 Sekunden an, schreibt Opti Akku bei erteilter
+  Schreibfreigabe „Akku Pause“, meldet den Vorfall und hält die Pause, bis der
+  Fehler 60 Sekunden lang nicht mehr auftritt. Das gilt auch im manuellen
+  Modus; die Auswahl bleibt erhalten. Ist das Gerät nicht erreichbar, bleibt es
+  beim letzten Befehl; Meldung und Schreibstillstand zeigen das an.
+- Ein hängender Steuerzyklus wird nach 120 Sekunden gemeldet. Schreiben kann
+  Opti Akku in diesem Zustand nicht.
 - Der Horizont-Planer misst das Prognosealter wie Bedarfsprofil und
   Clipping-Abschätzung ab `last_reported`. Eine unverändert neu abgerufene
   Solcast-Prognose galt dort bisher nach Ablauf der Altersgrenze als veraltet

@@ -26,6 +26,7 @@ MESSAGES = {
     "write": ("Schreibvorgang fehlgeschlagen oder seit über 240 Sekunden nicht bestätigt", "Write failed or not confirmed for more than 240 seconds"),
     "sources": ("Benötigte Eingangsdaten fehlen oder sind ungültig. Am Opti-Akku-Gerät Quellenfehler prüfen, dann den betroffenen Sensor und seine Zuordnung unter Konfigurieren kontrollieren.", "Input data is missing or invalid. Check Source errors on the Opti Akku device, then the affected sensor and its mapping under Configure."),
     "control": ("Strategie aktiv, aber Schreibfreigabe aus: Opti Akku steuert den Akku nicht. Bei einem absichtlich lesenden 24-Stunden-Vergleich ist das erwartet; die Strategie dafür eingeschaltet lassen. Andernfalls die Schreibfreigabe prüfen.", "Strategy active but writes disabled: Opti Akku is not controlling the battery. This is expected during an intentional read-only 24-hour comparison; keep the strategy enabled for that comparison. Otherwise, check write permission."),
+    "internal": ("Interner Fehler im Steuerzyklus: Opti Akku kann nicht bewerten. Bei Schreibfreigabe wird Akku Pause geschrieben und gehalten, bis der Fehler 60 Sekunden lang nicht mehr auftritt. Home-Assistant-Protokoll prüfen und den Fehler melden.", "Internal error in the control cycle: Opti Akku cannot evaluate. With write permission, Akku Pause is written and held until the error has not occurred for 60 seconds. Check the Home Assistant log and report the error."),
     "prices": ("Tibber-Preisabruf fehlgeschlagen; Cache gilt nur bis zu seiner ursprünglichen Ablaufzeit", "Tibber price fetch failed; cached prices keep their original expiry"),
 }
 
@@ -185,6 +186,8 @@ class HealthAlerts:
             "sources": bool(source_errors) and not night_pv_only,
             "prices": bool(data.get("price_provider_error")),
             "control": data.get("control_inactive") is True,
+            "internal": isinstance(data.get("internal_error"), Mapping)
+            and data["internal_error"].get("active") is True,
         }
         changed = False
         new = []
@@ -209,7 +212,8 @@ class HealthAlerts:
                     and set(source_errors) <= PRICE_SOURCE_KEYS)
                 if startup_grace and price_only:
                     continue
-                delay = 0 if key in ("block", "write", "pause") else CONTROL_INACTIVE_SECONDS if key == "control" else 60
+                # The internal-error grace period lives in the coordinator.
+                delay = 0 if key in ("block", "write", "pause", "internal") else CONTROL_INACTIVE_SECONDS if key == "control" else 60
                 # A rounded sensor may briefly exceed its age limit while
                 # upstream data is healthy. The source error sensor stays live.
                 if key == "sources":

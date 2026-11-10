@@ -37,6 +37,9 @@ PEAK_DECISIONS = frozenset({"peak_l1", "peak_l2"})
 MAX_INTERVAL = 90
 # Model discharge efficiency plus six settings, as the coordinator passes them.
 ASSUMPTION_COUNT = 7
+# Snapshots before the battery model had only the six settings; the template
+# then always calculated with 0.9.
+LEGACY_DISCHARGE_EFFICIENCY = 0.9
 _COUNTERS = (
     "ready_seconds",
     "peak_seconds",
@@ -323,6 +326,8 @@ class PeakRankShadow:
                 if raw is not None and datetime.fromisoformat(raw).tzinfo is None:
                     return
             assumptions = saved.get("assumptions")
+            if isinstance(assumptions, list) and len(assumptions) == ASSUMPTION_COUNT - 1:
+                assumptions = [LEGACY_DISCHARGE_EFFICIENCY, *assumptions]
             if assumptions is not None and (
                 not isinstance(assumptions, list) or len(assumptions) != ASSUMPTION_COUNT
                 or any(item is not None and not isinstance(item, bool) and _number(item) is None

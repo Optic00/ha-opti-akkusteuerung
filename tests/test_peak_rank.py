@@ -441,3 +441,23 @@ def test_usable_energy_follows_the_model_discharge_efficiency():
     assert base["usable_kwh"] == pytest.approx(round(2.304 * 0.9, 3))
     assert better["usable_kwh"] == pytest.approx(round(2.304 * 0.95, 3))
     assert better["usable_kwh"] / base["usable_kwh"] == pytest.approx(0.95 / 0.9, abs=1e-3)
+
+
+def test_restore_migrates_snapshots_without_the_model_efficiency():
+    """Before the battery model the totals had six assumptions and assumed 0.9."""
+    shadow = PeakRankShadow()
+    start = local(18, 17, 0)
+    shadow.observe(start, check(), ASSUMPTIONS, -2000)
+    shadow.observe(start + timedelta(seconds=60), check(), ASSUMPTIONS, -2000)
+    saved = shadow.snapshot()
+    assert saved["hold_seconds"] == 60
+    legacy = {**saved, "assumptions": ASSUMPTIONS[1:]}
+    restored = PeakRankShadow()
+    restored.restore(legacy)
+    assert restored.data["assumptions"] == ASSUMPTIONS
+    assert restored.data["hold_seconds"] == 60
+    # Unchanged defaults keep the totals; a real change restarts them.
+    totals = restored.observe(start + timedelta(seconds=120), check(), ASSUMPTIONS, -2000)
+    assert totals["hold_seconds"] == 60
+    totals = restored.observe(start + timedelta(seconds=180), check(), [0.95, *ASSUMPTIONS[1:]], -2000)
+    assert totals["hold_seconds"] == 0

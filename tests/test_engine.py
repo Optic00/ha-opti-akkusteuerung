@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from tests.battery_model_fixture import model_attributes, model_states
+
 # Import by path: proves that this module works without importing HA or the
 # integration lifecycle. It also keeps these tests runnable with Jinja2 only.
 _SPEC = importlib.util.spec_from_file_location(
@@ -50,6 +52,8 @@ def measurements(**overrides):
         "sensor.opti_battery_power_w": 0,
         "sensor.opti_pv_power_w": 1000,
         "sun.sun": "above_horizon",
+        # The coordinator publishes the battery model every cycle.
+        **model_states(),
     }
     states.update(overrides)
     return states
@@ -59,7 +63,7 @@ def solar_attrs(now=NOW):
     return {"sun.sun": {
         "next_setting": now.replace(hour=18).isoformat(),
         "next_rising": (now + dt.timedelta(days=1)).replace(hour=8).isoformat(),
-    }}
+    }, **model_attributes()}
 
 
 def peak_maxsoc_inputs(soc, **overrides):
@@ -812,7 +816,7 @@ def test_peak_precharge_requires_full_entry_gap_but_continues_below_reserve(
         "sun.sun": "below_horizon",
     })
     attrs = {"sun.sun": {"next_rising": "2026-10-19T08:01:00+02:00",
-                         "next_setting": "2026-10-19T18:00:00+02:00"}}
+                         "next_setting": "2026-10-19T18:00:00+02:00"}, **model_attributes()}
     prices = [30] * 96
     prices[30] = 53  # 07:30-07:45, the sole remaining peak.
     attrs["sensor.opti_price_series"] = {"today": prices, "tomorrow": [30] * 96}

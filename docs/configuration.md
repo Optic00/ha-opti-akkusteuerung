@@ -189,6 +189,17 @@ bilden das gemeinsame Akkumodell (`sensor.opti_battery_model`), mit dem auch
 Bedarfsprognose, Schattenvergleiche, Horizont-Planer und die Peak-Reserve rechnen.
 Ohne diese Angaben gelten 90 % je Richtung und 3 ct/kWh Zykluskosten. Einzelheiten
 stehen unter „Akkumodell“ in [Prognose und Auto](forecast-and-ev.md#akkumodell).
+Wirkungsgrade, Zykluskosten und Marge steuern außerdem das Peak-Vorladen aus dem
+Netz, auch wenn „Restwert als automatischen Entladeschutz verwenden“ aus ist.
+Ungültige Angaben sperren das Peak-Vorladen, bis sie korrigiert sind.
+
+### Preisabstand für Netzladen
+
+**Preisabstand für Netzladen** (`opti_netzlade_spread_ct`, Standard 10 ct/kWh) ist
+die Mindestdifferenz zwischen Ladepreis und Peak-Durchschnitt fürs Peak-Vorladen.
+Er gilt zusätzlich zur wirtschaftlichen Schwelle aus dem Akkumodell; vorgeladen wird
+nur, wenn beide erfüllt sind. Die Bedingung steht unter „Schreibender Betrieb“ in
+[Betrieb](operation.md).
 
 ### Referenz-Ladepreis und Mindestgewinn beim Entladen
 

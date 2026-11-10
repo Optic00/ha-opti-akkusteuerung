@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from custom_components.opti_akku.ev_preparation import apply_preparation
+from tests.battery_model_fixture import model_attributes, model_states
 
 _SPEC = importlib.util.spec_from_file_location(
     "opti_parity_engine", Path(__file__).parents[1] / "custom_components/opti_akku/engine.py"
@@ -73,10 +74,13 @@ BRANCHES = [(0, 'minsoc_schutz', {'sensor.opti_soc': '5'}, 'Akku nur Laden', 'Mi
    'sensor.opti_peak_reserve_soc': '35',
    'binary_sensor.opti_peak_reserve_aktiv': 'on',
    'sensor.opti_soc': '15',
+   **model_states(),
    '_attrs': {'sensor.opti_peak_reserve_soc': {'reserve_ve_soc': 25.0,
                                                'min_preis_vor_peak_ct': 50.0,
                                                'peak_preis_avg_ct': 200.0,
-                                               'peak_preis_ve_avg_ct': 200.0}}},
+                                               'peak_preis_kuenftig_ct': 200.0,
+                                               'peak_preis_ve_avg_ct': 200.0},
+              **model_attributes()}},
   'Akku Netzladen',
   'Peak-Vorladen'),
  (3,
@@ -356,8 +360,10 @@ def test_extreme_hold_blocks_relative_peak_discharge(decision_engine, price_leve
     ({"sensor.opti_soc": "93", "binary_sensor.opti_ladedeckel_aktiv": "on"},
      {"binary_sensor.opti_ladedeckel_aktiv": {"maxsoc": 95}}, "maximum_soc"),
     ({"input_boolean.opti_ev_akku_pause": "on", "binary_sensor.opti_ev_schnellladung": "on"}, {}, "ev_lock"),
-    ({"input_boolean.opti_prognose_netzladen": "on"},
-     {"sensor.opti_peak_reserve_soc": {"min_preis_vor_peak_ct": 50, "peak_preis_avg_ct": 100}}, "peak_precharge"),
+    ({"input_boolean.opti_prognose_netzladen": "on", **model_states()},
+     {"sensor.opti_peak_reserve_soc": {"min_preis_vor_peak_ct": 50, "peak_preis_avg_ct": 100,
+                                       "peak_preis_kuenftig_ct": 100},
+      **model_attributes()}, "peak_precharge"),
 ])
 def test_extreme_hold_preserves_existing_priority(decision_engine, changes, attrs, expected):
     states = {**BASE, "input_boolean.akku_opti_automatik": "on",

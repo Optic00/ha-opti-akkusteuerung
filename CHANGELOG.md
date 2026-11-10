@@ -10,6 +10,23 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Geändert
 
+- **Peak-Vorladen aus dem Netz rechnet jetzt mit Verlusten und Zykluskosten.**
+  Bisher genügte ein fester Preisabstand zur kommenden Spitze (Standard 10 ct).
+  Jetzt muss der erwartete Spitzenpreis zusätzlich die Ladekosten samt Lade- und
+  Entladeverlusten und Zykluskosten decken:
+  `Spitzenpreis ≥ (Ladepreis / η_Laden + Zykluskosten + Marge) / η_Entladen`.
+  Ohne eigene Arbitrage-Annahmen gelten 90 %/90 % und 3 ct/kWh; dann wird ab etwa
+  28 ct Ladepreis mehr Abstand verlangt als bisher (bei 38 ct rund 12 ct, bei 48 ct
+  rund 15 ct). Der feste Preisabstand gilt weiter als zusätzliche Mindestbedingung.
+  Es wird dadurch nie häufiger aus dem Netz geladen als bisher, an Hochpreistagen
+  seltener. Betroffen ist nur, wer **Reserveplanung mit Netzladen erlauben**
+  eingeschaltet hat. Laden bei negativen Preisen ist nicht betroffen.
+- Als Spitzenpreis zählt jetzt der mit der erwarteten Last gewichtete Mittelpreis der
+  noch kommenden Spitzen-Slots (Attribut `peak_preis_kuenftig_ct`); bereits
+  abgelaufene Viertelstunden der laufenden Stunde zählen nicht mehr mit.
+- Ungültige Arbitrage-Annahmen sperren das Peak-Vorladen, bis sie korrigiert sind.
+- Der Reserveplan zeigt unter `precharge`, ob und warum Vorladen wirtschaftlich
+  zulässig ist.
 - Wirkungsgrad und Zykluskosten des Akkus kommen jetzt für alle Berechnungen aus
   einem gemeinsamen Akkumodell. Ohne konfigurierte Arbitrage-Annahmen gelten 90 %
   Lade- und 90 % Entladewirkungsgrad und 3 ct/kWh Zykluskosten; die Steuerung rechnet

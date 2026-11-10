@@ -56,6 +56,7 @@ from .clipping import clipping_forecast
 from .source_quality import DEFAULT_FORECAST_MAX_AGE
 from .negative_price_hold import NegativePriceHoldShadow, negative_price_hold_check
 from .peak_rank import PeakRankShadow, peak_rank_check
+from .peak_rank import model_assumptions as peak_rank_model_assumptions
 from .planner_shadow import ForecastHistory, PlannerInputs, PlannerShadow, price_periods, pv_forecast_hourly
 from .demand import EV_SCOPE_VERSION, DemandForecast, pv_intervals, ev_profile_sources, ev_profile_scope, profile_house_value
 from .refill_comparison import RefillReserveComparison, refill_reserve_check
@@ -1427,7 +1428,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Reporting failures must not interrupt an already evaluated command."""
         try:
             data["ev_preparation"] = {**ev_report, "controls_battery": bool(ev_report.get("controls_battery") and self.write_enabled and not self.shadow_mode and safety_reason is None), "observation_only": self.shadow_mode or not self.write_enabled}
-            data["reserve_plan"] = reserve_plan(data, self.settings, now, shadow=self.shadow_mode)
+            data["reserve_plan"] = reserve_plan(data, self.settings, now, shadow=self.shadow_mode,
+                                                model=self._battery_model)
             data["operating_report"] = self._operating_report.observe(now, data, data["reserve_plan"], write_failed=write_failed)
         except Exception as err:  # Reporting must never interrupt battery control.
             _LOGGER.debug("Operating report unavailable: %s", type(err).__name__)
@@ -1500,9 +1502,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
                 score=states.get("sensor.opti_forecast_score"),
                 discharge_efficiency=self._battery_model.discharge_efficiency,
+                battery_model=self._battery_model,
             )
-            # The model's discharge efficiency restarts the totals when it changes.
-            assumptions = [self._battery_model.discharge_efficiency, *(settings.get(name) for name in (
+            # Changed model values restart the totals.
+            assumptions = [*peak_rank_model_assumptions(self._battery_model), *(settings.get(name) for name in (
                 "input_number.minsoc", "input_number.opti_netzlade_spread_ct",
                 "input_number.opti_peak_min_aufschlag_ct", "input_number.opti_einspeiseverguetung_ct",
                 "input_boolean.opti_prognose_netzladen", "input_number.opti_peak_verbrauch_kw"))]

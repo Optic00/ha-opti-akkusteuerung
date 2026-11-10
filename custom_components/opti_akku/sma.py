@@ -21,7 +21,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from modbus_connection import ModbusConnectionError, ModbusError, ModbusUnit
+from modbus_connection import ModbusConnectionError, ModbusDesyncError, ModbusError, ModbusUnit
 
 from .device import DeviceError as SmaError, StaleCommandError
 
@@ -78,6 +78,11 @@ STATUS_MAX_AGE_SECONDS = 30.0
 
 class UnsupportedDeviceError(SmaError):
     """The read-only identity does not match the STP SE profile."""
+
+
+# Errors after which the Modbus library has dropped or lost the link. They are
+# transport failures: never retried, and they end the current read cycle.
+LINK_ERRORS: tuple[type[BaseException], ...] = (ModbusConnectionError, ModbusDesyncError, TimeoutError)
 
 
 class InvalidDataError(SmaError, ValueError):
@@ -261,6 +266,19 @@ class SmaDevice:
             raise InvalidDataError(f"Register {address} reports unavailable data")
         return decode_s32(words) if signed else raw
 
+    async def _read_retry(self, address: int, *, signed: bool = False) -> int:
+        """Retry one plain Modbus exception once with a fresh read.
+
+        A transient error must not void the balance or the identity check. No
+        value is ever held from an earlier cycle; link errors are re-raised.
+        """
+        try:
+            return await self._read(address, signed=signed)
+        except LINK_ERRORS:
+            raise
+        except ModbusError:
+            return await self._read(address, signed=signed)
+
     async def _read_status(self) -> int:
         # Invalidate the cache before I/O so failures cannot leave an old gate open.
         self._status = None
@@ -271,9 +289,9 @@ class SmaDevice:
 
     async def _probe(self) -> dict[str, Any]:
         self.last_probe_registers = {}
-        device_class = await self._read(30051)
+        device_class = await self._read_retry(30051)
         self.last_probe_registers["device_class"] = device_class
-        model_id = await self._read(30053)
+        model_id = await self._read_retry(30053)
         self.last_probe_registers["model_id"] = model_id
         if device_class != 8009 or model_id not in MODEL_NAMES:
             self._model_id = None
@@ -282,7 +300,7 @@ class SmaDevice:
         self.last_probe_registers["status"] = status
         self._model_id = model_id
         try:
-            serial_number = await self._read(30057)
+            serial_number = await self._read_retry(30057)
         except ModbusError, InvalidDataError, TimeoutError:
             serial_number = 0
         return {
@@ -330,22 +348,14 @@ class SmaDevice:
             for name, address, signed, scale, minimum, maximum in specs:
                 key = f"sensor.opti_{name}"
                 try:
-                    try:
-                        raw = await self._read(address, signed=signed)
-                    except (ModbusConnectionError, TimeoutError):
-                        raise
-                    except ModbusError:
-                        # One fresh retry for a single Modbus exception, so a
-                        # transient error does not void the balance or force a
-                        # pause. No value is ever held from an earlier cycle.
-                        raw = await self._read(address, signed=signed)
+                    raw = await self._read_retry(address, signed=signed)
                     value = raw * scale
                     if not minimum <= value <= maximum:
                         raise InvalidDataError(f"Register {address} outside plausible range")
                     readings[key] = value
                     if name == "inverter_status":
                         self._status, self._status_at = raw, self._monotonic()
-                except (ModbusConnectionError, TimeoutError) as err:
+                except LINK_ERRORS as err:
                     self.last_read_errors["transport"] = str(err)
                     break  # Do not hammer an unreachable device once per sensor.
                 except (ModbusError, InvalidDataError) as err:

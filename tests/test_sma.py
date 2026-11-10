@@ -91,6 +91,7 @@ class FakeUnit:
         self.on_write = None
         self.fail_reads = set()
         self.fail_once = set()
+        self.fail_once_error = ModbusError
         self.fail_write_number = None
         self.fail_all_writes = False
         self.spacing = None
@@ -104,7 +105,7 @@ class FakeUnit:
             raise ModbusError("injected read failure")
         if address in self.fail_once:
             self.fail_once.discard(address)
-            raise ModbusError("injected single read failure")
+            raise self.fail_once_error("injected single read failure")
         raw = self.values[address]
         if isinstance(raw, list):
             return raw
@@ -1053,3 +1054,39 @@ def test_command_signature_quantizes_power_but_keeps_window_structure(mode, key,
 def test_command_signature_of_invalid_parameters_stays_exact():
     bad = dict(PARAMETERS, charge_power_w=float("nan"))
     assert sma.command_signature(sma.DYNAMIC, bad) != sma.command_signature(sma.DYNAMIC, PARAMETERS)
+
+
+@pytest.mark.parametrize("address", [30051, 30053, 30057])
+async def test_single_identity_register_error_is_retried_in_the_probe(device, address):
+    """One Modbus exception on the serial must not take control offline."""
+    adapter, unit, _ = device
+    unit.fail_once = {address}
+    identity = await adapter.async_probe()
+    assert identity["serial_number"] == "3012345678"
+    assert identity["model_id"] == 19051
+    assert unit.reads.count((address, 2)) == 2
+
+
+async def test_link_dropping_errors_are_not_retried_but_count_as_transport(device):
+    from modbus_connection import ModbusDesyncError
+
+    adapter, unit, _ = device
+    await adapter.async_probe()
+    unit.reads.clear()
+    unit.fail_once, unit.fail_once_error = {30845}, ModbusDesyncError
+    values = await adapter.async_read()
+    assert unit.reads.count((30845, 2)) == 1
+    assert "transport" in adapter.last_read_errors
+    assert values["sensor.opti_soc"] is None
+    # The backend dropped the link: no further register is read this cycle.
+    assert unit.reads[-1] == (30845, 2)
+
+
+async def test_desync_on_an_identity_register_is_not_retried(device):
+    from modbus_connection import ModbusDesyncError
+
+    adapter, unit, _ = device
+    unit.fail_once, unit.fail_once_error = {30053}, ModbusDesyncError
+    with pytest.raises(ModbusDesyncError):
+        await adapter.async_probe()
+    assert unit.reads.count((30053, 2)) == 1

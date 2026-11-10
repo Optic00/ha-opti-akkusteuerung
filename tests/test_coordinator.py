@@ -4365,3 +4365,51 @@ async def test_confirmed_write_clears_write_and_read_errors(coordinator, failure
     data = await coordinator._async_update_data()
     assert data["command_result_this_update"] == "confirmed"
     assert data["last_error"] is None
+
+
+async def test_single_serial_read_error_keeps_real_sma_driver_online(hass, entry):
+    """Identity is checked every cycle; one ModbusError on 30057 is retried."""
+    from modbus_connection import ModbusError
+
+    from custom_components.opti_akku.sma import SmaDevice
+
+    class Unit:
+        connected = True
+
+        def __init__(self):
+            self.values = {30051: 8009, 30053: 19051, 30057: 123456789, 33003: 235,
+                           30845: 60, 30849: 220, 40187: 12800, 31393: 0, 31395: 0,
+                           30775: 3000, 30865: 0, 30867: 2200, 30773: 1600, 30961: 1600}
+            self.fail_once = set()
+            self.writes = []
+
+        def set_message_spacing(self, value):
+            pass
+
+        async def read_holding_registers(self, address, count):
+            if address in self.fail_once:
+                self.fail_once.discard(address)
+                raise ModbusError("busy")
+            value = self.values[address]
+            return [value >> 16, value & 0xFFFF]
+
+        async def write_registers(self, address, values):
+            self.writes.append(address)
+
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "serial_number": "123456789"})
+    unit = Unit()
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    c = OptiCoordinator(hass, entry, SmaDevice(unit, sleep=AsyncMock()), engine)
+    await c.async_restore()
+    try:
+        await c._async_update_data()
+        await c._async_update_data()
+        c.write_enabled = True
+        unit.fail_once = {30057}
+        data = await c._async_update_data()
+        assert data["online"] is True
+        assert data["identity"]["serial_number"] == "123456789"
+        assert data["command_result_this_update"] == "confirmed"
+        assert unit.writes
+    finally:
+        await c.async_stop()

@@ -145,8 +145,13 @@ Einstieg bis 0,5 ct/kWh über dem Horizont-Tief `min_preis_vor_peak_ct`. Läuft
 `Akku Netzladen` bereits, hält das Fenster bis 1,5 ct/kWh über dem Tief. Diese
 Hysterese verhindert, dass Viertelstundenpreise mit Schwankungen um bis zu
 1 ct/kWh den Modus im Viertelstundentakt zwischen Vorladen und Reserve halten
-umschalten. Ein teurer Slot beendet das Vorladen unabhängig davon, weil der
-Spread zur Spitze dann fehlt.
+umschalten. Peak-Vorladen findet außerdem nie in einem teuren Slot statt:
+Bei Preisniveau EXPENSIVE oder VERY_EXPENSIVE oder wenn der laufende Slot selbst
+zur Spitze zählt (Attribut `aktueller_slot_peak` der Peak-Reserve), ist es
+gesperrt. Läuft die Spitze bereits, fehlt `min_preis_vor_peak_ct`; ohne diese
+Sperre wäre das Fenster dann offen und der Akku könnte mitten in der Spitze
+laden, obwohl Stunden später günstigere Preise folgen. Laden bei negativen
+Preisen ist davon nicht betroffen.
 
 In teuren und sehr teuren Preisphasen entlädt der Akku bei Hausbedarf. Tagsüber
 setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, solange

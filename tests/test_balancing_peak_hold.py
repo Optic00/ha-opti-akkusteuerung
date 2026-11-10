@@ -89,8 +89,9 @@ def test_running_or_unknown_watchdog_does_not_gain_priority(hold_engine, level, 
      {"ausloeser": "zellspannung", "zell_min_v": 3.0, "release_zell_v": 3.2}, "minimum_soc"),
     ({"binary_sensor.opti_minsoc_schutz_aktiv": "on", WATCHDOG: "netz"},
      {"release_soc": 93}, "balancing_grid"),
-    ({"input_boolean.opti_prognose_netzladen": "on", "sensor.opti_peak_reserve_soc": 100},
-     {}, "peak_precharge"),
+    # Peak-Vorladen ist bei EXPENSIVE/VERY_EXPENSIVE gesperrt, daher NORMAL.
+    ({"input_boolean.opti_prognose_netzladen": "on", "sensor.opti_peak_reserve_soc": 100,
+      LEVEL: "NORMAL"}, {}, "peak_precharge"),
     ({"input_boolean.opti_prognose_netzladen": "on", "sensor.opti_forecast_score": 1,
       PRICE: -1}, {}, "negative_price"),
 ])

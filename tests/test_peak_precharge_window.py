@@ -21,7 +21,7 @@ _SPEC.loader.exec_module(_MODULE)
 TZ = ZoneInfo("Europe/Berlin")
 
 
-def evaluate(*, minute=45, slot_count=96, earlier=40.46, current=34.58):
+def evaluate(*, minute=45, slot_count=96, earlier=40.46, current=34.58, prices=None, level="NORMAL"):
     now = dt.datetime(2026, 10, 27, 8, minute, tzinfo=TZ)
     resource = _MODULE.load_resources()
     resource["template_blocks"] = [
@@ -39,12 +39,15 @@ def evaluate(*, minute=45, slot_count=96, earlier=40.46, current=34.58):
         ]
     resource["statistics"] = []
     resource["balancing_automations"] = []
+    prices_override = prices
     slots_per_hour = slot_count // 24
     prices = [35.0] * slot_count
     prices[8 * slots_per_hour] = earlier
     prices[8 * slots_per_hour + minute * slots_per_hour // 60] = current
     prices[12 * slots_per_hour] = 20.95
     prices[16 * slots_per_hour:] = [49.0] * (8 * slots_per_hour)
+    if prices_override is not None:
+        prices = list(prices_override)
     values = {
         "input_boolean.akku_opti_automatik": "on",
         "input_boolean.opti_prognose_netzladen": "on",
@@ -53,7 +56,7 @@ def evaluate(*, minute=45, slot_count=96, earlier=40.46, current=34.58):
         "sensor.opti_price_current_ct_kwh": current,
         "sensor.opti_forecast_score": 0,
         "sensor.opti_forecast_score_tomorrow": 0,
-        "sensor.opti_price_level": "NORMAL",
+        "sensor.opti_price_level": level,
         "binary_sensor.opti_peak_reserve_aktiv": "on",
         "input_number.minsoc": 5,
         "input_number.maxsoc": 95,
@@ -106,3 +109,37 @@ def test_current_cheap_window_can_precharge_before_future_peak():
     result = evaluate(current=20.95)
     assert result.decision_id == "peak_precharge"
     assert result.mode == "Akku Netzladen"
+
+
+def _current_peak_prices():
+    """Laufende Viertelstunde 55 ct ist selbst Peak, Stunden später kommen 41 ct."""
+    prices = [41.0] * 96
+    prices[32] = 55.0  # 08:00-08:15, der laufende Slot
+    prices[64:] = [70.0] * 32
+    return prices
+
+
+def test_current_peak_slot_blocks_precharge_even_without_window_minimum():
+    # Das Preisniveau ist hier bewusst NORMAL vorgegeben: Die Sperre kommt aus
+    # der Peak-Klassifizierung des laufenden Slots, nicht nur aus dem Preisniveau.
+    result = evaluate(minute=0, current=55.0, prices=_current_peak_prices())
+    attrs = result.attributes["sensor.opti_peak_reserve_soc"]
+    assert attrs["min_preis_vor_peak_ct"] is None
+    assert attrs["aktueller_slot_peak"] is True
+    assert attrs["peak_preis_avg_ct"] - 55.0 >= 10
+    assert result.decision_id != "peak_precharge"
+    assert result.mode != "Akku Netzladen"
+
+
+@pytest.mark.parametrize("level", ["EXPENSIVE", "VERY_EXPENSIVE"])
+def test_expensive_price_level_blocks_precharge(level):
+    result = evaluate(current=20.95, level=level)
+    assert result.attributes["sensor.opti_peak_reserve_soc"]["aktueller_slot_peak"] is False
+    assert result.decision_id != "peak_precharge"
+    assert result.mode != "Akku Netzladen"
+
+
+def test_cheap_slot_before_peak_is_not_marked_as_current_peak():
+    result = evaluate(current=20.95)
+    assert result.attributes["sensor.opti_peak_reserve_soc"]["aktueller_slot_peak"] is False
+    assert result.decision_id == "peak_precharge"

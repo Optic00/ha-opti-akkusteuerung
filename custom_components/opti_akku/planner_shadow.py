@@ -244,6 +244,9 @@ class PlannerInputs:
     terminal_factor: float = 0.8
     min_benefit_ct: float = 0.0  # variant A
     grid_check_quantile: str | None = None  # variant B: e.g. "p50"
+    # Battery model values; None keeps the library defaults of ``Battery``.
+    eta_charge: Any = None
+    eta_discharge: Any = None
 
 
 def _battery(inputs: PlannerInputs) -> tuple[Battery | None, str | None]:
@@ -252,8 +255,10 @@ def _battery(inputs: PlannerInputs) -> tuple[Battery | None, str | None]:
     missing = [name for name, value in values.items() if value is None]
     if missing:
         return None, missing[0]
+    efficiencies = {name: inputs_value for name in ("eta_charge", "eta_discharge")
+                    if (inputs_value := getattr(inputs, name)) is not None}
     battery = Battery(values["capacity_kwh"], values["minsoc"], values["maxsoc"],
-                      values["max_charge_w"], values["max_discharge_w"])
+                      values["max_charge_w"], values["max_discharge_w"], **efficiencies)
     return (None, battery.problem()) if battery.problem() else (battery, None)
 
 

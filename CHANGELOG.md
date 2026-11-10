@@ -19,6 +19,39 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Entitäten lassen sich in der Entitätsverwaltung aktivieren (Home Assistant lädt
   die Integration danach neu), die Werte bleiben auch unter „Konfigurieren →
   Akku“ einstellbar.
+- **Peak-Vorladen aus dem Netz rechnet jetzt mit Verlusten und Zykluskosten.**
+  Bisher genügte ein fester Preisabstand zur kommenden Spitze (Standard 10 ct).
+  Jetzt muss der erwartete Spitzenpreis zusätzlich die Ladekosten samt Lade- und
+  Entladeverlusten und Zykluskosten decken:
+  `Spitzenpreis ≥ (Ladepreis / η_Laden + Zykluskosten + Marge) / η_Entladen`.
+  Ohne eigene Arbitrage-Annahmen gelten 90 %/90 % und 3 ct/kWh; dann wird ab etwa
+  28 ct Ladepreis mehr Abstand verlangt als bisher (bei 38 ct rund 12 ct, bei 48 ct
+  rund 15 ct). Der feste Preisabstand gilt weiter als zusätzliche Mindestbedingung.
+  Es wird dadurch nie häufiger aus dem Netz geladen als bisher, an Hochpreistagen
+  seltener. Betroffen ist nur, wer **Reserveplanung mit Netzladen erlauben**
+  eingeschaltet hat. Laden bei negativen Preisen ist nicht betroffen.
+- Als Spitzenpreis zählt jetzt der mit der erwarteten Last gewichtete Mittelpreis der
+  noch kommenden Spitzen-Slots (Attribut `peak_preis_kuenftig_ct`); bereits
+  abgelaufene Viertelstunden der laufenden Stunde zählen nicht mehr mit.
+- Ungültige Arbitrage-Annahmen sperren das Peak-Vorladen, bis sie korrigiert sind.
+- Der Reserveplan zeigt unter `precharge`, ob und warum Vorladen wirtschaftlich
+  zulässig ist.
+- Wirkungsgrad und Zykluskosten des Akkus kommen jetzt für alle Berechnungen aus
+  einem gemeinsamen Akkumodell. Ohne konfigurierte Arbitrage-Annahmen gelten 90 %
+  Lade- und 90 % Entladewirkungsgrad und 3 ct/kWh Zykluskosten; die Steuerung rechnet
+  damit wie bisher. Die Werte stehen im neuen Diagnosesensor „Akkumodell“.
+- Wer unter **Konfigurieren → Optionale Funktionen → Wirtschaftlichkeitsvergleich**
+  eigene Wirkungsgrade eingetragen hat: Der Entladewirkungsgrad bestimmt jetzt auch
+  die Peak-Reserve. Bei 95 % wird der Reserveanteil über dem Mindest-SoC rund 5 %
+  kleiner, bei 85 % rund 6 % größer.
+- Der Horizont-Planer (Schattenbetrieb) rechnet mit denselben Werten statt fest mit
+  95 % und 3 ct. Seine Vergleichszahlen sind mit früheren nicht direkt vergleichbar.
+- Zwei Reservezweige der Strategie (SoC unter 20 % und SoC unter 75 % bei
+  schwacher Prognose heute und morgen) sind entfernt. Sie waren vollständig vom
+  Zweig „SoC unter 80 %“ überdeckt und lieferten denselben Modus. Der Akkumodus
+  ändert sich nicht. In der Begründung steht in diesen Fällen jetzt
+  „SOC<80 Wintermodus“, die Entscheidungs-ID ist `reserve_winter` statt
+  `reserve_low` oder `reserve_forecast`.
 
 ### Behoben
 

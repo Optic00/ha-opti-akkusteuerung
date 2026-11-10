@@ -9,6 +9,9 @@ from copy import deepcopy
 from datetime import datetime
 from math import isfinite
 
+from .battery_model import ENGINE_ENTITY as BATTERY_MODEL_ENTITY
+from .battery_model import BatteryModel, template_discharge_efficiency
+
 MAX_INTERVAL = 90
 
 
@@ -20,7 +23,40 @@ def number(value):
     return result if isfinite(result) else None
 
 
-def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> dict:
+def precharge_economics(data: dict, settings: dict, model: BatteryModel) -> dict:
+    """Is peak precharging economic? Only the price criterion, as in decisions.yaml.
+
+    Without hold band, SoC, charging window and fixed spread (``compares``).
+    """
+    states = data.get("states", {})
+    attrs = data.get("attributes", {}).get("sensor.opti_peak_reserve_soc", {}) or {}
+    future = number(attrs.get("peak_preis_kuenftig_ct"))
+    cheapest = number(attrs.get("peak_preis_min_kuenftig_ct"))
+    current = number(states.get("sensor.opti_price_current_ct_kwh"))
+    allowed = settings.get("input_boolean.opti_prognose_netzladen")
+    out = {
+        "status": "not_applicable",
+        "future_peak_price_ct": future,
+        "cheapest_future_peak_price_ct": cheapest,
+        "current_price_ct": current,
+        "minimum_peak_price_ct": None,
+        "model_source": model.source,
+        "compares": "economic_criterion_only",
+    }
+    if (not (allowed is True or allowed == "on")
+            or states.get("binary_sensor.opti_peak_reserve_aktiv") != "on"
+            or current is None or future is None):
+        return out
+    if not model.economics_valid:
+        return {**out, "status": "blocked_model"}
+    minimum = model.minimum_high_price(current)
+    return {**out, "minimum_peak_price_ct": round(minimum, 3),
+            "status": "allowed" if future >= minimum else "blocked_price"}
+
+
+def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool,
+                 model: BatteryModel | None = None) -> dict:
+    """``model`` is the cycle's battery model; without one the defaults apply."""
     states = data.get("states", {})
     attrs = data.get("attributes", {}).get("sensor.opti_peak_reserve_soc", {})
     total = number(states.get("sensor.opti_peak_reserve_soc"))
@@ -74,7 +110,8 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> 
         "priority_reserve_soc": priority if valid else None,
         "horizon_end": attrs.get("horizont_ende") if valid else None,
         "assumed_load_w": number(attrs.get("assumed_load_w")) if number(attrs.get("assumed_load_w")) is not None else load * 1000 if load is not None else None,
-        "assumed_discharge_efficiency": 0.9,
+        "assumed_discharge_efficiency": template_discharge_efficiency(
+            (data.get("attributes", {}).get(BATTERY_MODEL_ENTITY) or {}).get("discharge_efficiency")),
         "required_battery_kwh": number(attrs.get("benoetigt_kwh")) if valid else None,
         "extreme_buffer_kwh": round(extreme_buffer_kwh, 4)
         if valid and extreme_buffer_kwh is not None else None,
@@ -105,6 +142,7 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool) -> 
         # physical-effect confirmation exists for the legacy field.
         "last_confirmed_command_at": None,
         "battery_power_w": number(states.get("sensor.opti_battery_power_w")),
+        "precharge": precharge_economics(data, settings, model if model is not None else BatteryModel.default()),
     }
 
 

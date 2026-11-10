@@ -865,3 +865,18 @@ def test_small_refill_gap_remains_visible_without_changing_control(gap, coverage
     assert out["refill_coverage_percent"] == coverage
     assert out["suggested_reserve_soc"] == baseline["suggested_reserve_soc"]
     assert out["observation_only"] is True and out["controls_battery"] is False
+
+
+def test_bridge_reserve_uses_the_battery_model_efficiencies():
+    from custom_components.opti_akku.battery_model import BatteryModel
+
+    demand, data, options, states, out = trained()
+    assert out["discharge_efficiency"] == 0.9
+    assert out["refill_charge_efficiency"] == 0.9
+    model = BatteryModel(0.92, 0.95, 1.5, 0.0, "configured")
+    better = demand.update(NOW, data, SETTINGS, options, states, UTC, "fixture", model=model)
+    required = better["expected_deficit_kwh"]
+    assert better["discharge_efficiency"] == 0.95
+    assert better["refill_charge_efficiency"] == 0.92
+    assert better["required_battery_kwh"] == round((required * 1.2 + 0.2) / 0.95, 3)
+    assert better["required_battery_kwh"] < out["required_battery_kwh"]

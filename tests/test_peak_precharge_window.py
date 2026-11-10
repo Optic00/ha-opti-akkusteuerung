@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from tests.battery_model_fixture import model_attributes, model_states
+
 
 _SPEC = importlib.util.spec_from_file_location(
     "opti_precharge_window_engine",
@@ -65,9 +67,10 @@ def evaluate(*, minute=45, slot_count=96, earlier=40.46, current=34.58, prices=N
         "input_number.opti_netzlade_spread_ct": 10,
         "input_select.akkusteuerung_modus": "Akku Dynamisch",
         "sun.sun": "above_horizon",
+        **model_states(),
     }
     result = _MODULE.StrategyEngine(resource).evaluate(
-        values, {"sensor.opti_price_series": {"today": prices}}, now
+        values, {"sensor.opti_price_series": {"today": prices}, **model_attributes()}, now
     )
     assert result.states["sensor.opti_engine_diagnostics"] == "ok"
     assert result.states["sensor.opti_strategie_vorschau"] == result.mode

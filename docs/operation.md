@@ -329,11 +329,18 @@ Dynamik bleibt an einer SoC- oder Temperaturgrenze die zulässige Gegenrichtung
 aktiv. Treffen Entlade- und Ladesperren zusammen, folgt Pause. Eine EV-Sperre
 überstimmt weder die Temperaturgrenze noch Max-SoC.
 
+Max-SoC begrenzt auch alle manuellen Lademodi. Wer manuell darüber hinaus laden
+will, hebt Max-SoC vorübergehend an (Entität „Maximaler Ladestand“ oder
+„Konfigurieren → Akku“). Der Grund nennt Grenze und Freigabeschwelle, etwa
+„Max-SoC 95 % sperrt Ladung (frei ab 92 %)“.
+
 Ab 45 °C begrenzt die berechnete Ladeleistung auch manuelle Schnell- und
 0.2C-Vorgaben. Manuelle SoC-Sperren lösen sich erst mit bis zu drei
 Prozentpunkten Abstand zur Grenze; bei engem Min-/Max-SoC-Bereich beträgt
-der Abstand höchstens die Hälfte dieses Bereichs. Diese Sperrzustände bleiben
-beim Neuladen erhalten. Nicht konfigurierte EV-Ladepunkte beteiligen sich
+der Abstand höchstens die Hälfte dieses Bereichs. Die SoC-Sperren gelten für
+die laufende manuelle Sitzung: Ein Moduswechsel, ein geänderter Min- oder
+Max-SoC sowie Neustart und Neuladen setzen sie zurück; sie werden sofort aus
+dem aktuellen SoC neu bestimmt. Nicht konfigurierte EV-Ladepunkte beteiligen sich
 nicht an der Entladesperre; fehlende Daten eines konfigurierten Ladepunkts
 halten eine bereits aktive Sperre weiterhin fest. Optional kann je Ladepunkt
 der evcc-Binärsensor `smart_cost_active` ausgewählt werden. Dann sperrt auch

@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import json
+import math
 from threading import Event
 import time
 from unittest.mock import AsyncMock, Mock, patch
@@ -17,7 +18,7 @@ from modbus_connection import ModbusError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.opti_akku.coordinator import OptiCoordinator, validate_setting
+from custom_components.opti_akku.coordinator import OptiCoordinator, _percent, validate_setting
 from custom_components.opti_akku.engine import StrategyEngine
 from custom_components.opti_akku.shadow import ShadowRecorder
 
@@ -709,7 +710,13 @@ async def test_actual_ha_entry_and_entities(hass, entry):
         await hass.async_block_till_done()
         entities = [s for s in hass.states.async_all() if s.entity_id.startswith(("sensor.opti", "number.opti", "switch.opti", "select.opti"))]
         assert {s.domain for s in entities} >= {"sensor", "switch", "select"}
-        assert not any(s.domain == "number" for s in entities)
+        # Only the manual SoC limits are enabled by default for new installations.
+        registry = er.async_get(hass)
+        numbers = {s.entity_id for s in entities if s.domain == "number"}
+        assert numbers == {
+            registry.async_get_entity_id("number", "opti_akku", f"{entry.entry_id}_{key}")
+            for key in ("input_number.minsoc", "input_number.maxsoc")
+        }
         assert not any(s.domain in ("input_boolean", "input_number", "input_select", "automation") for s in hass.states.async_all())
         inverter.async_apply.assert_not_awaited()
         assert await hass.config_entries.async_unload(entry.entry_id)
@@ -740,8 +747,9 @@ async def test_ha_reload_restores_settings_and_ids_without_forced_mode(hass, ent
         assert after.settings["input_boolean.akku_opti_automatik"] is True
         assert after.write_enabled is True
         assert after.manual_mode is None
-        assert after._manual_charge_blocked is True
-        assert after._manual_discharge_blocked is True
+        # Manual SoC blocks belong to one session and are not restored.
+        assert after._manual_charge_blocked is False
+        assert after._manual_discharge_blocked is False
         assert {state.entity_id for state in hass.states.async_all()} == entities_before
         assert inverter.async_apply.await_args_list[0].args[0] == "Akku Pause"
         assert all(call.args[0] != "Akku schnell Entladen" for call in inverter.async_apply.await_args_list)
@@ -5082,6 +5090,246 @@ async def test_enabling_writes_during_incident_retries_pause_at_once(coordinator
         assert [written for _, written in writes] == ([] if was_enabled else ["Akku Pause"])
         control["apply_error"] = None
     coordinator.write_enabled = False
+
+# C11: manual SoC blocks belong to one manual session; the reason names the
+# limit and the release threshold; min/max SoC are enabled for new entries.
+
+
+async def _manual_cycle(coordinator, soc):
+    coordinator.device.async_read.return_value["sensor.opti_soc"] = soc
+    return await coordinator._async_update_data()
+
+
+async def test_charge_block_is_reset_when_returning_to_strategy(coordinator):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    await coordinator.async_set_mode("Akku schnell Laden")
+    data = await _manual_cycle(coordinator, 95)
+    assert data["mode"] == "Akku Pause"
+    assert coordinator._manual_charge_blocked is True
+    await coordinator.async_set_mode("Strategie")
+    assert coordinator._manual_charge_blocked is False
+    coordinator.device.async_read.return_value["sensor.opti_soc"] = 93
+    await coordinator.async_set_mode("Akku schnell Laden")
+    data = await coordinator._async_update_data()
+    assert data["mode"] == "Akku schnell Laden"
+    assert data["reason"] == "Manuelle Auswahl"
+
+
+async def test_same_manual_mode_selected_again_keeps_charge_block(coordinator):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    await coordinator.async_set_mode("Akku schnell Laden")
+    await _manual_cycle(coordinator, 95)
+    coordinator.device.async_read.return_value["sensor.opti_soc"] = 93
+    await coordinator.async_set_mode("Akku schnell Laden")
+    data = await coordinator._async_update_data()
+    assert coordinator._manual_charge_blocked is True
+    assert data["mode"] == "Akku Pause"
+
+
+async def test_switching_between_manual_modes_resets_charge_block(coordinator):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    await coordinator.async_set_mode("Akku schnell Laden")
+    await _manual_cycle(coordinator, 95)
+    coordinator.device.async_read.return_value["sensor.opti_soc"] = 93
+    await coordinator.async_set_mode("Akku 0.2C Laden")
+    assert coordinator._manual_charge_blocked is False
+    data = await coordinator._async_update_data()
+    assert data["mode"] == "Akku 0.2C Laden"
+
+
+async def test_observation_selection_resets_soc_blocks(hass, entry):
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "strategy_enabled": False})
+    c = OptiCoordinator(hass, entry, device(), await hass.async_add_executor_job(StrategyEngine))
+    await c.async_restore()
+    try:
+        c.settings["input_boolean.akku_opti_automatik"] = True
+        await c.async_set_mode("Akku schnell Laden")
+        await _manual_cycle(c, 95)
+        assert c._manual_charge_blocked is True
+        await c.async_set_mode("Beobachtung")
+        assert c.manual_mode is None
+        assert c._manual_charge_blocked is False
+    finally:
+        await c.async_stop()
+
+
+async def test_raised_max_soc_releases_charge_block(coordinator):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    await coordinator.async_set_mode("Akku schnell Laden")
+    await _manual_cycle(coordinator, 95)
+    coordinator.device.async_read.return_value["sensor.opti_soc"] = 96
+    await coordinator.async_set_setting("input_number.maxsoc", 97)
+    data = await coordinator._async_update_data()
+    assert data["mode"] == "Akku schnell Laden"
+    assert coordinator._manual_charge_blocked is False
+
+
+async def test_unchanged_max_soc_or_other_setting_keeps_charge_block(coordinator):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    await coordinator.async_set_mode("Akku schnell Laden")
+    await _manual_cycle(coordinator, 95)
+    coordinator.device.async_read.return_value["sensor.opti_soc"] = 93
+    await coordinator.async_set_setting("input_number.maxsoc", 95)
+    assert coordinator._manual_charge_blocked is True
+    await coordinator.async_set_setting("input_number.ladepreis", 0.31)
+    assert coordinator._manual_charge_blocked is True
+    assert coordinator.data["mode"] == "Akku Pause"
+
+
+@pytest.mark.parametrize("changed", [True, False])
+async def test_apply_settings_resets_charge_block_only_on_changed_limits(coordinator, changed):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    await coordinator.async_set_mode("Akku schnell Laden")
+    await _manual_cycle(coordinator, 95)
+    coordinator.device.async_read.return_value["sensor.opti_soc"] = 96
+    settings = {"input_number.maxsoc": 97 if changed else 95, "input_number.minsoc": 10,
+                "input_number.ladepreis": 0.31}
+    # Check the reset itself; the refresh inside then derives the flag anew.
+    with patch.object(coordinator, "async_refresh", AsyncMock()):
+        await coordinator.async_apply_settings(settings, "wizard-1")
+    assert coordinator._manual_charge_blocked is (not changed)
+
+
+async def test_discharge_block_mirrors_strategy_return_and_lowered_min_soc(coordinator):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    await coordinator.async_set_mode("Akku schnell Entladen")
+    data = await _manual_cycle(coordinator, 10)
+    assert data["mode"] == "Akku Pause"
+    assert coordinator._manual_discharge_blocked is True
+    await coordinator.async_set_mode("Strategie")
+    assert coordinator._manual_discharge_blocked is False
+    coordinator.device.async_read.return_value["sensor.opti_soc"] = 12
+    await coordinator.async_set_mode("Akku schnell Entladen")
+    data = await coordinator._async_update_data()
+    assert data["mode"] == "Akku schnell Entladen"
+    # Mirror of a raised Max-SoC: block at 10, lower Min-SoC to 8 at SoC 9.
+    data = await _manual_cycle(coordinator, 10)
+    assert coordinator._manual_discharge_blocked is True
+    coordinator.device.async_read.return_value["sensor.opti_soc"] = 9
+    await coordinator.async_set_setting("input_number.minsoc", 8)
+    data = await coordinator._async_update_data()
+    assert data["mode"] == "Akku schnell Entladen"
+
+
+async def test_restore_ignores_stored_soc_blocks_and_does_not_store_them(hass, entry):
+    c = OptiCoordinator(hass, entry, device(), await hass.async_add_executor_job(StrategyEngine))
+    stored = {"manual_charge_blocked": True, "manual_discharge_blocked": True}
+    try:
+        with patch.object(c._store, "async_load", AsyncMock(return_value=stored)):
+            await c.async_restore()
+        assert c._manual_charge_blocked is False
+        assert c._manual_discharge_blocked is False
+        data = c._stored_data()
+        assert "manual_charge_blocked" not in data
+        assert "manual_discharge_blocked" not in data
+    finally:
+        await c.async_stop()
+
+
+@pytest.mark.parametrize("minimum,soc,requested,expected", [
+    (10, 95, "Akku schnell Laden", "Max-SoC 95 % sperrt Ladung (frei ab 92 %)"),
+    (10, 10, "Akku schnell Entladen", "Min-SoC 10 % sperrt Entladung (frei ab 13 %)"),
+    (91, 95, "Akku schnell Laden", "Max-SoC 95 % sperrt Ladung (frei ab 93 %)"),
+    # Release 93.502 % is shown rounded up, never as an earlier release.
+    (92.004, 92, "Akku schnell Entladen", "Min-SoC 92 % sperrt Entladung (frei ab 93.51 %)"),
+])
+async def test_soc_block_reason_names_limit_and_release(coordinator, minimum, soc, requested, expected):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.minsoc"] = minimum
+    await coordinator.async_set_mode(requested)
+    data = await _manual_cycle(coordinator, soc)
+    assert data["mode"] == "Akku Pause"
+    assert data["reason"] == expected
+    # The reason does not follow the SoC inside the hysteresis band.
+    if requested == "Akku schnell Laden":
+        assert (await _manual_cycle(coordinator, soc - 1))["reason"] == expected
+
+
+@pytest.mark.parametrize("value,rounding,expected", [
+    (95.004, math.ceil, "95.01"), (96.996, math.floor, "96.99"), (13.1, math.ceil, "13.1"),
+    (95, math.ceil, "95"), (99.999, round, "100"), (1.23457e-05, round, "0"),
+])
+def test_percent_rounds_release_thresholds_conservatively(value, rounding, expected):
+    assert _percent(value, rounding) == expected
+
+
+@pytest.mark.parametrize("minimum,maximum", [(100, 100), (99.5, 99.5), (99.999, 99.999), (1.23457e-05, 1.23457e-05), (94.5, 99.5), (0.5, 99.5)])
+async def test_all_manual_block_reasons_fit_a_state(coordinator, minimum, maximum):
+    coordinator._online = True
+    coordinator.manual_mode = "Akku Dynamisch"
+    coordinator.settings.update({
+        "input_boolean.akku_opti_automatik": True,
+        "input_number.minsoc": minimum, "input_number.maxsoc": maximum,
+        "input_number.opti_zellspannung_reserve_v": 3.0,
+        "input_boolean.opti_ev_akku_pause": True,
+    })
+    coordinator._manual_charge_blocked = coordinator._manual_discharge_blocked = True
+    states = {"sensor.opti_soc": maximum, "sensor.opti_battery_capacity_kwh": 12.8,
+              "sensor.opti_house_consumption_w": 500, "sensor.opti_battery_power_w": 0,
+              "sensor.opti_battery_temp": 52, "binary_sensor.opti_ev_schnellladung": "on"}
+    mode, reason = coordinator._safe_mode("Akku Dynamisch", states, {})
+    assert mode == "Akku Pause"
+    # Both SoC blocks can only hold together when Min equals Max.
+    assert reason.count(";") == (4 if minimum == maximum else 3)
+    assert len(reason) <= 255
+
+
+async def test_manual_limits_detail_only_in_manual_mode(coordinator):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    data = await _manual_cycle(coordinator, 95)
+    assert "manual_limits" not in data["reason_details"]
+    await coordinator.async_set_mode("Akku schnell Laden")
+    data = await _manual_cycle(coordinator, 95)
+    assert data["reason_details"]["manual_limits"] == {
+        "minsoc": 10.0, "maxsoc": 95.0, "hysteresis": 3.0,
+        "charge_blocked": True, "discharge_blocked": False,
+    }
+
+
+async def _setup_with_registry(hass, entry, prepare=None):
+    registry = er.async_get(hass)
+    if prepare is not None:
+        prepare(registry)
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), \
+            patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    return registry, inverter
+
+
+def _number_entry(registry, entry, key):
+    entity_id = registry.async_get_entity_id("number", "opti_akku", f"{entry.entry_id}_input_number.{key}")
+    return registry.async_get(entity_id)
+
+
+async def test_new_installation_enables_only_min_and_max_soc_numbers(hass, entry):
+    registry, _inverter = await _setup_with_registry(hass, entry)
+    try:
+        assert _number_entry(registry, entry, "minsoc").disabled_by is None
+        assert _number_entry(registry, entry, "maxsoc").disabled_by is None
+        assert _number_entry(registry, entry, "ladepreis").disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    finally:
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+@pytest.mark.parametrize("disabler", [er.RegistryEntryDisabler.INTEGRATION, er.RegistryEntryDisabler.USER])
+async def test_existing_disabled_max_soc_entry_is_not_enabled_or_reloaded(hass, entry, disabler):
+    def prepare(registry):
+        registry.async_get_or_create(
+            "number", "opti_akku", f"{entry.entry_id}_input_number.maxsoc",
+            config_entry=entry, disabled_by=disabler,
+        )
+
+    with patch.object(hass.config_entries, "async_schedule_reload") as scheduled:
+        registry, _inverter = await _setup_with_registry(hass, entry, prepare)
+        try:
+            assert _number_entry(registry, entry, "maxsoc").disabled_by is disabler
+            scheduled.assert_not_called()
+        finally:
+            assert await hass.config_entries.async_unload(entry.entry_id)
+            await hass.async_block_till_done()
 
 # C14: a renewal of the confirmed mode is not cancelled by pure information
 # updates (forecasts, price series, cell spread, Tibber cache). Hard causes

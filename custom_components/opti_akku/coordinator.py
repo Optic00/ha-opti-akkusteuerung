@@ -733,7 +733,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.hass, self._async_fetch_tibber(), "Opti Tibber prices", eager_start=False)
 
     async def _async_fetch_tibber(self) -> None:
-        """Retain transiently unavailable cached data only within its original TTL."""
+        """Retain transiently unavailable cached data while its dated intervals and hard age cap allow."""
         try:
             homes = await async_fetch_prices(self.hass)
             snapshot = homes.get(self.entry.options.get("tibber_home"))

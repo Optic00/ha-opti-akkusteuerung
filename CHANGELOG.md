@@ -10,6 +10,21 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Behoben
 
+- Der Horizont-Planer misst das Prognosealter wie Bedarfsprofil und
+  Clipping-Abschätzung ab `last_reported`. Eine unverändert neu abgerufene
+  Solcast-Prognose galt dort bisher nach Ablauf der Altersgrenze als veraltet
+  (`pv_forecast_stale`).
+- Leitermodi außerhalb der Planer-Sprache (etwa `Akku Automatisch`,
+  `Akku schnell Entladen`, Beobachtung) zählen im Schattenplaner als eigene
+  Kategorie `ladder_unrated` statt als Abweichung `other` und verzerren die
+  Uneinigkeitsquote nicht mehr. Bestehende Zähler bleiben erhalten; ihre
+  bisherigen `other`-Sekunden werden nicht nachträglich aufgeteilt.
+- Native Tibber-Preise bleiben gültig, solange ihre datierten Intervalle den
+  aktuellen Zeitpunkt abdecken. Bisher verwarf ein über `price_max_age` hinaus
+  gealterter Abruf den ganzen Snapshot, obwohl die Day-Ahead-Preise noch galten.
+  `price_max_age` steuert nun nur noch den Abrufrhythmus; harte Obergrenze sind
+  24 Stunden seit dem letzten erfolgreichen Abruf. Fehlgeschlagene Abrufe
+  bleiben als `price_provider_error` sichtbar. Siehe [Preisquellen](PRICE_SOURCES.md).
 - Ladedeckel: Pause nur noch, wenn L3, L4, die Extrempreis-Reserve oder die
   EV-Sperre an dieser Stelle tatsächlich halten würden. Eine bloß aktive
   Peak-Reserve weit unter dem SoC hielt den Akku sonst dauerhaft in Pause.

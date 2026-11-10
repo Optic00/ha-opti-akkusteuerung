@@ -215,6 +215,42 @@ async def test_native_dst_intervals_preserve_actual_durations(hass, service, clo
     assert snapshot.normalized(dt_util.utcnow(), 7200, HOME)[0] == 25
 
 
+async def test_dated_intervals_outlive_the_fetch_age_up_to_the_hard_cap(hass, service, clock):
+    # Fetched 08:00 local with today and tomorrow: price_max_age only paces the
+    # refresh; the dated day-ahead intervals stay valid while they cover now.
+    service[0]["prices"][HOME][24:48] = native_day(date(2026, 9, 14), price=.4)
+    snapshot = (await async_fetch_prices(hass))[HOME]
+    clock.tick(timedelta(hours=3))
+    assert snapshot.normalized(dt_util.utcnow(), 7200, HOME)[0] == 25
+    clock.tick(timedelta(hours=21) - timedelta(seconds=1))
+    current, series, _ = snapshot.normalized(dt_util.utcnow(), 7200, HOME)
+    assert current == 40 and series["today"] == [40]*24 and series["tomorrow"] == []
+    clock.tick(timedelta(seconds=2))
+    with pytest.raises(TibberPriceError, match="missing_or_stale"):
+        snapshot.normalized(dt_util.utcnow(), 7200, HOME)
+
+
+@pytest.mark.parametrize("max_age", [0, -1, float("nan"), float("inf")])
+async def test_invalid_price_max_age_still_fails_closed(hass, service, max_age):
+    snapshot = (await async_fetch_prices(hass))[HOME]
+    with pytest.raises(TibberPriceError, match="missing_or_stale"):
+        snapshot.normalized(dt_util.utcnow(), max_age, HOME)
+
+
+async def test_dst_short_day_stays_valid_through_its_last_quarter_hour(hass, service, clock):
+    clock.move_to(datetime(2026, 3, 29, 0, 5, tzinfo=BERLIN))
+    service[0]["prices"][HOME] = native_day(date(2026, 3, 29), minutes=15, price=.3)
+    snapshot = (await async_fetch_prices(hass))[HOME]
+    assert len(snapshot.intervals) == 92
+    clock.move_to(datetime(2026, 3, 29, 23, 55, tzinfo=BERLIN))
+    current, series, period = snapshot.normalized(dt_util.utcnow(), 7200, HOME)
+    assert current == 30 and len(series["today"]) == 92
+    assert period["end"] == datetime(2026, 3, 30, tzinfo=BERLIN).astimezone(UTC).isoformat()
+    clock.tick(timedelta(minutes=10))
+    with pytest.raises(TibberPriceError, match="invalid_price_series"):
+        snapshot.normalized(dt_util.utcnow(), 7200, HOME)
+
+
 async def test_cached_tomorrow_becomes_today_by_its_own_dates_and_expires(hass, service, clock):
     clock.move_to(datetime(2026, 9, 13, 23, 50, tzinfo=BERLIN))
     service[0]["prices"][HOME][24:48] = native_day(date(2026, 9, 14), price=.4)
@@ -223,6 +259,8 @@ async def test_cached_tomorrow_becomes_today_by_its_own_dates_and_expires(hass, 
     current, series, _ = snapshot.normalized(dt_util.utcnow(), 7200, HOME)
     assert current == 40 and series["today"] == [40]*24 and series["tomorrow"] == []
     clock.tick(timedelta(hours=2))
+    assert snapshot.normalized(dt_util.utcnow(), 7200, HOME)[0] == 40
+    clock.tick(timedelta(hours=22))
     with pytest.raises(TibberPriceError, match="missing_or_stale"):
         snapshot.normalized(dt_util.utcnow(), 7200, HOME)
 
@@ -331,7 +369,7 @@ async def test_pending_tibber_keeps_regular_device_polling_and_reports_error_aft
         assert coordinator.data["mode"] == "Akku Pause"
 
 
-async def test_tibber_reload_retains_cache_only_within_original_ttl(
+async def test_tibber_reload_retains_dated_cache_only_until_the_hard_cap(
     coordinator, hass, service, tibber_entry, clock
 ):
     await coordinator.async_refresh()
@@ -339,14 +377,14 @@ async def test_tibber_reload_retains_cache_only_within_original_ttl(
     snapshot = coordinator._price_snapshot
     started = dt_util.utcnow()
     tibber_entry.mock_state(hass, ConfigEntryState.SETUP_IN_PROGRESS)
-    for seconds in (1800, 7201):
+    for seconds in (1800, 7201, 86401):
         clock.move_to(started + timedelta(seconds=seconds))
         await coordinator.async_refresh()
         await coordinator._price_task
         assert coordinator._price_snapshot is snapshot
         assert coordinator._price_last_success == started
         assert len(service[1]) == 1
-        if seconds == 1800:
+        if seconds < 86400:
             assert coordinator.data["states"]["sensor.opti_price_current_ct_kwh"] == "25.0"
             assert coordinator.data["source_errors"] == {}
         else:
@@ -355,6 +393,7 @@ async def test_tibber_reload_retains_cache_only_within_original_ttl(
             assert coordinator.data["mode"] == "Akku Pause"
 
     tibber_entry.mock_state(hass, ConfigEntryState.LOADED)
+    service[0]["prices"][HOME] = native_day(date(2026, 9, 14)) + native_day(date(2026, 9, 15))
     clock.tick(timedelta(seconds=15))
     await coordinator.async_refresh()
     await coordinator._price_task
@@ -365,7 +404,7 @@ async def test_tibber_reload_retains_cache_only_within_original_ttl(
     assert len(service[1]) == 2
 
 
-async def test_cached_fetch_schedule_retry_and_original_ttl(coordinator, clock, service):
+async def test_cached_fetch_schedule_retry_and_hard_cap(coordinator, clock, service):
     await coordinator._async_update_data()
     await coordinator._price_task
     snapshot = coordinator._price_snapshot
@@ -388,6 +427,11 @@ async def test_cached_fetch_schedule_retry_and_original_ttl(coordinator, clock, 
         await coordinator._price_task
         assert fetch.call_count == 2
         clock.tick(timedelta(hours=2))
+        data = await coordinator._async_update_data()
+        await coordinator._price_task
+        assert "price_current" not in data["source_errors"]
+        assert data["price_provider_error"] == "tibber_timeout"
+        clock.tick(timedelta(hours=22))
         data = await coordinator._async_update_data()
         await coordinator._price_task
         assert data["source_errors"]["price_current"] == "missing_or_stale"
@@ -445,18 +489,18 @@ async def test_final_write_guard_rechecks_native_snapshot_without_hardware(coord
     coordinator.shadow_mode = False
     coordinator.write_enabled = True
     coordinator.settings["input_boolean.akku_opti_automatik"] = True
-    coordinator._price_next_fetch = dt_util.utcnow() + timedelta(hours=1)
-    options = dict(coordinator.entry.options)
     if expire == "ttl":
-        options["price_max_age"] = 60
-        hass.config_entries.async_update_entry(coordinator.entry, options=options)
-        clock.tick(timedelta(seconds=59))
+        # Fetched mid-interval so the hard cap is not also an interval change.
+        snapshot = coordinator._price_snapshot
+        coordinator._price_snapshot = replace(snapshot, fetched_at=snapshot.fetched_at - timedelta(minutes=30))
+        clock.tick(timedelta(hours=23, minutes=30) - timedelta(seconds=1))
     elif expire == "interval":
         clock.move_to(datetime(2026, 9, 13, 8, 59, 59, tzinfo=BERLIN))
+    coordinator._price_next_fetch = dt_util.utcnow() + timedelta(hours=1)
     checked = []
 
     async def capture(_mode, _params, current):
-        assert current()
+        checked.append(current())
         if expire == "entry":
             MockConfigEntry(domain="tibber", title="Synthetic second").add_to_hass(hass)
         elif expire == "provider":
@@ -467,7 +511,7 @@ async def test_final_write_guard_rechecks_native_snapshot_without_hardware(coord
 
     coordinator.device.async_apply.side_effect = capture
     await coordinator._async_update_data()
-    assert checked == [False]
+    assert checked == [True, False]
     coordinator.write_enabled = False
     coordinator.device.async_apply.reset_mock()
 

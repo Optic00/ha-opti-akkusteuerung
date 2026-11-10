@@ -26,9 +26,19 @@ def measurement_max_age(value: Any, *, event_based: bool = False) -> float:
     return (math.inf if event_based else 900.0) if age == 0 else age
 
 
+def reported_at(state: Any) -> Any:
+    """Last report of a state; an unchanged value re-reported by its source is still fresh.
+
+    HA keeps ``last_updated`` when a source writes an identical state and
+    attributes (e.g. a refetched, unchanged Solcast forecast) but advances
+    ``last_reported``. Every age check of external sources uses this.
+    """
+    return getattr(state, "last_reported", None) or getattr(state, "last_updated", None)
+
+
 def reported_recently(state: Any, now: datetime, max_age: float) -> bool:
     """An old report is not proof of failure for event-based HA sources."""
-    reported = getattr(state, "last_reported", None) or getattr(state, "last_updated", None)
+    reported = reported_at(state)
     if not isinstance(reported, datetime) or reported.utcoffset() is None:
         return False
     try:

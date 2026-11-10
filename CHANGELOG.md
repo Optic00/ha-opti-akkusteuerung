@@ -8,6 +8,13 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Behoben
+
+- Der Horizont-Planer misst das Prognosealter wie Bedarfsprofil und
+  Clipping-Abschätzung ab `last_reported`. Eine unverändert neu abgerufene
+  Solcast-Prognose galt dort bisher nach Ablauf der Altersgrenze als veraltet
+  (`pv_forecast_stale`).
+
 ## [2026.11-beta2] - 2026-11-05
 
 ### Hinzugefügt

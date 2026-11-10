@@ -260,6 +260,16 @@ def test_pv_forecast_hourly_default_age_is_twelve_hours_and_the_option_overrides
     assert pv_forecast_hourly([aged], now, max_age=0)[0] == "ready"
 
 
+def test_pv_forecast_hourly_age_follows_last_reported_like_the_other_forecast_readers():
+    # Solcast refetched an unchanged forecast: HA keeps last_updated, refreshes last_reported.
+    now = T0 + timedelta(hours=6)
+    refetched = solcast(now, [(1.0, 2.0), (1.0, 2.0)], updated=now - timedelta(hours=13))
+    refetched.last_reported = now - timedelta(minutes=5)
+    assert pv_forecast_hourly([refetched], now)[0] == "ready"
+    refetched.last_reported = None
+    assert pv_forecast_hourly([refetched], now)[0] == "stale"
+
+
 def test_pv_forecast_hourly_counts_only_complete_hours():
     """A half-covered hour is a gap, not half the energy; the horizon ends there."""
     now = T0 + timedelta(hours=6)
@@ -654,7 +664,7 @@ def test_pv_forecast_rejects_naive_timestamps_and_oversized_rows():
     huge = solcast(now, [(1.0, 2.0)] * 101, updated=now)
     assert pv_forecast_hourly([huge], now) == ("invalid", {})
     bad_update = solcast(now, [(1.0, 2.0)], updated=now)
-    bad_update.last_updated = "yesterday"
+    bad_update.last_reported = bad_update.last_updated = "yesterday"
     assert pv_forecast_hourly([bad_update], now) == ("invalid", {})
     without_rows = SimpleNamespace(state="1", attributes={}, last_updated=now, last_reported=now)
     assert pv_forecast_hourly([without_rows, solcast(now, [(1.0, 2.0), (1.0, 2.0)], updated=now)], now)[0] == "ready"

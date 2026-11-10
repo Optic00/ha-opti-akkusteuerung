@@ -21,7 +21,7 @@ from time import perf_counter
 from typing import Any
 
 from .arbitrage import _price_periods
-from .source_quality import DEFAULT_FORECAST_MAX_AGE
+from .source_quality import DEFAULT_FORECAST_MAX_AGE, reported_at
 from .planner import (
     DYNAMIC,
     GRID_CHARGE,
@@ -41,7 +41,7 @@ from .planner import (
 FORECAST_ATTRIBUTES = (("detailedForecast", timedelta(minutes=30)), ("detailedHourly", timedelta(hours=1)))
 QUANTILE_KEYS = {"p10": "pv_estimate10", "p50": "pv_estimate"}
 QUANTILES = tuple(QUANTILE_KEYS)
-# The entity's last update is only a proxy for the fetch time; the forecast
+# The entity's last report is only a proxy for the fetch time; the forecast
 # must additionally cover the current hour. The coordinator passes the
 # configured ``forecast_max_age`` option (#103).
 FORECAST_MAX_AGE = DEFAULT_FORECAST_MAX_AGE
@@ -129,7 +129,7 @@ def pv_forecast_hourly(states: Sequence[Any], now: datetime,
         if len(detail) > FORECAST_ROW_LIMIT:
             return "invalid", {}
         try:
-            age = (now - _instant(state.last_updated)).total_seconds()
+            age = (now - _instant(reported_at(state))).total_seconds()
         except ValueError, TypeError, AttributeError:
             return "invalid", {}
         if max_age > 0 and not -60 <= age <= max_age:

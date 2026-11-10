@@ -517,7 +517,7 @@ async def test_interrupt_midflight_setpoint_waits_for_complete_cleanup(device, i
     current = True
 
     async def block(address, values):
-        if address == 40149:
+        if address == 40149 and sma.decode_s32(values) != 0:
             # The device may already have accepted this final setpoint even
             # when cancellation prevents its response reaching the adapter.
             in_setpoint.set()
@@ -775,7 +775,9 @@ async def test_longest_failed_sequence_keeps_cleanup_and_previous_evidence(devic
     unit.on_write = supersede_after_setpoint
     with pytest.raises(sma.StaleCommandError):
         await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: current)
-    assert len(raw_writes(unit)) == 16
+    # Command (14 incl. the 40149 setpoint), cleanup clears it under 802, then the pause.
+    assert len(raw_writes(unit)) == 17
+    assert raw_writes(unit)[-8] == (40149, 0)
     evidence = adapter.last_write_values
     assert len(evidence["summary"]) <= 255
     assert evidence["status"] == "superseded_safe_pause"
@@ -1016,6 +1018,24 @@ async def test_cleanup_after_fast_discharge_clears_setpoint_before_pause(device)
         await adapter.async_apply(sma.FAST_DISCHARGE, PARAMETERS, lambda: True)
     writes = raw_writes(unit)
     assert writes.index((40149, 0)) < len(writes) - 1 - writes[::-1].index((40151, 803))
+    assert adapter.last_mode == sma.PAUSE
+
+
+async def test_cleanup_after_charge_rail_clears_negative_setpoint_before_pause(device):
+    """Sourcery #208: a failed 803 in cleanup must not leave 802 with the old charge."""
+    adapter, unit, _ = device
+
+    async def fail_after_setpoint(address, values):
+        if address == 40149 and sma.decode_s32(values) < 0:
+            unit.on_write = None
+            raise ModbusError("injected timeout after the setpoint reached the device")
+
+    unit.on_write = fail_after_setpoint
+    with pytest.raises(ModbusError):
+        await adapter.async_apply(sma.GRID_CHARGE, PARAMETERS, lambda: True)
+    writes = raw_writes(unit)
+    assert writes.index((40149, 0)) < len(writes) - 1 - writes[::-1].index((40151, 803))
+    assert not adapter._charge_setpoint_armed
     assert adapter.last_mode == sma.PAUSE
 
 

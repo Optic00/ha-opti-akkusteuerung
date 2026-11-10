@@ -410,9 +410,9 @@ class SmaDevice:
             # limit; judge cleanup by a fresh read, not by that leftover.
             await self._read_status()
             self._ensure_status()
-            # A charge setpoint is harmless under the 803 pause below; the next
-            # Automatic or discharge rail clears it before it can act.
-            if self._discharge_setpoint_armed and self._rail_confirmed:
+            # Clear an armed setpoint of either sign while 802 is confirmed, so
+            # a failed 803 below cannot leave the old charge or discharge active.
+            if self._setpoint_armed and self._rail_confirmed:
                 try:
                     async with asyncio.timeout(DISARM_TIMEOUT_SECONDS):
                         await self._disarm_discharge_setpoint()

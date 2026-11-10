@@ -19,7 +19,9 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   dem eigenen 802 vor der Wartezeit. Nach Neustart oder Neuladen ist der
   Gerätewert unbekannt; der erste Befehl mit 802 setzt ihn deshalb einmal
   vor der Wartezeit auf 0.
-  Unter 803-Sperren bleibt er wirkungslos stehen.
+  Unter 803-Sperren bleibt er wirkungslos stehen. Die Sicherheits-Pause nach
+  einem Schreibfehler löscht einen Sollwert beider Richtungen, solange 802 noch
+  bestätigt ist.
 
 ## [2026.11-beta2] - 2026-11-05
 

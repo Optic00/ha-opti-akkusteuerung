@@ -861,16 +861,19 @@ async def test_normal_power_updates_do_not_starve_write_sequence(coordinator, ha
     hass.states.async_set("sensor.house", "800", {"unit_of_measurement": "W"})
     coordinator.async_listen_sources()
     coordinator.write_enabled = True
+    # The coordinator catches exceptions raised by the device; record the
+    # observations and assert outside the write sequence.
+    observed = []
 
     async def apply(mode, params, current):
-        assert current()
-        for watts in (810, 820, 830):
-            hass.states.async_set("sensor.house", str(watts), {"unit_of_measurement": "W"})
+        observed.append(("start", current()))
+        for watts in ("810", "820", "830"):
+            hass.states.async_set("sensor.house", watts, {"unit_of_measurement": "W"})
             await asyncio.sleep(0)
-            assert current(), "A fresh power sample must not cancel every write"
+            observed.append((watts, current()))
         hass.states.async_set("sensor.house", "unavailable", {"unit_of_measurement": "W"})
         await asyncio.sleep(0)
-        assert not current(), "Data loss must invalidate the pending command"
+        observed.append(("unavailable", current()))
 
     coordinator.device.async_apply.side_effect = apply
     await coordinator._async_update_data()
@@ -878,6 +881,8 @@ async def test_normal_power_updates_do_not_starve_write_sequence(coordinator, ha
     coordinator.write_enabled = False
     await coordinator.async_stop()
     coordinator._unsubscribe()  # HA entry callbacks can run after the explicit stop.
+    # Fresh power samples must not cancel every write; data loss must.
+    assert observed == [("start", True), ("810", True), ("820", True), ("830", True), ("unavailable", False)]
 
 
 async def test_cell_voltage_updates_do_not_starve_write_sequence(coordinator, hass, entry):
@@ -914,20 +919,19 @@ async def test_ev_state_age_does_not_invalidate_pending_command(coordinator, has
     hass.states.async_set("select.car", "pv")
     hass.states.async_set("binary_sensor.car", "off")
     coordinator.write_enabled = True
-    completed = []
+    observed = []
 
     async def apply(mode, params, current):
-        assert current()
+        observed.append(current())
         later = dt_util.utcnow() + timedelta(seconds=2)
         with patch("custom_components.opti_akku.coordinator.dt_util.utcnow", return_value=later):
-            assert current()
-        completed.append(True)
+            observed.append(current())
 
     coordinator.device.async_apply.side_effect = apply
     await coordinator._async_update_data()
     coordinator.device.async_apply.side_effect = None
     coordinator.write_enabled = False
-    assert completed == [True]
+    assert observed == [True, True]
 
 async def test_wizard_settings_seed_once_and_entity_changes_survive(coordinator, hass, entry):
     hass.config_entries.async_update_entry(entry, options={**entry.options,
@@ -1382,13 +1386,18 @@ async def test_plant_source_invalidated_during_write_cancels_guard(coordinator, 
         "additional_ac_sources": ["sensor.second_ac"]})
     hass.states.async_set("sensor.second_ac", 500, {"unit_of_measurement": "W"})
     coordinator.write_enabled = True
+    observed = []
+
     async def apply(mode, params, current):
-        assert current()
+        observed.append(current())
         hass.states.async_set("sensor.second_ac", "unavailable", {"unit_of_measurement": "W"})
-        assert not current()
+        observed.append(current())
+
     coordinator.device.async_apply.side_effect = apply
     await coordinator._async_update_data()
+    coordinator.device.async_apply.side_effect = None
     coordinator.device.async_apply.assert_awaited_once()
+    assert observed == [True, False]
 
 
 async def test_idle_excluded_source_keeps_balance_but_outage_still_cancels_write(coordinator, hass):
@@ -1399,16 +1408,19 @@ async def test_idle_excluded_source_keeps_balance_but_outage_still_cancels_write
     hass.states.async_set("sensor.ev_load", "0", {"unit_of_measurement": "W"})
     now = dt_util.utcnow() + timedelta(days=7)
     coordinator.write_enabled = True
+    observed = []
 
     async def apply(mode, params, current):
-        assert current()
+        observed.append(current())
         hass.states.async_set("sensor.ev_load", "unavailable", {"unit_of_measurement": "W"})
-        assert not current()
+        observed.append(current())
 
     coordinator.device.async_apply.side_effect = apply
     with patch("custom_components.opti_akku.coordinator.dt_util.utcnow", return_value=now):
         data = await coordinator._async_update_data()
+    coordinator.device.async_apply.side_effect = None
     coordinator.device.async_apply.assert_awaited_once()
+    assert observed == [True, False]
     assert float(data["states"]["sensor.opti_house_raw_w"]) == 800
     assert data["attributes"]["sensor.opti_house_raw_w"]["stale_zero_sources"] == ["sensor.ev_load"]
 
@@ -2066,7 +2078,7 @@ async def test_active_hold_write_guard_detects_entity_price_change(
     checked = []
 
     async def apply(_mode, _params, current):
-        assert current()
+        checked.append(current())
         hass.states.async_set(
             "sensor.hold_price", "0.40", {"unit_of_measurement": "EUR/kWh"}
         )
@@ -2078,7 +2090,7 @@ async def test_active_hold_write_guard_detects_entity_price_change(
     ):
         await coordinator._async_update_data()
 
-    assert checked == [False]
+    assert checked == [True, False]
 
 
 async def test_active_hold_write_guard_also_invalidates_released_discharge(
@@ -2108,7 +2120,7 @@ async def test_active_hold_write_guard_also_invalidates_released_discharge(
     checked = []
 
     async def apply(_mode, _params, current):
-        assert current()
+        checked.append(current())
         hass.states.async_set(
             "sensor.hold_price", "0.10", {"unit_of_measurement": "EUR/kWh"}
         )
@@ -2124,7 +2136,7 @@ async def test_active_hold_write_guard_also_invalidates_released_discharge(
 
     assert data["mode"] == "Akku nur Entladen"
     assert data["arbitrage_estimate"]["hold_status"] == "release"
-    assert checked == [False]
+    assert checked == [True, False]
 
 
 async def test_backward_clock_keeps_coordinator_safety_evaluation(coordinator, hass):
@@ -2901,7 +2913,7 @@ async def test_ev_write_guard_ignores_only_irrelevant_soc_changes(coordinator, h
     checked = []
 
     async def apply(mode, params, current):
-        assert current()
+        checked.append(current())
         hass.states.async_set("sensor.car", str(soc), {"unit_of_measurement": "%"})
         hass.states.async_set("binary_sensor.car_charging", charging)
         checked.append(current())
@@ -2909,7 +2921,7 @@ async def test_ev_write_guard_ignores_only_irrelevant_soc_changes(coordinator, h
     coordinator.device.async_apply.side_effect = apply
     await coordinator._async_update_data()
     coordinator.device.async_apply.side_effect = None
-    assert checked == [expected]
+    assert checked == [True, expected]
 
 
 async def test_observation_selector_uses_valid_translation_key_without_changing_engine_mode(coordinator, entry):

@@ -152,6 +152,9 @@ wie alt eine zugeordnete PV-Prognose sein darf. Diese eine Grenze gilt für
 die Tagesprognosen heute/morgen, die Solcast-Intervalle des Bedarfsprofils,
 den Negativpreis-Schattenvergleich, die Clipping-Abschätzung und den
 Horizont-Planer; feste 6- oder 12-Stunden-Prüfungen gibt es nicht mehr.
+Gemessen wird überall ab der letzten Meldung der Entität (`last_reported`,
+ersatzweise `last_updated`): Eine unverändert neu abgerufene Prognose gilt
+damit als frisch, auch wenn HA `last_updated` nicht weiterschiebt.
 Standard für neue Einträge ist 43200 Sekunden (12 Stunden), weil der
 kostenlose Solcast-Tarif nur vier Abrufe pro Tag erlaubt und eine Prognose
 daher bis zum nächsten Abruf fast zwölf Stunden alt sein kann (#103).

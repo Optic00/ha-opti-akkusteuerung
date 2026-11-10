@@ -396,13 +396,29 @@ heißt: Nur die feste Schwelle würde vorladen, die hergeleitete nicht.
 `derived_only` heißt das Gegenteil. Verglichen wird ausschließlich das
 Spread-Kriterium (`compares: spread_criterion_only`), nicht SoC-Grenzen oder
 Ladefenster. Der Vergleich beeinflusst weder Modus noch Parameter oder
-Entscheidungs-ID; die tatsächliche Vorladung folgt unverändert der festen Schwelle.
+Entscheidungs-ID. Er rechnet weiter mit dem ungewichteten Peak-Durchschnitt
+`peak_preis_avg_ct`. Die tatsächliche Vorladung verlangt seit der wirtschaftlichen
+Vorlade-Bedingung beide Schwellen, die hergeleitete mit dem lastgewichteten
+künftigen Spitzenpreis `peak_preis_kuenftig_ct` (siehe unten).
 
 Unter `totals` werden die Sekunden je Urteil zeitgewichtet summiert, dazu die
 Sekunden mit aktivem Vorladen und davon die, in denen die hergeleitete Schwelle
 blockiert hätte. Lücken über 90 Sekunden, der erste Durchlauf nach einem Neustart
 und rückwärts laufende Uhren zählen nicht. Ändert sich eine Annahme der
 Arbitrage-Anzeige oder der feste Spread, starten die Zähler neu.
+
+### Wirtschaftlichkeit des Peak-Vorladens im Reserveplan
+
+Der Reserveplan enthält unter `precharge`, ob Peak-Vorladen nach dem Akkumodell
+wirtschaftlich zulässig ist. `status` ist `allowed`, wenn der künftige Spitzenpreis
+`future_peak_price_ct` mindestens `minimum_peak_price_ct` erreicht, sonst
+`blocked_price`; `blocked_model` bei ungültigen Arbitrage-Annahmen;
+`not_applicable`, wenn Netzladen nicht erlaubt oder die Peak-Reserve nicht aktiv ist
+oder Preis bzw. künftiger Spitzenpreis fehlen. Dazu kommen der billigste künftige
+Spitzen-Slot `cheapest_future_peak_price_ct` (nur Diagnose), der aktuelle Preis und
+`model_source`. Verglichen wird nur das Preiskriterium
+(`compares: economic_criterion_only`), ohne Halteband, SoC, Ladefenster und festen
+Preisabstand.
 
 ### Schattenvergleich Peak-Reserve gegen Refill-Reserve
 
@@ -508,7 +524,11 @@ genau bis zur Grenze genügt.
 Bei eingeschaltetem `opti_prognose_netzladen` sucht der Vergleich außerdem nach
 möglichen früheren Netzladefenstern. Er spiegelt die Ladebedingungen der
 Strategie: Peak-Vorladen braucht eine aktive Peak-Reserve, den eingestellten
-Spread zum Peak-Durchschnitt und beim Einstieg `SoC < Reserve-SoC - 3`.
+Spread zum Peak-Durchschnitt, die Wirtschaftlichkeit nach dem Akkumodell
+(Peak-Durchschnitt mindestens Mindest-Spitzenpreis, bei laufendem Netzladen 1 ct
+Halteband, gültige Annahmen) und beim Einstieg `SoC < Reserve-SoC - 3`. Anders als
+die Strategie nutzt der Vergleich dafür seinen eigenen ungewichteten Durchschnitt
+der künftigen Peaks; das ist eine Näherung.
 Laden unter der Einspeisevergütung braucht Prognose-Score unter 3 und
 `SoC < MaxSOC - 3`. Für beide Zweige gilt das Ladefenster bis zum Tiefstpreis
 vor dem nächsten Peak plus 0,5 ct. Bei bereits laufendem Netzladen entfallen

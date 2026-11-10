@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from custom_components.opti_akku.battery_model import BatteryModel
 from custom_components.opti_akku.engine import StrategyEngine
 from custom_components.opti_akku.peak_rank import (
     PeakRankShadow,
@@ -13,6 +14,11 @@ from custom_components.opti_akku.peak_rank import (
 )
 
 TZ = ZoneInfo("Europe/Berlin")
+# Lossless and free: the economic precharge condition reduces to price <= average,
+# so these cases keep testing window, spread and SoC only. The economic mirror has
+# its own tests with the default model.
+NEUTRAL = BatteryModel(1.0, 1.0, 0.0, 0.0, "configured")
+DEFAULT = BatteryModel.default()
 
 
 def local(day, hour, minute=0):
@@ -46,7 +52,8 @@ def check(**overrides):
                 horizon_end=local(19, 11, 1).isoformat(), load_hours=MORNING_LOAD,
                 fallback_load_kw=0.8, surcharge_ct=5, soc=23, capacity_kwh=12.8, minsoc=5,
                 decision_id="peak_l1", peak_reserve_active=True, grid_charging=True,
-                spread_ct=10, feed_in_ct=7, score=1, discharge_efficiency=0.9)
+                spread_ct=10, feed_in_ct=7, score=1, discharge_efficiency=0.9,
+                battery_model=NEUTRAL)
     args.update(overrides)
     return peak_rank_check(**args)
 
@@ -286,11 +293,17 @@ def strategy():
 ])
 def test_charge_entry_and_hysteresis_match_actual_strategy(strategy, kind, overrides, expected):
     args = dict(price=30, minimum=30, average=40, spread=10, feed_in=7,
-                soc=3.6, reserve_soc=6.7, maxsoc=95, score=1, charging=False)
+                soc=3.6, reserve_soc=6.7, maxsoc=95, score=1, charging=False, model=NEUTRAL)
     if kind == "grid_below_feed_in":
         args.update(feed_in=35, average=30)
     args.update(overrides)
+    assert_parity(strategy, kind, args, expected)
+
+
+def assert_parity(strategy, kind, args, expected):
+    model_state, model_attrs = args["model"].engine_state()
     strategy._states = {
+        "sensor.opti_battery_model": model_state,
         "input_boolean.opti_prognose_netzladen": "on",
         "binary_sensor.opti_peak_reserve_aktiv": "on",
         "input_select.akkusteuerung_modus": "Akku Netzladen" if args["charging"] else "Akku nur Laden",
@@ -302,13 +315,47 @@ def test_charge_entry_and_hysteresis_match_actual_strategy(strategy, kind, overr
         "input_number.opti_netzlade_spread_ct": str(args["spread"]),
         "input_number.opti_einspeiseverguetung_ct": str(args["feed_in"]),
     }
+    # peak_rank mirrors the template with its own unweighted average.
     strategy._attributes = {"sensor.opti_peak_reserve_soc": {
-        "min_preis_vor_peak_ct": args["minimum"], "peak_preis_avg_ct": args["average"]}}
+        "min_preis_vor_peak_ct": args["minimum"], "peak_preis_avg_ct": args["average"],
+        "peak_preis_kuenftig_ct": args["average"]}, "sensor.opti_battery_model": model_attrs}
     decision = "peak_precharge" if kind == "grid_precharge" else "negative_price"
     branches = strategy.resources["strategy"]["actions"][0]["choose"]
     branch = next(b for b in branches if b["sequence"][0].get("decision_id") == decision)
     assert strategy._all_conditions(branch["conditions"]) is expected
     assert (_grid_charge_possible(**args) == kind) is expected
+
+
+@pytest.mark.parametrize("overrides,expected", [
+    ({"price": 30, "average": 40.38}, True),  # p_min(30) = 40.3704
+    ({"price": 30, "average": 40.37}, False),
+    ({"price": 30, "average": 39.38, "spread": 9, "charging": True}, True),  # hold band 1 ct
+    ({"price": 30, "average": 39.37, "spread": 9, "charging": True}, False),
+    ({"price": 30, "average": 39.38, "spread": 9}, False),
+    ({"price": 38, "minimum": 38, "average": 49.0}, False),  # pattern W2: p_min(38) = 50.247
+    ({"price": 27, "minimum": 27, "average": 37.5}, True),
+    ({"price": 27, "minimum": 27, "average": 51.67, "model": BatteryModel.from_options(
+        {"enabled": True, "cycles": 0})}, False),  # invalid model blocks
+])
+def test_economic_precharge_matches_actual_strategy(strategy, overrides, expected):
+    args = dict(price=30, minimum=30, average=40.38, spread=10, feed_in=7,
+                soc=3.6, reserve_soc=6.7, maxsoc=95, score=1, charging=False, model=DEFAULT)
+    args.update(overrides)
+    assert_parity(strategy, "grid_precharge", args, expected)
+
+
+def test_economic_refill_keeps_covered_profiles_and_drops_pattern_w2():
+    # Night 30 ct, peak average from 19:00 51.4 ct >= p_min(30) = 40.37: unchanged.
+    result = check(price_series=series(night=30.0), battery_model=DEFAULT)
+    assert result["possible_refill_kind"] == "grid_precharge"
+    # Pattern W2: 38 ct valley before a 49 ct peak, spread 11 ct, p_min(38) = 50.25.
+    today = day_prices(38.0, ((17, 0), (20, 0), 49.0))
+    tomorrow = day_prices(38.0)
+    w2 = dict(now=local(18, 13, 5), price_series={"today": today, "tomorrow": tomorrow},
+              horizon_end=local(18, 21, 0).isoformat(), load_hours={}, soc=6.3)
+    assert check(**w2, battery_model=NEUTRAL)["possible_refill_kind"] == "grid_precharge"
+    result = check(**w2, battery_model=DEFAULT)
+    assert "possible_refill_kind" not in result
 
 
 def test_other_decision_reports_rank_without_peak_verdict():
@@ -360,7 +407,10 @@ def test_invalid_profile_values_fall_back_to_fixed_load():
     assert result["demand_kwh"] == check(load_hours={})["demand_kwh"] > check(fallback_load_kw=0.4, load_hours={})["demand_kwh"]
 
 
-ASSUMPTIONS = [0.9, 5, 10, 5, 7, True, 0.8]
+SETTINGS = [5, 10, 5, 7, True, 0.8]
+# Default model: discharge and charge efficiency, throughput cost, margin, valid.
+MODEL_ASSUMPTIONS = [0.9, 0.9, 1.5, 0.0, True]
+ASSUMPTIONS = [*MODEL_ASSUMPTIONS, *SETTINGS]
 
 
 def test_shadow_counts_hold_time_and_discharged_energy():
@@ -451,7 +501,7 @@ def test_restore_migrates_snapshots_without_the_model_efficiency():
     shadow.observe(start + timedelta(seconds=60), check(), ASSUMPTIONS, -2000)
     saved = shadow.snapshot()
     assert saved["hold_seconds"] == 60
-    legacy = {**saved, "assumptions": ASSUMPTIONS[1:]}
+    legacy = {**saved, "assumptions": SETTINGS}
     restored = PeakRankShadow()
     restored.restore(legacy)
     assert restored.data["assumptions"] == ASSUMPTIONS
@@ -461,3 +511,14 @@ def test_restore_migrates_snapshots_without_the_model_efficiency():
     assert totals["hold_seconds"] == 60
     totals = restored.observe(start + timedelta(seconds=180), check(), [0.95, *ASSUMPTIONS[1:]], -2000)
     assert totals["hold_seconds"] == 0
+
+
+def test_restore_migrates_snapshots_with_only_the_discharge_efficiency():
+    shadow = PeakRankShadow()
+    start = local(18, 17, 0)
+    shadow.observe(start, check(), ASSUMPTIONS, -2000)
+    shadow.observe(start + timedelta(seconds=60), check(), ASSUMPTIONS, -2000)
+    restored = PeakRankShadow()
+    restored.restore({**shadow.snapshot(), "assumptions": [0.9, *SETTINGS]})
+    assert restored.data["assumptions"] == ASSUMPTIONS
+    assert restored.data["hold_seconds"] == 60

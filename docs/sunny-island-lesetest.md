@@ -33,6 +33,12 @@ wird nichts.
 Netzbezug und Einspeisung liest das Profil aus dem Sunny Island. Dafür muss der
 Zähler am Netzanschlusspunkt dem Sunny Island seine Werte liefern.
 
+Meldet Opti Akku bei der Einrichtung einen Verbindungsfehler, obwohl der Sunny
+Island über Modbus erreichbar ist, bitte in #194 melden. Opti Akku wertet ein
+Statusregister ohne jede Antwort als Verbindungsproblem. Beantwortet der Sunny
+Island Register 33003 gar nicht statt mit einem Fehlercode, scheitert daran die
+Einrichtung, und das Profil braucht eine Anpassung.
+
 ## Was zu vergleichen ist
 
 Bitte über einige Stunden mit Laden und Entladen gegen Sunny Portal oder das

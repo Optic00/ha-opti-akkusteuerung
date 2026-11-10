@@ -312,7 +312,7 @@ def test_charge_entry_and_hysteresis_match_actual_strategy(strategy, kind, overr
 
 
 def test_other_decision_reports_rank_without_peak_verdict():
-    result = check(decision_id="reserve_low")
+    result = check(decision_id="reserve_winter")
     assert result["verdict"] == "not_peak"
     assert result["strategy_decision"] is None
     assert result["rank_discharges"] is False
@@ -325,7 +325,7 @@ def test_l2_is_judged_like_l1():
 def test_daytime_dynamic_mode_keeps_the_verdict_and_reports_the_mode():
     result = check(strategy_mode="Akku Dynamisch")
     assert (result["verdict"], result["strategy_mode"]) == ("hold", "Akku Dynamisch")
-    assert check(decision_id="reserve_low", strategy_mode="Akku nur Laden")["strategy_mode"] is None
+    assert check(decision_id="reserve_winter", strategy_mode="Akku nur Laden")["strategy_mode"] is None
 
 
 def test_no_usable_energy_holds():

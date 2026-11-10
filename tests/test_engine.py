@@ -440,13 +440,13 @@ def test_winter_soc15_keeps_forecast_reserve_after_ev_power_becomes_invalid():
     attrs = solar_attrs()
     attrs["sensor.opti_price_series"] = {"today": [20] * 24, "tomorrow": [20] * 24}
     valid = evaluate(states=states, attributes=attrs)
-    assert valid.decision_id == "reserve_low"
+    assert valid.decision_id == "reserve_winter"
     states["sensor.opti_forecast_house_60min_w"] = "unavailable"
     invalid = evaluate(states=states, attributes=attrs)
     assert invalid.states["sensor.opti_forecast_score"] == "0"
     assert invalid.states["sensor.opti_forecast_score_tomorrow"] == "0"
     assert invalid.states["sensor.opti_forecast_score_sonnentag"] == "0"
-    assert invalid.decision_id == "reserve_low"
+    assert invalid.decision_id == "reserve_winter"
     assert invalid.mode == "Akku nur Laden"
 
 

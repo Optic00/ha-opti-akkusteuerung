@@ -8,6 +8,15 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Geändert
+
+- Zwei Reservezweige der Strategie (SoC unter 20 % und SoC unter 75 % bei
+  schwacher Prognose heute und morgen) sind entfernt. Sie waren vollständig vom
+  Zweig „SoC unter 80 %“ überdeckt und lieferten denselben Modus. Der Akkumodus
+  ändert sich nicht. In der Begründung steht in diesen Fällen jetzt
+  „SOC<80 Wintermodus“, die Entscheidungs-ID ist `reserve_winter` statt
+  `reserve_low` oder `reserve_forecast`.
+
 ### Behoben
 
 - Der Horizont-Planer misst das Prognosealter wie Bedarfsprofil und

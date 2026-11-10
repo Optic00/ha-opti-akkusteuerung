@@ -418,6 +418,10 @@ angekommen sein; solche unbestätigten Schreiboperationen werden nicht als
 quittierte Werte ausgegeben. Ohne neue quittierte Werte bleibt der vorherige
 Nachweis mit seinem ursprünglichen Zeitpunkt stehen. Den aktuellen Fehler
 zusätzlich unter **Letzter Fehler** und **Befehlsnachweis** prüfen.
+Ein später bestätigter Schreibvorgang löscht unter **Letzter Fehler** nur Lese-,
+Schreib- und Sperrverletzungsfehler. Warnungen beim Wiederherstellen nach einem
+Neustart und nicht übernommene Einstellungen bleiben sichtbar, bis ein anderer
+Fehler sie ersetzt oder die Integration neu geladen wird.
 
 Die Anzeige ist **keine unabhängige Registerrücklesung** und kein Nachweis der
 physischen Wirkung. Sie beginnt nach Neustart oder Neuladen leer; im Shadow-Modus

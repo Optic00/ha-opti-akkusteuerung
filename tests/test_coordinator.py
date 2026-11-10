@@ -4386,3 +4386,37 @@ async def test_write_stall_counts_from_reactivation_after_a_long_disable(coordin
         clock[0] += 60
         data = await coordinator._async_update_data()
         assert data["states"]["binary_sensor.opti_write_stalled"] == "on"
+
+
+@pytest.mark.parametrize("message", [
+    "Ungültige gespeicherte Einstellungen zurückgesetzt: input_number.minsoc",
+    "Schreibfreigabe nach Neustart nicht wiederhergestellt: writer_binding_changed",
+    "Einstellungen nicht übernommen: Grenzwerte oder benötigte Quellen sind nicht mehr gültig. Bitte erneut konfigurieren.",
+])
+async def test_confirmed_write_keeps_restore_and_settings_warnings(coordinator, message):
+    """Only write-related errors are cleared by a confirmed write (C13)."""
+    coordinator._last_error = message
+    coordinator.write_enabled = True
+    data = await coordinator._async_update_data()
+    coordinator.device.async_apply.assert_awaited()
+    assert data["last_error"] == message
+
+
+@pytest.mark.parametrize("failure", [OSError("bus"), "read"])
+async def test_confirmed_write_clears_write_and_read_errors(coordinator, failure):
+    coordinator.write_enabled = True
+    if failure == "read":
+        coordinator.device.async_read.side_effect = OSError("lost")
+        await coordinator._async_update_data()
+        coordinator.device.async_read.side_effect = None
+        # Two good reads pass the reconnect gate before the next write.
+        await coordinator._async_update_data()
+    else:
+        coordinator.device.async_apply.side_effect = failure
+        await coordinator._async_update_data()
+        coordinator.device.async_apply.side_effect = None
+        coordinator._last_apply = None
+    assert coordinator._last_error
+    data = await coordinator._async_update_data()
+    assert data["command_result_this_update"] == "confirmed"
+    assert data["last_error"] is None

@@ -68,6 +68,14 @@ from .reporting import OperatingReport, reserve_plan
 from .tibber_prices import READINESS_RETRY_SECONDS, REFRESH_SECONDS, RETRY_SECONDS, TibberPriceError, TibberPriceSnapshot, async_fetch_prices
 
 _LOGGER = logging.getLogger(__name__)
+# Errors a later confirmed write proves resolved (device reachable, sequence
+# accepted). Everything else, e.g. restore or settings warnings, is kept.
+WRITE_ERROR_PREFIXES = (
+    "Lesefehler",
+    "Schreibvorgang nicht bestätigt",
+    "Sperrverletzung",
+    "Pause beim Abschalten nicht bestätigt",
+)
 
 # Top-level fields ShadowRecorder.record reads from a coordinator result.
 _JOURNAL_SAMPLE_KEYS = ("mode", "reason", "online", "source_errors", "write_enabled",
@@ -457,6 +465,15 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Restored automatic control is a new write session too. Persist
             # its owed pause before setup can perform its first device call.
             await self._store.async_save(self._stored_data())
+
+    def _clear_write_error(self) -> None:
+        """A confirmed device write resolves only communication/write errors.
+
+        Restore warnings and rejected settings stay visible until something
+        else replaces them; they are not fixed by a successful write.
+        """
+        if self._last_error and self._last_error.startswith(WRITE_ERROR_PREFIXES):
+            self._last_error = None
 
     def _claim_device(self, identity: dict) -> None:
         serial = identity.get("serial_number")
@@ -1217,7 +1234,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._last_apply = time.monotonic()
                 if self._applied_mode != mode:
                     self._applied_mode, self._applied_mode_since = mode, self._last_apply
-                self._last_error = "Sperrverletzung beobachtet; Sollwerte erneuert" if persistent_violation else None
+                if persistent_violation:
+                    self._last_error = "Sperrverletzung beobachtet; Sollwerte erneuert"
+                else:
+                    self._clear_write_error()
             except PendingCommandError as err:
                 command_result = "safe_phase_confirmed" if err.confirmed else "pending"
                 if err.confirmed:
@@ -1234,8 +1254,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._last_signature = None
                 # Superseded decisions are expected when sources change during I/O.
                 # Keep the original write age; repeated supersession still trips the watchdog.
-                self._last_error = ("Schreibvorgang nicht bestätigt: Sicherheits-Pause fehlgeschlagen"
-                                    if err.cleanup_failed else None)
+                if err.cleanup_failed:
+                    self._last_error = "Schreibvorgang nicht bestätigt: Sicherheits-Pause fehlgeschlagen"
+                else:
+                    self._clear_write_error()
             except Exception as err:
                 command_result = "failed"
                 write_failed = True

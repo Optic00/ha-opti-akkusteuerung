@@ -266,7 +266,23 @@ Ein erzwungener manueller Modus wird nach einem Neustart nicht fortgesetzt.
 Ohne aktivierte Strategie wird auch die Schreibfreigabe nicht wiederhergestellt.
 Zuerst wieder einen manuellen Modus wählen, dann die Schreibfreigabe setzen.
 Vor jeder Steuerungsbewertung müssen die Profilprüfung und aktuelle Messungen erfolgreich
-sein. Ohne lesbare Seriennummer bleibt die Schreibfreigabe gesperrt.
+sein. Ohne lesbare Seriennummer bleibt die Schreibfreigabe gesperrt. Bei SMA STP SE
+prüft Opti Akku die Geräteidentität (Gerätetyp, Modell, Seriennummer) in jedem Abruf.
+Meldet ein SMA-Identitäts- oder Messregister einen einzelnen Modbus-Fehler, liest
+der Treiber genau dieses Register sofort ein zweites Mal. Werte aus früheren Abrufen
+werden nie weiterverwendet. Scheitert auch der zweite Versuch, fehlt der Wert, und
+es gilt die Pause wie bisher (etwa ohne gültige Ein-Wechselrichter-Bilanz,
+SoC, Batterietemperatur oder Batterieleistung; ohne Seriennummer geht die
+Verbindung auf `offline`). Verbindungsfehler, Zeitüberschreitungen und vertauschte
+Antworten, nach denen die Modbus-Bibliothek die Verbindung trennt, werden nicht
+wiederholt, sondern wie ein Verbindungsfehler behandelt.
+Nach dem Wechsel in **Akku Dynamisch** begrenzt der SMA-Treiber die Ladeleistung
+330 Sekunden lang auf höchstens 500 W. Folgt auf Dynamisch nur eine Pause von
+weniger als 60 Sekunden (etwa eine kurze Schutzpause), läuft diese Begrenzung ab
+ihrem ursprünglichen Beginn weiter, statt neu zu starten. Nach einer längeren
+Pause, einem anderen Modus dazwischen, einer Sicherheits-Pause nach einem
+Schreibfehler sowie nach jedem Neustart oder Neuladen der Integration beginnt sie
+neu.
 Sicherheitsgrenzen für SoC, Messwerte und Quellen gelten auch im
 manuellen Betrieb.
 
@@ -369,6 +385,17 @@ Opti Akku erneuert die Sollwerte danach höchstens dreimal im Abstand von
 mindestens 30 Sekunden. Hält die Verletzung an, bleibt die Meldung aktiv, und
 es gilt wieder der reguläre Erneuerungsabstand von 120 Sekunden.
 
+Ohne Moduswechsel schreibt Opti Akku einen Befehl vor Ablauf der regulären
+Erneuerung nach 120 Sekunden nur neu, wenn sich ein tatsächlich wirksamer
+SMA-Registerwert ändert. Der Vergleich nutzt dieselbe Registerabbildung wie die
+Schreibfolge, einschließlich Begrenzung auf die Modellleistung und der
+Einschwingbegrenzung in **Akku Dynamisch**; deren Ende gilt selbst als Änderung.
+Leistungswerte zählen dabei in 50-W-Stufen; ob ein Lade- oder Entladefenster offen
+oder geschlossen ist, zählt exakt.
+Geschrieben wird immer der tatsächliche Wert. In **Akku Pause** löst etwa eine
+geänderte Ladeleistung keine neue Schreibfolge aus. Bei Huawei führt weiterhin
+jede Parameteränderung zu einem neuen Befehl.
+
 Der ältere Sensor **Befehlsbestätigung** bleibt aus Kompatibilitätsgründen
 erhalten. Sein Zustand **Kein offener Befehl** sagt nur, dass aktuell keine
 Transaktion aussteht.
@@ -391,6 +418,11 @@ angekommen sein; solche unbestätigten Schreiboperationen werden nicht als
 quittierte Werte ausgegeben. Ohne neue quittierte Werte bleibt der vorherige
 Nachweis mit seinem ursprünglichen Zeitpunkt stehen. Den aktuellen Fehler
 zusätzlich unter **Letzter Fehler** und **Befehlsnachweis** prüfen.
+Ein später bestätigter Schreibvorgang löscht unter **Letzter Fehler** nur Lese-,
+Schreib- und Sperrverletzungsfehler. Ein überholter Befehl ohne bestätigten
+Schreibvorgang löscht nichts. Warnungen beim Wiederherstellen nach einem
+Neustart und nicht übernommene Einstellungen bleiben sichtbar, bis ein anderer
+Fehler sie ersetzt oder die Integration neu geladen wird.
 
 Die Anzeige ist **keine unabhängige Registerrücklesung** und kein Nachweis der
 physischen Wirkung. Sie beginnt nach Neustart oder Neuladen leer; im Shadow-Modus
@@ -486,6 +518,10 @@ Abfragen keine erneute Meldung. Nach 60 Sekunden ohne Fehler wird der Vorfall
 beendet. Schreibstillstand, Sperrverletzung und eine ausstehende Pause werden
 ohne diese Wartefrist gemeldet; für den ersten Tibber-Abruf gilt die gesonderte
 Startfrist.
+Schreibstillstand bedeutet: bei freigegebenen Schreibzugriffen seit mehr als
+240 Sekunden kein bestätigter Schreibvorgang. Die Frist läuft ab dem späteren
+Zeitpunkt von letztem bestätigtem Schreibvorgang und Einschalten der
+Schreibfreigabe; nach langer abgeschalteter Freigabe beginnt sie also neu.
 
 Beim nativen Tibber-Preisbezug wartet Opti Akku, bis die Tibber-Integration
 vollständig geladen und ihr Preisdienst verfügbar ist. Die Bereitschaft wird

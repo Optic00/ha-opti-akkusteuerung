@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
+from modbus_connection import ModbusError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -2143,11 +2144,12 @@ async def test_backward_clock_keeps_coordinator_safety_evaluation(coordinator, h
     hass.config_entries.async_update_entry(coordinator.entry, options={**coordinator.entry.options,
         "plant_mode": "balance", "plant_meter_confirmed": True, "forecast_min_load_w": 0})
     coordinator.write_enabled = True
-    # Without export the PV peak release stays off, so the planned charge power
-    # follows the SoC step and the command signature changes with the SoC below.
     coordinator.device.async_read.return_value["sensor.opti_grid_export_w"] = 0
     await coordinator._async_update_data()
     coordinator.device.async_apply.reset_mock()
+    # A Pause signature ignores charge power (no register effect), so force a
+    # new command to prove the backward clock still reaches the write path.
+    coordinator._last_signature = None
     coordinator.device.async_read.return_value["sensor.opti_soc"] = 1
     with patch("custom_components.opti_akku.coordinator.dt_util.utcnow", return_value=dt_util.utcnow() - timedelta(minutes=2)):
         data = await coordinator._async_update_data()
@@ -3795,7 +3797,6 @@ async def test_negative_price_hold_falls_back_to_demand_solcast_intervals(coordi
     assert data["states"]["sensor.opti_negative_price_hold"] == "no_window"
 
 
-
 async def test_peak_rank_is_published_as_observation(coordinator):
     data = await coordinator._async_update_data()
     attrs = data["attributes"]["sensor.opti_peak_rank"]
@@ -4276,3 +4277,206 @@ async def test_balancing_hold_never_forces_minimum_grid_charge(
     assert params["min_charge_w"] == expected
     note = "Balancing-Haltefenster: kein Mindestladen aus dem Netz"
     assert (note in data["reason_details"]["charge_power_limits"]) == (expected == 0)
+
+
+async def _real_sma(hass, entry):
+    from custom_components.opti_akku.sma import SmaDevice
+
+    async def no_time(seconds):
+        await asyncio.sleep(0)
+
+    clock = [1000.0]
+    unit = SmaUnit()
+    device = SmaDevice(unit, sleep=no_time, monotonic=lambda: clock[0])
+    applied = []
+    original = device.async_apply
+
+    async def spy(mode, params, current):
+        applied.append((mode, params["charge_power_w"]))
+        await original(mode, params, current)
+
+    device.async_apply = spy
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    c = OptiCoordinator(hass, entry, device, engine)
+    await c.async_restore()
+    await c._async_update_data()
+    await c._async_update_data()
+    return c, unit, clock, applied
+
+
+async def test_pause_is_not_rewritten_for_parameters_without_register_effect(hass, entry):
+    """Charge power following the surplus has no effect in Pause (C7)."""
+    c, _, _, applied = await _real_sma(hass, entry)
+    try:
+        c.write_enabled = True
+        base = c._parameters({})
+        values = iter([1000, 1800, 2600, 3400])
+        with patch.object(c, "_parameters", side_effect=lambda states: {**base, "charge_power_w": next(values)}):
+            for _ in range(4):
+                data = await c._async_update_data()
+                assert data["mode"] == "Akku Pause"
+        assert applied == [("Akku Pause", 1000)]
+    finally:
+        await c.async_stop()
+
+
+async def test_dynamic_rewrites_only_for_effective_register_changes(hass, entry):
+    c, unit, clock, applied = await _real_sma(hass, entry)
+    try:
+        c.settings["input_boolean.akku_opti_automatik"] = True
+        c.manual_mode = "Akku Dynamisch"
+        c.write_enabled = True
+        base = {**c._parameters({}), "min_charge_w": 0}
+        values = iter([1000, 1100, 1010, 1020, 1100, 1100])
+        with patch.object(c, "_parameters", side_effect=lambda states: {**base, "charge_power_w": next(values)}):
+            await c._async_update_data()   # settling: window capped at 500 W
+            await c._async_update_data()   # 1100 W is still capped: no rewrite
+            clock[0] += 330                # settling ends: a new command by itself
+            for _ in range(4):
+                await c._async_update_data()
+        # The real value is written; quantization only decides whether to write.
+        assert applied == [("Akku Dynamisch", 1000), ("Akku Dynamisch", 1010), ("Akku Dynamisch", 1100)]
+        assert (40795, 1100) in unit.writes
+    finally:
+        await c.async_stop()
+
+
+async def test_huawei_signature_keeps_every_parameter(coordinator, hass, entry):
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "backend": "huawei_solar"})
+    coordinator.device.last_read_errors = {}
+    coordinator.device.async_probe.return_value = {
+        **coordinator.device.async_probe.return_value, "backend_health": True}
+    coordinator.write_enabled = True
+    base = coordinator._parameters({})
+    values = iter([1000, 1010])
+    with patch.object(coordinator, "_parameters",
+                      side_effect=lambda states: {**base, "charge_power_w": next(values)}):
+        for _ in range(2):
+            await coordinator._async_update_data()
+    assert coordinator.device.async_apply.await_count == 2
+
+
+async def test_write_stall_counts_from_reactivation_after_a_long_disable(coordinator):
+    """An old successful write must not trip the stall report at once (C12)."""
+    clock = [10000.0]
+    with patch("custom_components.opti_akku.coordinator.time.monotonic", side_effect=lambda: clock[0]):
+        coordinator.write_enabled = True
+        await coordinator._async_update_data()
+        assert coordinator._last_apply == 10000.0
+        coordinator.write_enabled = False
+        await coordinator._async_update_data()
+        clock[0] += 3600
+        coordinator.write_enabled = True
+        coordinator.device.async_apply.side_effect = OSError("bus")
+        data = await coordinator._async_update_data()
+        assert data["states"]["binary_sensor.opti_write_stalled"] == "off"
+        clock[0] += 200
+        data = await coordinator._async_update_data()
+        assert data["states"]["binary_sensor.opti_write_stalled"] == "off"
+        clock[0] += 60
+        data = await coordinator._async_update_data()
+        assert data["states"]["binary_sensor.opti_write_stalled"] == "on"
+
+
+@pytest.mark.parametrize("message", [
+    "Ungültige gespeicherte Einstellungen zurückgesetzt: input_number.minsoc",
+    "Schreibfreigabe nach Neustart nicht wiederhergestellt: writer_binding_changed",
+    "Einstellungen nicht übernommen: Grenzwerte oder benötigte Quellen sind nicht mehr gültig. Bitte erneut konfigurieren.",
+])
+async def test_confirmed_write_keeps_restore_and_settings_warnings(coordinator, message):
+    """Only write-related errors are cleared by a confirmed write (C13)."""
+    coordinator._last_error = message
+    coordinator.write_enabled = True
+    data = await coordinator._async_update_data()
+    coordinator.device.async_apply.assert_awaited()
+    assert data["last_error"] == message
+
+
+@pytest.mark.parametrize("failure", [OSError("bus"), "read"])
+async def test_confirmed_write_clears_write_and_read_errors(coordinator, failure):
+    coordinator.write_enabled = True
+    if failure == "read":
+        coordinator.device.async_read.side_effect = OSError("lost")
+        await coordinator._async_update_data()
+        coordinator.device.async_read.side_effect = None
+        # Two good reads pass the reconnect gate before the next write.
+        await coordinator._async_update_data()
+    else:
+        coordinator.device.async_apply.side_effect = failure
+        await coordinator._async_update_data()
+        coordinator.device.async_apply.side_effect = None
+        coordinator._last_apply = None
+    assert coordinator._last_error
+    data = await coordinator._async_update_data()
+    assert data["command_result_this_update"] == "confirmed"
+    assert data["last_error"] is None
+
+
+async def test_single_serial_read_error_keeps_real_sma_driver_online(hass, entry):
+    """Identity is checked every cycle; one ModbusError on 30057 is retried."""
+    from custom_components.opti_akku.sma import SmaDevice
+
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "serial_number": "123456789"})
+    unit = SmaUnit()
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    c = OptiCoordinator(hass, entry, SmaDevice(unit, sleep=AsyncMock()), engine)
+    await c.async_restore()
+    try:
+        await c._async_update_data()
+        await c._async_update_data()
+        c.write_enabled = True
+        unit.fail_once = {30057}
+        unit.reads.clear()
+        data = await c._async_update_data()
+        assert unit.failed == [30057]
+        assert unit.reads.count(30057) == 2
+        assert data["online"] is True
+        assert data["identity"]["serial_number"] == "123456789"
+        assert data["command_result_this_update"] == "confirmed"
+        assert unit.writes
+    finally:
+        await c.async_stop()
+
+
+class SmaUnit:
+    """Minimal raw unit for the real SMA driver in coordinator tests."""
+
+    connected = True
+
+    def __init__(self):
+        self.values = {30051: 8009, 30053: 19051, 30057: 123456789, 33003: 235,
+                       30845: 60, 30849: 220, 40187: 12800, 31393: 0, 31395: 0,
+                       30775: 3000, 30865: 0, 30867: 2200, 30773: 1600, 30961: 1600}
+        self.fail_once = set()
+        self.writes = []
+        self.reads = []
+        self.failed = []
+
+    def set_message_spacing(self, value):
+        pass
+
+    async def read_holding_registers(self, address, count):
+        self.reads.append(address)
+        if address in self.fail_once:
+            self.failed.append(address)
+            self.fail_once.discard(address)
+            raise ModbusError("busy")
+        value = self.values[address]
+        return [value >> 16, value & 0xFFFF]
+
+    async def write_registers(self, address, values):
+        self.writes.append((address, (values[0] << 16) | values[1]))
+
+
+async def test_superseded_command_keeps_an_earlier_write_error(coordinator):
+    """Only a confirmed write clears a write error, never a superseded one."""
+    from custom_components.opti_akku.device import StaleCommandError
+
+    coordinator.write_enabled = True
+    coordinator.device.async_apply.side_effect = OSError("bus")
+    await coordinator._async_update_data()
+    assert coordinator._last_error == "Schreibvorgang nicht bestätigt: OSError"
+    coordinator.device.async_apply.side_effect = StaleCommandError("changed")
+    data = await coordinator._async_update_data()
+    assert data["command_result_this_update"] == "superseded"
+    assert data["last_error"] == "Schreibvorgang nicht bestätigt: OSError"

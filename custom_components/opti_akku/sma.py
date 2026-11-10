@@ -21,7 +21,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from modbus_connection import ModbusConnectionError, ModbusError, ModbusUnit
+from modbus_connection import ModbusConnectionError, ModbusDesyncError, ModbusError, ModbusUnit
 
 from .device import DeviceError as SmaError, StaleCommandError
 
@@ -66,6 +66,9 @@ def ac_surplus_suggestion_w(model_id: object) -> int | None:
 RECONCILE_SECONDS = 120
 SETTLING_SECONDS = 330
 SETTLING_CHARGE_W = 500
+# A pause shorter than this (e.g. a brief protective pause after one missing
+# reading) does not restart the Dynamic settling cap.
+SHORT_PAUSE_SECONDS = 60
 REGISTER_GAP_SECONDS = 0.5
 COMMAND_DELAY_SECONDS = 2.0
 DISARM_TIMEOUT_SECONDS = 3.0
@@ -75,6 +78,11 @@ STATUS_MAX_AGE_SECONDS = 30.0
 
 class UnsupportedDeviceError(SmaError):
     """The read-only identity does not match the STP SE profile."""
+
+
+# Errors after which the Modbus library has dropped or lost the link. They are
+# transport failures: never retried, and they end the current read cycle.
+LINK_ERRORS: tuple[type[BaseException], ...] = (ModbusConnectionError, ModbusDesyncError, TimeoutError)
 
 
 class InvalidDataError(SmaError, ValueError):
@@ -116,6 +124,9 @@ def power_window(target: int, floor: int, *, locked: bool = False) -> tuple[int,
     return (floor if 0 < floor < ceiling else 0, ceiling)
 
 
+SIGNATURE_QUANTUM_W = 50
+
+
 class SmaDevice:
     """One verified STP SE unit; never opens or closes a connection itself."""
 
@@ -149,6 +160,8 @@ class SmaDevice:
         self._status: int | None = None
         self._status_at: float | None = None
         self._dynamic_since: float | None = None
+        # (settling start, pause start) while a pause directly follows Dynamic.
+        self._dynamic_resume: tuple[float, float] | None = None
         # A positive 40149 (fast discharge) survives 803 and would discharge for
         # the 2 s after a later 802 until the new setpoint lands.
         self._discharge_setpoint_armed = False
@@ -206,19 +219,34 @@ class SmaDevice:
             raise InvalidDataError(f"Register {address} reports unavailable data")
         return decode_s32(words) if signed else raw
 
+    async def _read_retry(self, address: int, *, signed: bool = False) -> int:
+        """Retry one plain Modbus exception once with a fresh read.
+
+        A transient error must not void the balance or the identity check. No
+        value is ever held from an earlier cycle; link errors are re-raised.
+        """
+        try:
+            return await self._read(address, signed=signed)
+        except LINK_ERRORS:
+            raise
+        except ModbusError:
+            return await self._read(address, signed=signed)
+
     async def _read_status(self) -> int:
         # Invalidate the cache before I/O so failures cannot leave an old gate open.
         self._status = None
         self._status_at = None
-        value = await self._read(33003)
+        # One fresh retry for a plain Modbus exception; the gate still only
+        # opens on a value actually read now, stamped after that read.
+        value = await self._read_retry(33003)
         self._status, self._status_at = value, self._monotonic()
         return value
 
     async def _probe(self) -> dict[str, Any]:
         self.last_probe_registers = {}
-        device_class = await self._read(30051)
+        device_class = await self._read_retry(30051)
         self.last_probe_registers["device_class"] = device_class
-        model_id = await self._read(30053)
+        model_id = await self._read_retry(30053)
         self.last_probe_registers["model_id"] = model_id
         if device_class != 8009 or model_id not in MODEL_NAMES:
             self._model_id = None
@@ -227,8 +255,10 @@ class SmaDevice:
         self.last_probe_registers["status"] = status
         self._model_id = model_id
         try:
-            serial_number = await self._read(30057)
-        except ModbusError, InvalidDataError, TimeoutError:
+            serial_number = await self._read_retry(30057)
+        except LINK_ERRORS:
+            raise  # A lost link is a transport failure, not a missing serial.
+        except ModbusError, InvalidDataError:
             serial_number = 0
         return {
             "inverter_status": status,
@@ -275,14 +305,14 @@ class SmaDevice:
             for name, address, signed, scale, minimum, maximum in specs:
                 key = f"sensor.opti_{name}"
                 try:
-                    raw = await self._read(address, signed=signed)
+                    raw = await self._read_retry(address, signed=signed)
                     value = raw * scale
                     if not minimum <= value <= maximum:
                         raise InvalidDataError(f"Register {address} outside plausible range")
                     readings[key] = value
                     if name == "inverter_status":
                         self._status, self._status_at = raw, self._monotonic()
-                except (ModbusConnectionError, TimeoutError) as err:
+                except LINK_ERRORS as err:
                     self.last_read_errors["transport"] = str(err)
                     break  # Do not hammer an unreachable device once per sensor.
                 except (ModbusError, InvalidDataError) as err:
@@ -365,6 +395,76 @@ class SmaDevice:
         )
         return result
 
+    def _next_dynamic_since(self, mode: str, now: float) -> float | None:
+        """Settling start the next command of this mode uses; never mutates."""
+        if mode != DYNAMIC:
+            return None
+        if self.last_mode == DYNAMIC and self._dynamic_since is not None:
+            return self._dynamic_since
+        resume = self._dynamic_resume
+        # Only a plain short pause straight from Dynamic keeps the settling
+        # clock; anything else settles again.
+        if self.last_mode == PAUSE and resume is not None and now - resume[1] < SHORT_PAUSE_SECONDS:
+            return resume[0]
+        return now
+
+    @staticmethod
+    def _register_plan(
+        mode: str, p: Mapping[str, int], dynamic_since: float | None, now: float
+    ) -> tuple[tuple[int, int, int, int], int | None]:
+        """Effective register values: BMS windows and the 40149 setpoint.
+
+        The single source for both the written sequence and the signature.
+        """
+        if mode in RAIL_MODES:
+            power = None if mode == AUTO else {
+                FAST_CHARGE: -p["charge_setpoint_w"],
+                FAST_DISCHARGE: p["discharge_setpoint_w"],
+                GRID_CHARGE: -p["charge_power_w"],
+                CHARGE_02C: -p["power_02c_w"],
+            }[mode]
+            return (0, p["max_charge_w"], 0, p["max_discharge_w"]), power
+        target = p["charge_power_w"]
+        if mode == DYNAMIC and dynamic_since is not None and now - dynamic_since < SETTLING_SECONDS:
+            target = min(target, SETTLING_CHARGE_W)
+        charge = power_window(target, p["min_charge_w"], locked=mode in (PAUSE, ONLY_DISCHARGE))
+        discharge = power_window(
+            p["max_discharge_w"], p["min_discharge_w"], locked=mode in (PAUSE, ONLY_CHARGE)
+        )
+        return (charge[0], charge[1], discharge[0], discharge[1]), None
+
+    def command_signature(self, mode: str, parameters: Mapping[str, Any]) -> tuple:
+        """Compare commands by their effective register values.
+
+        Uses the same plan as async_apply, including the model rating clamp
+        and the current Dynamic settling cap, then compares powers in 50 W
+        steps. Whether a value is zero, and its sign, stay exact, so opening
+        or closing a window is always a new command. The end of the settling
+        cap changes the signature. Invalid parameters or an unverified model
+        fall back to an exact comparison; the caller only uses this to decide
+        whether to write, never which values to write.
+        """
+        try:
+            if mode not in MODES:
+                raise InvalidDataError("Unknown adapter mode")
+            p = self._parameters(mode, parameters)
+        except SmaError:
+            return ("exact", mode, *sorted((key, repr(value)) for key, value in parameters.items()))
+        now = self._monotonic()
+        windows, power = self._register_plan(mode, p, self._next_dynamic_since(mode, now), now)
+
+        def q(value: int) -> tuple[int, int]:
+            return (value > 0) - (value < 0), round(value / SIGNATURE_QUANTUM_W)
+
+        if mode == PAUSE:
+            return (mode,)
+        if mode in RAIL_MODES and mode != AUTO:
+            # async_apply writes these BMS windows only when entering the rail
+            # family, which is always a mode change; a repeat writes only 802
+            # and the (clamped) setpoint, so only that counts here.
+            return (mode, q(power or 0))
+        return (mode, *map(q, windows))
+
     async def _write(self, address: int, value: int) -> None:
         if self._read_only:
             self.blocked_write_attempts += 1
@@ -424,6 +524,7 @@ class SmaDevice:
         self.last_mode = PAUSE
         self.last_write = datetime.now(UTC)
         self._dynamic_since = None
+        self._dynamic_resume = None
 
     async def _disarm_discharge_setpoint(self) -> None:
         # Reference sequence 802 -> 40149 -> 803: clear it while 802 is active.
@@ -497,10 +598,17 @@ class SmaDevice:
                 def guard() -> None:
                     self._ensure_current(is_current)
 
+                now = self._monotonic()
+                since = self._next_dynamic_since(mode, now)
                 if mode == DYNAMIC:
-                    if self.last_mode != DYNAMIC or self._dynamic_since is None:
-                        self._dynamic_since = self._monotonic()
+                    self._dynamic_since = since
+                    self._dynamic_resume = None
+                elif mode == PAUSE and self.last_mode == DYNAMIC and self._dynamic_since is not None:
+                    self._dynamic_resume = (self._dynamic_since, now)
+                    self._dynamic_since = None
                 else:
+                    if not (mode == PAUSE and self.last_mode == PAUSE):
+                        self._dynamic_resume = None
                     self._dynamic_since = None
 
                 # Only clear under a confirmed 802; 40149 under 803 is unverified.
@@ -522,7 +630,8 @@ class SmaDevice:
                     touched = True
                     await self._write(40151, 803)
                     await self._sleep(REGISTER_GAP_SECONDS)
-                    await self._bms((0, p["max_charge_w"], 0, p["max_discharge_w"]), 1438, guard)
+                    rail_windows, _ = self._register_plan(mode, p, None, now)
+                    await self._bms(rail_windows, 1438, guard)
                     guard()
                 if mode in RAIL_MODES:
                     guard()
@@ -537,15 +646,11 @@ class SmaDevice:
                         await self._disarm_discharge_setpoint()
                     await self._sleep(COMMAND_DELAY_SECONDS)
                     guard()
-                    if mode == AUTO:
+                    _, setpoint = self._register_plan(mode, p, None, now)
+                    if setpoint is None:
                         await self._write(40151, 803)
                     else:
-                        power = {
-                            FAST_CHARGE: -p["charge_setpoint_w"],
-                            FAST_DISCHARGE: p["discharge_setpoint_w"],
-                            GRID_CHARGE: -p["charge_power_w"],
-                            CHARGE_02C: -p["power_02c_w"],
-                        }[mode]
+                        power = setpoint
                         if power > 0:
                             self._discharge_setpoint_armed = True
                         elif power < 0:
@@ -557,20 +662,9 @@ class SmaDevice:
                             self._charge_setpoint_armed = False
                     guard()
                 else:
-                    target = p["charge_power_w"]
-                    if (
-                        mode == DYNAMIC
-                        and self._dynamic_since is not None
-                        and self._monotonic() - self._dynamic_since < SETTLING_SECONDS
-                    ):
-                        target = min(target, SETTLING_CHARGE_W)
-                    charge = power_window(
-                        target, p["min_charge_w"], locked=mode in (PAUSE, ONLY_DISCHARGE)
-                    )
-                    discharge = power_window(
-                        p["max_discharge_w"],
-                        p["min_discharge_w"],
-                        locked=mode in (PAUSE, ONLY_CHARGE),
+                    # Settling is judged at write time, as before the refactor.
+                    windows, _ = self._register_plan(
+                        mode, p, self._dynamic_since, self._monotonic()
                     )
                     guard()
                     touched = True
@@ -582,7 +676,7 @@ class SmaDevice:
                         mode
                     ]
                     await self._bms(
-                        (*charge, *discharge),
+                        windows,
                         opmod,
                         guard,
                         opmod_address=40236 if mode == DYNAMIC else 41259,

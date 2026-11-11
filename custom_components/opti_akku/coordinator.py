@@ -1486,9 +1486,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if (
                         (peak_rank_control or (isinstance(arbitrage_cfg, dict)
                                                and arbitrage_cfg.get("hold_enabled") is True))
+                        # Numeric comparison: the engine returns states as
+                        # text, the fresh inputs are numbers. Compared raw,
+                        # every write looked superseded (write stall).
                         and (
-                            result.states.get("sensor.opti_price_current_ct_kwh")
-                            != fresh_states.get("sensor.opti_price_current_ct_kwh")
+                            finite(result.states.get("sensor.opti_price_current_ct_kwh"))
+                            != finite(fresh_states.get("sensor.opti_price_current_ct_kwh"))
                         )
                     ):
                         return False

@@ -8,6 +8,16 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Behoben
+
+- Mit eingeschalteter Peak-Rangfolge (experimentell) oder eingeschaltetem
+  Entladeschutz verwarf Opti Akku jeden Schreibbefehl als überholt. Die Prüfung
+  vor dem Schreiben verglich den Preis als Text mit dem Preis als Zahl und hielt
+  ihn immer für geändert. Die Folge war ein Schreibstillstand: Der Wechselrichter
+  bekam keine Sollwerte mehr und regelte selbst, auch unter dem minimalen
+  Ladestand. Wer eine der beiden Optionen eingeschaltet hat, sollte bis zum
+  Update beide ausschalten.
+
 ## [2026.11-beta6] - 2026-11-11
 
 ### Hinzugefügt

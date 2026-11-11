@@ -15,6 +15,14 @@ RECONCILE_SECONDS = 120
 VIOLATION_SETTLE_SECONDS = 10
 VIOLATION_RENEW_SECONDS = 30
 VIOLATION_MAX_RENEWALS = 3
+# Internal cycle failures: grace before the safety pause, error-free time
+# that ends an incident, bounded pause retries and the independent watchdog.
+CYCLE_FAILURE_GRACE_SECONDS = 30
+CYCLE_FAILURE_CLEAR_SECONDS = 60
+FAILSAFE_RETRY_SECONDS = 30
+FAILSAFE_FAST_RETRIES = 3
+CYCLE_WATCHDOG_INTERVAL_SECONDS = 30
+CYCLE_STALL_SECONDS = 120
 CONF_SOURCES = "sources"
 CONF_SETTINGS = "settings"
 NO_RELOAD_OPTION_KEYS = frozenset(

@@ -581,6 +581,27 @@ Schreibstillstand bedeutet: bei freigegebenen Schreibzugriffen seit mehr als
 Zeitpunkt von letztem bestätigtem Schreibvorgang und Einschalten der
 Schreibfreigabe; nach langer abgeschalteter Freigabe beginnt sie also neu.
 
+Bricht der Steuerzyklus mit einem internen Fehler ab, bleibt der letzte Befehl
+zunächst bestehen. Ein einzelner Ausreißer führt zu keinem Schreibzugriff und
+keiner Meldung. Hält der Fehler 30 Sekunden an, schreibt Opti Akku bei
+erteilter Schreibfreigabe „Akku Pause“, meldet einen internen Fehler und hält
+die Pause, bis der Fehler 60 Sekunden lang nicht mehr aufgetreten ist. Die
+Pause wird in dieser Zeit höchstens alle 120 Sekunden erneuert; scheitert sie,
+folgen bis zu drei weitere Versuche im Abstand von 30 Sekunden, danach höchstens
+alle 120 Sekunden, und zusätzlich meldet der Schreibfehler. Das gilt auch im
+manuellen Modus, weil ohne Bewertung dessen Schutzgrenzen nicht prüfbar sind;
+die manuelle Auswahl bleibt erhalten und gilt nach dem Vorfall wieder. Ist der
+Wechselrichter nicht erreichbar oder nicht bereit, bleibt es beim letzten
+Befehl; Verbindungsmeldung und nach 240 Sekunden der Schreibstillstand zeigen
+das an, und sobald das Gerät wieder bereit ist, folgt die Pause. Ohne
+Schreibfreigabe greift Opti Akku nicht ein und meldet nur. Der Diagnosesensor
+**Aktiver Modus** zeigt in diesem Zustand „Akku Pause“; der Grund sagt, ob die Pause
+bestätigt ist. Ursache und Typ stehen in `last_error` und im
+Home-Assistant-Protokoll. Nach dem Vorfall beginnt in „Akku Dynamisch“ die
+330-Sekunden-Begrenzung neu. Schließt ein Steuerzyklus 120 Sekunden lang gar
+nicht ab, meldet ein unabhängiger Watchdog den hängenden Zyklus; schreiben kann
+Opti Akku in diesem Zustand nicht.
+
 Beim nativen Tibber-Preisbezug wartet Opti Akku, bis die Tibber-Integration
 vollständig geladen und ihr Preisdienst verfügbar ist. Die Bereitschaft wird
 bei regulären Aktualisierungen nach frühestens 15 Sekunden erneut geprüft,

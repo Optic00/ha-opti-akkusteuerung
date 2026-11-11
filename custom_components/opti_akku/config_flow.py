@@ -28,9 +28,12 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    ObjectSelector,
+    ObjectSelectorConfig,
     SelectSelector,
     SelectSelectorConfig,
     TextSelector,
+    TimeSelector,
 )
 
 from .const import (
@@ -213,7 +216,7 @@ DEFINITIONS = {**NUMBER_DEFINITIONS, **SWITCH_DEFINITIONS}
 # belong to the original entry. Unknown future options are not copied implicitly.
 SHADOW_COPY_OPTIONS = frozenset({
     *DEFAULT_OPTIONS, *(key for keys in OPTION_GROUPS.values() for key in keys),
-    "tibber_home", "tibber_entry_id", "tibber_eur_confirmed", "notification_service",
+    "tibber_home", "tibber_entry_id", "tibber_eur_confirmed", "price_windows", "notification_service",
     "ev_preparation", "demand_forecast", "arbitrage_estimate", "source_observation",
 }) - {"settings", "single_writer_confirmed", "shadow_reference_mode"}
 SHADOW_COPY_CONNECTION = frozenset({
@@ -276,8 +279,8 @@ class WizardSections:
                 NumberSelectorConfig(min=0, max=5000, step=1, unit_of_measurement="W", mode=NumberSelectorMode.BOX))
         if section == "tariff":
             schema[vol.Required("price_provider", default=self._draft.get("price_provider", "entities"))] = SelectSelector(
-                SelectSelectorConfig(options=["entities", "tibber"], translation_key="price_provider"))
-            if self._draft.get("price_provider") == "tibber":
+                SelectSelectorConfig(options=["entities", "tibber", "fixed_windows"], translation_key="price_provider"))
+            if self._draft.get("price_provider") in ("tibber", "fixed_windows"):
                 schema = {marker: value for marker, value in schema.items()
                           if marker.schema not in ("price_current", "price_series", "price_unit")}
         for name in SETTING_GROUPS.get(section, []):
@@ -332,6 +335,10 @@ class WizardSections:
             return {}
         keys = SOURCE_GROUPS.get(section, [])
         if section == "tariff" and draft.get("price_provider") == "tibber":
+            return {}
+        if section == "tariff" and draft.get("price_provider") == "fixed_windows":
+            # No entity sources; the following window step and the final save
+            # validate the windows themselves.
             return {}
         sources = draft["sources"]
         errors = {}
@@ -469,6 +476,8 @@ class WizardSections:
                     return await self._finish()
                 if section == "tariff" and draft.get("price_provider") == "tibber":
                     return await self.async_step_tibber()
+                if section == "tariff" and draft.get("price_provider") == "fixed_windows":
+                    return await self.async_step_price_windows()
                 if not self._guided:
                     return await (self.async_step_features() if section in ("ev", "balancing") else self.async_step_init())
                 if section == "advanced" and getattr(self, "_shadow_source", None):
@@ -513,15 +522,30 @@ class WizardSections:
                 "mode": "Shadow" if self._connection.get("shadow_mode") else "Standard",
                 "limits": f'{self._settings["input_number.minsoc"]:g}–{self._settings["input_number.maxsoc"]:g} %',
                 "sources": str(len(sources)),
-                "price": (f"Tibber: {self._draft.get('tibber_home', '—')} (EUR/kWh)"
-                          if self._draft.get("price_provider") == "tibber"
-                          else str(sources.get("price_current", "—"))),
+                "price": self._price_summary(),
                 "forecast": str(sources.get("forecast_today", "—"))}
+
+    def _price_summary(self) -> str:
+        provider = self._draft.get("price_provider")
+        if provider == "tibber":
+            return f"Tibber: {self._draft.get('tibber_home', '—')} (EUR/kWh)"
+        if provider == "fixed_windows":
+            from .fixed_prices import format_windows
+
+            return format_windows(self._draft.get("price_windows"))
+        return str(self._draft["sources"].get("price_current", "—"))
 
     async def _validate_final_sources(self, settings: dict) -> bool:
         sections = ["ev"]
         if self._draft.get("strategy_enabled", True):
             sections[:0] = ["sources", "tariff", "forecast", "balancing"]
+        if self._draft.get("strategy_enabled", True) and self._draft.get("price_provider") == "fixed_windows":
+            from .fixed_prices import FixedPriceError, parse_windows
+
+            try:
+                parse_windows(self._draft.get("price_windows"))
+            except FixedPriceError:
+                return False
         if self._draft.get("strategy_enabled", True) and self._draft.get("price_provider") == "tibber":
             from .tibber_prices import TibberPriceError, async_fetch_prices
 
@@ -910,6 +934,37 @@ class WizardSections:
             marker: SelectSelector(SelectSelectorConfig(options=choices)),
             vol.Required("tibber_eur_confirmed", default=self._draft.get("tibber_eur_confirmed", False)): BooleanSelector(),
         }))
+
+    async def async_step_price_windows(self, user_input=None):
+        """Fixed daily windows; they must cover the local day exactly once."""
+        from .fixed_prices import FixedPriceError, normalized_windows
+
+        errors = {}
+        windows = self._draft.get("price_windows") or []
+        if user_input is not None:
+            windows = user_input.get("price_windows") or []
+            try:
+                normalized = normalized_windows(windows)
+            except FixedPriceError as err:
+                errors["base"] = err.code
+            else:
+                self._draft.update(price_provider="fixed_windows", price_windows=normalized)
+                for key in ("price_current", "price_series"):
+                    self._draft["sources"].pop(key, None)
+                return await (self.async_step_forecast() if self._guided else self.async_step_init())
+        marker = (vol.Optional("price_windows", default=windows) if windows
+                  else vol.Optional("price_windows"))
+        selector = ObjectSelector(ObjectSelectorConfig(
+            multiple=True, translation_key="price_windows", label_field="start",
+            fields={
+                "start": {"required": True, "selector": TimeSelector()},
+                "end": {"required": True, "selector": TimeSelector()},
+                "price": {"required": True, "selector": NumberSelector(NumberSelectorConfig(
+                    min=-1000, max=1000, step=0.01, unit_of_measurement="ct/kWh",
+                    mode=NumberSelectorMode.BOX))},
+            }))
+        return self.async_show_form(step_id="price_windows", errors=errors,
+                                    data_schema=vol.Schema({marker: selector}))
 
     async def async_step_forecast(self, user_input=None):
         return await self._section("forecast", user_input)

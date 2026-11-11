@@ -2,7 +2,7 @@
 
 Der native HA-Assistent beginnt mit der Backendwahl
 SMA Modbus oder Huawei Solar. Der SMA-Pfad führt durch Verbindung, Anlage, Batteriegrenzen,
-Stromtarif (einschließlich vorhandener Tibber-Anbindung), PV-Prognose und Benachrichtigungen. Wallboxen und Balancing werden nur bei Bedarf
+Stromtarif (Preisentitäten, vorhandene Tibber-Anbindung oder feste Zeitfenster), PV-Prognose und Benachrichtigungen. Wallboxen und Balancing werden nur bei Bedarf
 abgefragt. Die Zusammenfassung zeigt Quellen, SoC-Grenzen und Shadow-/Standardmodus.
 Erst das abschließende Speichern übernimmt die Einstellungen. Es werden keine
 externen Helfer oder Automationen angelegt.

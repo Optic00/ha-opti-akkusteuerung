@@ -91,7 +91,7 @@
       },
       "tariff": {
         "title": "Electricity tariff",
-        "description": "Tibber uses dated prices from your existing HA integration. Confirm your home and euro tariff in the next step. For other providers, select both price entities; today/tomorrow must contain complete intervals with start, end and timezone. For operation without price optimization, choose Entities and leave both price fields empty.",
+        "description": "Tibber uses dated prices from your existing HA integration. Confirm your home and euro tariff in the next step. For other providers, select both price entities; today/tomorrow must contain complete intervals with start, end and timezone. For operation without price optimization, choose Entities and leave both price fields empty. Fixed time windows: enter your tariff's daily windows with start, end and price in the next step, e.g. for a cheap night window.",
         "data": {
           "price_current": "Current electricity price",
           "price_series": "Price series today/tomorrow",
@@ -242,6 +242,13 @@
           "tibber_eur_confirmed": "My Tibber tariff uses EUR/kWh"
         }
       },
+      "price_windows": {
+        "title": "Fixed time windows",
+        "description": "Enter the tariff's daily windows in local time with price in ct/kWh. Together they must cover the whole day exactly once, without gaps or overlaps; a window may cross midnight (e.g. 05:00 to 00:00). Start and end use 15-minute steps. Opti Akku builds today's and tomorrow's dated prices from them, including days with daylight saving changes. There is no price age check. If the tariff changes, update the windows here.",
+        "data": {
+          "price_windows": "Price windows"
+        }
+      },
       "notifications": {
         "title": "Notifications",
         "description": "Problems always appear as Home Assistant notifications. Optionally select an existing push service. Use the device-page test button to check delivery. The integration cannot alert while HA itself is down.",
@@ -390,7 +397,11 @@
       "ev_deadline_value": "Enter vehicle capacity and charge power for departure planning.",
       "arbitrage_hold_requires_demand": "Enable demand forecasting before activating the residual-value hold.",
       "arbitrage_value": "Enter a value within the stated range for every assumption.",
-      "observation_sources": "Select existing unique sensors; max 8 per list and 16 total."
+      "observation_sources": "Select existing unique sensors; max 8 per list and 16 total.",
+      "price_windows_invalid": "Enter at least one window with start, end and a price between -1000 and 1000 ct/kWh.",
+      "price_windows_gap": "The windows leave part of the day uncovered. Together they must cover all 24 hours.",
+      "price_windows_overlap": "Windows overlap. Each time of day may belong to exactly one window.",
+      "price_windows_grid": "Start and end must be on 15-minute steps (e.g. 05:00 or 05:15)."
     },
     "abort": {
       "already_configured": "An entry already exists for this device and operating mode.",
@@ -474,7 +485,7 @@
       },
       "tariff": {
         "title": "Electricity tariff",
-        "description": "Tibber uses dated prices from your existing HA integration. Confirm your home and euro tariff in the next step. For other providers, select both price entities; today/tomorrow must contain complete intervals with start, end and timezone. For operation without price optimization, choose Entities and leave both price fields empty.",
+        "description": "Tibber uses dated prices from your existing HA integration. Confirm your home and euro tariff in the next step. For other providers, select both price entities; today/tomorrow must contain complete intervals with start, end and timezone. For operation without price optimization, choose Entities and leave both price fields empty. Fixed time windows: enter your tariff's daily windows with start, end and price in the next step, e.g. for a cheap night window.",
         "data": {
           "price_current": "Current electricity price",
           "price_series": "Price series today/tomorrow",
@@ -582,6 +593,13 @@
         "data": {
           "tibber_home": "Tibber home",
           "tibber_eur_confirmed": "My Tibber tariff uses EUR/kWh"
+        }
+      },
+      "price_windows": {
+        "title": "Fixed time windows",
+        "description": "Enter the tariff's daily windows in local time with price in ct/kWh. Together they must cover the whole day exactly once, without gaps or overlaps; a window may cross midnight (e.g. 05:00 to 00:00). Start and end use 15-minute steps. Opti Akku builds today's and tomorrow's dated prices from them, including days with daylight saving changes. There is no price age check. If the tariff changes, update the windows here.",
+        "data": {
+          "price_windows": "Price windows"
         }
       },
       "notifications": {
@@ -720,7 +738,11 @@
       "ev_soc_unit": "Vehicle SOC must use percent (%).",
       "ev_deadline_value": "Enter vehicle capacity and charge power for departure planning.",
       "huawei_temperature_required": "A valid Huawei battery temperature is missing. Select it under System and measurements or Connection. Read-only telemetry is available in shadow mode with strategy disabled.",
-      "huawei_house_source_required": "Huawei requires an existing house consumption sensor. The SMA single-inverter balance is not available here."
+      "huawei_house_source_required": "Huawei requires an existing house consumption sensor. The SMA single-inverter balance is not available here.",
+      "price_windows_invalid": "Enter at least one window with start, end and a price between -1000 and 1000 ct/kWh.",
+      "price_windows_gap": "The windows leave part of the day uncovered. Together they must cover all 24 hours.",
+      "price_windows_overlap": "Windows overlap. Each time of day may belong to exactly one window.",
+      "price_windows_grid": "Start and end must be on 15-minute steps (e.g. 05:00 or 05:15)."
     }
   },
   "entity": {
@@ -1401,7 +1423,21 @@
     "price_provider": {
       "options": {
         "entities": "Price entities",
-        "tibber": "Tibber (existing HA integration)"
+        "tibber": "Tibber (existing HA integration)",
+        "fixed_windows": "Fixed time windows"
+      }
+    },
+    "price_windows": {
+      "fields": {
+        "start": {
+          "name": "Start"
+        },
+        "end": {
+          "name": "End"
+        },
+        "price": {
+          "name": "Price"
+        }
       }
     },
     "plant_mode": {

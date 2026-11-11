@@ -8,6 +8,16 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- **Feste Zeitfenster als Preisquelle** (#204), etwa für Tarife mit günstigem
+  Nachtfenster. Im Stromtarif-Schritt „Feste Zeitfenster“ wählen und die Fenster
+  mit Beginn, Ende und Preis in ct/kWh eintragen. Opti Akku erzeugt daraus die
+  Preise für heute und morgen, auch an Tagen mit Zeitumstellung. Die Fenster
+  müssen den Tag lückenlos und ohne Überschneidung abdecken; ein Fenster über
+  Mitternacht ist möglich. Eine Altersprüfung entfällt, Anbieter-Sensoren werden
+  nicht gelesen. Bestehende Preisquellen ändern sich nicht.
+
 ## [2026.11-beta3] - 2026-11-11
 
 ### Geändert

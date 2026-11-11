@@ -283,3 +283,16 @@ async def test_fetch_reads_only_the_evopt_part_of_the_state():
 def test_oversized_plans_are_rejected_before_parsing():
     plan = derive_plan(evopt(slots=[SLOTS[4]] * (MAX_SLOTS + 1)), T0)
     assert plan == {"status": "too_many_slots"}
+
+
+def test_restore_keeps_a_snapshot_saved_before_ladder_unrated():
+    comparison = EvccComparison()
+    comparison.observe(T0, ready())
+    comparison.observe(T0 + timedelta(seconds=30), ready())
+    saved = comparison.snapshot()
+    del saved["ladder_unrated_seconds"]
+    restored = EvccComparison()
+    restored.restore(saved)
+    assert restored.snapshot()["ready_seconds"] == 30
+    assert restored.snapshot()["ladder_unrated_seconds"] == 0
+    assert restored.snapshot()["started_at"] == T0.isoformat()

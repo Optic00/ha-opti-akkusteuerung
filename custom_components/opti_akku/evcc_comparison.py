@@ -57,6 +57,8 @@ _VERDICT_COUNTERS = tuple(f"{verdict}_seconds" for verdict in VERDICTS)
 _SOURCE_COUNTERS = tuple(f"{source}_seconds" for source in SOURCES)
 _COUNTERS = ("ready_seconds", *_VERDICT_COUNTERS, *_SOURCE_COUNTERS,
              "derivation_checked_seconds", "derivation_mismatch_seconds")
+# Added after version 1 was first stored; missing in older saves means zero.
+_COUNTERS_ADDED = frozenset({"ladder_unrated_seconds"})
 NOTE = (
     "evcc plans with its own battery limits, load profile and forecasts and "
     "knows neither the maxsoc cap nor the peak reserve. A difference shows "
@@ -315,7 +317,7 @@ class EvccComparison:
                 stamps[key] = raw
             counters: dict[str, float] = {}
             for key in _COUNTERS:
-                value = _number(saved.get(key))
+                value = 0.0 if key in _COUNTERS_ADDED and key not in saved else _number(saved.get(key))
                 if value is None or value < 0:
                     return
                 counters[key] = value

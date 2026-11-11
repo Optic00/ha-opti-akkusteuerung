@@ -35,7 +35,7 @@ Dies ist ein benutzerdefiniertes HACS-Repository, keine behauptete Aufnahme in d
 ## Funktionen
 
 - SMA-Telemetrie und Steuerung über die Modbus-Schnittstelle von HA; wahlweise Beobachtung, Strategie oder manuelle Betriebsarten.
-- Lade-/Entladegrenzen, Hysterese, Preisfenster, Reserveplanung und optionale Balancing-Planung.
+- Lade-/Entladegrenzen, optionale Ladekurve am Ladeende, Hysterese, Preisfenster, Reserveplanung und optionale Balancing-Planung.
 - Native Tibber-Preise über die vorhandene HA-Integration, zugeordnete Preisentitäten oder feste Zeitfenster (etwa ein Nachttarif).
 - Optionaler Wirtschaftlichkeitsvergleich und Energierestwert mit ausdrücklich eingetragenen Kosten- und Effizienzannahmen; ein darauf beruhender automatischer Entladeschutz für SMA ist separat zuschaltbar und standardmäßig aus.
 - Optionales Stundenverbrauchsprofil mit Recorder-Import und gesonderter Aktivierung für die Peak-Reserve.

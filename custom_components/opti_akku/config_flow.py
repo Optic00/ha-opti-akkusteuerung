@@ -7,6 +7,7 @@ from copy import deepcopy
 from uuid import uuid4
 
 from homeassistant.util import dt as dt_util
+from .charge_curve import MAX_POWER_W as MAX_CURVE_POWER_W, ChargeCurveError, normalized_curve
 from .definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
 from .coordinator import validate_setting
 from .migration import MIGRATABLE, snapshot, describe
@@ -229,7 +230,7 @@ def _evcc_url_valid(url: str) -> bool:
 # belong to the original entry. Unknown future options are not copied implicitly.
 SHADOW_COPY_OPTIONS = frozenset({
     *DEFAULT_OPTIONS, *(key for keys in OPTION_GROUPS.values() for key in keys),
-    "tibber_home", "tibber_entry_id", "tibber_eur_confirmed", "price_windows", "notification_service",
+    "tibber_home", "tibber_entry_id", "tibber_eur_confirmed", "price_windows", "charge_curve", "notification_service",
     "ev_preparation", "demand_forecast", "arbitrage_estimate", "source_observation",
     "evcc_comparison",
 }) - {"settings", "single_writer_confirmed", "shadow_reference_mode"}
@@ -311,6 +312,20 @@ class WizardSections:
                     config["unit_of_measurement"] = definition["unit_of_measurement"]
                 selector = NumberSelector(config)
             schema[vol.Required(name, default=self._settings[key])] = selector
+        if section == "battery":
+            # A suggestion, not a default: an emptied list must clear the curve.
+            curve = self._draft.get("charge_curve") or []
+            marker = (vol.Optional("charge_curve", description={"suggested_value": curve}) if curve
+                      else vol.Optional("charge_curve"))
+            schema[marker] = ObjectSelector(ObjectSelectorConfig(
+                multiple=True, translation_key="charge_curve", label_field="soc",
+                fields={
+                    "soc": {"required": True, "selector": NumberSelector(NumberSelectorConfig(
+                        min=0, max=100, step=1, unit_of_measurement="%", mode=NumberSelectorMode.BOX))},
+                    "power_w": {"required": True, "selector": NumberSelector(NumberSelectorConfig(
+                        min=0, max=MAX_CURVE_POWER_W, step=1, unit_of_measurement="W",
+                        mode=NumberSelectorMode.BOX))},
+                }))
         return vol.Schema(schema)
 
     def _huawei_temperature_valid(self, connection=None, draft=None) -> bool:
@@ -464,6 +479,16 @@ class WizardSections:
                     connection["huawei_sources"].pop("battery_temp", None)
             if section == "finish":
                 draft["shadow_reference_mode"] = user_input.get("shadow_reference_mode") or ""
+            if section == "battery":
+                try:
+                    curve = normalized_curve(user_input.get("charge_curve") or [])
+                except ChargeCurveError as err:
+                    errors["charge_curve"] = err.code
+                else:
+                    if curve:
+                        draft["charge_curve"] = curve
+                    else:
+                        draft.pop("charge_curve", None)  # Empty list: no curve, as before.
             for name in SETTING_GROUPS.get(section, []):
                 if name in user_input:
                     settings[_setting_key(name)] = user_input[name]

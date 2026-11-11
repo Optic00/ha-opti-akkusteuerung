@@ -37,6 +37,7 @@ from .arbitrage import (
 )
 from .battery_model import ENGINE_ENTITY as BATTERY_MODEL_ENTITY
 from .battery_model import BatteryModel
+from .charge_curve import ChargeCurveError, curve_limit, parse_curve
 from .command_evidence import build_command_evidence
 from .device import PendingCommandError, DeviceAdapter, StaleCommandError
 from .engine import Evaluation
@@ -874,7 +875,33 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 parameters["charge_power_w"] = min(parameters["charge_power_w"], ceiling)
             parameters["max_charge_w"] = ceiling
             parameters["charge_setpoint_w"] = min(parameters["charge_setpoint_w"], ceiling)
+        if (curve := self._charge_curve_limit(states)) is not None:
+            # Last step, minimum only: in every mode the curve can lower these
+            # values, never raise them. Later steps in the update only lower
+            # them further or raise charge_power_w up to max_charge_w (PV
+            # peak), which is capped here too. The floor follows the ceiling
+            # so a small curve power stays a small window, not a closed one.
+            for key in ("charge_power_w", "charge_setpoint_w", "max_charge_w", "min_charge_w"):
+                parameters[key] = min(parameters[key], curve[0])
         return parameters
+
+    def _charge_curve_limit(self, states: Mapping[str, Any]) -> tuple[float, str] | None:
+        """Ceiling and readable note of the optional charge curve (#205).
+
+        Invalid stored points block charging (fail-closed) instead of being
+        ignored; the options flow only stores validated curves.
+        """
+        try:
+            curve = parse_curve(self.entry.options.get("charge_curve"))
+        except ChargeCurveError:
+            return 0.0, "Ladekurve ungültig: Laden gesperrt"
+        limit = curve_limit(curve, finite(states.get("sensor.opti_soc")))
+        if limit is None:
+            return None
+        power, start = limit
+        if start is None:
+            return float(power), "Ladekurve: Ladestand unbekannt, kleinste Kurvenleistung"
+        return float(power), f"Ladekurve ab {start} % SoC: Obergrenze aktiv"
 
     async def _async_update_data(self) -> dict[str, Any]:
         self._schedule_price_fetch()
@@ -1301,6 +1328,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         temperature = finite(result.states.get("sensor.opti_battery_temp"))
         if self.manual_mode and temperature is not None and temperature >= 45:
             charge_power_limits.append("Akkutemperatur ab 45 °C: Ladeleistung im manuellen Modus begrenzt")
+        if (curve := self._charge_curve_limit(result.states)) is not None:
+            charge_power_limits.append(curve[1])
         if arbitrage_hold.get("hold_controls_battery"):
             params["min_charge_w"] = 0
             params["min_discharge_w"] = 0

@@ -6044,3 +6044,24 @@ async def test_reload_handover_keeps_manual_soc_blocks_of_the_session(hass, entr
     await old.async_stop()
     await new.async_stop()
     await strategy.async_stop()
+
+
+async def test_reload_handover_drops_soc_blocks_when_limits_changed(hass, entry):
+    """Changed minsoc/maxsoc end the hysteresis, as a change while running does."""
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    old = OptiCoordinator(hass, entry, device(), engine)
+    await old.async_restore()
+    old.manual_mode = "Akku nur Laden"
+    old._manual_charge_blocked = True
+    old._manual_discharge_blocked = True
+    handover = {**old.reload_handover(), "at": time.monotonic()}
+    new = OptiCoordinator(hass, entry, device(), engine)
+    await new.async_restore({**handover, "maxsoc": handover["maxsoc"] - 2})
+    assert new.manual_mode == "Akku nur Laden"
+    assert new._manual_charge_blocked is False and new._manual_discharge_blocked is False
+    legacy = OptiCoordinator(hass, entry, device(), engine)
+    await legacy.async_restore({k: v for k, v in handover.items() if k not in ("minsoc", "maxsoc")})
+    assert legacy._manual_charge_blocked is False
+    await old.async_stop()
+    await new.async_stop()
+    await legacy.async_stop()

@@ -424,6 +424,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {"manual_mode": self.manual_mode,
                 "manual_charge_blocked": self._manual_charge_blocked,
                 "manual_discharge_blocked": self._manual_discharge_blocked,
+                "minsoc": self.settings["input_number.minsoc"],
+                "maxsoc": self.settings["input_number.maxsoc"],
                 "write_enabled": self.write_enabled,
                 "manual_charge_limit": self.settings["input_boolean.opti_manuelle_ladegrenze"],
                 "connection": dict(self.connection_config), "sources": dict(self.source_options)}
@@ -557,9 +559,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.info("Manueller Modus %s nach Neuladen durch Aktivieren einer Entität beibehalten", handover_mode)
         # SoC blocks belong to one manual session; the first cycle after a
         # start derives them from the current SoC. Old stored keys are ignored.
-        # A handed-over manual session keeps its blocks.
+        # A handed-over manual session keeps its blocks while its limits are
+        # unchanged; a limit change resets them like a change while running.
         self._reset_manual_soc_blocks()
-        if handover_mode is not None and handover is not None:
+        if (handover_mode is not None and handover is not None
+                and handover.get("minsoc") == self.settings["input_number.minsoc"]
+                and handover.get("maxsoc") == self.settings["input_number.maxsoc"]):
             self._manual_charge_blocked = handover.get("manual_charge_blocked") is True
             self._manual_discharge_blocked = handover.get("manual_discharge_blocked") is True
         self._manual_ev_latched = stored.get("manual_ev_latched") is True

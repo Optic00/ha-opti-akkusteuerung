@@ -10,6 +10,13 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Hinzugefügt
 
+- **Feste Zeitfenster als Preisquelle** (#204), etwa für Tarife mit günstigem
+  Nachtfenster. Im Stromtarif-Schritt „Feste Zeitfenster“ wählen und die Fenster
+  mit Beginn, Ende und Preis in ct/kWh eintragen. Opti Akku erzeugt daraus die
+  Preise für heute und morgen, auch an Tagen mit Zeitumstellung. Die Fenster
+  müssen den Tag lückenlos und ohne Überschneidung abdecken; ein Fenster über
+  Mitternacht ist möglich. Eine Altersprüfung entfällt, Anbieter-Sensoren werden
+  nicht gelesen. Bestehende Preisquellen ändern sich nicht.
 - SMA Sunny Island als ausschließlich lesendes Testprofil über Modbus TCP
   ([#194](https://github.com/Optic00/ha-opti-akkusteuerung/issues/194)). Es läuft
   wie das SBS-Profil immer im Shadow-Modus und weist jeden Schreibversuch ab.

@@ -252,3 +252,18 @@ async def test_diagnostics_shows_the_sbs_register_probe_without_serial(hass):
     ]
     assert "3012345678" not in json.dumps(result)
     assert "192.0.2.44" not in json.dumps(result)
+
+
+async def test_diagnostics_counts_fixed_price_windows_without_prices(hass):
+    """#204: support sees the configured source, not the tariff itself."""
+    entry = MockConfigEntry(domain="opti_akku", data={}, options={
+        "price_provider": "fixed_windows",
+        "price_windows": [{"start": "00:00", "end": "05:00", "price": 21.74},
+                          {"start": "05:00", "end": "00:00", "price": 31.74}],
+    })
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert result["configuration"]["price_provider"] == "fixed_windows"
+    assert result["configuration"]["price_window_count"] == 2
+    assert "21.74" not in json.dumps(result)

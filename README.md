@@ -36,7 +36,7 @@ Dies ist ein benutzerdefiniertes HACS-Repository, keine behauptete Aufnahme in d
 
 - SMA-Telemetrie und Steuerung über die Modbus-Schnittstelle von HA; wahlweise Beobachtung, Strategie oder manuelle Betriebsarten.
 - Lade-/Entladegrenzen, Hysterese, Preisfenster, Reserveplanung und optionale Balancing-Planung.
-- Native Tibber-Preise über die vorhandene HA-Integration oder zugeordnete Preisentitäten.
+- Native Tibber-Preise über die vorhandene HA-Integration, zugeordnete Preisentitäten oder feste Zeitfenster (etwa ein Nachttarif).
 - Optionaler Wirtschaftlichkeitsvergleich und Energierestwert mit ausdrücklich eingetragenen Kosten- und Effizienzannahmen; ein darauf beruhender automatischer Entladeschutz für SMA ist separat zuschaltbar und standardmäßig aus.
 - Optionales Stundenverbrauchsprofil mit Recorder-Import und gesonderter Aktivierung für die Peak-Reserve.
 - „Hausverbrauch enthält Wallbox-Ladung“ bereinigt auch die Forecast-Scores. Bei ungültigen EV-Daten dient die gültige unbereinigte Hauslast als Ersatz. `reserve_plan` zeigt Sonnentag-Score, Horizontgrund und Fehler der EV-Bereinigung.

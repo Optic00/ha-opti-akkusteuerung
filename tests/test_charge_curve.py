@@ -307,7 +307,7 @@ async def test_downstream_pv_peak_release_is_capped_by_the_curve(coordinator, ha
     assert "PV-Spitze: Drossel gelöst (nachgelagerter PV-Lademodus)" in limits
     max_w = coordinator.settings["input_number.akkusteuerung_max_ladestaerke"]
     assert params["charge_power_w"] == (max_w if cap is None else cap)
-    assert ("Ladekurve ab 50 % SoC: Obergrenze aktiv" in limits) == (cap is not None)
+    assert ("Ladekurve ab 50 % SoC: Obergrenze aktiv (frei ab 48 %)" in limits) == (cap is not None)
 
 
 @pytest.mark.parametrize("mode", ["Akku schnell Laden", "Akku Netzladen", "Akku 0.2C Laden",
@@ -327,7 +327,7 @@ async def test_manual_modes_and_hot_battery_obey_the_curve(coordinator, hass, mo
         assert after[key] == min(before[key], 250)
     assert "Akkutemperatur ab 45 °C: Ladeleistung im manuellen Modus begrenzt" in data[
         "reason_details"]["charge_power_limits"]
-    assert "Ladekurve ab 85 % SoC: Obergrenze aktiv" in data["reason_details"]["charge_power_limits"]
+    assert "Ladekurve ab 85 % SoC: Obergrenze aktiv (frei ab 83 %)" in data["reason_details"]["charge_power_limits"]
 
 
 async def test_invalid_stored_curve_blocks_charging(coordinator):
@@ -368,10 +368,11 @@ async def test_hold_follows_real_cycles_and_names_the_release_point(coordinator)
         notes.append([n for n in data["reason_details"]["charge_power_limits"] if n.startswith("Ladekurve")])
     assert notes == [
         # Start without memory at 98 %: the 99 % point is within its band.
-        ["Ladekurve ab 99 % SoC: Obergrenze aktiv (gehalten, frei ab 97 %)"],
-        ["Ladekurve ab 99 % SoC: Obergrenze aktiv"],
-        ["Ladekurve ab 99 % SoC: Obergrenze aktiv (gehalten, frei ab 97 %)"],
-        ["Ladekurve ab 98 % SoC: Obergrenze aktiv (gehalten, frei ab 96 %)"],
+        # Same text while the binding point stays, inside and above its band.
+        ["Ladekurve ab 99 % SoC: Obergrenze aktiv (frei ab 97 %)"],
+        ["Ladekurve ab 99 % SoC: Obergrenze aktiv (frei ab 97 %)"],
+        ["Ladekurve ab 99 % SoC: Obergrenze aktiv (frei ab 97 %)"],
+        ["Ladekurve ab 98 % SoC: Obergrenze aktiv (frei ab 96 %)"],
     ]
     assert coordinator._charge_curve_held == frozenset({85, 93, 98})
     assert coordinator._parameters(data["states"])["max_charge_w"] == 3000
@@ -414,3 +415,32 @@ async def test_hold_keeps_the_minimum_with_every_other_limit(coordinator, held, 
         cap = curve_limit(parse_curve(SVEN), soc, held)
         for key in CHARGE_KEYS:
             assert after[key] == (before[key] if cap is None else min(before[key], cap[0]))
+
+
+async def test_a_failed_cycle_forgets_the_hold(coordinator):
+    """A cycle that fails before advancing the hold must not keep a milder one."""
+    with_curve(coordinator, SVEN)
+    reads = coordinator.device.async_read.return_value
+    for soc in (95, 98):
+        reads[SOC] = soc
+        await coordinator._async_update_data()
+    assert coordinator._charge_curve_held == frozenset({85, 93, 98})
+    with patch.object(coordinator.engine, "evaluate", side_effect=RuntimeError("boom")):
+        data = await coordinator._async_update_data()
+    assert data["decision_id"] == "internal_error"
+    assert coordinator._charge_curve_held is None
+    reads[SOC] = 98
+    await coordinator._async_update_data()
+    assert coordinator._charge_curve_held == frozenset({85, 93, 98, 99})
+    assert coordinator._parameters({SOC: 98})["max_charge_w"] == 250
+
+
+def test_note_for_a_point_without_release_band():
+    from custom_components.opti_akku.coordinator import OptiCoordinator as C
+
+    class Fake:
+        entry = type("E", (), {"options": {"charge_curve": [point(1, 500)]}})()
+        _charge_curve_held = None
+        _parse_charge_curve = C._parse_charge_curve
+
+    assert C._charge_curve_limit(Fake(), {SOC: 50}) == (500.0, "Ladekurve ab 1 % SoC: Obergrenze aktiv")

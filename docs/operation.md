@@ -690,7 +690,7 @@ Ladeleistung gewählt hat, zeigen diese Entitäten.
   Strategie und Auto-Vorbereitung (`engine_mode`) und Begrenzungen der
   Ladeleistung danach (`charge_power_limits`), etwa durch die
   Auto-Vorbereitung oder die Ladekurve (`Ladekurve ab 93 % SoC: Obergrenze
-  aktiv`). Weicht der aktive Modus von `engine_mode` ab, hat eine
+  aktiv (frei ab 91 %)`). Weicht der aktive Modus von `engine_mode` ab, hat eine
   Schutzregel oder die manuelle Auswahl übernommen. Bei ausgeschalteter
   Strategie steht dort `Beobachtung` und `decision_id` ist `unknown`.
 - **Ziel-Ladestand**: Das Attribut `branch` zeigt das Verhältnis aus erwartetem

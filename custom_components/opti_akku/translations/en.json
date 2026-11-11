@@ -88,7 +88,7 @@
         },
         "data_description": {
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 turns this off. Useful when PV power exceeds the inverter's AC power and output is clipped around midday. The battery then charges from surplus above the limit if PV surplus charging is allowed. Suggestion for the detected model: {ac_limit_suggestion}. The value is not applied automatically.",
-          "charge_curve": "Up to five points of charge level and maximum charge power. From a point's charge level upwards its power is the upper limit; below the first point the curve does not limit. When the charge level falls, a point holds until it is 2 percentage points below it. Example: from 85 % 4000 W, from 93 % 3000 W, from 99 % 250 W, at 100 % 70 W. It applies in every mode, including manual modes and grid charging, and only lowers: temperature, balancing and maximum charge power stay active, and a PV peak does not lift it. Power must not rise with the charge level. 0 W blocks charging from that point. Leave empty for unchanged behaviour."
+          "charge_curve": "Up to five points of charge level and maximum charge power. From a point's charge level upwards its power is the upper limit; when the charge level falls, a point holds until it is 2 percentage points below it. Below that band of the first point the curve does not limit. Example: from 85 % 4000 W, from 93 % 3000 W, from 99 % 250 W, at 100 % 70 W. It applies in every mode, including manual modes and grid charging, and only lowers: temperature, balancing and maximum charge power stay active, and a PV peak does not lift it. Power must not rise with the charge level. 0 W blocks charging from that point. Leave empty for unchanged behaviour."
         }
       },
       "tariff": {
@@ -491,7 +491,7 @@
         },
         "data_description": {
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 turns this off. Useful when PV power exceeds the inverter's AC power and output is clipped around midday. The battery then charges from surplus above the limit if PV surplus charging is allowed. Suggestion for the detected model: {ac_limit_suggestion}. The value is not applied automatically.",
-          "charge_curve": "Up to five points of charge level and maximum charge power. From a point's charge level upwards its power is the upper limit; below the first point the curve does not limit. When the charge level falls, a point holds until it is 2 percentage points below it. Example: from 85 % 4000 W, from 93 % 3000 W, from 99 % 250 W, at 100 % 70 W. It applies in every mode, including manual modes and grid charging, and only lowers: temperature, balancing and maximum charge power stay active, and a PV peak does not lift it. Power must not rise with the charge level. 0 W blocks charging from that point. Leave empty for unchanged behaviour."
+          "charge_curve": "Up to five points of charge level and maximum charge power. From a point's charge level upwards its power is the upper limit; when the charge level falls, a point holds until it is 2 percentage points below it. Below that band of the first point the curve does not limit. Example: from 85 % 4000 W, from 93 % 3000 W, from 99 % 250 W, at 100 % 70 W. It applies in every mode, including manual modes and grid charging, and only lowers: temperature, balancing and maximum charge power stay active, and a PV peak does not lift it. Power must not rise with the charge level. 0 W blocks charging from that point. Leave empty for unchanged behaviour."
         }
       },
       "tariff": {

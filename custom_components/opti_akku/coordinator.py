@@ -912,9 +912,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         power, start = limit
         if start is None:
             return float(power), "Ladekurve: Ladestand unbekannt, kleinste Kurvenleistung"
+        # Stable per binding point: the text must not flap with the SoC
+        # inside the band, it lands in recorded attributes (#129).
         note = f"Ladekurve ab {start} % SoC: Obergrenze aktiv"
-        if soc is not None and soc < start:
-            note += f" (gehalten, frei ab {start - HYSTERESIS_POINTS} %)"
+        if start - HYSTERESIS_POINTS >= 0:
+            note += f" (frei ab {start - HYSTERESIS_POINTS} %)"
         return float(power), note
 
     def _update_charge_curve_hold(self, states: Mapping[str, Any]) -> None:
@@ -1750,6 +1752,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_cycle_failed(self, err: Exception, now: datetime, monotonic_now: float,
                                   connection: dict[str, Any], read_errors: Any) -> dict[str, Any]:
         """Handle an unexpected exception in the cycle body with a degraded data set."""
+        # The cycle did not advance the curve hold; the next good cycle
+        # starts from the stricter reading, as after an unknown SoC.
+        self._charge_curve_held = None
         try:
             error_type = type(err).__name__
             if self._cycle_fail_first is None or error_type != self._cycle_fail_type:

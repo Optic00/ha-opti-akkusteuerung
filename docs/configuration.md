@@ -62,7 +62,7 @@ bis zu fünf Punkten eintragen, jeweils Ladestand in Prozent und maximale
 Ladeleistung in Watt ([#205](https://github.com/Optic00/ha-opti-akkusteuerung/issues/205)).
 Ab dem Ladestand eines Punkts gilt seine Leistung als Obergrenze, bis der
 nächste Punkt erreicht ist. Unterhalb des ersten Punkts begrenzt die Kurve
-nicht. Ein Beispiel für einen Akku, dessen BMS am Ladeende abschaltet:
+nicht, abgesehen vom Hystereseband (siehe unten). Ein Beispiel für einen Akku, dessen BMS am Ladeende abschaltet:
 
 | Ab Ladestand | Maximale Ladeleistung |
 |---:|---:|
@@ -120,13 +120,15 @@ Kleine Leistungen und Sonderfälle:
   Zustand liegt nur im Speicher. Nach einem Neustart, einem Neuladen oder
   einem unbekannten Ladestand gilt jeder Punkt innerhalb seines Bands als
   erreicht, also die niedrigere der beiden infrage kommenden Leistungen.
-  `charge_power_limits` zeigt eine gehaltene Stufe mit Freigabepunkt, etwa
-  `Ladekurve ab 99 % SoC: Obergrenze aktiv (gehalten, frei ab 97 %)`.
+  `charge_power_limits` nennt die wirksame Stufe mit ihrem Freigabepunkt,
+  etwa `Ladekurve ab 99 % SoC: Obergrenze aktiv (frei ab 97 %)`. Der Text
+  bleibt gleich, solange dieselbe Stufe wirkt. Auch ein fehlgeschlagener
+  Steuerzyklus verwirft den gemerkten Zustand.
 - Ist der Ladestand unbekannt, gilt die kleinste Leistung der Kurve. Eine
   gespeicherte, ungültige Kurve sperrt das Laden.
 
 Ob die Kurve gerade greift, zeigt der **Entscheidungsgrund** im Attribut
-`charge_power_limits`, etwa `Ladekurve ab 93 % SoC: Obergrenze aktiv`, siehe
+`charge_power_limits`, etwa `Ladekurve ab 93 % SoC: Obergrenze aktiv (frei ab 91 %)`, siehe
 [Entscheidungen nachvollziehen](operation.md#entscheidungen-nachvollziehen).
 Die **Geplante Ladeleistung** der Strategie enthält die Kurve nicht.
 

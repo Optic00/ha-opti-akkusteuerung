@@ -8,6 +8,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+## [2026.11-beta7] - 2026-11-11
+
 ### Behoben
 
 - Mit eingeschalteter Peak-Rangfolge (experimentell) oder eingeschaltetem
@@ -635,7 +637,8 @@ Alle Korrekturen aus [#196](https://github.com/Optic00/ha-opti-akkusteuerung/pul
 - Frühere YAML-Lösung bleibt im Legacy-Archiv erhalten. Bestehende
   Integrationseinträge bei der Migration beibehalten.
 
-[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta6...HEAD
+[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta7...HEAD
+[2026.11-beta7]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta7
 [2026.11-beta6]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta6
 [2026.11-beta5]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta5
 [2026.11-beta4]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta4

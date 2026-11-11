@@ -207,6 +207,8 @@ damit Netzladen nicht mit Maximalleistung aus dem Netz zieht. Schalten
 Arbitrage-Halten oder die Auto-Vorbereitung nachträglich auf „Akku nur Laden“
 oder „Akku Dynamisch“, hebt die Steuerung die Drossel unter denselben
 Bedingungen ebenfalls auf (Hinweis `PV-Spitze` in `charge_power_limits`).
+Eine eingetragene [Ladekurve](configuration.md#ladekurve-am-ladeende) hebt die
+Freigabe nicht auf; sie bleibt als Obergrenze wirksam.
 
 Die eigentliche Steuerung hat drei getrennte Ebenen:
 
@@ -687,7 +689,8 @@ Ladeleistung gewählt hat, zeigen diese Entitäten.
   Attribute nennen die interne Regel (`decision_id`), die Betriebsart nach
   Strategie und Auto-Vorbereitung (`engine_mode`) und Begrenzungen der
   Ladeleistung danach (`charge_power_limits`), etwa durch die
-  Auto-Vorbereitung. Weicht der aktive Modus von `engine_mode` ab, hat eine
+  Auto-Vorbereitung oder die Ladekurve (`Ladekurve ab 93 % SoC: Obergrenze
+  aktiv (frei ab 91 %)`). Weicht der aktive Modus von `engine_mode` ab, hat eine
   Schutzregel oder die manuelle Auswahl übernommen. Bei ausgeschalteter
   Strategie steht dort `Beobachtung` und `decision_id` ist `unknown`.
 - **Ziel-Ladestand**: Das Attribut `branch` zeigt das Verhältnis aus erwartetem
@@ -698,7 +701,8 @@ Ladeleistung gewählt hat, zeigen diese Entitäten.
   SoC-Stufe, manuelle Ladegrenze, Temperaturdrosselung, die Obergrenze
   **Max. Ladeleistung**, die PV-Spitzen-Freigabe und die Balancing-Begrenzung,
   jeweils nur wenn sie greifen. Der Wert nach „Ergebnis“ ist die geplante
-  Ladeleistung der Strategie, nicht die gemessene.
+  Ladeleistung der Strategie, nicht die gemessene. Die Ladekurve und andere
+  spätere Begrenzungen stehen in `charge_power_limits`.
 - **Opti Strategie Vorschau** (standardmäßig deaktiviert): Der Zustand ist der
   Modus, den die Strategie wählen würde. Die Attribute enthalten Grund,
   Ziel-SoC, Scores und Preisniveau.

@@ -83,10 +83,12 @@
           "akkusteuerung_max_entladestaerke": "Maximum discharge power",
           "opti_pv_ueberschuss_ladung": "Allow PV surplus charging",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "AC surplus threshold",
-          "opti_manuelle_ladegrenze": "Forecast-independent charge limit (temporary)"
+          "opti_manuelle_ladegrenze": "Forecast-independent charge limit (temporary)",
+          "charge_curve": "Charge curve (optional)"
         },
         "data_description": {
-          "akkusteuerung_wr_ac_ueberschuss_grenze": "0 turns this off. Useful when PV power exceeds the inverter's AC power and output is clipped around midday. The battery then charges from surplus above the limit if PV surplus charging is allowed. Suggestion for the detected model: {ac_limit_suggestion}. The value is not applied automatically."
+          "akkusteuerung_wr_ac_ueberschuss_grenze": "0 turns this off. Useful when PV power exceeds the inverter's AC power and output is clipped around midday. The battery then charges from surplus above the limit if PV surplus charging is allowed. Suggestion for the detected model: {ac_limit_suggestion}. The value is not applied automatically.",
+          "charge_curve": "Up to five points of charge level and maximum charge power. From a point's charge level upwards its power is the upper limit; when the charge level falls, a point holds until it is 2 percentage points below it. Below that band of the first point the curve does not limit. Example: from 85 % 4000 W, from 93 % 3000 W, from 99 % 250 W, at 100 % 70 W. It applies in every mode, including manual modes and grid charging, and only lowers: temperature, balancing and maximum charge power stay active, and a PV peak does not lift it. Power must not rise with the charge level. 0 W blocks charging from that point. Leave empty for unchanged behaviour."
         }
       },
       "tariff": {
@@ -401,7 +403,13 @@
       "price_windows_invalid": "Enter at least one window with start, end and a price between -1000 and 1000 ct/kWh.",
       "price_windows_gap": "The windows leave part of the day uncovered. Together they must cover all 24 hours.",
       "price_windows_overlap": "Windows overlap. Each time of day may belong to exactly one window.",
-      "price_windows_grid": "Start and end must be on 15-minute steps (e.g. 05:00 or 05:15)."
+      "price_windows_grid": "Start and end must be on 15-minute steps (e.g. 05:00 or 05:15).",
+      "charge_curve_invalid": "The charge curve could not be read. Enter each point with charge level and power.",
+      "charge_curve_too_many": "The charge curve allows at most five points.",
+      "charge_curve_soc": "Each charge level in the curve must be a whole number between 0 and 100 %.",
+      "charge_curve_power": "Each power in the curve must be a whole number between 0 and 10000 W.",
+      "charge_curve_duplicate": "Each charge level may appear only once in the curve.",
+      "charge_curve_rising": "The power in the curve must not rise with the charge level. Equal values are allowed."
     },
     "abort": {
       "already_configured": "An entry already exists for this device and operating mode.",
@@ -478,10 +486,12 @@
           "akkusteuerung_max_entladestaerke": "Maximum discharge power",
           "opti_pv_ueberschuss_ladung": "Allow PV surplus charging",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "AC surplus threshold",
-          "opti_manuelle_ladegrenze": "Forecast-independent charge limit (temporary)"
+          "opti_manuelle_ladegrenze": "Forecast-independent charge limit (temporary)",
+          "charge_curve": "Charge curve (optional)"
         },
         "data_description": {
-          "akkusteuerung_wr_ac_ueberschuss_grenze": "0 turns this off. Useful when PV power exceeds the inverter's AC power and output is clipped around midday. The battery then charges from surplus above the limit if PV surplus charging is allowed. Suggestion for the detected model: {ac_limit_suggestion}. The value is not applied automatically."
+          "akkusteuerung_wr_ac_ueberschuss_grenze": "0 turns this off. Useful when PV power exceeds the inverter's AC power and output is clipped around midday. The battery then charges from surplus above the limit if PV surplus charging is allowed. Suggestion for the detected model: {ac_limit_suggestion}. The value is not applied automatically.",
+          "charge_curve": "Up to five points of charge level and maximum charge power. From a point's charge level upwards its power is the upper limit; when the charge level falls, a point holds until it is 2 percentage points below it. Below that band of the first point the curve does not limit. Example: from 85 % 4000 W, from 93 % 3000 W, from 99 % 250 W, at 100 % 70 W. It applies in every mode, including manual modes and grid charging, and only lowers: temperature, balancing and maximum charge power stay active, and a PV peak does not lift it. Power must not rise with the charge level. 0 W blocks charging from that point. Leave empty for unchanged behaviour."
         }
       },
       "tariff": {
@@ -752,7 +762,13 @@
       "price_windows_gap": "The windows leave part of the day uncovered. Together they must cover all 24 hours.",
       "price_windows_overlap": "Windows overlap. Each time of day may belong to exactly one window.",
       "price_windows_grid": "Start and end must be on 15-minute steps (e.g. 05:00 or 05:15).",
-      "evcc_url": "Enter a plain http(s) address without user name, password, query or fragment."
+      "evcc_url": "Enter a plain http(s) address without user name, password, query or fragment.",
+      "charge_curve_invalid": "The charge curve could not be read. Enter each point with charge level and power.",
+      "charge_curve_too_many": "The charge curve allows at most five points.",
+      "charge_curve_soc": "Each charge level in the curve must be a whole number between 0 and 100 %.",
+      "charge_curve_power": "Each power in the curve must be a whole number between 0 and 10000 W.",
+      "charge_curve_duplicate": "Each charge level may appear only once in the curve.",
+      "charge_curve_rising": "The power in the curve must not rise with the charge level. Equal values are allowed."
     }
   },
   "entity": {
@@ -1475,6 +1491,16 @@
         "sma_stp_se": "SMA STP SE",
         "sma_sbs": "SMA Sunny Boy Storage (read-only test)",
         "sma_sunny_island": "SMA Sunny Island (read-only test)"
+      }
+    },
+    "charge_curve": {
+      "fields": {
+        "soc": {
+          "name": "From charge level"
+        },
+        "power_w": {
+          "name": "Maximum charge power"
+        }
       }
     }
   }

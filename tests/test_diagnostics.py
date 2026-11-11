@@ -267,3 +267,13 @@ async def test_diagnostics_counts_fixed_price_windows_without_prices(hass):
     assert result["configuration"]["price_provider"] == "fixed_windows"
     assert result["configuration"]["price_window_count"] == 2
     assert "21.74" not in json.dumps(result)
+
+
+async def test_diagnostics_summarises_the_charge_curve(hass):
+    """#205: support sees whether and how the curve limits charging."""
+    entry = MockConfigEntry(domain="opti_akku", data={}, options={
+        "charge_curve": [{"soc": 85, "power_w": 4000}, {"soc": 100, "power_w": 70}]})
+    result = await async_get_config_entry_diagnostics(hass, entry)
+    assert result["configuration"]["charge_curve"] == "ab 85 % 4000 W, ab 100 % 70 W"
+    without = MockConfigEntry(domain="opti_akku", data={}, options={})
+    assert "charge_curve" not in (await async_get_config_entry_diagnostics(hass, without))["configuration"]

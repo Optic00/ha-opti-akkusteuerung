@@ -37,6 +37,7 @@ from .arbitrage import (
 )
 from .battery_model import ENGINE_ENTITY as BATTERY_MODEL_ENTITY
 from .battery_model import BatteryModel
+from .charge_curve import HYSTERESIS_POINTS, ChargeCurveError, active_points, curve_limit, parse_curve
 from .command_evidence import build_command_evidence
 from .device import PendingCommandError, DeviceAdapter, StaleCommandError
 from .engine import Evaluation
@@ -387,6 +388,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._write_stall_paused_at: float | None = None
         self._manual_charge_blocked = False
         self._manual_discharge_blocked = False
+        # Charge curve points held by their hysteresis; in memory only. None
+        # after start: the first cycle takes the stricter reading (#205).
+        self._charge_curve_held: frozenset[int] | None = None
         self._manual_ev_latched = False
         self._manual_ev_clear_since: datetime | None = None
         self._manual_cell_latched = False
@@ -874,7 +878,59 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 parameters["charge_power_w"] = min(parameters["charge_power_w"], ceiling)
             parameters["max_charge_w"] = ceiling
             parameters["charge_setpoint_w"] = min(parameters["charge_setpoint_w"], ceiling)
+        if (curve := self._charge_curve_limit(states)) is not None:
+            # Last step, minimum only: in every mode the curve can lower these
+            # values, never raise them. Later steps in the update only lower
+            # them further or raise charge_power_w up to max_charge_w (PV
+            # peak), which is capped here too. The floor follows the ceiling
+            # so a small curve power stays a small window, not a closed one.
+            for key in ("charge_power_w", "charge_setpoint_w", "max_charge_w", "min_charge_w"):
+                parameters[key] = min(parameters[key], curve[0])
         return parameters
+
+    def _parse_charge_curve(self) -> tuple[tuple[int, int], ...] | None:
+        """The stored curve, or None when it cannot be read."""
+        try:
+            return parse_curve(self.entry.options.get("charge_curve"))
+        except (ChargeCurveError, TypeError, ValueError, OverflowError):
+            return None
+
+    def _charge_curve_limit(self, states: Mapping[str, Any]) -> tuple[float, str] | None:
+        """Ceiling and readable note of the optional charge curve (#205).
+
+        Reads the held points without changing them. Invalid stored points
+        block charging (fail-closed) instead of being ignored; the options
+        flow only stores validated curves.
+        """
+        curve = self._parse_charge_curve()
+        if curve is None:
+            return 0.0, "Ladekurve ungültig: Laden gesperrt"
+        soc = finite(states.get("sensor.opti_soc"))
+        limit = curve_limit(curve, soc, self._charge_curve_held)
+        if limit is None:
+            return None
+        power, start = limit
+        if start is None:
+            return float(power), "Ladekurve: Ladestand unbekannt, kleinste Kurvenleistung"
+        # Stable per binding point: the text must not flap with the SoC
+        # inside the band, it lands in recorded attributes (#129).
+        note = f"Ladekurve ab {start} % SoC: Obergrenze aktiv"
+        if start - HYSTERESIS_POINTS >= 0:
+            note += f" (frei ab {start - HYSTERESIS_POINTS} %)"
+        return float(power), note
+
+    def _update_charge_curve_hold(self, states: Mapping[str, Any]) -> None:
+        """Advance the curve hysteresis once per control cycle.
+
+        An unknown SoC or unreadable curve forgets the hold, so the next
+        valid SoC starts from the stricter reading again.
+        """
+        curve = self._parse_charge_curve()
+        soc = finite(states.get("sensor.opti_soc"))
+        if not curve or soc is None:
+            self._charge_curve_held = None
+            return
+        self._charge_curve_held = active_points(curve, soc, self._charge_curve_held)
 
     async def _async_update_data(self) -> dict[str, Any]:
         self._schedule_price_fetch()
@@ -1294,6 +1350,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._failsafe_active and mode != "Beobachtung":
             mode, safety_reason = "Akku Pause", "Interner Fehler: Pause bis 60 s fehlerfrei"
         reason = safety_reason or ("Manuelle Auswahl" if self.manual_mode else result.reason)
+        self._update_charge_curve_hold(result.states)
         params = self._parameters(result.states)
         # Text only, no wattage: values here change every update and would
         # flood the Recorder via the reason sensor's attributes (issue #129).
@@ -1301,6 +1358,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         temperature = finite(result.states.get("sensor.opti_battery_temp"))
         if self.manual_mode and temperature is not None and temperature >= 45:
             charge_power_limits.append("Akkutemperatur ab 45 °C: Ladeleistung im manuellen Modus begrenzt")
+        if (curve := self._charge_curve_limit(result.states)) is not None:
+            charge_power_limits.append(curve[1])
         if arbitrage_hold.get("hold_controls_battery"):
             params["min_charge_w"] = 0
             params["min_discharge_w"] = 0
@@ -1693,6 +1752,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_cycle_failed(self, err: Exception, now: datetime, monotonic_now: float,
                                   connection: dict[str, Any], read_errors: Any) -> dict[str, Any]:
         """Handle an unexpected exception in the cycle body with a degraded data set."""
+        # The cycle did not advance the curve hold; the next good cycle
+        # starts from the stricter reading, as after an unknown SoC.
+        self._charge_curve_held = None
         try:
             error_type = type(err).__name__
             if self._cycle_fail_first is None or error_type != self._cycle_fail_type:

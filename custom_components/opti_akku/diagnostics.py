@@ -9,6 +9,8 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
+from .charge_curve import format_curve
+
 
 def _status(value: Any) -> str | None:
     """Return a public status value without exporting its detailed payload."""
@@ -213,4 +215,7 @@ async def async_get_config_entry_diagnostics(
         result["configuration"]["price_window_count"] = (
             len(windows) if isinstance(windows, list) else 0
         )
+    if "charge_curve" in options:
+        # Battery limits only, no device or location data.
+        result["configuration"]["charge_curve"] = format_curve(options.get("charge_curve"))
     return result

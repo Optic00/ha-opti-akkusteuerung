@@ -83,10 +83,12 @@
           "akkusteuerung_max_entladestaerke": "Max. Entladeleistung",
           "opti_pv_ueberschuss_ladung": "PV-Überschussladen erlauben",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "AC-Überschussgrenze",
-          "opti_manuelle_ladegrenze": "Prognoseunabhängige Ladegrenze (vorübergehend)"
+          "opti_manuelle_ladegrenze": "Prognoseunabhängige Ladegrenze (vorübergehend)",
+          "charge_curve": "Ladekurve (optional)"
         },
         "data_description": {
-          "akkusteuerung_wr_ac_ueberschuss_grenze": "0 schaltet die Funktion aus. Sinnvoll, wenn die PV-Leistung die AC-Leistung des Wechselrichters übersteigt und mittags abgeregelt wird. Dann lädt der Akku oberhalb der Grenze aus dem Überschuss, sofern PV-Überschussladen erlaubt ist. Vorschlag für das erkannte Modell: {ac_limit_suggestion}. Der Wert wird nicht automatisch übernommen."
+          "akkusteuerung_wr_ac_ueberschuss_grenze": "0 schaltet die Funktion aus. Sinnvoll, wenn die PV-Leistung die AC-Leistung des Wechselrichters übersteigt und mittags abgeregelt wird. Dann lädt der Akku oberhalb der Grenze aus dem Überschuss, sofern PV-Überschussladen erlaubt ist. Vorschlag für das erkannte Modell: {ac_limit_suggestion}. Der Wert wird nicht automatisch übernommen.",
+          "charge_curve": "Bis zu fünf Punkte aus Ladestand und maximaler Ladeleistung. Ab dem Ladestand eines Punkts gilt seine Leistung als Obergrenze; fällt der Ladestand, hält ein Punkt seine Leistung, bis der Ladestand 2 Prozentpunkte darunter liegt. Unterhalb dieses Bands des ersten Punkts begrenzt die Kurve nicht. Beispiel: ab 85 % 4000 W, ab 93 % 3000 W, ab 99 % 250 W, bei 100 % 70 W. Sie gilt in jedem Modus, auch in manuellen Modi und beim Netzladen, und senkt nur ab: Temperatur, Balancing und maximale Ladeleistung bleiben wirksam, und eine PV-Spitze hebt sie nicht auf. Die Leistung darf mit steigendem Ladestand nicht steigen. 0 W sperrt das Laden ab diesem Punkt. Leer lassen für unverändertes Verhalten."
         }
       },
       "tariff": {
@@ -401,7 +403,13 @@
       "price_windows_invalid": "Mindestens ein Fenster mit Beginn, Ende und einem Preis zwischen -1000 und 1000 ct/kWh eintragen.",
       "price_windows_gap": "Die Fenster lassen einen Teil des Tages frei. Zusammen müssen sie alle 24 Stunden abdecken.",
       "price_windows_overlap": "Fenster überschneiden sich. Jede Uhrzeit darf zu genau einem Fenster gehören.",
-      "price_windows_grid": "Beginn und Ende müssen auf 15-Minuten-Schritten liegen (etwa 05:00 oder 05:15)."
+      "price_windows_grid": "Beginn und Ende müssen auf 15-Minuten-Schritten liegen (etwa 05:00 oder 05:15).",
+      "charge_curve_invalid": "Die Ladekurve ist nicht lesbar. Trage jeden Punkt mit Ladestand und Leistung ein.",
+      "charge_curve_too_many": "Die Ladekurve erlaubt höchstens fünf Punkte.",
+      "charge_curve_soc": "Jeder Ladestand der Kurve muss eine ganze Zahl zwischen 0 und 100 % sein.",
+      "charge_curve_power": "Jede Leistung der Kurve muss eine ganze Zahl zwischen 0 und 10000 W sein.",
+      "charge_curve_duplicate": "Jeder Ladestand darf in der Kurve nur einmal vorkommen.",
+      "charge_curve_rising": "Die Leistung der Kurve darf mit steigendem Ladestand nicht steigen. Gleiche Werte sind erlaubt."
     },
     "abort": {
       "already_configured": "Für dieses Gerät und diese Betriebsart ist bereits ein Eintrag vorhanden.",
@@ -478,10 +486,12 @@
           "akkusteuerung_max_entladestaerke": "Max. Entladeleistung",
           "opti_pv_ueberschuss_ladung": "PV-Überschussladen erlauben",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "AC-Überschussgrenze",
-          "opti_manuelle_ladegrenze": "Prognoseunabhängige Ladegrenze (vorübergehend)"
+          "opti_manuelle_ladegrenze": "Prognoseunabhängige Ladegrenze (vorübergehend)",
+          "charge_curve": "Ladekurve (optional)"
         },
         "data_description": {
-          "akkusteuerung_wr_ac_ueberschuss_grenze": "0 schaltet die Funktion aus. Sinnvoll, wenn die PV-Leistung die AC-Leistung des Wechselrichters übersteigt und mittags abgeregelt wird. Dann lädt der Akku oberhalb der Grenze aus dem Überschuss, sofern PV-Überschussladen erlaubt ist. Vorschlag für das erkannte Modell: {ac_limit_suggestion}. Der Wert wird nicht automatisch übernommen."
+          "akkusteuerung_wr_ac_ueberschuss_grenze": "0 schaltet die Funktion aus. Sinnvoll, wenn die PV-Leistung die AC-Leistung des Wechselrichters übersteigt und mittags abgeregelt wird. Dann lädt der Akku oberhalb der Grenze aus dem Überschuss, sofern PV-Überschussladen erlaubt ist. Vorschlag für das erkannte Modell: {ac_limit_suggestion}. Der Wert wird nicht automatisch übernommen.",
+          "charge_curve": "Bis zu fünf Punkte aus Ladestand und maximaler Ladeleistung. Ab dem Ladestand eines Punkts gilt seine Leistung als Obergrenze; fällt der Ladestand, hält ein Punkt seine Leistung, bis der Ladestand 2 Prozentpunkte darunter liegt. Unterhalb dieses Bands des ersten Punkts begrenzt die Kurve nicht. Beispiel: ab 85 % 4000 W, ab 93 % 3000 W, ab 99 % 250 W, bei 100 % 70 W. Sie gilt in jedem Modus, auch in manuellen Modi und beim Netzladen, und senkt nur ab: Temperatur, Balancing und maximale Ladeleistung bleiben wirksam, und eine PV-Spitze hebt sie nicht auf. Die Leistung darf mit steigendem Ladestand nicht steigen. 0 W sperrt das Laden ab diesem Punkt. Leer lassen für unverändertes Verhalten."
         }
       },
       "tariff": {
@@ -752,7 +762,13 @@
       "price_windows_gap": "Die Fenster lassen einen Teil des Tages frei. Zusammen müssen sie alle 24 Stunden abdecken.",
       "price_windows_overlap": "Fenster überschneiden sich. Jede Uhrzeit darf zu genau einem Fenster gehören.",
       "price_windows_grid": "Beginn und Ende müssen auf 15-Minuten-Schritten liegen (etwa 05:00 oder 05:15).",
-      "evcc_url": "Eine einfache http(s)-Adresse ohne Benutzername, Passwort, Query oder Fragment angeben."
+      "evcc_url": "Eine einfache http(s)-Adresse ohne Benutzername, Passwort, Query oder Fragment angeben.",
+      "charge_curve_invalid": "Die Ladekurve ist nicht lesbar. Trage jeden Punkt mit Ladestand und Leistung ein.",
+      "charge_curve_too_many": "Die Ladekurve erlaubt höchstens fünf Punkte.",
+      "charge_curve_soc": "Jeder Ladestand der Kurve muss eine ganze Zahl zwischen 0 und 100 % sein.",
+      "charge_curve_power": "Jede Leistung der Kurve muss eine ganze Zahl zwischen 0 und 10000 W sein.",
+      "charge_curve_duplicate": "Jeder Ladestand darf in der Kurve nur einmal vorkommen.",
+      "charge_curve_rising": "Die Leistung der Kurve darf mit steigendem Ladestand nicht steigen. Gleiche Werte sind erlaubt."
     }
   },
   "entity": {
@@ -1475,6 +1491,16 @@
         "sma_stp_se": "SMA STP SE",
         "sma_sbs": "SMA Sunny Boy Storage (lesender Test)",
         "sma_sunny_island": "SMA Sunny Island (lesender Test)"
+      }
+    },
+    "charge_curve": {
+      "fields": {
+        "soc": {
+          "name": "Ab Ladestand"
+        },
+        "power_w": {
+          "name": "Maximale Ladeleistung"
+        }
       }
     }
   }

@@ -82,6 +82,11 @@ REGISTER_PROBE = (
 class SbsDevice:
     """One SMA Sunny Boy Storage, strictly read-only."""
 
+    # Overridden by other read-only SMA test profiles (Sunny Island, #194).
+    profile = PROFILE_SMA_SBS
+    model_label = "SMA Sunny Boy Storage"
+    status_registers: tuple[int, ...] = STATUS_REGISTERS
+    probe_registers: tuple[tuple[int, bool, str], ...] = REGISTER_PROBE
     supported_modes: tuple[str, ...] = ()
     supports_control_release = False
     command_execution_basis = "none_read_only_profile"
@@ -111,7 +116,7 @@ class SbsDevice:
 
     @property
     def model(self) -> str | None:
-        return None if self._model_id is None else f"SMA Sunny Boy Storage (Gerätetyp {self._model_id})"
+        return None if self._model_id is None else f"{self.model_label} (Gerätetyp {self._model_id})"
 
     async def _read(self, address: int, *, signed: bool = False) -> int:
         words = await self.unit.read_holding_registers(address, 2)
@@ -130,7 +135,7 @@ class SbsDevice:
         """
         last_error: Exception | None = None
         placeholder: tuple[int, int] | None = None
-        for address in STATUS_REGISTERS:
+        for address in self.status_registers:
             try:
                 value = await self._read(address)
             except (ModbusConnectionError, TimeoutError):
@@ -152,7 +157,7 @@ class SbsDevice:
     async def _snapshot_registers(self, snapshot: list[dict[str, Any]]) -> bool:
         """Continue the snapshot; True once it is complete or ended by the transport."""
         started = self._monotonic()
-        for address, signed, evidence in REGISTER_PROBE[len(snapshot):]:
+        for address, signed, evidence in self.probe_registers[len(snapshot):]:
             if self._monotonic() - started >= REGISTER_PROBE_BUDGET_SECONDS:
                 return False
             row: dict[str, Any] = {"address": address, "evidence": evidence}
@@ -202,7 +207,7 @@ class SbsDevice:
         if self._pending_probe is not None and await self._snapshot_registers(self._pending_probe):
             self._register_probe, self._pending_probe = self._pending_probe, None
         return {
-            "profile": PROFILE_SMA_SBS,
+            "profile": self.profile,
             "inverter_status": status,
             "status_register": self._status_source,
             "device_class": device_class,
@@ -279,6 +284,6 @@ class SbsDevice:
     async def async_apply(
         self, mode: str, parameters: Mapping[str, float], is_current: Callable[[], bool]
     ) -> None:
-        """The SBS profile has no control path yet."""
+        """The read-only test profiles have no control path yet."""
         self.blocked_write_attempts += 1
-        raise PermissionError("SMA SBS profile is read-only")
+        raise PermissionError(f"{self.model_label} profile is read-only")

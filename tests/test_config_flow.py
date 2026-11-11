@@ -22,7 +22,7 @@ async def configure_options(hass, flow_id, user_input):
     section = user_input.get("next_step_id")
     parents = {
         **dict.fromkeys(("ev_preparation", "demand", "arbitrage", "notifications"), "features"),
-        **dict.fromkeys(("connection", "observation", "advanced"), "maintenance"),
+        **dict.fromkeys(("connection", "observation", "evcc_comparison", "advanced"), "maintenance"),
     }
     if section in parents and hass.config_entries.options.async_get(flow_id)["step_id"] == "init":
         await hass.config_entries.options.async_configure(flow_id, {"next_step_id": parents[section]})
@@ -2191,7 +2191,7 @@ async def test_options_overview_and_maintenance_preserve_a_single_draft(hass):
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["menu_options"] == ["sources", "battery", "tariff", "forecast", "features", "maintenance", "finish"]
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "maintenance"})
-    assert result["menu_options"] == ["connection", "observation", "advanced", "init"]
+    assert result["menu_options"] == ["connection", "observation", "evcc_comparison", "advanced", "init"]
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "init"})
     assert result["step_id"] == "init"
     assert not entry.options
@@ -2265,24 +2265,53 @@ def test_house_age_limit_schema_accepts_zero_and_rejects_fractions():
         validator(0.5)
 
 
+async def test_evcc_comparison_options_validate_entity_and_address(hass):
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION)
+    entry.add_to_hass(hass)
+    hass.states.async_set("sensor.evcc_battery_soc", "84", {"suggestion": {"action": "normal"}})
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "evcc_comparison"})
+    assert result["step_id"] == "evcc_comparison"
+    for url in ("ftp://evcc.local", "http://user:secret@evcc.local", "http://evcc.local/?x=1",
+                "http://evcc.local/#top", "http://", "http://[::1"):
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"url": url})
+        assert result["errors"] == {"url": "evcc_url"}, url
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"suggestion_entity": "sensor.missing"})
+    assert result["errors"] == {"suggestion_entity": "missing_or_unavailable"}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"suggestion_entity": "sensor.evcc_battery_soc", "url": " http://192.0.2.20:7070/ "})
+    assert result["step_id"] == "init"
+    flow = hass.config_entries.options._progress[result["flow_id"]]
+    assert flow._draft["evcc_comparison"] == {
+        "suggestion_entity": "sensor.evcc_battery_soc", "url": "http://192.0.2.20:7070"}
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "evcc_comparison"})
+    suggested = {marker.schema: marker.description["suggested_value"] for marker in result["data_schema"].schema}
+    assert suggested == {"suggestion_entity": "sensor.evcc_battery_soc", "url": "http://192.0.2.20:7070"}
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert flow._draft["evcc_comparison"] == {}
+
+
 SBS_PROBE = {"profile": "sma_sbs", "inverter_status": 235, "model": "SMA Sunny Boy Storage (Gerätetyp 9357)",
              "model_id": 9357, "serial_number": "3012345678"}
 
 
-async def test_sbs_profile_always_creates_a_shadow_entry(hass):
-    """#170: the SBS profile has no control path, a disabled shadow toggle is overridden."""
-    probe = AsyncMock(return_value=SBS_PROBE)
+@pytest.mark.parametrize("profile", ["sma_sbs", "sma_sunny_island"])
+async def test_sbs_profile_always_creates_a_shadow_entry(hass, profile):
+    """#170, #194: the read-only profiles have no control path, a disabled shadow toggle is overridden."""
+    probe = AsyncMock(return_value={**SBS_PROBE, "profile": profile})
     with patch("custom_components.opti_akku.config_flow._probe", probe), patch("custom_components.opti_akku.async_setup_entry", AsyncMock(return_value=True)):
-        result = await finish_wizard(hass, await begin(hass, {**CONNECTION, "profile": "sma_sbs", "shadow_mode": False}),
+        result = await finish_wizard(hass, await begin(hass, {**CONNECTION, "profile": profile, "shadow_mode": False}),
                                      {"sources": {"single_inverter": True, "plant_meter_confirmed": True}})
-    assert probe.await_args.args[1]["profile"] == "sma_sbs"
-    assert result["data"]["profile"] == "sma_sbs"
+    assert probe.await_args.args[1]["profile"] == profile
+    assert result["data"]["profile"] == profile
     assert result["data"]["shadow_mode"] is True
     assert result["options"]["single_writer_confirmed"] is False
-    assert result["result"].unique_id == "shadow:sma_sbs:3012345678"
+    assert result["result"].unique_id == f"shadow:{profile}:3012345678"
 
 
-async def test_sbs_profile_cannot_replace_an_active_connection(hass):
+@pytest.mark.parametrize("profile", ["sma_sbs", "sma_sunny_island"])
+async def test_sbs_profile_cannot_replace_an_active_connection(hass, profile):
     entry = MockConfigEntry(domain=DOMAIN, unique_id="sma_stp_se:1234567890", data={**CONNECTION, "serial_number": "1234567890"}, options={"sources": {}})
     entry.add_to_hass(hass)
     probe = AsyncMock(return_value=SBS_PROBE)
@@ -2290,7 +2319,7 @@ async def test_sbs_profile_cannot_replace_an_active_connection(hass):
         result = await hass.config_entries.options.async_init(entry.entry_id)
         result = await configure_options(hass, result["flow_id"], {"next_step_id": "connection"})
         connection = {k: v for k, v in CONNECTION.items() if k != "shadow_mode"}
-        result = await hass.config_entries.options.async_configure(result["flow_id"], {**connection, "profile": "sma_sbs"})
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {**connection, "profile": profile})
     assert result["errors"] == {"base": "unsupported_device"}
     probe.assert_not_awaited()
     assert entry.data["profile"] == "sma_stp_se"
@@ -2310,6 +2339,24 @@ async def test_probe_uses_the_read_only_sbs_device_for_the_sbs_profile(hass):
             patch.object(config_flow.SmaDevice, "async_probe", AsyncMock()) as stp_probe:
         assert await config_flow._probe(hass, {**CONNECTION, "profile": "sma_sbs"}) == SBS_PROBE
     sbs_probe.assert_awaited_once()
+    stp_probe.assert_not_awaited()
+
+
+async def test_probe_uses_the_read_only_device_for_the_sunny_island_profile(hass):
+    from contextlib import asynccontextmanager
+    from custom_components.opti_akku import config_flow
+    from custom_components.opti_akku.sunny_island import SunnyIslandDevice
+
+    @asynccontextmanager
+    async def temporary_unit(*_args):
+        yield object()
+
+    with patch.object(config_flow, "async_get_temporary_unit", temporary_unit), \
+            patch.object(SunnyIslandDevice, "__init__", return_value=None), \
+            patch.object(SunnyIslandDevice, "async_probe", AsyncMock(return_value=SBS_PROBE)) as si_probe, \
+            patch.object(config_flow.SmaDevice, "async_probe", AsyncMock()) as stp_probe:
+        assert await config_flow._probe(hass, {**CONNECTION, "profile": "sma_sunny_island"}) == SBS_PROBE
+    si_probe.assert_awaited_once()
     stp_probe.assert_not_awaited()
 
 

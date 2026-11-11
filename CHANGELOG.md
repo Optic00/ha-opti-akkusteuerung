@@ -8,8 +8,31 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- SMA Sunny Island als ausschließlich lesendes Testprofil über Modbus TCP
+  ([#194](https://github.com/Optic00/ha-opti-akkusteuerung/issues/194)). Es läuft
+  wie das SBS-Profil immer im Shadow-Modus und weist jeden Schreibversuch ab.
+  Fehlen die Register für Lade- und Entladeleistung, zeigt die Akkuleistung die
+  AC-Leistung des Sunny Island mit umgekehrtem Vorzeichen. Diagnose und
+  Registerabzug dienen dem [Sunny-Island-Lesetest](docs/sunny-island-lesetest.md);
+  Werte, Vorzeichen und Skalierung am Gerät sind noch nicht bestätigt.
+- Schattenvergleich mit dem evcc-Optimizer (`sensor.opti_evcc_comparison`,
+  [#172](https://github.com/Optic00/ha-opti-akkusteuerung/pull/172)). Er steuert
+  nichts, ist von Anfang an aktiv und fragt erst ab, wenn unter
+  **Erweitert und Diagnose** eine evcc-Quelle eingetragen ist. Die Einrichtung
+  lädt die Integration nicht neu, anders als das Aktivieren deaktivierter
+  Sensoren ([#183](https://github.com/Optic00/ha-opti-akkusteuerung/issues/183)).
+
 ### Behoben
 
+- Das Aktivieren einer standardmäßig deaktivierten Entität beendet keinen manuellen
+  Modus mehr ([#183](https://github.com/Optic00/ha-opti-akkusteuerung/issues/183)).
+  Home Assistant lädt den Eintrag danach neu; manueller Modus samt seiner
+  SoC-Sperren, Schreibfreigabe (auch ohne Strategie) und die prognoseunabhängige
+  Ladegrenze bleiben dabei erhalten. Die kurze Pause beim Entladen bleibt als Absicherung. Ohne bestätigte
+  Pause, bei geänderter Verbindung oder Quellen und bei einem gewöhnlichen
+  Neustart gilt weiter der bisherige Ablauf. Siehe [Betrieb](docs/operation.md).
 - Sunny Boy Storage (lesender Test, #170): Der Betriebsstatus kommt immer zuerst
   aus Register 33003. Register 33001 ist laut SMA nur der Standby-Status
   (2531 = Energiesparmodus) und zählt nur noch, solange 33003 keinen Wert

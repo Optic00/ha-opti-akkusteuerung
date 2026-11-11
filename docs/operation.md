@@ -297,6 +297,16 @@ Strategiemodus; Dynamisch und berechnetes Netzladen entfallen:
 Ein erzwungener manueller Modus wird nach einem Neustart nicht fortgesetzt.
 Ohne aktivierte Strategie wird auch die Schreibfreigabe nicht wiederhergestellt.
 Zuerst wieder einen manuellen Modus wählen, dann die Schreibfreigabe setzen.
+
+Ausnahme ist das Neuladen, das Home Assistant etwa 30 Sekunden nach dem
+Aktivieren einer standardmäßig deaktivierten Opti-Entität ausführt. Dabei bleiben
+manueller Modus, Schreibfreigabe und die prognoseunabhängige Ladegrenze erhalten.
+Beim Entladen schreibt Opti Akku trotzdem kurz „Akku Pause“. Die Übernahme
+entfällt, wenn diese Pause nicht bestätigt wurde, sich Verbindung oder Quellen
+geändert haben oder der Eintrag zwischendurch deaktiviert wurde. Ein manuelles
+„Neu laden“ bis 90 Sekunden nach dem Aktivieren einer Entität behält den Modus
+ebenfalls.
+
 Vor jeder Steuerungsbewertung müssen die Profilprüfung und aktuelle Messungen erfolgreich
 sein. Ohne lesbare Seriennummer bleibt die Schreibfreigabe gesperrt. Bei SMA STP SE
 prüft Opti Akku die Geräteidentität (Gerätetyp, Modell, Seriennummer) in jedem Abruf.

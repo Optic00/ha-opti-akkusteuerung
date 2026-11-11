@@ -758,6 +758,295 @@ async def test_ha_reload_restores_settings_and_ids_without_forced_mode(hass, ent
         await hass.async_block_till_done()
 
 
+async def _enable_disabled_entity_and_wait_for_reload(hass, entry):
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    registry = er.async_get(hass)
+    disabled = next(item for item in er.async_entries_for_config_entry(registry, entry.entry_id)
+                    if item.disabled_by is er.RegistryEntryDisabler.INTEGRATION)
+    registry.async_update_entity(disabled.entity_id, disabled_by=None)
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=31))
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+
+async def test_enabling_entity_reload_keeps_manual_mode_without_strategy(hass, entry):
+    """#183: enabling a disabled-by-default entity must not end manual control."""
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "strategy_enabled": False})
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        before = entry.runtime_data
+        await before.async_set_setting("input_boolean.akku_opti_automatik", True)
+        await before.async_set_mode("Akku nur Laden")
+        await before.async_set_write_enabled(True)
+        await before.async_set_setting("input_boolean.opti_manuelle_ladegrenze", True)
+        assert inverter.async_apply.await_args_list[-1].args[0] == "Akku nur Laden"
+        inverter.async_apply.reset_mock()
+
+        await _enable_disabled_entity_and_wait_for_reload(hass, entry)
+        after = entry.runtime_data
+        assert after is not before
+        assert after.manual_mode == "Akku nur Laden"
+        assert after.write_enabled is True
+        assert after.settings["input_boolean.opti_manuelle_ladegrenze"] is True
+        assert after._write_restore_blocked is None
+        await after.async_refresh()
+        assert inverter.async_apply.await_args_list[-1].args[0] == "Akku nur Laden"
+        assert "opti_akku_reload_handover" not in hass.data or entry.entry_id not in hass.data["opti_akku_reload_handover"]
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def test_enabling_entity_reload_with_changed_sources_drops_manual_mode(hass, entry):
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "strategy_enabled": False})
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        before = entry.runtime_data
+        await before.async_set_mode("Akku nur Laden")
+        await before.async_set_write_enabled(True)
+        from homeassistant.helpers import entity_registry as er
+        registry = er.async_get(hass)
+        disabled = next(item for item in er.async_entries_for_config_entry(registry, entry.entry_id)
+                        if item.disabled_by is er.RegistryEntryDisabler.INTEGRATION)
+        registry.async_update_entity(disabled.entity_id, disabled_by=None)
+        await hass.async_block_till_done()
+        # A source change reloads immediately; it must not inherit manual control.
+        hass.config_entries.async_update_entry(entry, options={**entry.options, "sources": {"price": "sensor.other_price"}})
+        await hass.async_block_till_done(wait_background_tasks=True)
+        after = entry.runtime_data
+        assert after is not before
+        assert after.manual_mode is None
+        assert after.write_enabled is False
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def _manual_entry_with_enabled_entity(hass, entry, inverter):
+    from homeassistant.helpers import entity_registry as er
+
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "strategy_enabled": False})
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    before = entry.runtime_data
+    await before.async_set_setting("input_boolean.akku_opti_automatik", True)
+    await before.async_set_mode("Akku schnell Entladen")
+    await before.async_set_write_enabled(True)
+    registry = er.async_get(hass)
+    disabled = next(item for item in er.async_entries_for_config_entry(registry, entry.entry_id)
+                    if item.disabled_by is er.RegistryEntryDisabler.INTEGRATION)
+    registry.async_update_entity(disabled.entity_id, disabled_by=None)
+    await hass.async_block_till_done()
+    assert before.entity_enable_noted
+    return before
+
+
+async def test_stale_entity_enable_does_not_keep_manual_mode(hass, entry):
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        before = await _manual_entry_with_enabled_entity(hass, entry, inverter)
+        before._entity_enabled_at -= 120
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.runtime_data.manual_mode is None
+        assert entry.runtime_data.write_enabled is False
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+def _phased_device(shutdown_error=None):
+    class Phased:
+        PHASED = True
+        supported_modes = ("Akku Pause", "Akku nur Laden")
+        supports_control_release = False
+    dev = Phased()
+    dev.async_probe = AsyncMock(return_value={"serial_number": "123456789", "inverter_status": 235})
+    dev.async_read = device().async_read
+    dev.async_apply = AsyncMock()
+    dev.async_shutdown_control = AsyncMock(side_effect=shutdown_error)
+    return dev
+
+
+@pytest.mark.parametrize(("shutdown_error", "kept"), [(None, True), (OSError("bus"), False)])
+async def test_phased_pause_debt_decides_reload_handover(hass, entry, shutdown_error, kept):
+    """A real open Huawei pause debt blocks the handover; a cleared one allows it."""
+    from homeassistant.helpers import entity_registry as er
+
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "strategy_enabled": False})
+    dev = _phased_device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=dev):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        before = entry.runtime_data
+        await before.async_set_mode("Akku nur Laden")
+        await before.async_set_write_enabled(True)
+        assert before._pause_pending
+        registry = er.async_get(hass)
+        disabled = next(item for item in er.async_entries_for_config_entry(registry, entry.entry_id)
+                        if item.disabled_by is er.RegistryEntryDisabler.INTEGRATION)
+        registry.async_update_entity(disabled.entity_id, disabled_by=None)
+        await hass.async_block_till_done()
+        dev.async_shutdown_control.side_effect = shutdown_error
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+        dev.async_shutdown_control.assert_awaited()
+        assert (entry.runtime_data.manual_mode == "Akku nur Laden") is kept
+        dev.async_shutdown_control.side_effect = None
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def test_write_disable_lost_in_store_is_not_restored_by_handover(hass, entry):
+    """Live state at unload wins over a store whose write disable never landed."""
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    old = OptiCoordinator(hass, entry, device(), engine)
+    await old.async_restore()
+    old.write_enabled = True
+    await old._store.async_save(old._stored_data())
+    new = OptiCoordinator(hass, entry, device(), engine)
+    handover = {"at": time.monotonic(), "manual_mode": "Akku nur Laden", "write_enabled": False,
+                "manual_charge_limit": False, "connection": dict(new.connection_config),
+                "sources": dict(new.source_options)}
+    await new.async_restore(handover)
+    assert new.manual_mode == "Akku nur Laden"
+    assert new.write_enabled is False
+    await old.async_stop()
+    await new.async_stop()
+
+
+async def test_reload_handover_keeps_charge_limit_in_strategy_mode(hass, entry):
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    new = OptiCoordinator(hass, entry, device(), engine)
+    handover = {"at": time.monotonic(), "manual_mode": None, "write_enabled": True,
+                "manual_charge_limit": True, "connection": dict(new.connection_config),
+                "sources": dict(new.source_options)}
+    await new.async_restore(handover)
+    assert new.manual_mode is None
+    assert new.settings["input_boolean.opti_manuelle_ladegrenze"] is True
+    await new.async_stop()
+
+
+async def test_failed_sma_unload_pause_blocks_reload_handover(hass, entry):
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        await _manual_entry_with_enabled_entity(hass, entry, inverter)
+
+        async def apply(mode, *_args):
+            if mode == "Akku Pause":
+                raise OSError("bus")
+        inverter.async_apply.side_effect = apply
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.runtime_data.manual_mode is None
+        assert entry.runtime_data.write_enabled is False
+        inverter.async_apply.side_effect = None
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def test_offline_unload_without_pause_blocks_reload_handover(hass, entry):
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        before = await _manual_entry_with_enabled_entity(hass, entry, inverter)
+        before._online = False
+        inverter.async_apply.reset_mock()
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert all(call.args[0] != "Akku Pause" for call in inverter.async_apply.await_args_list[:1])
+        assert entry.runtime_data.manual_mode is None
+        assert entry.runtime_data.write_enabled is False
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def test_reload_handover_only_for_setup_in_the_same_reload_task(hass, entry):
+    """Disabled during unload and re-enabled later: a separate setup task."""
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        await _manual_entry_with_enabled_entity(hass, entry, inverter)
+        assert await hass.async_create_task(hass.config_entries.async_unload(entry.entry_id))
+        assert entry.entry_id in hass.data["opti_akku_reload_handover"]
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.runtime_data.manual_mode is None
+        assert entry.entry_id not in hass.data["opti_akku_reload_handover"]
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def test_entity_enable_tracking_ignores_disable_and_follows_ha_timer(hass, entry):
+    from homeassistant.helpers import entity_registry as er
+
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        coordinator = entry.runtime_data
+        registry = er.async_get(hass)
+        own = next(item for item in er.async_entries_for_config_entry(registry, entry.entry_id)
+                   if item.disabled_by is None)
+        registry.async_update_entity(own.entity_id, disabled_by=er.RegistryEntryDisabler.USER)
+        await hass.async_block_till_done()
+        assert not coordinator.entity_enable_noted
+        other = MockConfigEntry(domain="other_domain")
+        other.add_to_hass(hass)
+        foreign = registry.async_get_or_create("sensor", "other_domain", "x", config_entry=other,
+                                               disabled_by=er.RegistryEntryDisabler.USER)
+        registry.async_update_entity(foreign.entity_id, disabled_by=None)
+        await hass.async_block_till_done()
+        # A foreign enable alone is not ours ...
+        assert not coordinator.entity_enable_noted
+        registry.async_update_entity(own.entity_id, disabled_by=None)
+        await hass.async_block_till_done()
+        coordinator._entity_enabled_at -= 80
+        registry.async_update_entity(foreign.entity_id, disabled_by=er.RegistryEntryDisabler.USER)
+        registry.async_update_entity(foreign.entity_id, disabled_by=None)
+        await hass.async_block_till_done()
+        # ... but it re-arms HA's shared reload timer, so it extends ours.
+        assert time.monotonic() - coordinator._entity_enabled_at < 5
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+async def test_removed_entry_drops_reload_handover(hass, entry):
+    from custom_components.opti_akku import async_remove_entry
+
+    hass.data["opti_akku_reload_handover"] = {entry.entry_id: {"at": time.monotonic()}}
+    await async_remove_entry(hass, entry)
+    assert entry.entry_id not in hass.data["opti_akku_reload_handover"]
+
+
+async def test_reload_handover_not_left_for_retry_after_failed_setup(hass, entry):
+    hass.data["opti_akku_reload_handover"] = {entry.entry_id: {"at": time.monotonic(), "manual_mode": "Akku schnell Entladen"}}
+    with patch("custom_components.opti_akku.StrategyEngine", side_effect=RuntimeError("boom")):
+        assert not await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    assert entry.entry_id not in hass.data["opti_akku_reload_handover"]
+
+
+async def test_plain_reload_without_strategy_still_drops_manual_mode(hass, entry):
+    hass.config_entries.async_update_entry(entry, options={**entry.options, "strategy_enabled": False})
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        before = entry.runtime_data
+        await before.async_set_mode("Akku nur Laden")
+        await before.async_set_write_enabled(True)
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+        after = entry.runtime_data
+        assert after.manual_mode is None
+        assert after.write_enabled is False
+        assert after._write_restore_blocked == "strategy_disabled"
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+
 async def test_normal_ha_stop_pauses_once(coordinator, hass):
     coordinator.write_enabled = True
     await coordinator._async_update_data()
@@ -5733,3 +6022,46 @@ async def test_peak_rank_assumptions_cover_the_precharge_economics(coordinator, 
     assumptions = coordinator._stored_data()["peak_rank"]["assumptions"]
     assert assumptions[:5] == expected  # exact: unchanged defaults must not reset
     assert assumptions[4] is expected[4]
+
+
+async def test_reload_handover_keeps_manual_soc_blocks_of_the_session(hass, entry):
+    """A handed-over manual session keeps its SoC hysteresis; without one it restarts."""
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    old = OptiCoordinator(hass, entry, device(), engine)
+    await old.async_restore()
+    old.manual_mode = "Akku nur Laden"
+    old._manual_charge_blocked = True
+    handover = {**old.reload_handover(), "at": time.monotonic()}
+    assert handover["manual_charge_blocked"] is True
+    new = OptiCoordinator(hass, entry, device(), engine)
+    await new.async_restore(handover)
+    assert new.manual_mode == "Akku nur Laden"
+    assert new._manual_charge_blocked is True
+    assert new._manual_discharge_blocked is False
+    strategy = OptiCoordinator(hass, entry, device(), engine)
+    await strategy.async_restore({**handover, "manual_mode": None})
+    assert strategy._manual_charge_blocked is False
+    await old.async_stop()
+    await new.async_stop()
+    await strategy.async_stop()
+
+
+async def test_reload_handover_drops_soc_blocks_when_limits_changed(hass, entry):
+    """Changed minsoc/maxsoc end the hysteresis, as a change while running does."""
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    old = OptiCoordinator(hass, entry, device(), engine)
+    await old.async_restore()
+    old.manual_mode = "Akku nur Laden"
+    old._manual_charge_blocked = True
+    old._manual_discharge_blocked = True
+    handover = {**old.reload_handover(), "at": time.monotonic()}
+    new = OptiCoordinator(hass, entry, device(), engine)
+    await new.async_restore({**handover, "maxsoc": handover["maxsoc"] - 2})
+    assert new.manual_mode == "Akku nur Laden"
+    assert new._manual_charge_blocked is False and new._manual_discharge_blocked is False
+    legacy = OptiCoordinator(hass, entry, device(), engine)
+    await legacy.async_restore({k: v for k, v in handover.items() if k not in ("minsoc", "maxsoc")})
+    assert legacy._manual_charge_blocked is False
+    await old.async_stop()
+    await new.async_stop()
+    await legacy.async_stop()

@@ -1,9 +1,13 @@
 """Config-entry lifecycle for Opti Akku."""
 
+import asyncio
+import time
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError, HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.components.modbus import async_get_unit
 from modbus_connection import ModbusTcpParams
 
@@ -14,9 +18,17 @@ from .sbs import PROFILE_SMA_SBS, SbsDevice
 from .sma import SmaDevice
 from .source_quality import measurement_max_age
 
+RELOAD_HANDOVER_KEY = f"{DOMAIN}_reload_handover"
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Acquire the HA-managed connection; no YAML hub or own socket."""
+    # HA runs unload and setup of one reload in the same task. Only that setup
+    # may use the handover: not a setup retry, and not a re-enable after the
+    # entry was disabled while it was unloading.
+    handover = hass.data.get(RELOAD_HANDOVER_KEY, {}).pop(entry.entry_id, None)
+    if handover is not None and handover.get("task") is not asyncio.current_task():
+        handover = None
     backend = entry.data.get("backend", "sma")
     if backend == "huawei_solar":
         from .huawei import HuaweiDevice
@@ -58,7 +70,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     engine = await hass.async_add_executor_job(StrategyEngine)
     coordinator = OptiCoordinator(hass, entry, device, engine)
     entry.runtime_data = coordinator
-    await coordinator.async_restore()
+    await coordinator.async_restore(handover)
+
+    @callback
+    def entity_enabled(event: Event[er.EventEntityRegistryUpdatedData]) -> None:
+        # HA reloads the whole entry 30 s after one of its entities is enabled
+        # (#183). Remember that, so this reload can keep manual control. HA
+        # re-arms its shared timer on every such change, so any later change
+        # also extends an already noted enable.
+        item = er.async_get(hass).async_get(event.data["entity_id"])
+        if item is None or item.disabled_by is not None:
+            return
+        if item.config_entry_id == entry.entry_id or coordinator.entity_enable_noted:
+            coordinator.note_entity_enabled()
+
+    entry.async_on_unload(hass.bus.async_listen(
+        er.EVENT_ENTITY_REGISTRY_UPDATED, entity_enabled, event_filter=_disabled_by_changed))
     await coordinator.async_config_entry_first_refresh()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
@@ -70,8 +97,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Stop writes before releasing entities and the shared Modbus unit."""
     coordinator = entry.runtime_data
+    # Whether this unload follows an entity enable is decided before the pause,
+    # which may take long. The pause itself always runs: if the following
+    # setup fails, the inverter must not keep a forced command.
+    after_enable = coordinator.entity_enable_noted
     await coordinator.async_stop()
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    # The control state is read only now, after the entities are gone, so no
+    # later mode or write change is lost. Recheck the entry and HA as well.
+    # Without a confirmed pause, no forced mode resumes.
+    if (unloaded and after_enable and entry.disabled_by is None and hass.is_running
+            and not coordinator.pause_unconfirmed and (handover := coordinator.reload_handover()) is not None):
+        hass.data.setdefault(RELOAD_HANDOVER_KEY, {})[entry.entry_id] = {
+            **handover, "at": time.monotonic(), "task": asyncio.current_task()}
+    return unloaded
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop a reload handover of a removed entry."""
+    hass.data.get(RELOAD_HANDOVER_KEY, {}).pop(entry.entry_id, None)
+
+
+@callback
+def _disabled_by_changed(event_data: er.EventEntityRegistryUpdatedData) -> bool:
+    return event_data["action"] == "update" and "disabled_by" in event_data["changes"]
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:

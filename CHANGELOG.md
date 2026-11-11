@@ -8,6 +8,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+## [2026.11-beta4] - 2026-11-11
+
 ### Hinzugefügt
 
 - **Einstellbare Ladekurve am Ladeende**
@@ -49,6 +51,17 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Ladegrenze bleiben dabei erhalten. Die kurze Pause beim Entladen bleibt als Absicherung. Ohne bestätigte
   Pause, bei geänderter Verbindung oder Quellen und bei einem gewöhnlichen
   Neustart gilt weiter der bisherige Ablauf. Siehe [Betrieb](docs/operation.md).
+- Sunny Boy Storage (lesender Test, #170): Der Betriebsstatus kommt immer zuerst
+  aus Register 33003. Register 33001 ist laut SMA nur der Standby-Status
+  (2531 = Energiesparmodus) und zählt nur noch, solange 33003 keinen Wert
+  liefert. Bisher blieb das Profil nach einer Standby-Antwort bei 33001.
+
+### Geändert
+
+- Sunny Boy Storage (lesender Test): Die Diagnose enthält zusätzlich Firmware,
+  Gerätezustände, die Betriebsart der Wirkleistungsvorgabe und das
+  Rückfallverhalten bei Kommunikationsausfall. Grundlage für den
+  [Schreibtest-Plan](docs/sbs-schreibtest.md).
 
 ## [2026.11-beta3] - 2026-11-11
 
@@ -576,7 +589,8 @@ Alle Korrekturen aus [#196](https://github.com/Optic00/ha-opti-akkusteuerung/pul
 - Frühere YAML-Lösung bleibt im Legacy-Archiv erhalten. Bestehende
   Integrationseinträge bei der Migration beibehalten.
 
-[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta3...HEAD
+[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta4...HEAD
+[2026.11-beta4]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta4
 [2026.11-beta3]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta3
 [2026.11-beta2]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta2
 [2026.11-beta1]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta1

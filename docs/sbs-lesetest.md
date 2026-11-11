@@ -51,3 +51,6 @@ Notiz, welche Werte zur SMA-App passen und welche nicht.
 Eigene Skripte oder Automationen, die den SBS steuern, dürfen während des
 Lesetests weiterlaufen. Vor einem späteren Schreibtest müssen sie abgeschaltet
 sein.
+
+Wie es danach mit den Schreibtests weitergeht, steht im
+[Schreibtest-Plan](sbs-schreibtest.md).

@@ -1618,7 +1618,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             captured_options)
         await self._async_update_planner(data, now, captured_options, demand_sources)
         self._update_evcc_comparison(data, now, captured_options)
-        self._update_peak_rank(data, now, peak_rank_early)
+        self._update_peak_rank(data, now, peak_rank_early, safety_reason)
         self._update_arbitrage_report(data, now, captured_options, arbitrage_hold, safety_reason)
         await self._async_update_observations(data, now, captured_options)
         # Only a real on<->off transition or a changed latch origin forces a
@@ -2008,7 +2008,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                  "control_status": status, "controls_battery": held is not result}
         return held, check
 
-    def _update_peak_rank(self, data, now, early=None):
+    def _update_peak_rank(self, data, now, early=None, safety_reason=None):
         """Price-rank allocation for L1/L2.
 
         Without the option it runs after the decision and never changes it.
@@ -2023,10 +2023,15 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     raise RuntimeError("early peak rank check failed")
                 check = dict(early)
                 if check["controls_battery"] and (data.get("decision_id") != PEAK_RANK_HOLD_DECISION
-                                                  or data.get("mode") != data.get("engine_requested_mode")):
-                    # A safety pause or the failsafe replaced the hold mode.
+                                                  or data.get("mode") != data.get("engine_requested_mode")
+                                                  or safety_reason is not None):
+                    # A safety pause or the failsafe replaced the hold, even
+                    # when it writes the same mode.
                     check.update(controls_battery=False, control_status="higher_priority")
-                elif check["controls_battery"] and data.get("write_enabled") is not True:
+                elif check["controls_battery"] and (data.get("write_enabled") is not True
+                                                    or self._applied_mode != data.get("mode")):
+                    # Only a confirmed hold mode on the device blocks anything;
+                    # a failed or superseded write leaves the previous mode.
                     check["controls_battery"] = False
             else:
                 check = self._peak_rank_check(states, attributes, now, data.get("decision_id"),

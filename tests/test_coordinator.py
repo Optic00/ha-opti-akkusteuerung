@@ -4416,6 +4416,39 @@ async def test_safety_pause_takes_precedence_over_peak_rank_hold(coordinator, ha
     assert (attrs["control_status"], attrs["controls_battery"]) == ("higher_priority", False)
 
 
+async def test_safety_pause_with_the_same_mode_takes_precedence_over_peak_rank_hold(coordinator, hass):
+    """'nur Entladen' becomes 'Akku Pause' anyway; the safety reason still wins."""
+    set_peak_rank_control(coordinator, hass)
+    evaluation = peak_evaluation("Akku nur Entladen", **{"sensor.opti_battery_temp": 60})
+    data, _calls = await run_peak_cycle(coordinator, evaluation)
+    assert coordinator._peak_rank._previous is not None
+    coordinator._peak_rank._previous = (
+        coordinator._peak_rank._previous[0] - timedelta(seconds=30), *coordinator._peak_rank._previous[1:])
+    data, _calls = await run_peak_cycle(coordinator, evaluation)
+    assert data["mode"] == "Akku Pause" and data["reason"] != PEAK_HOLD_REASON
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert (attrs["control_status"], attrs["controls_battery"]) == ("higher_priority", False)
+    assert attrs["totals"]["blocked_seconds"] == 0
+
+
+async def test_failed_write_of_the_hold_controls_nothing(coordinator, hass):
+    set_peak_rank_control(coordinator, hass)
+    coordinator.device.async_apply.side_effect = RuntimeError("bus")
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation())
+    coordinator._peak_rank._previous = (
+        coordinator._peak_rank._previous[0] - timedelta(seconds=30), *coordinator._peak_rank._previous[1:])
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation())
+    assert data["command_result_this_update"] == "failed"
+    assert data["mode"] == "Akku nur Laden"
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert (attrs["control_status"], attrs["controls_battery"]) == ("holding", False)
+    assert attrs["totals"]["blocked_seconds"] == 0
+    # Once the device confirms the hold mode, it controls the battery.
+    coordinator.device.async_apply.side_effect = None
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation())
+    assert data["attributes"]["sensor.opti_peak_rank"]["controls_battery"] is True
+
+
 async def test_peak_rank_hold_without_write_permission_controls_nothing(coordinator, hass):
     set_peak_rank_control(coordinator, hass)
     coordinator.write_enabled = False

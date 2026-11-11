@@ -629,9 +629,11 @@ Arbeitsspeicher; nach einem Neustart entscheidet der frische Vergleich.
 und `control_status`: `holding` (Sperre neu oder bestätigt), `latched` (Sperre
 bleibt bis Slotende, obwohl das frische Urteil `discharge` lautet),
 `released`, `not_applicable` (keine L1/L2-Entladung oder manueller Modus),
-`higher_priority` (eine Sicherheits-Pause hat den Haltemodus ersetzt) oder
-`error`. `controls_battery` ist nur in Zyklen `true`, in denen die Sperre den
-geschriebenen Modus bestimmt und Schreibzugriffe freigegeben sind;
+`higher_priority` (eine Sicherheits-Pause oder der Fehler-Failsafe gilt, auch
+wenn sie denselben Modus schreibt) oder `error`. `controls_battery` ist nur in
+Zyklen `true`, in denen die Sperre den Modus bestimmt, Schreibzugriffe
+freigegeben sind und das Gerät den Haltemodus bestätigt hat; ein
+fehlgeschlagener oder verworfener Schreibbefehl zählt nicht;
 `observation_only` ist mit der Option `false`. `verdict` bleibt das frische
 Urteil. Die Summen unter `totals` behalten ihre Bedeutung als Vergleich des
 frischen Urteils mit der tatsächlichen Entladung: Mit der Option ist

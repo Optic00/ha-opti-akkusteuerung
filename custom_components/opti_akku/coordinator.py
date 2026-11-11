@@ -37,7 +37,7 @@ from .arbitrage import (
 )
 from .battery_model import ENGINE_ENTITY as BATTERY_MODEL_ENTITY
 from .battery_model import BatteryModel
-from .charge_curve import ChargeCurveError, curve_limit, parse_curve
+from .charge_curve import HYSTERESIS_POINTS, ChargeCurveError, active_points, curve_limit, parse_curve
 from .command_evidence import build_command_evidence
 from .device import PendingCommandError, DeviceAdapter, StaleCommandError
 from .engine import Evaluation
@@ -388,6 +388,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._write_stall_paused_at: float | None = None
         self._manual_charge_blocked = False
         self._manual_discharge_blocked = False
+        # Charge curve points held by their hysteresis; in memory only. None
+        # after start: the first cycle takes the stricter reading (#205).
+        self._charge_curve_held: frozenset[int] | None = None
         self._manual_ev_latched = False
         self._manual_ev_clear_since: datetime | None = None
         self._manual_cell_latched = False
@@ -885,23 +888,47 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 parameters[key] = min(parameters[key], curve[0])
         return parameters
 
+    def _parse_charge_curve(self) -> tuple[tuple[int, int], ...] | None:
+        """The stored curve, or None when it cannot be read."""
+        try:
+            return parse_curve(self.entry.options.get("charge_curve"))
+        except (ChargeCurveError, TypeError, ValueError, OverflowError):
+            return None
+
     def _charge_curve_limit(self, states: Mapping[str, Any]) -> tuple[float, str] | None:
         """Ceiling and readable note of the optional charge curve (#205).
 
-        Invalid stored points block charging (fail-closed) instead of being
-        ignored; the options flow only stores validated curves.
+        Reads the held points without changing them. Invalid stored points
+        block charging (fail-closed) instead of being ignored; the options
+        flow only stores validated curves.
         """
-        try:
-            curve = parse_curve(self.entry.options.get("charge_curve"))
-        except (ChargeCurveError, TypeError, ValueError, OverflowError):
+        curve = self._parse_charge_curve()
+        if curve is None:
             return 0.0, "Ladekurve ungültig: Laden gesperrt"
-        limit = curve_limit(curve, finite(states.get("sensor.opti_soc")))
+        soc = finite(states.get("sensor.opti_soc"))
+        limit = curve_limit(curve, soc, self._charge_curve_held)
         if limit is None:
             return None
         power, start = limit
         if start is None:
             return float(power), "Ladekurve: Ladestand unbekannt, kleinste Kurvenleistung"
-        return float(power), f"Ladekurve ab {start} % SoC: Obergrenze aktiv"
+        note = f"Ladekurve ab {start} % SoC: Obergrenze aktiv"
+        if soc is not None and soc < start:
+            note += f" (gehalten, frei ab {start - HYSTERESIS_POINTS} %)"
+        return float(power), note
+
+    def _update_charge_curve_hold(self, states: Mapping[str, Any]) -> None:
+        """Advance the curve hysteresis once per control cycle.
+
+        An unknown SoC or unreadable curve forgets the hold, so the next
+        valid SoC starts from the stricter reading again.
+        """
+        curve = self._parse_charge_curve()
+        soc = finite(states.get("sensor.opti_soc"))
+        if not curve or soc is None:
+            self._charge_curve_held = None
+            return
+        self._charge_curve_held = active_points(curve, soc, self._charge_curve_held)
 
     async def _async_update_data(self) -> dict[str, Any]:
         self._schedule_price_fetch()
@@ -1321,6 +1348,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._failsafe_active and mode != "Beobachtung":
             mode, safety_reason = "Akku Pause", "Interner Fehler: Pause bis 60 s fehlerfrei"
         reason = safety_reason or ("Manuelle Auswahl" if self.manual_mode else result.reason)
+        self._update_charge_curve_hold(result.states)
         params = self._parameters(result.states)
         # Text only, no wattage: values here change every update and would
         # flood the Recorder via the reason sensor's attributes (issue #129).

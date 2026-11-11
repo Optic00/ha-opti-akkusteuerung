@@ -11,6 +11,13 @@ Powers must not rise with the SoC. A rising ceiling towards full charge
 contradicts the purpose of a taper and is almost always a typo (2500 for
 250 W). Equal powers are allowed.
 
+Hysteresis: a point applies at once when the SoC reaches it and stays
+applied until the SoC falls HYSTERESIS_POINTS or more below it. It can only
+keep a ceiling low for longer, never raise it or lower it later. The held
+points live in memory only, like the manual SoC hysteresis. Without memory
+(start, reload, unknown SoC before) every point within its band counts as
+reached, so the stricter of the two possible ceilings applies.
+
 There is no minimum power: a point with 0 W blocks charging from that SoC.
 Small values are written as whole watts; whether the inverter and BMS hold
 such a small power is device-specific and not verified here.
@@ -24,6 +31,9 @@ from typing import Any
 MAX_POINTS = 5
 # Same range as the maximum charge power setting.
 MAX_POWER_W = 10000
+# SoC is reported in whole percent; one step of jitter (98 <-> 99 %) stays
+# inside the band, a real discharge by two points releases the point.
+HYSTERESIS_POINTS = 2
 
 
 class ChargeCurveError(ValueError):
@@ -80,18 +90,40 @@ def normalized_curve(raw: Any) -> list[dict[str, int]]:
     return [{"soc": soc, "power_w": power} for soc, power in parse_curve(raw)]
 
 
-def curve_limit(curve: tuple[tuple[int, int], ...], soc: float | None) -> tuple[int, int | None] | None:
+def active_points(
+    curve: tuple[tuple[int, int], ...], soc: float, held: frozenset[int] | None
+) -> frozenset[int]:
+    """Point SoCs whose ceiling applies at this SoC.
+
+    ``held`` are the points active in the previous cycle; None means no
+    memory and treats every point within its band as held (fail-closed).
+    """
+    return frozenset(
+        start for start, _ in curve
+        if soc >= start
+        or ((held is None or start in held) and soc > start - HYSTERESIS_POINTS)
+    )
+
+
+def curve_limit(
+    curve: tuple[tuple[int, int], ...], soc: float | None, held: frozenset[int] | None
+) -> tuple[int, int | None] | None:
     """Ceiling for this SoC as (power_w, point SoC), or None without a limit.
 
-    An unknown SoC takes the smallest power of the curve (fail-closed); the
-    point SoC is then None.
+    The binding point is the highest active one; powers do not rise with
+    the SoC, so it has the lowest power. An unknown SoC takes the smallest
+    power of the curve (fail-closed); the point SoC is then None.
     """
     if not curve:
         return None
     if soc is None or not math.isfinite(soc):
         return min(power for _, power in curve), None
-    applicable = [(power, start) for start, power in curve if soc >= start]
-    return applicable[-1] if applicable else None
+    active = active_points(curve, soc, held)
+    applicable = [(power, start) for start, power in curve if start in active]
+    if not applicable:
+        return None
+    # Equal powers: name the highest point, it holds the longest.
+    return min(applicable, key=lambda item: (item[0], -item[1]))
 
 
 def format_curve(raw: Any) -> str:

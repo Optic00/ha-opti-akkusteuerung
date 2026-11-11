@@ -17,8 +17,11 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   dem Ladestand eines Punkts gilt seine Leistung als zusätzliche Obergrenze, in
   jedem Modus. Temperatur, Balancing, **Max. Ladeleistung** und die Freigabe bei
   PV-Spitzen bleiben wirksam; es gilt immer das Minimum. Die Leistung darf mit
-  steigendem Ladestand nicht steigen. Ob die Kurve greift, zeigt
-  `charge_power_limits` am Entscheidungsgrund. Ohne Eintrag ändert sich nichts.
+  steigendem Ladestand nicht steigen. Beim Fallen hält jeder Punkt seine
+  Leistung, bis der Ladestand 2 Prozentpunkte darunter liegt; nach einem
+  Neustart gilt innerhalb dieses Bands die niedrigere Leistung. Ob die Kurve
+  greift, zeigt `charge_power_limits` am Entscheidungsgrund. Ohne Eintrag
+  ändert sich nichts.
 
 ## [2026.11-beta4] - 2026-11-11
 

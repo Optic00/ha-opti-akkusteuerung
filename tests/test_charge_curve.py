@@ -7,7 +7,9 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.opti_akku.charge_curve import (
+    HYSTERESIS_POINTS,
     ChargeCurveError,
+    active_points,
     curve_limit,
     format_curve,
     normalized_curve,
@@ -34,7 +36,7 @@ def point(soc, power):
 @pytest.mark.parametrize("raw", [None, [], ()])
 def test_absent_or_empty_curve_is_valid_and_limits_nothing(raw):
     assert parse_curve(raw) == ()
-    assert curve_limit(parse_curve(raw), 100) is None
+    assert curve_limit(parse_curve(raw), 100, None) is None
 
 
 def test_points_are_sorted_and_stored_as_whole_numbers():
@@ -95,12 +97,84 @@ def test_format_curve_summarises_without_raising():
     (100, (70, 100)), (101, (70, 100)),
 ])
 def test_each_point_applies_from_its_soc_upwards(soc, expected):
-    assert curve_limit(parse_curve(SVEN), soc) == expected
+    """Rising from below (nothing held): every point applies at once."""
+    assert curve_limit(parse_curve(SVEN), soc, frozenset()) == expected
 
 
 @pytest.mark.parametrize("soc", [None, float("nan")])
-def test_unknown_soc_takes_the_smallest_power(soc):
-    assert curve_limit(parse_curve(SVEN), soc) == (70, None)
+@pytest.mark.parametrize("held", [None, frozenset(), frozenset({85, 93})])
+def test_unknown_soc_takes_the_smallest_power(soc, held):
+    assert curve_limit(parse_curve(SVEN), soc, held) == (70, None)
+
+
+# --- Hysteresis ----------------------------------------------------------------
+
+def run(curve, socs, held=frozenset()):
+    """Advance the hold like the coordinator, once per SoC; return the ceilings."""
+    curve = parse_curve(curve)
+    powers = []
+    for soc in socs:
+        held = active_points(curve, soc, held)
+        limit = curve_limit(curve, soc, held)
+        powers.append(None if limit is None else limit[0])
+    return powers
+
+
+def test_band_is_two_points():
+    assert HYSTERESIS_POINTS == 2
+
+
+def test_rising_applies_each_point_at_once_and_falling_holds_within_the_band():
+    socs = [84, 85, 93, 99, 100, 99, 98, 97, 96, 92, 91, 84, 83]
+    assert run(SVEN, socs) == [
+        None, 4000, 3000, 250, 70,   # rising: each point at once
+        70,                          # 99: 100 % point held (99 > 98)
+        250,                         # 98: 100 % released, 99 % held
+        3000,                        # 97: 99 % released, 98 % held
+        3000,                        # 96: 98 % released, 93 % reached
+        3000,                        # 92: 93 % held (92 > 91)
+        4000,                        # 91: 93 % released
+        4000,                        # 84: 85 % held
+        None,                        # 83: 85 % released
+    ]
+
+
+def test_rising_again_after_release_applies_at_the_point_not_later():
+    assert run(SVEN, [99, 97, 98, 99]) == [250, 3000, 3000, 250]
+    assert run(SVEN, [85, 83, 84, 85]) == [4000, None, None, 4000]
+
+
+def test_dense_points_with_overlapping_bands_release_one_after_another():
+    curve = [point(97, 500), point(98, 300), point(99, 100)]
+    assert run(curve, [99, 98, 97, 96, 95, 96, 97]) == [100, 100, 300, 500, None, None, 500]
+
+
+def test_fractional_soc_releases_at_exactly_two_points_below():
+    curve = [point(99, 250)]
+    assert run(curve, [99, 97.1, 97.0]) == [250, 250, None]
+
+
+@pytest.mark.parametrize("soc, expected", [
+    (82, None), (83.5, (4000, 85)), (84, (4000, 85)), (91.5, (3000, 93)),
+    (97, (3000, 98)), (98, (250, 99)), (98.5, (70, 100)), (99, (70, 100)),
+])
+def test_without_memory_the_stricter_reading_applies(soc, expected):
+    """After start or reload a point within its band counts as reached."""
+    assert curve_limit(parse_curve(SVEN), soc, None) == expected
+
+
+def test_hysteresis_never_raises_a_ceiling():
+    curve = parse_curve(SVEN)
+    starts = [start for start, _ in curve]
+    holds = [None] + [frozenset(s for i, s in enumerate(starts) if mask >> i & 1)
+                      for mask in range(2 ** len(starts))]
+    for held in holds:
+        for tenth in range(0, 1011):
+            soc = tenth / 10
+            plain = curve_limit(curve, soc, frozenset())
+            limit = curve_limit(curve, soc, held)
+            if plain is not None:
+                assert limit is not None and limit[0] <= plain[0], (held, soc)
 
 
 # --- Coordinator: minimum with every existing limit --------------------------
@@ -127,8 +201,10 @@ def with_curve(coordinator, curve):
     coordinator.hass.config_entries.async_update_entry(coordinator.entry, options=options)
 
 
-def params_for(coordinator, states, curve):
+def params_for(coordinator, states, curve, held=frozenset()):
+    """Parameters with a given hold; the default is rising from below."""
     with_curve(coordinator, curve)
+    coordinator._charge_curve_held = held
     return coordinator._parameters(states)
 
 
@@ -280,3 +356,61 @@ async def test_small_curve_power_keeps_a_small_window_with_a_minimum_charge(coor
     params = params_for(coordinator, states, SVEN)
     assert params["charge_power_w"] == params["min_charge_w"] == 70
     assert power_window(int(params["charge_power_w"]), int(params["min_charge_w"])) == (0, 70)
+
+
+async def test_hold_follows_real_cycles_and_names_the_release_point(coordinator):
+    with_curve(coordinator, SVEN)
+    reads = coordinator.device.async_read.return_value
+    notes = []
+    for soc in (98, 99, 98, 97):
+        reads[SOC] = soc
+        data = await coordinator._async_update_data()
+        notes.append([n for n in data["reason_details"]["charge_power_limits"] if n.startswith("Ladekurve")])
+    assert notes == [
+        # Start without memory at 98 %: the 99 % point is within its band.
+        ["Ladekurve ab 99 % SoC: Obergrenze aktiv (gehalten, frei ab 97 %)"],
+        ["Ladekurve ab 99 % SoC: Obergrenze aktiv"],
+        ["Ladekurve ab 99 % SoC: Obergrenze aktiv (gehalten, frei ab 97 %)"],
+        ["Ladekurve ab 98 % SoC: Obergrenze aktiv (gehalten, frei ab 96 %)"],
+    ]
+    assert coordinator._charge_curve_held == frozenset({85, 93, 98})
+    assert coordinator._parameters(data["states"])["max_charge_w"] == 3000
+
+
+async def test_restart_inside_the_band_starts_strict(hass, coordinator):
+    """A new coordinator has no hold; it may only be stricter than before."""
+    with_curve(coordinator, SVEN)
+    reads = coordinator.device.async_read.return_value
+    reads[SOC] = 98
+    await coordinator._async_update_data()
+    assert coordinator._parameters({SOC: 98, TEMP: 22, POWER: 2000,
+                                    "sensor.opti_battery_capacity_kwh": 12.8})["max_charge_w"] == 250
+    assert coordinator._charge_curve_held == frozenset({85, 93, 98, 99})
+
+
+async def test_unknown_soc_forgets_the_hold(coordinator):
+    with_curve(coordinator, SVEN)
+    coordinator._charge_curve_held = frozenset({85, 93, 98, 99, 100})
+    coordinator._update_charge_curve_hold({})
+    assert coordinator._charge_curve_held is None
+    coordinator._charge_curve_held = frozenset({85})
+    with_curve(coordinator, [point(85, 3000), point(93, 4000)])
+    coordinator._update_charge_curve_hold({SOC: 90})
+    assert coordinator._charge_curve_held is None
+    assert coordinator._charge_curve_limit({SOC: 90}) == (0.0, "Ladekurve ungültig: Laden gesperrt")
+
+
+@pytest.mark.parametrize("held", [None, frozenset(), frozenset({85, 93, 98, 99, 100})])
+@pytest.mark.parametrize("soc", [84, 92, 98, 99])
+async def test_hold_keeps_the_minimum_with_every_other_limit(coordinator, held, soc):
+    """Whatever is held, every charge parameter stays <= the value without curve."""
+    coordinator.settings["input_number.akkusteuerung_max_ladestaerke"] = 5000
+    coordinator.settings["input_number.akkusteuerung_min_ladestaerke"] = 100
+    states = {SOC: soc, TEMP: 46, POWER: 1800, "sensor.opti_battery_capacity_kwh": 12.8}
+    for manual in (None, "Akku schnell Laden"):
+        coordinator.manual_mode = manual
+        before = params_for(coordinator, states, None)
+        after = params_for(coordinator, states, SVEN, held)
+        cap = curve_limit(parse_curve(SVEN), soc, held)
+        for key in CHARGE_KEYS:
+            assert after[key] == (before[key] if cap is None else min(before[key], cap[0]))

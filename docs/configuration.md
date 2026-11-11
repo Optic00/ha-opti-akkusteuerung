@@ -111,8 +111,17 @@ Kleine Leistungen und Sonderfälle:
   vom Gerät ab und ist nicht geprüft. Liegt die Kurvenleistung unter dem, was
   das Gerät regeln kann, lädt der Akku je nach Gerät etwas mehr, gar nicht oder
   schwankend; das zeigt nur die gemessene Akkuleistung.
-- Die Kurve hat keine eigene Hysterese. Schwankt der Ladestand an einem Punkt,
-  wechselt die Obergrenze mit.
+- Jeder Punkt hat eine Hysterese von 2 Prozentpunkten. Beim Steigen greift
+  ein Punkt sofort, sobald der Ladestand ihn erreicht. Beim Fallen bleibt
+  seine Leistung wirksam, bis der Ladestand 2 Prozentpunkte unter dem Punkt
+  liegt: Nach 99 % mit 250 W gilt die höhere Leistung erst ab 97 %. Ein
+  Schwanken um eine Prozentstufe wechselt die Obergrenze so nicht. Die
+  Hysterese hält eine Grenze nur länger niedrig und hebt nie eine an. Der
+  Zustand liegt nur im Speicher. Nach einem Neustart, einem Neuladen oder
+  einem unbekannten Ladestand gilt jeder Punkt innerhalb seines Bands als
+  erreicht, also die niedrigere der beiden infrage kommenden Leistungen.
+  `charge_power_limits` zeigt eine gehaltene Stufe mit Freigabepunkt, etwa
+  `Ladekurve ab 99 % SoC: Obergrenze aktiv (gehalten, frei ab 97 %)`.
 - Ist der Ladestand unbekannt, gilt die kleinste Leistung der Kurve. Eine
   gespeicherte, ungültige Kurve sperrt das Laden.
 

@@ -2483,3 +2483,104 @@ async def test_final_save_rejects_corrupt_fixed_windows(hass):
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
     result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
     assert result["errors"] == {"base": "sources_changed"}
+
+
+CURVE = [{"soc": 85, "power_w": 4000}, {"soc": 93, "power_w": 3000},
+         {"soc": 99, "power_w": 250}, {"soc": 100, "power_w": 70}]
+
+
+async def test_wizard_stores_an_optional_charge_curve(hass):
+    """#205: the curve is part of 'Akku und Leistungsgrenzen' during first setup."""
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)), patch("custom_components.opti_akku.async_setup_entry", AsyncMock(return_value=True)):
+        result = await finish_wizard(hass, await begin(hass), {
+            "sources": {"single_inverter": True, "plant_meter_confirmed": True},
+            "battery": {"charge_curve": [{"soc": 99.0, "power_w": 250.0}, {"soc": 85.0, "power_w": 4000.0}]},
+            "finish": {"single_writer_confirmed": True},
+        })
+    assert result["options"]["charge_curve"] == [{"soc": 85, "power_w": 4000}, {"soc": 99, "power_w": 250}]
+
+
+async def test_wizard_without_charge_curve_stores_nothing(hass):
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)), patch("custom_components.opti_akku.async_setup_entry", AsyncMock(return_value=True)):
+        result = await finish_wizard(hass, await begin(hass), {
+            "sources": {"single_inverter": True, "plant_meter_confirmed": True},
+            "finish": {"single_writer_confirmed": True},
+        })
+    assert "charge_curve" not in result["options"]
+
+
+@pytest.mark.parametrize("curve, code", [
+    ([{"soc": 85, "power_w": 3000}, {"soc": 93, "power_w": 4000}], "charge_curve_rising"),
+    ([{"soc": 85, "power_w": 3000}, {"soc": 85, "power_w": 2000}], "charge_curve_duplicate"),
+    ([{"soc": s, "power_w": 100} for s in (10, 20, 30, 40, 50, 60)], "charge_curve_too_many"),
+    ([{"soc": 85.5, "power_w": 100}], "charge_curve_soc"),
+    ([{"soc": 85, "power_w": 70.5}], "charge_curve_power"),
+])
+async def test_options_reject_invalid_charge_curve_without_saving(hass, curve, code):
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, unique_id="charge-curve-invalid",
+                            options={"single_inverter": True, "sources": {}})
+    entry.add_to_hass(hass)
+    original = dict(entry.options)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "battery"})
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {"charge_curve": curve}))
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "battery"
+    assert result["errors"] == {"charge_curve": code}
+    assert dict(entry.options) == original
+    hass.config_entries.options.async_abort(result["flow_id"])
+
+
+async def test_options_edit_prefill_and_clear_the_charge_curve(hass):
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, unique_id="charge-curve-edit",
+                            options={"single_inverter": True, "sources": {}})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "battery"})
+    form = to_field_list(result["data_schema"], custom_serializer=cv.custom_serializer)
+    field = next(item for item in form if item["name"] == "charge_curve")
+    assert field["optional"] is True
+    assert field["selector"]["object"]["multiple"] is True
+    assert set(field["selector"]["object"]["fields"]) == {"soc", "power_w"}
+    assert "charge_curve" not in form_values(result)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], form_values(result, {"charge_curve": list(reversed(CURVE))}))
+    assert result["type"] == FlowResultType.MENU
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options["charge_curve"] == CURVE
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "battery"})
+    values = form_values(result)
+    assert values["charge_curve"] == CURVE
+    values.pop("charge_curve")  # The frontend omits an emptied optional list.
+    result = await hass.config_entries.options.async_configure(result["flow_id"], values)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert "charge_curve" not in entry.options
+
+
+@pytest.mark.parametrize("item", [{"soc": 101, "power_w": 100}, {"soc": 85, "power_w": -5},
+                                  {"soc": 85, "power_w": 10001}])
+async def test_charge_curve_selector_rejects_out_of_range_values(hass, item):
+    from homeassistant.data_entry_flow import InvalidData
+
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, unique_id="charge-curve-range",
+                            options={"single_inverter": True, "sources": {}})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "battery"})
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            result["flow_id"], form_values(result, {"charge_curve": [item]}))
+    assert "charge_curve" not in entry.options
+    hass.config_entries.options.async_abort(result["flow_id"])
+
+
+def test_charge_curve_is_copied_to_shadow_entries():
+    from custom_components.opti_akku.config_flow import SHADOW_COPY_OPTIONS
+    assert "charge_curve" in SHADOW_COPY_OPTIONS

@@ -8,6 +8,21 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- **Einstellbare Ladekurve am Ladeende**
+  ([#205](https://github.com/Optic00/ha-opti-akkusteuerung/issues/205)). Unter
+  **Akku und Leistungsgrenzen** lassen sich bis zu fünf Punkte aus Ladestand und
+  maximaler Ladeleistung eintragen, etwa ab 85 % 4000 W und bei 100 % 70 W. Ab
+  dem Ladestand eines Punkts gilt seine Leistung als zusätzliche Obergrenze, in
+  jedem Modus. Temperatur, Balancing, **Max. Ladeleistung** und die Freigabe bei
+  PV-Spitzen bleiben wirksam; es gilt immer das Minimum. Die Leistung darf mit
+  steigendem Ladestand nicht steigen. Beim Fallen hält jeder Punkt seine
+  Leistung, bis der Ladestand 2 Prozentpunkte darunter liegt; nach einem
+  Neustart gilt innerhalb dieses Bands die niedrigere Leistung. Ob die Kurve
+  greift, zeigt `charge_power_limits` am Entscheidungsgrund. Ohne Eintrag
+  ändert sich nichts.
+
 ### Behoben
 
 - Stufentarife (etwa feste Zeitfenster mit einem günstigen Nachtfenster): Die

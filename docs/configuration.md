@@ -55,6 +55,83 @@ Mindestladeleistung und Netzladefreigaben passen. **Strategie berechnen** aus
 bleibt eine Pause, auch bei manueller Moduswahl. Die Option ist kein Ersatz für
 Schreibfreigabe oder Hauptschalter.
 
+### Ladekurve am Ladeende
+
+Unter **Akku und Leistungsgrenzen** lässt sich optional eine **Ladekurve** mit
+bis zu fünf Punkten eintragen, jeweils Ladestand in Prozent und maximale
+Ladeleistung in Watt ([#205](https://github.com/Optic00/ha-opti-akkusteuerung/issues/205)).
+Ab dem Ladestand eines Punkts gilt seine Leistung als Obergrenze, bis der
+nächste Punkt erreicht ist. Unterhalb des ersten Punkts begrenzt die Kurve
+nicht, abgesehen vom Hystereseband (siehe unten). Ein Beispiel für einen Akku, dessen BMS am Ladeende abschaltet:
+
+| Ab Ladestand | Maximale Ladeleistung |
+|---:|---:|
+| 85 % | 4000 W |
+| 93 % | 3000 W |
+| 99 % | 250 W |
+| 100 % | 70 W |
+
+Die Kurve senkt nur ab. Opti Akku nimmt immer das Minimum aus Kurve und allen
+übrigen Grenzen: Temperaturdrosselung und -abschaltung, SoC-Stufen,
+Balancing-Taper, **Max. Ladeleistung**, die prognoseunabhängige Ladegrenze und
+die Freigabe bei PV-Spitzen. Eine PV-Spitze hebt die Kurve nicht auf. Die Kurve
+gilt in jedem Modus, auch in den manuellen Modi, bei **Akku schnell Laden**,
+**Akku 0.2C Laden** und beim Netzladen. Sie begrenzt die Ladeleistung der
+Steuerung und das Ladefenster des Wechselrichters; die Entladeseite bleibt
+unverändert. Ohne Eintrag ändert sich nichts.
+
+Die Einrichtung prüft die Punkte: ganze Ladestände von 0 bis 100 %, jeder
+Ladestand nur einmal, ganze Leistungen von 0 bis 10000 W, höchstens fünf Punkte.
+Die Reihenfolge der Eingabe ist egal, gespeichert wird aufsteigend. Die Leistung
+darf mit steigendem Ladestand nicht steigen, gleiche Werte sind erlaubt. Eine
+zum Ladeende steigende Obergrenze widerspricht dem Zweck und ist fast immer ein
+Tippfehler, etwa 2500 statt 250 W. Eine Änderung der Kurve lädt die Integration
+neu.
+
+Kleine Leistungen und Sonderfälle:
+
+- Es gibt keine Mindestleistung. 0 W sperrt das Laden ab diesem Ladestand, auch
+  beim Netzladen.
+- Liegt die **Min. Ladeleistung** über der Kurvenleistung, senkt Opti Akku sie
+  auf die Kurvenleistung. Sonst schlösse der SMA-Adapter das Ladefenster ganz,
+  weil er ein Ladefenster unter der Mindestleistung als gesperrt schreibt.
+- Werte gehen in ganzen Watt an den Wechselrichter. Der SMA-Adapter schneidet
+  Nachkommastellen ab, der Huawei-Pfad rundet auf die Schrittweite der Entität
+  ab. Beides kann die Grenze nur unterschreiten.
+- Die Einschwingbegrenzung des SMA-Adapters in **Akku Dynamisch** (500 W in
+  den ersten 330 Sekunden) senkt nur weiter ab.
+- Die Kurve wirkt mit dem nächsten Steuerzyklus (alle 15 Sekunden).
+  Vorgezogene Schreibvorgänge vergleicht der SMA-Adapter in 50-W-Schritten:
+  Ein Wechsel von 250 auf 70 W löst sofort einen Schreibvorgang aus, kleinere
+  Änderungen folgen spätestens mit der regelmäßigen Erneuerung nach
+  120 Sekunden. In den Modi mit festem Sollwert (**Akku Netzladen**,
+  **Akku schnell Laden**, **Akku 0.2C Laden**) gilt der bisherige Sollwert
+  während der Umschaltsequenz noch etwa zwei Sekunden, bevor der neue greift.
+- Ob Wechselrichter und BMS sehr kleine Leistungen wie 70 W genau halten, hängt
+  vom Gerät ab und ist nicht geprüft. Liegt die Kurvenleistung unter dem, was
+  das Gerät regeln kann, lädt der Akku je nach Gerät etwas mehr, gar nicht oder
+  schwankend; das zeigt nur die gemessene Akkuleistung.
+- Jeder Punkt hat eine Hysterese von 2 Prozentpunkten. Beim Steigen greift
+  ein Punkt sofort, sobald der Ladestand ihn erreicht. Beim Fallen bleibt
+  seine Leistung wirksam, bis der Ladestand 2 Prozentpunkte unter dem Punkt
+  liegt: Nach 99 % mit 250 W gilt die höhere Leistung erst ab 97 %. Ein
+  Schwanken um eine Prozentstufe wechselt die Obergrenze so nicht. Die
+  Hysterese hält eine Grenze nur länger niedrig und hebt nie eine an. Der
+  Zustand liegt nur im Speicher. Nach einem Neustart, einem Neuladen oder
+  einem unbekannten Ladestand gilt jeder Punkt innerhalb seines Bands als
+  erreicht, also die niedrigere der beiden infrage kommenden Leistungen.
+  `charge_power_limits` nennt die wirksame Stufe mit ihrem Freigabepunkt,
+  etwa `Ladekurve ab 99 % SoC: Obergrenze aktiv (frei ab 97 %)`. Der Text
+  bleibt gleich, solange dieselbe Stufe wirkt. Auch ein fehlgeschlagener
+  Steuerzyklus verwirft den gemerkten Zustand.
+- Ist der Ladestand unbekannt, gilt die kleinste Leistung der Kurve. Eine
+  gespeicherte, ungültige Kurve sperrt das Laden.
+
+Ob die Kurve gerade greift, zeigt der **Entscheidungsgrund** im Attribut
+`charge_power_limits`, etwa `Ladekurve ab 93 % SoC: Obergrenze aktiv (frei ab 91 %)`, siehe
+[Entscheidungen nachvollziehen](operation.md#entscheidungen-nachvollziehen).
+Die **Geplante Ladeleistung** der Strategie enthält die Kurve nicht.
+
 Für ausgeschlossene Verbraucher wie Wallboxen gibt es unter **Anlage und
 Messwerte** die Auswahl **Ausschlusslasten mit unverändert gültigen 0 W**.
 Hier dürfen nur bereits ausgeschlossene Sensoren gewählt werden, deren

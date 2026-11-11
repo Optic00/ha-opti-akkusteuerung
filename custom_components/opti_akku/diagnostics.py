@@ -137,8 +137,9 @@ async def async_get_config_entry_diagnostics(
         getattr(coordinator, "strategy_enabled", options.get("strategy_enabled", True))
     )
     sources = options.get("sources", {})
+    windows = options.get("price_windows")
 
-    return {
+    result: dict[str, Any] = {
         "configuration": {
             "backend": entry.data.get("backend", "sma"),
             "shadow_mode": shadow_mode,
@@ -207,3 +208,9 @@ async def async_get_config_entry_diagnostics(
             else False,
         },
     }
+    if options.get("price_provider") == "fixed_windows":
+        # Window count only; the tariff itself is not needed for support.
+        result["configuration"]["price_window_count"] = (
+            len(windows) if isinstance(windows, list) else 0
+        )
+    return result

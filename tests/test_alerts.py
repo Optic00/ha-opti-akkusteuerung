@@ -764,3 +764,22 @@ async def test_internal_error_alerts_at_once_only_while_active_and_clears_after_
     with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=91)):
         alerts.update(health(internal_error=None))
         assert "internal" not in alerts._active
+
+
+async def test_fixed_price_windows_never_raise_a_price_source_alert(hass, alerts):
+    """#204: configured windows have no age; there is nothing to load or warn about."""
+    from custom_components.opti_akku.sources import build_inputs
+
+    options = {**alerts.entry.options, 'price_provider': 'fixed_windows', 'price_max_age': 1,
+               'price_windows': [{'start': '00:00', 'end': '05:00', 'price': 21.74},
+                                 {'start': '05:00', 'end': '00:00', 'price': 31.74}]}
+    hass.config_entries.async_update_entry(alerts.entry, options=options)
+    start = dt_util.utcnow()
+    for hours in (0, 1, 30):
+        now = start + timedelta(hours=hours)
+        _states, _attributes, errors = build_inputs({}, {**options, 'sources': {}}, {}, now)
+        data = health(source_errors=errors)
+        with patch('custom_components.opti_akku.alerts.dt_util.utcnow', return_value=now):
+            alerts.update(data)
+        assert data['price_status'] == 'ready'
+        assert not alerts._active

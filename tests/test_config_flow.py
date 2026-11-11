@@ -2394,3 +2394,92 @@ async def test_balancing_hold_before_peak_option_defaults_off_and_persists(hass,
     result = await hass.config_entries.options.async_configure(flow_id, {"next_step_id": "balancing"})
     assert form_values(result)["opti_balancing_halten_vor_peak"] is enabled
     hass.config_entries.options.async_abort(flow_id)
+
+
+OCTOPUS_GO = [{"start": "00:00:00", "end": "05:00:00", "price": 21.74},
+              {"start": "05:00:00", "end": "00:00:00", "price": 31.74}]
+
+
+async def test_wizard_sets_up_fixed_price_windows(hass):
+    """#204: the third price source is available during first setup."""
+    with patch("custom_components.opti_akku.config_flow._probe", AsyncMock(return_value=PROBE)), patch("custom_components.opti_akku.async_setup_entry", AsyncMock(return_value=True)):
+        result = await finish_wizard(hass, await begin(hass), {
+            "sources": {"single_inverter": True, "plant_meter_confirmed": True},
+            "tariff": {"price_provider": "fixed_windows"},
+            "price_windows": {"price_windows": OCTOPUS_GO},
+            "finish": {"single_writer_confirmed": True},
+        })
+    assert result["options"]["price_provider"] == "fixed_windows"
+    assert result["options"]["price_windows"] == [
+        {"start": "00:00", "end": "05:00", "price": 21.74},
+        {"start": "05:00", "end": "00:00", "price": 31.74},
+    ]
+    assert "price_current" not in result["options"]["sources"]
+
+
+async def test_fixed_windows_options_reject_gap_and_overlap_before_save(hass):
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, unique_id="fixed-windows-flow",
+                            options={"sources": {"price_current": "sensor.old_price", "price_series": "sensor.old_series"},
+                                     "single_inverter": True})
+    entry.add_to_hass(hass)
+    original = dict(entry.options)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "tariff"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result, {"price_provider": "fixed_windows"}))
+    assert result["step_id"] == "price_windows"
+    form = to_field_list(result["data_schema"], custom_serializer=cv.custom_serializer)
+    assert form[0]["selector"]["object"]["multiple"] is True
+    assert set(form[0]["selector"]["object"]["fields"]) == {"start", "end", "price"}
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"price_windows": OCTOPUS_GO[:1]})
+    assert result["errors"] == {"base": "price_windows_gap"}
+    overlap = [OCTOPUS_GO[0], {**OCTOPUS_GO[1], "start": "04:00:00"}]
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"price_windows": overlap})
+    assert result["errors"] == {"base": "price_windows_overlap"}
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"price_windows": []})
+    assert result["errors"] == {"base": "price_windows_invalid"}
+    assert dict(entry.options) == original
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"price_windows": OCTOPUS_GO})
+    assert result["type"] == FlowResultType.MENU
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    assert result["description_placeholders"]["price"] == "00:00–05:00 21.74 ct/kWh, 05:00–00:00 31.74 ct/kWh"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options["price_provider"] == "fixed_windows"
+    assert entry.options["price_windows"][0] == {"start": "00:00", "end": "05:00", "price": 21.74}
+    assert not entry.options["sources"]
+
+
+async def test_saved_fixed_windows_are_prefilled_and_hide_price_entities(hass):
+    windows = [{"start": "00:00", "end": "05:00", "price": 21.74},
+               {"start": "05:00", "end": "00:00", "price": 31.74}]
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, unique_id="fixed-windows-saved",
+                            options={"sources": {}, "single_inverter": True,
+                                     "price_provider": "fixed_windows", "price_windows": windows})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "tariff"})
+    assert not {"price_current", "price_series", "price_unit"} & {marker.schema for marker in result["data_schema"].schema}
+    result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
+    assert result["step_id"] == "price_windows"
+    assert form_values(result)["price_windows"] == windows
+    # Changing a price later is an ordinary options change and reloads the entry.
+    changed = [windows[0], {**windows[1], "price": 33.0}]
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"price_windows": changed})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options["price_windows"][1]["price"] == 33.0
+    from custom_components.opti_akku.const import NO_RELOAD_OPTION_KEYS
+    assert "price_windows" not in NO_RELOAD_OPTION_KEYS
+
+
+async def test_final_save_rejects_corrupt_fixed_windows(hass):
+    entry = MockConfigEntry(domain=DOMAIN, data=CONNECTION, unique_id="fixed-windows-corrupt",
+                            options={"sources": {}, "single_inverter": True,
+                                     "price_provider": "fixed_windows",
+                                     "price_windows": [{"start": "00:00", "end": "05:00", "price": 20}]})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], form_values(result))
+    assert result["errors"] == {"base": "sources_changed"}

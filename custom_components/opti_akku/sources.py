@@ -190,7 +190,20 @@ def build_inputs(
             attributes[canonical] = {"estimate10": p10 * factor if p10 is not None and p10 >= 0 else None}
         states[canonical] = value
 
-    if price_provider != "entities":
+    if price_provider == "fixed_windows":
+        # Configured tariff windows have no provider and no data age.
+        from .fixed_prices import FixedPriceError, fixed_price_plan
+
+        try:
+            current, series, period = fixed_price_plan(options.get("price_windows"), now)
+        except FixedPriceError as err:
+            errors.update(price_current=err.code, price_series=err.code)
+        else:
+            states["sensor.opti_price_current_ct_kwh"] = current
+            states["sensor.opti_price_series"] = current
+            attributes["sensor.opti_price_series"] = series
+            attributes["sensor.opti_price_current_ct_kwh"] = period
+    elif price_provider != "entities":
         error = None
         if price_provider != "tibber":
             error = "invalid_provider"

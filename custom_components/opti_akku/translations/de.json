@@ -91,7 +91,7 @@
       },
       "tariff": {
         "title": "Stromtarif",
-        "description": "Tibber übernimmt datierte Preise aus deiner bereits eingerichteten HA-Integration. Im nächsten Schritt bestätigst du dein Zuhause und den Euro-Tarif. Bei anderen Anbietern beide Preisentitäten auswählen; today/tomorrow müssen vollständige Intervalle mit Start, Ende und Zeitzone enthalten. Ohne Preisoptimierung Entitäten wählen und beide Preisfelder leer lassen.",
+        "description": "Tibber übernimmt datierte Preise aus deiner bereits eingerichteten HA-Integration. Im nächsten Schritt bestätigst du dein Zuhause und den Euro-Tarif. Bei anderen Anbietern beide Preisentitäten auswählen; today/tomorrow müssen vollständige Intervalle mit Start, Ende und Zeitzone enthalten. Ohne Preisoptimierung Entitäten wählen und beide Preisfelder leer lassen. Feste Zeitfenster: Im nächsten Schritt trägst du die täglichen Fenster deines Tarifs mit Beginn, Ende und Preis ein, etwa für ein günstiges Nachtfenster.",
         "data": {
           "price_current": "Aktueller Strompreis",
           "price_series": "Preisreihe heute/morgen",
@@ -242,6 +242,13 @@
           "tibber_eur_confirmed": "Mein Tibber-Tarif verwendet EUR/kWh"
         }
       },
+      "price_windows": {
+        "title": "Feste Zeitfenster",
+        "description": "Trage die täglichen Fenster des Tarifs in Ortszeit mit Preis in ct/kWh ein. Zusammen müssen sie den ganzen Tag genau einmal abdecken, ohne Lücke und ohne Überschneidung; ein Fenster darf über Mitternacht gehen (etwa 05:00 bis 00:00). Beginn und Ende liegen auf 15-Minuten-Schritten. Opti Akku erzeugt daraus die datierten Preise für heute und morgen, auch an Tagen mit Zeitumstellung. Eine Altersprüfung gibt es nicht. Ändert sich der Tarif, passe die Fenster hier an.",
+        "data": {
+          "price_windows": "Preisfenster"
+        }
+      },
       "notifications": {
         "title": "Benachrichtigungen",
         "description": "Probleme erscheinen immer als Home-Assistant-Meldung. Optional zusätzlich einen vorhandenen Push-Dienst auswählen. Der Testknopf auf der Geräteseite prüft die Zustellung. Während HA selbst ausfällt, kann die Integration nicht alarmieren.",
@@ -390,7 +397,11 @@
       "ev_deadline_value": "Für die Abfahrtsplanung Kapazität und Ladeleistung angeben.",
       "arbitrage_hold_requires_demand": "Für den aktiven Restwertschutz zuerst die Bedarfsprognose aktivieren.",
       "arbitrage_value": "Für jede Annahme einen Wert im angegebenen Bereich eintragen.",
-      "observation_sources": "Vorhandene, eindeutige Sensoren wählen; maximal 8 je Liste und insgesamt 16."
+      "observation_sources": "Vorhandene, eindeutige Sensoren wählen; maximal 8 je Liste und insgesamt 16.",
+      "price_windows_invalid": "Mindestens ein Fenster mit Beginn, Ende und einem Preis zwischen -1000 und 1000 ct/kWh eintragen.",
+      "price_windows_gap": "Die Fenster lassen einen Teil des Tages frei. Zusammen müssen sie alle 24 Stunden abdecken.",
+      "price_windows_overlap": "Fenster überschneiden sich. Jede Uhrzeit darf zu genau einem Fenster gehören.",
+      "price_windows_grid": "Beginn und Ende müssen auf 15-Minuten-Schritten liegen (etwa 05:00 oder 05:15)."
     },
     "abort": {
       "already_configured": "Für dieses Gerät und diese Betriebsart ist bereits ein Eintrag vorhanden.",
@@ -475,7 +486,7 @@
       },
       "tariff": {
         "title": "Stromtarif",
-        "description": "Tibber übernimmt datierte Preise aus deiner bereits eingerichteten HA-Integration. Im nächsten Schritt bestätigst du dein Zuhause und den Euro-Tarif. Bei anderen Anbietern beide Preisentitäten auswählen; today/tomorrow müssen vollständige Intervalle mit Start, Ende und Zeitzone enthalten. Ohne Preisoptimierung Entitäten wählen und beide Preisfelder leer lassen.",
+        "description": "Tibber übernimmt datierte Preise aus deiner bereits eingerichteten HA-Integration. Im nächsten Schritt bestätigst du dein Zuhause und den Euro-Tarif. Bei anderen Anbietern beide Preisentitäten auswählen; today/tomorrow müssen vollständige Intervalle mit Start, Ende und Zeitzone enthalten. Ohne Preisoptimierung Entitäten wählen und beide Preisfelder leer lassen. Feste Zeitfenster: Im nächsten Schritt trägst du die täglichen Fenster deines Tarifs mit Beginn, Ende und Preis ein, etwa für ein günstiges Nachtfenster.",
         "data": {
           "price_current": "Aktueller Strompreis",
           "price_series": "Preisreihe heute/morgen",
@@ -583,6 +594,13 @@
         "data": {
           "tibber_home": "Tibber-Zuhause",
           "tibber_eur_confirmed": "Mein Tibber-Tarif verwendet EUR/kWh"
+        }
+      },
+      "price_windows": {
+        "title": "Feste Zeitfenster",
+        "description": "Trage die täglichen Fenster des Tarifs in Ortszeit mit Preis in ct/kWh ein. Zusammen müssen sie den ganzen Tag genau einmal abdecken, ohne Lücke und ohne Überschneidung; ein Fenster darf über Mitternacht gehen (etwa 05:00 bis 00:00). Beginn und Ende liegen auf 15-Minuten-Schritten. Opti Akku erzeugt daraus die datierten Preise für heute und morgen, auch an Tagen mit Zeitumstellung. Eine Altersprüfung gibt es nicht. Ändert sich der Tarif, passe die Fenster hier an.",
+        "data": {
+          "price_windows": "Preisfenster"
         }
       },
       "notifications": {
@@ -730,6 +748,10 @@
       "ev_deadline_value": "Für die Abfahrtsplanung Kapazität und Ladeleistung angeben.",
       "huawei_temperature_required": "Eine gültige Huawei-Batterietemperatur fehlt. Wähle sie unter Anlagen und Messwerte oder Verbindung aus. Rein lesende Messwerte sind im Shadow-Modus ohne Strategie möglich.",
       "huawei_house_source_required": "Huawei benötigt einen vorhandenen Hausverbrauchssensor. Die SMA-Ein-Wechselrichter-Bilanz ist hier nicht verfügbar.",
+      "price_windows_invalid": "Mindestens ein Fenster mit Beginn, Ende und einem Preis zwischen -1000 und 1000 ct/kWh eintragen.",
+      "price_windows_gap": "Die Fenster lassen einen Teil des Tages frei. Zusammen müssen sie alle 24 Stunden abdecken.",
+      "price_windows_overlap": "Fenster überschneiden sich. Jede Uhrzeit darf zu genau einem Fenster gehören.",
+      "price_windows_grid": "Beginn und Ende müssen auf 15-Minuten-Schritten liegen (etwa 05:00 oder 05:15).",
       "evcc_url": "Eine einfache http(s)-Adresse ohne Benutzername, Passwort, Query oder Fragment angeben."
     }
   },
@@ -1424,7 +1446,21 @@
     "price_provider": {
       "options": {
         "entities": "Preisentitäten",
-        "tibber": "Tibber (vorhandene HA-Integration)"
+        "tibber": "Tibber (vorhandene HA-Integration)",
+        "fixed_windows": "Feste Zeitfenster"
+      }
+    },
+    "price_windows": {
+      "fields": {
+        "start": {
+          "name": "Beginn"
+        },
+        "end": {
+          "name": "Ende"
+        },
+        "price": {
+          "name": "Preis"
+        }
       }
     },
     "plant_mode": {

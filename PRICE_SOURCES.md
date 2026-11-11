@@ -85,6 +85,41 @@ aktuelle Intervallabdeckung nochmals geprüft. Ein zwischenzeitlicher Intervallw
 stattdessen den veralteten Befehl. Ohne gültigen Tibber-Snapshot sind sowohl
 aktueller Preis als auch Planung ungültig.
 
+## Feste Zeitfenster
+
+Für Tarife mit festen Tageszeiten, etwa ein günstiges Nachtfenster, kann im
+Stromtarif-Schritt **Feste Zeitfenster** gewählt werden. Im folgenden Schritt
+werden Fenster mit Beginn, Ende und Preis in ct/kWh eingetragen, in Ortszeit der
+HA-Installation. Ein Beispiel mit 21,74 ct von 00:00 bis 05:00 Uhr und sonst
+31,74 ct:
+
+| Beginn | Ende  | Preis      |
+|--------|-------|------------|
+| 00:00  | 05:00 | 21,74 ct/kWh |
+| 05:00  | 00:00 | 31,74 ct/kWh |
+
+Die Fenster müssen den Tag lückenlos und ohne Überschneidung abdecken, sonst
+lehnt die Einrichtung sie mit `price_windows_gap` beziehungsweise
+`price_windows_overlap` ab. Ein Fenster darf über Mitternacht gehen; Ende 00:00
+bedeutet Mitternacht. Ein einzelnes Fenster mit gleichem Beginn und Ende gilt
+den ganzen Tag. Beginn und Ende liegen auf 15-Minuten-Schritten. Negative Preise
+sind erlaubt.
+
+Daraus erzeugt Opti Akku die datierten Listen für heute und morgen im selben
+Schema wie oben, als Stunden- oder, bei Viertelstundengrenzen, als
+Viertelstundenraster. Das Raster läuft in echter Zeit von Mitternacht bis zur
+nächsten Mitternacht; jeder Abschnitt erhält den Preis des Fensters, das seine
+Ortszeit enthält. An Umstellungstagen ergeben sich deshalb 23 oder 25 Stunden,
+und die doppelte Stunde im Herbst hat zweimal denselben Fensterpreis. Der
+aktuelle Preis kommt aus denselben Abschnitten.
+
+Es gibt keinen Anbieterabruf und deshalb weder Altersprüfung noch Quellen-
+warnung; `price_max_age` gilt für diese Quelle nicht. Anbieterspezifische
+Sensorattribute werden nicht gelesen. Ändert sich der Tarif, müssen die Fenster
+unter **Konfigurieren → Stromtarif** angepasst werden. Eine Änderung lädt die
+Integration wie jede andere Preisquellen-Änderung neu. Wie bei Tibber verwirft
+ein Fensterwechsel zwischen Entscheidung und Schreibbefehl den veralteten Befehl.
+
 ## Wirtschaftlichkeitsvergleich für Akku-Arbitrage
 
 Im Optionsmenü lässt sich eine rein informative Vergleichsrechnung aktivieren.

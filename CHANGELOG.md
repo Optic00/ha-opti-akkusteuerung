@@ -17,6 +17,12 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   AC-Leistung des Sunny Island mit umgekehrtem Vorzeichen. Diagnose und
   Registerabzug dienen dem [Sunny-Island-Lesetest](docs/sunny-island-lesetest.md);
   Werte, Vorzeichen und Skalierung am Gerät sind noch nicht bestätigt.
+- Schattenvergleich mit dem evcc-Optimizer (`sensor.opti_evcc_comparison`,
+  [#172](https://github.com/Optic00/ha-opti-akkusteuerung/pull/172)). Er steuert
+  nichts, ist von Anfang an aktiv und fragt erst ab, wenn unter
+  **Erweitert und Diagnose** eine evcc-Quelle eingetragen ist. Die Einrichtung
+  lädt die Integration nicht neu, anders als das Aktivieren deaktivierter
+  Sensoren ([#183](https://github.com/Optic00/ha-opti-akkusteuerung/issues/183)).
 
 ### Behoben
 

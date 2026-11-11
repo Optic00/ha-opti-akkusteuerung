@@ -26,7 +26,8 @@ CYCLE_STALL_SECONDS = 120
 CONF_SOURCES = "sources"
 CONF_SETTINGS = "settings"
 NO_RELOAD_OPTION_KEYS = frozenset(
-    {"settings", "settings_revision", "notification_service", "arbitrage_estimate"}
+    # Observation-only options; a reload would stop control and write a pause.
+    {"settings", "settings_revision", "notification_service", "arbitrage_estimate", "evcc_comparison"}
 )
 # key: (canonical virtual ID, German label, expected family)
 SOURCE_DEFINITIONS = {

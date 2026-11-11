@@ -393,10 +393,14 @@ async def test_copy_reviews_existing_optional_sections_in_dependency_order(hass,
         ['demand', 'ev_preparation', 'arbitrage', 'observation'] if configured else [])
 
 
-async def test_sbs_shadow_entry_is_not_offered_for_active_control(hass):
-    """#170: copying would create an active entry for a profile without a control path."""
-    shadow_entry(hass, data={**CONNECTION, "profile": "sma_sbs", "serial_number": "3012345678", "shadow_mode": True},
-                 unique_id="shadow:sma_sbs:3012345678")
+@pytest.mark.parametrize("profile", ["sma_sbs", "sma_sunny_island"])
+async def test_sbs_shadow_entry_is_not_offered_for_active_control(hass, profile):
+    """#170, #194: copying would create an active entry for a profile without a control path."""
+    shadow_entry(hass, data={**CONNECTION, "profile": profile, "serial_number": "3012345678", "shadow_mode": True},
+                 unique_id=f"shadow:{profile}:3012345678")
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER},
         data={"backend": "shadow_copy"})
     assert result["reason"] == "no_shadow_entries"
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    assert "active_setup" not in menu["menu_options"]

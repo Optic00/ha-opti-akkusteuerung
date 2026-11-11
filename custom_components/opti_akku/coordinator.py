@@ -24,6 +24,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import sun
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
 from .alerts import HealthAlerts, night_standby
@@ -68,6 +69,7 @@ from .peak_rank import model_assumptions as peak_rank_model_assumptions
 from .planner_shadow import ForecastHistory, PlannerInputs, PlannerShadow, price_periods, pv_forecast_hourly
 from .demand import EV_SCOPE_VERSION, DemandForecast, pv_intervals, ev_profile_sources, ev_profile_scope, profile_house_value
 from .refill_comparison import RefillReserveComparison, refill_reserve_check
+from .evcc_comparison import FETCH_INTERVAL as EVCC_FETCH_INTERVAL, EvccComparison, derive_plan, evcc_check, fetch_evopt, suggestion_status
 from .demand_comparison import build_strategy_comparison, remaining_day_profile
 from .peak_load import peak_load_profile
 from .ev_preparation import EVPreparation, apply_preparation, command_signals
@@ -78,6 +80,10 @@ from .reporting import OperatingReport, reserve_plan
 from .tibber_prices import READINESS_RETRY_SECONDS, REFRESH_SECONDS, RETRY_SECONDS, TibberPriceError, TibberPriceSnapshot, async_fetch_prices
 
 _LOGGER = logging.getLogger(__name__)
+# HA reloads 30 s after the last enable; the margin covers a busy event loop.
+ENTITY_ENABLE_RELOAD_WINDOW = 90.0
+# Unload to setup of the same reload; older handovers are stale.
+RELOAD_HANDOVER_MAX_AGE = 60.0
 # Errors a later confirmed write proves resolved (device reachable, sequence
 # accepted). Everything else, e.g. restore or settings warnings, is kept.
 WRITE_ERROR_PREFIXES = (
@@ -132,6 +138,7 @@ def _build_metadata(engine: Any) -> dict:
         "sensor.opti_negative_price_hold": {"name": "Schattenvergleich PV-Ladung bis Preisfenster"},
         "sensor.opti_peak_rank": {"name": "Schattenvergleich Peak-Rangfolge"},
         "sensor.opti_plan_shadow": {"name": "Schattenplaner Horizont"},
+        "sensor.opti_evcc_comparison": {"name": "Schattenvergleich evcc-Optimizer"},
         BATTERY_MODEL_ENTITY: {"name": "Akkumodell (Wirkungsgrad und Zykluskosten)"},
         "binary_sensor.opti_connection": {"name": "Verbindung", "device_class": "connectivity"},
         "binary_sensor.opti_block_violation": {"name": "Sperrverletzung", "device_class": "problem"},
@@ -303,6 +310,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._operating_report = OperatingReport()
         self._precharge_comparison = PrechargeComparison()
         self._refill_comparison = RefillReserveComparison()
+        self._evcc_comparison = EvccComparison()
         self._negative_price_hold = NegativePriceHoldShadow()
         self._peak_rank = PeakRankShadow()
         self._planner = PlannerShadow()
@@ -372,6 +380,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._serial_owner: str | None = None
         self._stop_lock = asyncio.Lock()
         self._stopped = False
+        self._entity_enabled_at: float | None = None
+        self._unload_pause_confirmed = False
         self._engine_snapshot: dict = {}
         self._routine_save_at: float | None = None
         self._write_stall_paused_at: float | None = None
@@ -385,6 +395,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._settings_revision = None
         self._price_snapshot: TibberPriceSnapshot | None = None
         self._price_task: asyncio.Task | None = None
+        self._evcc_task: asyncio.Task | None = None
+        self._evcc_url: str | None = None
+        self._evcc_next_fetch: datetime | None = None
+        self._evcc_evopt: Any = None
+        self._evcc_fetch_error: str | None = None
         self._price_next_fetch: datetime | None = None
         self._price_provider_error: str | None = None
         self._price_last_success: datetime | None = None
@@ -392,8 +407,55 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, self._async_ha_stopping))
         entry.async_on_unload(self._release_device)
 
-    async def async_restore(self) -> None:
+    @callback
+    def note_entity_enabled(self) -> None:
+        """One of this entry's entities was enabled; HA reloads the entry soon."""
+        self._entity_enabled_at = time.monotonic()
+
+    @property
+    def entity_enable_noted(self) -> bool:
+        return (self._entity_enabled_at is not None
+                and time.monotonic() - self._entity_enabled_at <= ENTITY_ENABLE_RELOAD_WINDOW)
+
+    @property
+    def pause_unconfirmed(self) -> bool:
+        """An owed pause is open (Huawei), or unload ended active writes without a confirmed pause."""
+        if getattr(type(self.device), "PHASED", False) and self._pause_pending:
+            return True
+        return self._stopping and self.write_enabled and not self.shadow_mode and not self._unload_pause_confirmed
+
+    def reload_handover(self) -> dict | None:
+        """Manual control to keep across the reload HA does after enabling an entity (#183).
+
+        The caller decides whether the unload follows an entity enable."""
+        if self.shadow_mode:
+            return None
+        return {"manual_mode": self.manual_mode,
+                "manual_charge_blocked": self._manual_charge_blocked,
+                "manual_discharge_blocked": self._manual_discharge_blocked,
+                "minsoc": self.settings["input_number.minsoc"],
+                "maxsoc": self.settings["input_number.maxsoc"],
+                "write_enabled": self.write_enabled,
+                "manual_charge_limit": self.settings["input_boolean.opti_manuelle_ladegrenze"],
+                "connection": dict(self.connection_config), "sources": dict(self.source_options)}
+
+    def _usable_handover(self, handover: dict | None) -> dict | None:
+        if not isinstance(handover, dict):
+            return None
+        age = time.monotonic() - handover.get("at", float("-inf"))
+        # Only for the same connection and sources; any real reconfiguration
+        # keeps the restart contract (no forced mode resumes).
+        if (not 0 <= age <= RELOAD_HANDOVER_MAX_AGE or handover.get("connection") != self.connection_config
+                or handover.get("sources") != self.source_options):
+            return None
+        return handover
+
+    async def async_restore(self, handover: dict | None = None) -> None:
         """Restore settings; every setup still requires fresh device/source reads."""
+        handover = self._usable_handover(handover)
+        handover_mode = handover.get("manual_mode") if handover else None
+        if handover_mode not in self.supported_modes:
+            handover_mode = None
         stored = await self._store.async_load() or {}
         candidates = stored.get("settings", {})
         self._settings_revision = self.entry.options.get("settings_revision")
@@ -430,6 +492,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.engine.restore(stored.get("engine", {}))
         self._precharge_comparison.restore(stored.get("precharge_comparison"))
         self._refill_comparison.restore(stored.get("refill_reserve_comparison"))
+        self._evcc_comparison.restore(stored.get("evcc_comparison"))
         self._negative_price_hold.restore(stored.get("negative_price_hold"))
         self._peak_rank.restore(stored.get("peak_rank"))
         self._planner.restore(stored.get("planner_shadow"))
@@ -470,10 +533,16 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ("strategy_setting_changed", stored.get("strategy_enabled", True) is not self.strategy_enabled),
             ("invalid_settings", bool(invalid)),
             ("shadow_mode", self.shadow_mode),
-            ("strategy_disabled", not self.strategy_enabled),
+            # Without strategy, writes need a manual mode; only the entity
+            # enable reload hands one over.
+            ("strategy_disabled", not self.strategy_enabled and handover_mode is None),
             ("no_supported_modes", not self.supported_modes),
         ) if blocked]
         self.write_enabled = bool(stored.get("write_enabled", False)) and not restore_blockers
+        if handover is not None and handover.get("write_enabled") is not True:
+            # The live state at unload wins over a store that may lag behind,
+            # e.g. a write disable whose save did not complete.
+            self.write_enabled = False
         if stored.get("write_enabled") is True and restore_blockers:
             # Never silently lose control across a restart: name the reason.
             self._write_restore_blocked = restore_blockers[0]
@@ -492,10 +561,22 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._shadow_snapshot = self._shadow.snapshot()
         # A forced manual charging/discharging command is never resumed after
         # a restart. Strategy decisions are recomputed from current inputs.
-        self.manual_mode = None
+        # Exception: the reload HA performs after an entity was enabled (#183).
+        self.manual_mode = handover_mode
+        if handover is not None:
+            self.settings["input_boolean.opti_manuelle_ladegrenze"] = handover.get("manual_charge_limit") is True
+        if handover_mode is not None:
+            _LOGGER.info("Manueller Modus %s nach Neuladen durch Aktivieren einer Entität beibehalten", handover_mode)
         # SoC blocks belong to one manual session; the first cycle after a
         # start derives them from the current SoC. Old stored keys are ignored.
+        # A handed-over manual session keeps its blocks while its limits are
+        # unchanged; a limit change resets them like a change while running.
         self._reset_manual_soc_blocks()
+        if (handover_mode is not None and handover is not None
+                and handover.get("minsoc") == self.settings["input_number.minsoc"]
+                and handover.get("maxsoc") == self.settings["input_number.maxsoc"]):
+            self._manual_charge_blocked = handover.get("manual_charge_blocked") is True
+            self._manual_discharge_blocked = handover.get("manual_discharge_blocked") is True
         self._manual_ev_latched = stored.get("manual_ev_latched") is True
         self._manual_cell_latched = stored.get("manual_cell_latched") is True
         self._manual_cell_reserve_v = finite(stored.get("manual_cell_reserve_v")) or (
@@ -556,6 +637,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "engine": self._engine_snapshot, "operating_report": self._operating_report.snapshot(),
                 "precharge_comparison": self._precharge_comparison.snapshot(),
                 "refill_reserve_comparison": self._refill_comparison.snapshot(),
+                "evcc_comparison": self._evcc_comparison.snapshot(),
                 "negative_price_hold": self._negative_price_hold.snapshot(),
                 "peak_rank": self._peak_rank.snapshot(),
                 "planner_shadow": self._planner.snapshot(), "load_profile": self._load_profile.snapshot(),
@@ -1461,6 +1543,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data, now, (captured_options.get("sources", {}).get("forecast_today"), demand_sources.get("pv_today")),
             captured_options)
         await self._async_update_planner(data, now, captured_options, demand_sources)
+        self._update_evcc_comparison(data, now, captured_options)
         self._update_peak_rank(data, now)
         self._update_arbitrage_report(data, now, captured_options, arbitrage_hold, safety_reason)
         await self._async_update_observations(data, now, captured_options)
@@ -1848,11 +1931,95 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         attributes[key] = check
 
     def _planner_entity_enabled(self) -> bool:
-        """The shadow sensor is disabled by default; a disabled entity costs no CPU."""
+        return self._shadow_entity_enabled("sensor.opti_plan_shadow")
+
+    def _shadow_entity_enabled(self, key: str) -> bool:
+        """Shadow sensors are disabled by default; a disabled entity costs no CPU or I/O."""
         registry = er.async_get(self.hass)
-        entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{self.entry.entry_id}_sensor.opti_plan_shadow")
+        entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{self.entry.entry_id}_{key}")
         entry = registry.async_get(entity_id) if entity_id else None
         return entry is not None and entry.disabled_by is None
+
+    def _update_evcc_comparison(self, data, now, options):
+        """Compare the ladder with the evcc optimizer; it never changes control."""
+        key = "sensor.opti_evcc_comparison"
+        states, attributes = data["states"], data["attributes"]
+        cfg = options.get("evcc_comparison") if isinstance(options.get("evcc_comparison"), dict) else {}
+        entity, url = cfg.get("suggestion_entity"), cfg.get("url")
+        try:
+            if not entity and not url:
+                check = {"status": "not_configured"}
+            elif not self._shadow_entity_enabled(key):
+                check = {"status": "disabled", "detail": "entity_disabled"}
+            else:
+                check = None
+            # Options change without a reload: a plan from another address, or from
+            # before the comparison was switched off, never counts.
+            active_url = url if check is None else None
+            if active_url != self._evcc_url:
+                self._reset_evcc_plan(active_url)
+            if check is not None:
+                self._evcc_comparison.interrupt()
+                check.update(informational_only=True, controls_battery=False)
+            else:
+                if url:
+                    self._schedule_evcc_fetch(url)
+                if entity:
+                    state = self.hass.states.get(entity)
+                    suggestion = suggestion_status(
+                        state.attributes if state else None, state.state if state else None,
+                        state.last_reported if state else None, now)
+                else:
+                    suggestion = {"status": "not_configured"}
+                if not url:
+                    plan = {"status": "not_configured"}
+                elif self._evcc_fetch_error is not None:
+                    plan = {"status": "fetch_error", "error": self._evcc_fetch_error}
+                else:
+                    plan = derive_plan(self._evcc_evopt, now)
+                check = evcc_check(suggestion, plan, data.get("mode"))
+                check["totals"] = self._evcc_comparison.observe(now, check)
+        except Exception as err:  # Observation only; never affects the decision.
+            _LOGGER.debug("evcc comparison unavailable: %s", type(err).__name__)
+            self._evcc_comparison.interrupt()
+            check = {"status": "error", "informational_only": True, "controls_battery": False}
+        states[key] = check.get("verdict", "unknown") if check.get("status") == "ready" else "unknown"
+        attributes[key] = check
+
+    @callback
+    def _reset_evcc_plan(self, url: str | None) -> None:
+        if self._evcc_task is not None and not self._evcc_task.done():
+            # Cancellation completes later; the new address must not wait for it.
+            self._evcc_task.cancel()
+        self._evcc_task = None
+        self._evcc_url = url
+        self._evcc_evopt = None
+        self._evcc_fetch_error = None
+        self._evcc_next_fetch = None
+
+    @callback
+    def _schedule_evcc_fetch(self, url: str) -> None:
+        """Read evcc's evopt result in the background; never await the network in the update."""
+        if (self._stopping or (self._evcc_task is not None and not self._evcc_task.done())
+                or (self._evcc_next_fetch is not None and dt_util.utcnow() < self._evcc_next_fetch)):
+            return
+        self._evcc_next_fetch = dt_util.utcnow() + EVCC_FETCH_INTERVAL
+        self._evcc_task = self.entry.async_create_background_task(
+            self.hass, self._async_fetch_evcc(url), "Opti evcc optimizer plan", eager_start=False)
+
+    async def _async_fetch_evcc(self, url: str) -> None:
+        """A failed read drops the cached plan, so an old plan never looks current."""
+        try:
+            raw = await fetch_evopt(async_get_clientsession(self.hass), url)
+            payload = await self.hass.async_add_executor_job(json.loads, raw)
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:  # noqa: BLE001 - any read failure stays in the comparison
+            payload, error = None, type(err).__name__
+        else:
+            error = None
+        if url == self._evcc_url:
+            self._evcc_evopt, self._evcc_fetch_error = payload, error
 
     async def _async_update_planner(self, data, now, options, demand_sources):
         """Shadow horizon planner; runs after the decision and never changes it.
@@ -2450,12 +2617,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsubscribe()
         self._stop_watchdog()
         await self.alerts.async_stop()
-        if self._price_task is not None and not self._price_task.done():
-            self._price_task.cancel()
-            try:
-                await self._price_task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._price_task, self._evcc_task):
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         await self.async_shutdown()
         async with self._update_lock:
             if not self.shadow_mode and self.write_enabled and self._online and self._identity.get("serial_number"):
@@ -2464,6 +2632,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         await self._async_finish_huawei_pause()
                     else:
                         await self.device.async_apply("Akku Pause", self._parameters((self.data or {}).get("states", {})), lambda: True)
+                    # The Huawei pause may defer itself; only a cleared debt confirms it.
+                    self._unload_pause_confirmed = not self._pause_pending
                 except Exception as err:
                     self._last_error = f"Pause beim Entladen der Integration nicht bestätigt: {type(err).__name__}"
             self._release_device()

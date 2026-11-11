@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Willkommen: Wechselrichter verbinden",
-        "description": "Wähle die Anbindung deiner Batterie: SMA STP SE, SMA Sunny Boy Storage (lesender Test) oder eine vorhandene Huawei-Solar-Integration. Verbindung und Betriebsweise richtest du in den folgenden Schritten ein.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.\n\nWenn bereits ein Shadow-Eintrag geladen ist, erscheint die zusätzliche Auswahl „Shadow-Einstellungen für aktive Steuerung übernehmen“.",
+        "description": "Wähle die Anbindung deiner Batterie: SMA STP SE, SMA Sunny Boy Storage oder SMA Sunny Island (beide als lesender Test) oder eine vorhandene Huawei-Solar-Integration. Verbindung und Betriebsweise richtest du in den folgenden Schritten ein.\n\nAchtung: Bei freigegebenen Schreibzugriffen steuert Opti Akku aktiv das Laden und Entladen deines Akkus. Falsche Einstellungen oder Fehler können zusätzliche Stromkosten, unerwünschten Betrieb oder Schäden verursachen. Beachte die Herstellervorgaben und deaktiviere andere schreibende Steuerungen vor der Freigabe. Der Shadow-Modus bleibt strikt lesend.\n\nWenn bereits ein Shadow-Eintrag geladen ist, erscheint die zusätzliche Auswahl „Shadow-Einstellungen für aktive Steuerung übernehmen“.",
         "data": {
           "backend": "Einrichtung",
           "host": "Host",
@@ -17,7 +17,7 @@
       },
       "sma_connection": {
         "title": "SMA-Wechselrichter verbinden",
-        "description": "Die Verbindungsprüfung liest nur. Das Profil SMA Sunny Boy Storage ist ein lesender Test: Es läuft immer im Shadow-Modus und steuert den Akku nie. PV-Erzeugung gesamt und die AC-Leistung des Sunny Tripower trägst du als Quellen ein.",
+        "description": "Die Verbindungsprüfung liest nur. Die Profile SMA Sunny Boy Storage und SMA Sunny Island sind lesende Tests: Sie laufen immer im Shadow-Modus und steuern den Akku nie. PV-Erzeugung gesamt und die AC-Leistung deiner PV-Wechselrichter trägst du als Quellen ein.",
         "data": {
           "host": "Host",
           "port": "Port",
@@ -429,6 +429,7 @@
         "menu_options": {
           "connection": "Verbindung",
           "observation": "Messquellen und Bilanz vergleichen",
+          "evcc_comparison": "Mit evcc-Optimizer vergleichen",
           "advanced": "Erweiterte Einstellungen",
           "init": "Zurück zur Übersicht"
         }
@@ -697,6 +698,14 @@
       "active_setup": {
         "title": "Aktive Steuerung einrichten",
         "description": "Dieser Shadow-Eintrag bleibt dauerhaft lesend.\n\n1. Schließe diesen Dialog. Falls du Einstellungen geändert hast, speichere sie zuerst über „Prüfen und speichern“.\n2. Öffne Einstellungen → Geräte & Dienste → Integration hinzufügen → Opti Akku.\n3. Wähle „Shadow-Einstellungen für aktive Steuerung übernehmen“ und diesen Shadow-Eintrag.\n\nDer neue Assistent übernimmt die Einstellungen als Vorschläge und prüft die Gerätebindung erneut. Schreibzugriffe bleiben zunächst gesperrt. Die bisherige schreibende Steuerung muss vor der abschließenden Bestätigung deaktiviert sein. Dieser Schritt selbst verändert nichts."
+      },
+      "evcc_comparison": {
+        "title": "Mit evcc-Optimizer vergleichen",
+        "description": "Nur lesend. Vergleicht den Modus der Leiter mit dem Akku-Plan von evcc. Der Sensor „Schattenvergleich evcc-Optimizer“ ist bereits aktiv und fragt erst ab, wenn hier eine Quelle eingetragen ist. Die Suggestion-Entität ist der SoC-Sensor des Hausakkus aus ha-evcc mit dem Attribut „suggestion“. Die evcc-Adresse ist optional: Dann liest Opti Akku alle 5 Minuten das evopt-Ergebnis aus /api/state und leitet die Akku-Aktion je Slot ab. Voraussetzung ist der evcc-Optimizer (Konfiguration → Experimentell).",
+        "data": {
+          "suggestion_entity": "Entität mit evcc-Suggestion",
+          "url": "evcc-Adresse (z. B. http://192.168.1.10:7070)"
+        }
       }
     },
     "error": {
@@ -742,7 +751,8 @@
       "price_windows_invalid": "Mindestens ein Fenster mit Beginn, Ende und einem Preis zwischen -1000 und 1000 ct/kWh eintragen.",
       "price_windows_gap": "Die Fenster lassen einen Teil des Tages frei. Zusammen müssen sie alle 24 Stunden abdecken.",
       "price_windows_overlap": "Fenster überschneiden sich. Jede Uhrzeit darf zu genau einem Fenster gehören.",
-      "price_windows_grid": "Beginn und Ende müssen auf 15-Minuten-Schritten liegen (etwa 05:00 oder 05:15)."
+      "price_windows_grid": "Beginn und Ende müssen auf 15-Minuten-Schritten liegen (etwa 05:00 oder 05:15).",
+      "evcc_url": "Eine einfache http(s)-Adresse ohne Benutzername, Passwort, Query oder Fragment angeben."
     }
   },
   "entity": {
@@ -1294,6 +1304,19 @@
           "nur_entladen": "Akku nur Entladen",
           "netzladen": "Akku Netzladen"
         }
+      },
+      "evcc_comparison": {
+        "name": "Schattenvergleich evcc-Optimizer",
+        "state": {
+          "agree": "Übereinstimmung",
+          "evcc_grid_charge": "evcc lädt aus dem Netz",
+          "ladder_grid_charge": "Leiter lädt aus dem Netz",
+          "evcc_hold": "evcc hält den Akku",
+          "evcc_discharge": "evcc entlädt",
+          "evcc_no_charge": "evcc sperrt Laden",
+          "other": "Andere Abweichung",
+          "ladder_unrated": "Leiter ohne evcc-Gegenstück"
+        }
       }
     },
     "button": {
@@ -1450,7 +1473,8 @@
     "profile": {
       "options": {
         "sma_stp_se": "SMA STP SE",
-        "sma_sbs": "SMA Sunny Boy Storage (lesender Test)"
+        "sma_sbs": "SMA Sunny Boy Storage (lesender Test)",
+        "sma_sunny_island": "SMA Sunny Island (lesender Test)"
       }
     }
   }

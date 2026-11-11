@@ -44,7 +44,8 @@ from .const import (
     EV_SOURCE_KEYS,
     SOURCE_DEFINITIONS,
 )
-from .sbs import PROFILE_SMA_SBS, SbsDevice
+from .sbs import PROFILE_SMA_SBS, SbsDevice  # noqa: F401  (SbsDevice is patched in tests)
+from .sunny_island import PROFILE_SMA_SUNNY_ISLAND, READ_ONLY_SMA_PROFILES
 from .sma import MODEL_NAMES, MODEL_POWER_W, SmaDevice, UnsupportedDeviceError, ac_surplus_suggestion_w
 from .device import DeviceError
 from .source_quality import DEFAULT_FORECAST_MAX_AGE, measurement_max_age, reported_recently
@@ -94,7 +95,7 @@ def _connection_schema(defaults: dict[str, Any], *, initial: bool = False) -> vo
             ),
             vol.Required(
                 CONF_PROFILE, default=defaults.get(CONF_PROFILE, PROFILE_SMA_STP_SE)
-            ): SelectSelector(SelectSelectorConfig(options=[PROFILE_SMA_STP_SE, PROFILE_SMA_SBS],
+            ): SelectSelector(SelectSelectorConfig(options=[PROFILE_SMA_STP_SE, PROFILE_SMA_SBS, PROFILE_SMA_SUNNY_ISLAND],
                                                    translation_key="profile")),
         }
     )
@@ -150,8 +151,8 @@ def _sources_schema(defaults: dict[str, Any], section: str, *, shadow_mode: bool
 async def _probe(hass: Any, data: dict[str, Any]) -> dict[str, Any]:
     params = ModbusTcpParams(host=data[CONF_HOST].strip(), port=data[CONF_PORT])
     async with async_get_temporary_unit(hass, params, data[CONF_UNIT_ID]) as unit:
-        if data.get(CONF_PROFILE) == PROFILE_SMA_SBS:
-            return await SbsDevice(unit).async_probe()
+        if (read_only_device := READ_ONLY_SMA_PROFILES.get(data.get(CONF_PROFILE))) is not None:
+            return await read_only_device(unit).async_probe()
         return await SmaDevice(unit, read_only=True).async_probe()
 
 
@@ -212,12 +213,25 @@ OPTION_GROUPS = {"sources": ["source_max_age", "house_consumption_max_age", "str
                  "finish": ["shadow_reference_mode", "single_writer_confirmed"]}
 DEFINITIONS = {**NUMBER_DEFINITIONS, **SWITCH_DEFINITIONS}
 
+
+def _evcc_url_valid(url: str) -> bool:
+    """Plain http(s) base URL; credentials, query and fragment never go into the options."""
+    from yarl import URL
+
+    try:
+        parsed = URL(url)
+    except (TypeError, ValueError):
+        return False
+    return (parsed.scheme in ("http", "https") and bool(parsed.host) and parsed.user is None
+            and parsed.password is None and not parsed.query_string and not parsed.fragment)
+
 # Copy configuration only; entry-specific journals, permissions and learned state
 # belong to the original entry. Unknown future options are not copied implicitly.
 SHADOW_COPY_OPTIONS = frozenset({
     *DEFAULT_OPTIONS, *(key for keys in OPTION_GROUPS.values() for key in keys),
     "tibber_home", "tibber_entry_id", "tibber_eur_confirmed", "price_windows", "notification_service",
     "ev_preparation", "demand_forecast", "arbitrage_estimate", "source_observation",
+    "evcc_comparison",
 }) - {"settings", "single_writer_confirmed", "shadow_reference_mode"}
 SHADOW_COPY_CONNECTION = frozenset({
     CONF_HOST, CONF_PORT, CONF_UNIT_ID, CONF_PROFILE, "backend", "serial_number",
@@ -682,6 +696,28 @@ class WizardSections:
             schema[marker] = EntitySelector(EntitySelectorConfig(domain=["sensor"],multiple=key not in ("instant_house", "gross_house")))
         return self.async_show_form(step_id="observation",data_schema=vol.Schema(schema),errors=errors)
 
+    async def async_step_evcc_comparison(self, user_input=None):
+        """Read-only comparison with the evcc optimizer; nothing here reaches control."""
+        cfg = self._draft.get("evcc_comparison", {})
+        errors = {}
+        if user_input is not None:
+            entity = user_input.get("suggestion_entity")
+            url = (user_input.get("url") or "").strip().rstrip("/")
+            if entity and self.hass.states.get(entity) is None:
+                errors["suggestion_entity"] = "missing_or_unavailable"
+            if url and not _evcc_url_valid(url):
+                errors["url"] = "evcc_url"
+            if not errors:
+                self._draft["evcc_comparison"] = {
+                    key: value for key, value in (("suggestion_entity", entity), ("url", url)) if value}
+                return await self.async_step_init()
+        schema = {}
+        for key, selector in (("suggestion_entity", EntitySelector(EntitySelectorConfig(domain=["sensor"]))),
+                              ("url", TextSelector())):
+            marker = vol.Optional(key, description={"suggested_value": cfg[key]}) if cfg.get(key) else vol.Optional(key)
+            schema[marker] = selector
+        return self.async_show_form(step_id="evcc_comparison", data_schema=vol.Schema(schema), errors=errors)
+
     async def async_step_ev_preparation(self, user_input=None):
         from .ev_preparation import _deadline_instant
         from homeassistant.helpers import entity_registry as er
@@ -1021,7 +1057,7 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
         return {entry.entry_id: entry for entry in self.hass.config_entries.async_entries(DOMAIN)
                 if entry.data.get("shadow_mode") is True
                 and entry.data.get("backend", BACKEND_SMA) in ("sma", BACKEND_SMA, BACKEND_HUAWEI)
-                and entry.data.get(CONF_PROFILE) != PROFILE_SMA_SBS
+                and entry.data.get(CONF_PROFILE) not in READ_ONLY_SMA_PROFILES
                 and entry.state is ConfigEntryState.LOADED
                 and getattr(entry, "runtime_data", None) is not None
                 and entry.runtime_data.connection_config == dict(entry.data)}
@@ -1162,8 +1198,8 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
                           CONF_UNIT_ID: user_input[CONF_UNIT_ID], CONF_PROFILE: user_input.get(CONF_PROFILE, PROFILE_SMA_STP_SE),
                           "backend": BACKEND_SMA,
                           "shadow_mode": bool(user_input.get("migrate_legacy")) or user_input.get("shadow_mode", True)}
-        # The SBS profile has no control path; it always runs in shadow mode.
-        if connection[CONF_PROFILE] == PROFILE_SMA_SBS:
+        # The read-only test profiles have no control path; they always run in shadow mode.
+        if connection[CONF_PROFILE] in READ_ONLY_SMA_PROFILES:
             connection["shadow_mode"] = True
         try:
             probe = await _probe(self.hass, connection)
@@ -1370,7 +1406,8 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
                 self._settings.update({k: v for k, v in stored.get("settings", {}).items() if k in DEFINITIONS})
                 self._merge_pending_settings(stored.get("settings_revision"))
         menu = ["sources", "battery", "tariff", "forecast", "features", "maintenance", "finish"]
-        if self._entry.data.get("shadow_mode") is True:
+        # Read-only test profiles cannot be copied into an active entry.
+        if self._entry.data.get("shadow_mode") is True and self._entry.data.get(CONF_PROFILE) not in READ_ONLY_SMA_PROFILES:
             menu.insert(0, "active_setup")
         return self.async_show_menu(step_id="init", menu_options=menu)
 
@@ -1380,7 +1417,7 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
         return self.async_show_form(step_id="active_setup", data_schema=vol.Schema({}))
 
     async def async_step_maintenance(self, user_input=None):
-        return self.async_show_menu(step_id="maintenance", menu_options=["connection", "observation", "advanced", "init"])
+        return self.async_show_menu(step_id="maintenance", menu_options=["connection", "observation", "evcc_comparison", "advanced", "init"])
 
     async def async_step_connection(self, user_input=None):
         if self._connection.get("backend") == BACKEND_HUAWEI:
@@ -1391,8 +1428,8 @@ class OptiAkkuOptionsFlow(WizardSections, OptionsFlow):
                           CONF_UNIT_ID: user_input[CONF_UNIT_ID], CONF_PROFILE: user_input.get(CONF_PROFILE, PROFILE_SMA_STP_SE),
                           "shadow_mode": self._entry.data.get("shadow_mode", False)}
             try:
-                if connection[CONF_PROFILE] == PROFILE_SMA_SBS and connection["shadow_mode"] is not True:
-                    raise UnsupportedDeviceError("The SMA SBS profile requires a shadow entry")
+                if connection[CONF_PROFILE] in READ_ONLY_SMA_PROFILES and connection["shadow_mode"] is not True:
+                    raise UnsupportedDeviceError("This SMA test profile requires a shadow entry")
                 probe = await _probe(self.hass, connection)
                 if not probe or not probe.get("inverter_status"):
                     raise UnsupportedDeviceError("Unsupported device")

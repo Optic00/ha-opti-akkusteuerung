@@ -8,6 +8,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+## [2026.11-beta3] - 2026-11-11
+
 ### Geändert
 
 - Der Sperrgrund im manuellen Betrieb nennt den wirksamen Grenzwert und die
@@ -532,7 +534,8 @@ Alle Korrekturen aus [#196](https://github.com/Optic00/ha-opti-akkusteuerung/pul
 - Frühere YAML-Lösung bleibt im Legacy-Archiv erhalten. Bestehende
   Integrationseinträge bei der Migration beibehalten.
 
-[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta2...HEAD
+[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta3...HEAD
+[2026.11-beta3]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta3
 [2026.11-beta2]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta2
 [2026.11-beta1]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta1
 [2026.10-beta13]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta13

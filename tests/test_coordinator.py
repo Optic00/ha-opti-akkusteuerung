@@ -3251,13 +3251,15 @@ async def test_duplicate_endpoint_is_permanent_setup_error_not_automatic_retry(h
     assert hass.data["opti_akku_writers"][("127.0.0.1", 15020, 3)] == "existing-controller"
 
 
-async def test_sbs_profile_sets_up_only_as_read_only_shadow(hass, entry):
-    """#170: an SBS entry without shadow mode is refused; with it the device never writes."""
+@pytest.mark.parametrize("profile", ["sma_sbs", "sma_sunny_island"])
+async def test_sbs_profile_sets_up_only_as_read_only_shadow(hass, entry, profile):
+    """#170, #194: a read-only profile without shadow mode is refused; with it the device never writes."""
     from custom_components.opti_akku import async_setup_entry
     from custom_components.opti_akku.sbs import SbsDevice
+    from custom_components.opti_akku.sunny_island import READ_ONLY_SMA_PROFILES
     from homeassistant.exceptions import ConfigEntryError
 
-    hass.config_entries.async_update_entry(entry, data={**entry.data, "profile": "sma_sbs", "shadow_mode": False})
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "profile": profile, "shadow_mode": False})
     with pytest.raises(ConfigEntryError, match="read-only"):
         await async_setup_entry(hass, entry)
     assert not hass.data.get("opti_akku_writers")
@@ -3269,6 +3271,7 @@ async def test_sbs_profile_sets_up_only_as_read_only_shadow(hass, entry):
             assert await async_setup_entry(hass, entry)
     device = coordinator_cls.call_args.args[2]
     assert isinstance(device, SbsDevice)
+    assert type(device) is READ_ONLY_SMA_PROFILES[profile]
     assert device.supported_modes == ()
 
 

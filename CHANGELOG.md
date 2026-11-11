@@ -10,6 +10,13 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Hinzugefügt
 
+- SMA Sunny Island als ausschließlich lesendes Testprofil über Modbus TCP
+  ([#194](https://github.com/Optic00/ha-opti-akkusteuerung/issues/194)). Es läuft
+  wie das SBS-Profil immer im Shadow-Modus und weist jeden Schreibversuch ab.
+  Fehlen die Register für Lade- und Entladeleistung, zeigt die Akkuleistung die
+  AC-Leistung des Sunny Island mit umgekehrtem Vorzeichen. Diagnose und
+  Registerabzug dienen dem [Sunny-Island-Lesetest](docs/sunny-island-lesetest.md);
+  Werte, Vorzeichen und Skalierung am Gerät sind noch nicht bestätigt.
 - Schattenvergleich mit dem evcc-Optimizer (`sensor.opti_evcc_comparison`,
   [#172](https://github.com/Optic00/ha-opti-akkusteuerung/pull/172)). Er steuert
   nichts, ist von Anfang an aktiv und fragt erst ab, wenn unter

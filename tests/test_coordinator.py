@@ -6551,3 +6551,32 @@ async def test_reload_handover_drops_soc_blocks_when_limits_changed(hass, entry)
     await old.async_stop()
     await new.async_stop()
     await legacy.async_stop()
+
+
+@pytest.mark.parametrize("feature", [
+    {"peak_rank_control": {"enabled": True}},
+    {"arbitrage_estimate": {"enabled": True, "hold_enabled": True}},
+])
+async def test_price_guard_accepts_the_unchanged_price_of_the_real_engine(coordinator, hass, entry, feature):
+    """The engine returns the price as text, the fresh inputs as a number.
+
+    Comparing them raw rejected every write as soon as the peak rank control
+    or the discharge protection was switched on (write stall, 11.11.2026).
+    """
+    hass.states.async_set("sensor.test_price", "0.704", {"unit_of_measurement": "EUR/kWh"})
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "price_unit": "EUR/kWh", **feature,
+        "sources": {**entry.options.get("sources", {}), "price_current": "sensor.test_price"}})
+    coordinator.write_enabled = True
+    observed = []
+
+    async def apply(mode, params, current):
+        observed.append(current())
+        hass.states.async_set("sensor.test_price", "0.72", {"unit_of_measurement": "EUR/kWh"})
+        observed.append(current())
+
+    coordinator.device.async_apply.side_effect = apply
+    await coordinator._async_update_data()
+    coordinator.device.async_apply.side_effect = None
+    coordinator.device.async_apply.assert_awaited_once()
+    assert observed == [True, False]

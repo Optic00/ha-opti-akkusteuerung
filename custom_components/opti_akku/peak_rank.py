@@ -27,15 +27,31 @@ from math import isfinite
 from typing import Any
 
 from .arbitrage import _instant, _price_periods
+from .battery_model import (
+    DEFAULT_CHARGE_EFFICIENCY,
+    DEFAULT_MARGIN_CT,
+    DEFAULT_THROUGHPUT_COST_CT_KWH,
+    BatteryModel,
+)
 
-DISCHARGE_EFFICIENCY = 0.9
 PEAK_PERCENTILE = 0.60
 WEAK_SCORE = 3
 # Same entry band as the precharge window in decisions.yaml.
 WINDOW_BAND_CT = 0.5
 HOLD_WINDOW_BAND_CT = 1.5
+# Same hold band as the economic precharge condition in decisions.yaml.
+ECONOMIC_HOLD_BAND_CT = 1.0
 PEAK_DECISIONS = frozenset({"peak_l1", "peak_l2"})
 MAX_INTERVAL = 90
+# Model assumptions (model_assumptions) plus six settings, as the coordinator
+# passes them.
+SETTING_COUNT = 6
+ASSUMPTION_COUNT = 5 + SETTING_COUNT
+# Snapshots before the battery model had only the six settings; the template
+# then always calculated with 0.9.
+LEGACY_DISCHARGE_EFFICIENCY = 0.9
+LEGACY_ECONOMICS = (DEFAULT_CHARGE_EFFICIENCY, DEFAULT_THROUGHPUT_COST_CT_KWH,
+                    DEFAULT_MARGIN_CT, True)
 _COUNTERS = (
     "ready_seconds",
     "peak_seconds",
@@ -81,12 +97,15 @@ def _hour_start(at: datetime, timezone: tzinfo) -> datetime:
 def _grid_charge_possible(*, price: float, minimum: float | None, average: float | None,
                           spread: float, feed_in: float, soc: float | None,
                           reserve_soc: float | None, maxsoc: float, score: float | None,
-                          charging: bool = False) -> str | None:
+                          model: BatteryModel, charging: bool = False) -> str | None:
     """Ladebedingungen aus decisions.yaml; fehlende Zukunftswerte sind nur möglich.
 
     Einstieg: SoC < Ziel - 3, Fenster bis Tief + 0,5 ct. Bereits laufendes
     Netzladen: SoC < Ziel, Fenster bis Tief + 1,5 ct. Ein möglicher Zweig ist
     ohne verlässliche Zukunftswerte ausdrücklich kein Nachladebeleg.
+    Peak-Vorladen zusätzlich nur wirtschaftlich (Akkumodell, Halteband 1 ct
+    bei laufendem Netzladen). Näherung: ungewichteter Mittelwert der
+    künftigen Peaks statt des lastgewichteten Template-Werts.
     """
     stopband = 0 if charging else 3
     band = HOLD_WINDOW_BAND_CT if charging else WINDOW_BAND_CT
@@ -95,7 +114,10 @@ def _grid_charge_possible(*, price: float, minimum: float | None, average: float
     if (price < feed_in and (score is None or score < WEAK_SCORE)
             and (soc is None or soc < maxsoc - stopband)):
         return "grid_below_feed_in"
+    economic_band = ECONOMIC_HOLD_BAND_CT if charging else 0.0
     if (average is not None and average - price >= spread
+            and model.economics_valid
+            and average + economic_band >= model.minimum_high_price(price)
             and (soc is None or reserve_soc is None or soc < reserve_soc - stopband)):
         return "grid_precharge"
     return None
@@ -103,7 +125,7 @@ def _grid_charge_possible(*, price: float, minimum: float | None, average: float
 
 def _refill(slots: Sequence[Slot], peaks: set[int], first: int, end: datetime, timezone: tzinfo, *,
             grid: bool, spread: float, feed_in: float, maxsoc: float,
-            surcharge: float, charging: bool) -> tuple[int, str] | None:
+            surcharge: float, charging: bool, model: BatteryModel) -> tuple[int, str] | None:
     """Erstes mögliches Netzladefenster, kein belastbarer Refill.
 
     Mirrors the grid branches of decisions.yaml as seen from that slot. Like
@@ -138,11 +160,17 @@ def _refill(slots: Sequence[Slot], peaks: set[int], first: int, end: datetime, t
             average=round(sum(ahead) / len(ahead), 2) if ahead else None,
             spread=spread, feed_in=feed_in, maxsoc=maxsoc,
             # Heutige Messwerte belegen weder SoC noch Reserve/Score dieses Slots.
-            soc=None, reserve_soc=None, score=None, charging=charging,
+            soc=None, reserve_soc=None, score=None, charging=charging, model=model,
         )
         if kind is not None:
             return index, kind
     return None
+
+
+def model_assumptions(model: BatteryModel) -> list[Any]:
+    """Model values the verdict depends on; a change restarts the totals."""
+    return [model.discharge_efficiency, model.charge_efficiency,
+            model.throughput_cost_ct_kwh, model.margin_ct, model.economics_valid]
 
 
 def peak_rank_check(
@@ -164,9 +192,14 @@ def peak_rank_check(
     spread_ct: Any,
     feed_in_ct: Any,
     score: Any,
+    discharge_efficiency: float,
+    battery_model: BatteryModel,
     maxsoc: Any = 95,
 ) -> dict[str, Any]:
     """Return the rank verdict for this cycle; never raises on bad input.
+
+    ``discharge_efficiency`` kommt aus dem Akkumodell (stored -> AC),
+    ``battery_model`` liefert die Wirtschaftlichkeit des Peak-Vorladens.
 
     ``score`` ist ein heutiger Messwert, keine Freigabe für künftiges Netzladen.
     """
@@ -218,6 +251,7 @@ def peak_rank_check(
         feed_in=value if (value := _number(feed_in_ct)) is not None else 0,
         maxsoc=value if (value := _number(maxsoc)) is not None else 95,
         surcharge=values["surcharge"], charging=strategy_mode == "Akku Netzladen",
+        model=battery_model,
     )
     if refill:
         return {**out, "status": "uncertain", "verdict": "uncertain",
@@ -232,7 +266,7 @@ def peak_rank_check(
         {current, *(i for i in peaks if current < i and periods[i][0] < boundary)},
         key=lambda i: (-periods[i][2], periods[i][0]),
     )
-    usable = values["capacity"] * max(0.0, values["soc"] - values["minsoc"]) / 100 * DISCHARGE_EFFICIENCY
+    usable = values["capacity"] * max(0.0, values["soc"] - values["minsoc"]) / 100 * discharge_efficiency
     remaining = usable
     demand = 0.0
     served: list[int] = []
@@ -319,8 +353,14 @@ class PeakRankShadow:
                 if raw is not None and datetime.fromisoformat(raw).tzinfo is None:
                     return
             assumptions = saved.get("assumptions")
+            if isinstance(assumptions, list) and len(assumptions) == SETTING_COUNT:
+                assumptions = [LEGACY_DISCHARGE_EFFICIENCY, *assumptions]
+            if isinstance(assumptions, list) and len(assumptions) == SETTING_COUNT + 1:
+                # Only the discharge efficiency was stored; the precharge
+                # economics did not exist and correspond to the default model.
+                assumptions = [assumptions[0], *LEGACY_ECONOMICS, *assumptions[1:]]
             if assumptions is not None and (
-                not isinstance(assumptions, list) or len(assumptions) != 6
+                not isinstance(assumptions, list) or len(assumptions) != ASSUMPTION_COUNT
                 or any(item is not None and not isinstance(item, bool) and _number(item) is None
                        for item in assumptions)
             ):

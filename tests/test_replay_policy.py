@@ -238,3 +238,27 @@ def test_build_policy_rasters_the_daily_statistics_to_the_simulation_step(head_r
     quarter = build_policy("strategy@HEAD", PLANT, SunModel())
     assert hourly.sample_interval_s == 3600.0
     assert quarter.sample_interval_s == 900.0
+
+
+def test_battery_model_reaches_the_engine_from_the_replay_parameters(head_resources):
+    default = StrategyPolicy(PLANT, resources=head_resources, name="default")
+    state, attrs = default.battery_model_state
+    assert state == "default" and attrs["discharge_efficiency"] == 0.9
+    params = BatteryParams.from_plant(PLANT, eta_charge=0.95, eta_discharge=0.92)
+    policy = StrategyPolicy(PLANT, resources=head_resources, name="replay", battery=params, wear_ct=3.0)
+    state, attrs = policy.battery_model_state
+    assert state == "configured"
+    assert (attrs["charge_efficiency"], attrs["discharge_efficiency"]) == (0.95, 0.92)
+    # --wear-ct is 2 * c / eta_discharge
+    assert attrs["cycle_cost_floor_ct_kwh"] == pytest.approx(round(3.0 * 0.92, 3))
+    assert policy.summary()["battery_model"] == attrs
+    seen = []
+    original = policy.engine.evaluate
+
+    def spy(states, attributes, now):
+        seen.append((states["sensor.opti_battery_model"], attributes["sensor.opti_battery_model"]))
+        return original(states, attributes, now)
+
+    policy.engine.evaluate = spy
+    simulate.run(peak_day()[:2], policy, params, start_soc=50)
+    assert seen and seen[0] == ("configured", attrs)

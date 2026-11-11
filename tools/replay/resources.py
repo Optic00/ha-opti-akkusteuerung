@@ -12,6 +12,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENGINE_PATH = REPO_ROOT / "custom_components" / "opti_akku" / "engine.py"
 PLANNER_PATH = REPO_ROOT / "custom_components" / "opti_akku" / "planner.py"
+BATTERY_MODEL_PATH = REPO_ROOT / "custom_components" / "opti_akku" / "battery_model.py"
 STRATEGY_RELATIVE = "custom_components/opti_akku/resources/strategy.json"
 
 
@@ -33,6 +34,18 @@ def load_planner_module():
     if name in sys.modules:
         return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, PLANNER_PATH)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_battery_model_module():
+    """Import the pure battery model by path, without the integration package (no HA)."""
+    name = "opti_replay_battery_model"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, BATTERY_MODEL_PATH)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)

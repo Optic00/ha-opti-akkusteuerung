@@ -145,14 +145,46 @@ Einstieg bis 0,5 ct/kWh über dem Horizont-Tief `min_preis_vor_peak_ct`. Läuft
 `Akku Netzladen` bereits, hält das Fenster bis 1,5 ct/kWh über dem Tief. Diese
 Hysterese verhindert, dass Viertelstundenpreise mit Schwankungen um bis zu
 1 ct/kWh den Modus im Viertelstundentakt zwischen Vorladen und Reserve halten
-umschalten. Ein teurer Slot beendet das Vorladen unabhängig davon, weil der
-Spread zur Spitze dann fehlt.
+umschalten. Peak-Vorladen findet außerdem nie in einem teuren Slot statt:
+Bei Preisniveau EXPENSIVE oder VERY_EXPENSIVE oder wenn der laufende Slot selbst
+zur Spitze zählt (Attribut `aktueller_slot_peak` der Peak-Reserve), ist es
+gesperrt. Läuft die Spitze bereits, fehlt `min_preis_vor_peak_ct`; ohne diese
+Sperre wäre das Fenster dann offen und der Akku könnte mitten in der Spitze
+laden, obwohl Stunden später günstigere Preise folgen. Laden bei negativen
+Preisen ist davon nicht betroffen.
+
+Peak-Vorladen muss sich außerdem rechnen. Der feste **Preisabstand für Netzladen**
+(Standard 10 ct/kWh) bleibt als Mindestdifferenz zum Peak-Durchschnitt bestehen.
+Zusätzlich muss der erwartete Spitzenpreis die Ladekosten samt Lade- und
+Entladeverlusten und Zykluskosten decken:
+`Spitzenpreis ≥ (Ladepreis / η_Laden + Zykluskosten + Marge) / η_Entladen`.
+Als Spitzenpreis zählt der mit der erwarteten Last gewichtete Mittelpreis der noch
+kommenden Spitzen-Slots (`peak_preis_kuenftig_ct` an der Peak-Reserve); bereits
+abgelaufene Viertelstunden zählen nicht. Die Werte kommen aus dem Akkumodell
+(`sensor.opti_battery_model`). Ohne eigene Annahmen gelten 90 % Lade- und
+Entladewirkungsgrad, 3 ct/kWh Zykluskosten und keine Marge. Faustregel: Bis etwa
+28 ct Ladepreis entscheidet wie bisher der feste Preisabstand, darüber die neue
+Schwelle; sie verlangt je 10 ct höherem Ladepreis rund 2,3 ct mehr Abstand (bei
+38 ct rund 12 ct, bei 48 ct rund 15 ct). Läuft `Akku Netzladen` bereits, darf der
+Spitzenpreis bis zu 1 ct/kWh unter der Schwelle liegen, damit der Modus an der
+Schwelle nicht im Viertelstundentakt wechselt. Eigene Werte unter **Konfigurieren →
+Optionale Funktionen → Wirtschaftlichkeitsvergleich** verschieben die Schwelle;
+sind sie ungültig, findet kein Peak-Vorladen statt, bis sie korrigiert sind. Ob und
+warum Vorladen wirtschaftlich zulässig ist, zeigt der Reserveplan unter `precharge`.
 
 In teuren und sehr teuren Preisphasen entlädt der Akku bei Hausbedarf. Tagsüber
 setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, solange
 **PV-Überschussladen erlauben** eingeschaltet ist und der Ladedeckel nicht
 erreicht ist. So geht Solarüberschuss während einer Abendspitze in den Akku
 statt ins Netz. Nachts bleibt es bei „Akku nur Entladen“.
+
+Tagsüber leert ein guter Tages-Score (über 2) den Horizont der Peak-Reserve,
+weil PV den Akku bis zum Abend wieder füllen soll. Das gilt nur, solange noch
+mindestens drei Stunden bis Sonnenuntergang bleiben. Bei fast vollem Akku ist
+der Score auch kurz vor Sonnenuntergang hoch, weil kaum noch Ladebedarf
+besteht; ohne diese Grenze ignorierte die Reserve eine Abendspitze am frühen
+Winterabend. Danach und bei fehlendem Sonnenuntergang gilt der normale
+Nachthorizont bis zum nächsten Sonnenaufgang.
 
 Die prognose- und SoC-abhängige Ladedrossel (schonendes Laden an guten Tagen)
 wird bei PV-Spitzen gelöst: Ist **PV-Überschussladen erlauben** eingeschaltet,
@@ -266,7 +298,26 @@ Ein erzwungener manueller Modus wird nach einem Neustart nicht fortgesetzt.
 Ohne aktivierte Strategie wird auch die Schreibfreigabe nicht wiederhergestellt.
 Zuerst wieder einen manuellen Modus wählen, dann die Schreibfreigabe setzen.
 Vor jeder Steuerungsbewertung müssen die Profilprüfung und aktuelle Messungen erfolgreich
-sein. Ohne lesbare Seriennummer bleibt die Schreibfreigabe gesperrt.
+sein. Ohne lesbare Seriennummer bleibt die Schreibfreigabe gesperrt. Bei SMA STP SE
+prüft Opti Akku die Geräteidentität (Gerätetyp, Modell, Seriennummer) in jedem Abruf.
+Meldet ein SMA-Identitäts- oder Messregister einen einzelnen Modbus-Fehler, liest
+der Treiber genau dieses Register sofort ein zweites Mal. Werte aus früheren Abrufen
+werden nie weiterverwendet. Scheitert auch der zweite Versuch, fehlt der Wert, und
+es gilt die Pause wie bisher (etwa ohne gültige Ein-Wechselrichter-Bilanz,
+SoC, Batterietemperatur oder Batterieleistung; ohne Seriennummer geht die
+Verbindung auf `offline`). Verbindungsfehler, Zeitüberschreitungen und vertauschte
+Antworten, nach denen die Modbus-Bibliothek die Verbindung trennt, werden nicht
+wiederholt, sondern wie ein Verbindungsfehler behandelt.
+Nach dem Wechsel in **Akku Dynamisch** begrenzt der SMA-Treiber die Ladeleistung
+330 Sekunden lang auf höchstens 500 W. Folgt auf Dynamisch nur eine Pause von
+weniger als 60 Sekunden (etwa eine kurze Schutzpause), läuft diese Begrenzung ab
+ihrem ursprünglichen Beginn weiter, statt neu zu starten. Nach einer längeren
+Pause, einem anderen Modus dazwischen, einer Sicherheits-Pause nach einem
+Schreibfehler sowie nach jedem Neustart oder Neuladen der Integration beginnt sie
+neu.
+Aktualisiert sich während einer Erneuerung des bereits aktiven Modus nur eine
+Prognose, die Preisreihe oder der Tibber-Cache, schreibt Opti Akku die Erneuerung
+zu Ende und bewertet danach neu; eine Sicherheits-Pause entsteht dadurch nicht.
 Sicherheitsgrenzen für SoC, Messwerte und Quellen gelten auch im
 manuellen Betrieb.
 
@@ -278,11 +329,18 @@ Dynamik bleibt an einer SoC- oder Temperaturgrenze die zulässige Gegenrichtung
 aktiv. Treffen Entlade- und Ladesperren zusammen, folgt Pause. Eine EV-Sperre
 überstimmt weder die Temperaturgrenze noch Max-SoC.
 
+Max-SoC begrenzt auch alle manuellen Lademodi. Wer manuell darüber hinaus laden
+will, hebt Max-SoC vorübergehend an (Entität „Maximaler Ladestand“ oder
+„Konfigurieren → Akku“). Der Grund nennt Grenze und Freigabeschwelle, etwa
+„Max-SoC 95 % sperrt Ladung (frei ab 92 %)“.
+
 Ab 45 °C begrenzt die berechnete Ladeleistung auch manuelle Schnell- und
 0.2C-Vorgaben. Manuelle SoC-Sperren lösen sich erst mit bis zu drei
 Prozentpunkten Abstand zur Grenze; bei engem Min-/Max-SoC-Bereich beträgt
-der Abstand höchstens die Hälfte dieses Bereichs. Diese Sperrzustände bleiben
-beim Neuladen erhalten. Nicht konfigurierte EV-Ladepunkte beteiligen sich
+der Abstand höchstens die Hälfte dieses Bereichs. Die SoC-Sperren gelten für
+die laufende manuelle Sitzung: Ein Moduswechsel, ein geänderter Min- oder
+Max-SoC sowie Neustart und Neuladen setzen sie zurück; sie werden sofort aus
+dem aktuellen SoC neu bestimmt. Nicht konfigurierte EV-Ladepunkte beteiligen sich
 nicht an der Entladesperre; fehlende Daten eines konfigurierten Ladepunkts
 halten eine bereits aktive Sperre weiterhin fest. Optional kann je Ladepunkt
 der evcc-Binärsensor `smart_cost_active` ausgewählt werden. Dann sperrt auch
@@ -311,7 +369,18 @@ Prozentpunkten Hysterese aktiv. Ohne weitere Sperre bleibt Entladen erlaubt.
 Trifft der Ladedeckel auf einen Reserve-Haltefall oder die aktive
 EV-Schnelllade-Sperre, setzt die Strategie stattdessen Pause. So entlädt sie den
 Akku nicht selbst unter den Ladedeckel, um ihn anschließend wieder bis zur
-Reserve zu laden. Die geplante Entladung während eines teuren Peak-Fensters
+Reserve zu laden. Als Reserve-Haltefall gilt nur, was die Peak-Leiter an dieser
+Stelle auch halten würde: L3 (teurer Slot, SoC höchstens an der Reserve für
+sehr teure Slots, ausreichender Halte-Spread), L4 (Preis höchstens NORMAL, SoC
+höchstens an der Gesamtreserve) oder die Extrempreis-Reserve. L3 und L4 nutzen
+das Halteband von 2 Prozentpunkten im Modus „Akku nur Laden“ und in der vom
+Ladedeckel selbst gehaltenen Pause (aktiver Ladedeckel mit unverändertem
+`maxsoc`; eine Pause aus anderem Grund erhält kein Band); dasselbe Band gilt dann auch für die
+vorgelagerte L2-Entladung. Die Extrempreis-Reserve gewährt ihr Band weiterhin
+nur im Modus „Akku nur Laden“; in der Deckel-Pause kann sie daher knapp über
+der Reserve abfallen, und L1 entlädt bis zur Reserve. Liegt der SoC deutlich
+über der benötigten Reserve, bleibt Entladen erlaubt, bis die Reserve erreicht
+ist. Die geplante Entladung während eines teuren Peak-Fensters
 bleibt davon unberührt.
 Ein fälliger Balancing-Zyklus hat weiterhin Vorrang und darf den Akku gezielt
 bis 100 Prozent laden.
@@ -324,6 +393,11 @@ die Entladesperre aufrecht und erlaubt PV-Nachladen mit den bestehenden strengen
 Balancing-Ladegrenzen (ab 96 % höchstens 0,02C, davor ab 92 % höchstens 0,05C).
 Es wird kein Mindestladen aus dem Netz erzwungen. Ohne PV bezieht das Haus während
 des Haltens seinen Bedarf jedoch aus dem Netz; dadurch können Stromkosten entstehen.
+Das Fenster hält nur bei erkanntem Preisniveau VERY_CHEAP, CHEAP oder NORMAL.
+Bei EXPENSIVE, VERY_EXPENSIVE oder fehlendem Preisniveau hält es nicht: Dann
+entscheiden die nachfolgenden Regeln, meist der Ladedeckel mit Entladen. Das
+Fenster selbst, seine Frist und der bestätigte Abschluss bleiben davon
+unberührt. Ein vorzeitiges Ende anhand von BMS-Daten gibt es nicht.
 MinSOC-Schutz, zulässiges Netzladen, Peak-Vorladen und Peak-Entladung haben standardmäßig Vorrang.
 
 Die Option **Balancing-Halten vor Preisspitzen**
@@ -369,6 +443,17 @@ Opti Akku erneuert die Sollwerte danach höchstens dreimal im Abstand von
 mindestens 30 Sekunden. Hält die Verletzung an, bleibt die Meldung aktiv, und
 es gilt wieder der reguläre Erneuerungsabstand von 120 Sekunden.
 
+Ohne Moduswechsel schreibt Opti Akku einen Befehl vor Ablauf der regulären
+Erneuerung nach 120 Sekunden nur neu, wenn sich ein tatsächlich wirksamer
+SMA-Registerwert ändert. Der Vergleich nutzt dieselbe Registerabbildung wie die
+Schreibfolge, einschließlich Begrenzung auf die Modellleistung und der
+Einschwingbegrenzung in **Akku Dynamisch**; deren Ende gilt selbst als Änderung.
+Leistungswerte zählen dabei in 50-W-Stufen; ob ein Lade- oder Entladefenster offen
+oder geschlossen ist, zählt exakt.
+Geschrieben wird immer der tatsächliche Wert. In **Akku Pause** löst etwa eine
+geänderte Ladeleistung keine neue Schreibfolge aus. Bei Huawei führt weiterhin
+jede Parameteränderung zu einem neuen Befehl.
+
 Der ältere Sensor **Befehlsbestätigung** bleibt aus Kompatibilitätsgründen
 erhalten. Sein Zustand **Kein offener Befehl** sagt nur, dass aktuell keine
 Transaktion aussteht.
@@ -391,6 +476,11 @@ angekommen sein; solche unbestätigten Schreiboperationen werden nicht als
 quittierte Werte ausgegeben. Ohne neue quittierte Werte bleibt der vorherige
 Nachweis mit seinem ursprünglichen Zeitpunkt stehen. Den aktuellen Fehler
 zusätzlich unter **Letzter Fehler** und **Befehlsnachweis** prüfen.
+Ein später bestätigter Schreibvorgang löscht unter **Letzter Fehler** nur Lese-,
+Schreib- und Sperrverletzungsfehler. Ein überholter Befehl ohne bestätigten
+Schreibvorgang löscht nichts. Warnungen beim Wiederherstellen nach einem
+Neustart und nicht übernommene Einstellungen bleiben sichtbar, bis ein anderer
+Fehler sie ersetzt oder die Integration neu geladen wird.
 
 Die Anzeige ist **keine unabhängige Registerrücklesung** und kein Nachweis der
 physischen Wirkung. Sie beginnt nach Neustart oder Neuladen leer; im Shadow-Modus
@@ -486,6 +576,31 @@ Abfragen keine erneute Meldung. Nach 60 Sekunden ohne Fehler wird der Vorfall
 beendet. Schreibstillstand, Sperrverletzung und eine ausstehende Pause werden
 ohne diese Wartefrist gemeldet; für den ersten Tibber-Abruf gilt die gesonderte
 Startfrist.
+Schreibstillstand bedeutet: bei freigegebenen Schreibzugriffen seit mehr als
+240 Sekunden kein bestätigter Schreibvorgang. Die Frist läuft ab dem späteren
+Zeitpunkt von letztem bestätigtem Schreibvorgang und Einschalten der
+Schreibfreigabe; nach langer abgeschalteter Freigabe beginnt sie also neu.
+
+Bricht der Steuerzyklus mit einem internen Fehler ab, bleibt der letzte Befehl
+zunächst bestehen. Ein einzelner Ausreißer führt zu keinem Schreibzugriff und
+keiner Meldung. Hält der Fehler 30 Sekunden an, schreibt Opti Akku bei
+erteilter Schreibfreigabe „Akku Pause“, meldet einen internen Fehler und hält
+die Pause, bis der Fehler 60 Sekunden lang nicht mehr aufgetreten ist. Die
+Pause wird in dieser Zeit höchstens alle 120 Sekunden erneuert; scheitert sie,
+folgen bis zu drei weitere Versuche im Abstand von 30 Sekunden, danach höchstens
+alle 120 Sekunden, und zusätzlich meldet der Schreibfehler. Das gilt auch im
+manuellen Modus, weil ohne Bewertung dessen Schutzgrenzen nicht prüfbar sind;
+die manuelle Auswahl bleibt erhalten und gilt nach dem Vorfall wieder. Ist der
+Wechselrichter nicht erreichbar oder nicht bereit, bleibt es beim letzten
+Befehl; Verbindungsmeldung und nach 240 Sekunden der Schreibstillstand zeigen
+das an, und sobald das Gerät wieder bereit ist, folgt die Pause. Ohne
+Schreibfreigabe greift Opti Akku nicht ein und meldet nur. Der Diagnosesensor
+**Aktiver Modus** zeigt in diesem Zustand „Akku Pause“; der Grund sagt, ob die Pause
+bestätigt ist. Ursache und Typ stehen in `last_error` und im
+Home-Assistant-Protokoll. Nach dem Vorfall beginnt in „Akku Dynamisch“ die
+330-Sekunden-Begrenzung neu. Schließt ein Steuerzyklus 120 Sekunden lang gar
+nicht ab, meldet ein unabhängiger Watchdog den hängenden Zyklus; schreiben kann
+Opti Akku in diesem Zustand nicht.
 
 Beim nativen Tibber-Preisbezug wartet Opti Akku, bis die Tibber-Integration
 vollständig geladen und ihr Preisdienst verfügbar ist. Die Bereitschaft wird
@@ -610,8 +725,14 @@ Zum Auswerten nach einigen Wochen:
   Planer würde aus dem Netz laden, die Leiter nicht; `planner_hold`: der
   Planer würde Energie halten, wo die Leiter entlädt; `planner_discharge`
   umgekehrt; `indifferent`: kein Modus könnte Energie bewegen (Akku leer oder
-  voll), zählt nicht als Abweichung. `today_disagreement_percent` fasst das
-  zusammen. `executable_mode` mit `planned_charge_w`/`planned_discharge_w`
+  voll), zählt nicht als Abweichung; `ladder_unrated`: die Leiter steht in
+  einem Modus außerhalb der Planer-Sprache (etwa `Akku Automatisch`,
+  `Akku schnell Entladen` oder Beobachtung), auch das ist weder Einigkeit noch
+  Abweichung; `other`: sonstige Abweichung zwischen zwei Planer-Modi.
+  `today_disagreement_percent` und `total_disagreement_percent` fassen das
+  zusammen, ohne `indifferent`- und `ladder_unrated`-Zeiten im Nenner. Vor
+  dieser Aufteilung gespeicherte Zähler werden weiter geladen; ihre
+  `other`-Sekunden können noch Zeiten mit solchen Leitermodi enthalten. `executable_mode` mit `planned_charge_w`/`planned_discharge_w`
   ist der Zug, der den Planfluss exakt reproduziert (auch Teilflüsse); der
   Zustand ist die gröbere Einordnung in die Leiter-Sprache.
 - `expected_saving_eur`: erwartete Ersparnis des Plans gegenüber reinem
@@ -659,8 +780,12 @@ Entität (Grenze aus **Maximales Alter von Prognosen**, Standard zwölf
 Stunden), was den tatsächlichen Abrufzeitpunkt bei Solcast nur annähert. Fehlt bei aktivem `grid_check_quantile` das Prüfquantil, gibt es
 keine Netzladeempfehlung (`grid_check_p50_missing`).
 
+Lade- und Entladewirkungsgrad des Planers kommen aus dem Akkumodell
+(`sensor.opti_battery_model`, Standard je 90 %).
 Ohne Oberfläche einstellbar über die Optionen des Eintrags: `planner.wear_ct_kwh`
-(Zyklenkosten, 3 ct/kWh Entladung), `planner.terminal_factor` (0,8),
+(Zyklenkosten je entladener kWh; ohne Angabe aus dem Akkumodell, Standard
+3,33 ct, also 2 × 1,5 ct Durchsatzkosten / 90 % Entladewirkungsgrad),
+`planner.terminal_factor` (0,8),
 `planner.quantile` (`p10`), `planner.min_benefit_ct` (Variante A: Plan nur,
 wenn sein erwarteter Vorteil gegenüber Eigenverbrauch über den Horizont diesen
 Betrag erreicht, sonst Eigenverbrauch; `plan_source` zeigt es) und

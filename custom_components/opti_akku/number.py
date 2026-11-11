@@ -24,6 +24,8 @@ class OptiAkkuNumber(OptiAkkuEntity, NumberEntity):
 
     def __init__(self, entry: ConfigEntry, key: str, definition: dict) -> None:
         super().__init__(entry, key)
+        if key in ("input_number.minsoc", "input_number.maxsoc"):
+            self._attr_entity_registry_enabled_default = True
         self._attr_translation_key = key.split(".", 1)[1]
         self._attr_icon = definition.get("icon")
         self._attr_native_min_value = definition["min"]

@@ -30,7 +30,7 @@ def pv(kw=6.0, first=6, last=20):
 def check(**overrides):
     args = dict(now=NOW, timezone=TZ, price_series=prices(), feed_in_ct=7.0, pv_slots=pv(),
                 load_w=500, score=4, soc=40, capacity_kwh=10, minsoc=10, maxsoc=90,
-                peak_reserve_active=False, peak_reserve_soc=None)
+                peak_reserve_active=False, peak_reserve_soc=None, charge_efficiency=0.9)
     args.update(overrides)
     return negative_price_hold_check(**args)
 
@@ -100,7 +100,7 @@ def observe(shadow, at, verdict, power=0.0, export=0.0, window=True, status="rea
     held = {"status": status, "verdict": verdict}
     if window:
         held["window_start"] = local(12).isoformat()
-    return shadow.observe(at, held, [7.0, 10, 90], power, export)
+    return shadow.observe(at, held, [0.9, 7.0, 10, 90], power, export)
 
 
 def test_totals_split_charging_before_and_inside_the_window():
@@ -128,7 +128,7 @@ def test_gaps_errors_and_changed_assumptions_do_not_count():
     assert observe(shadow, local(10, 6), "hold")["ready_seconds"] == 60  # clock stepped back
     shadow.interrupt()
     assert observe(shadow, local(10, 7), "hold")["ready_seconds"] == 60
-    totals = shadow.observe(local(10, 8), {"status": "ready", "verdict": "hold"}, [8.0, 10, 90], 0, 0)
+    totals = shadow.observe(local(10, 8), {"status": "ready", "verdict": "hold"}, [0.9, 8.0, 10, 90], 0, 0)
     assert totals["ready_seconds"] == 0
     assert totals["started_at"] == local(10, 8).isoformat()
 
@@ -159,3 +159,27 @@ def test_snapshot_round_trip_and_invalid_restore():
         target.restore(bad)
         assert target.totals()["ready_seconds"] == 0
         assert target.snapshot()["assumptions"] is None
+
+
+def test_pv_surplus_follows_the_model_charge_efficiency():
+    base = check()
+    lossless = check(charge_efficiency=1.0)
+    assert base["pv_surplus_from_window_kwh"] == 39.6
+    assert lossless["pv_surplus_from_window_kwh"] == pytest.approx(39.6 / 0.9, abs=0.01)
+
+
+def test_restore_migrates_snapshots_without_the_model_charge_efficiency():
+    """Before the battery model the totals had three assumptions and assumed 0.9."""
+    shadow = NegativePriceHoldShadow()
+    observe(shadow, local(10), "hold", power=3600)
+    observe(shadow, local(10, 1), "hold")
+    saved = shadow.snapshot()
+    assert saved["hold_seconds"] == 60
+    restored = NegativePriceHoldShadow()
+    restored.restore({**saved, "assumptions": saved["assumptions"][1:]})
+    assert restored.snapshot()["assumptions"] == saved["assumptions"]
+    assert restored.totals()["hold_seconds"] == 60
+    assert observe(restored, local(10, 2), "hold")["hold_seconds"] == 60
+    changed = restored.observe(local(10, 3), {"status": "ready", "verdict": "hold"},
+                               [1.0, 7.0, 10, 90], 0, 0)
+    assert changed["hold_seconds"] == 0

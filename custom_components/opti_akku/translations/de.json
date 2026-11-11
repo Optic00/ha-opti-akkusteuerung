@@ -315,7 +315,7 @@
       },
       "arbitrage": {
         "title": "Wirtschaftlichkeitsvergleich für Akku-Arbitrage",
-        "description": "Trage deine Annahmen zu Akkukosten, Lebensdauer und Wirkungsgraden ein. Die Anzeige berechnet Preisabstand und Restwert. Der optionale Entladeschutz hält Energie nur bei vollständiger Bedarfs-, PV- und Preisprognose für eine nachweislich wertvollere spätere Restlast zurück. Er lädt nicht aus dem Netz und lässt Schutz-, Lade- und unbekannte Entscheidungen unverändert.",
+        "description": "Trage deine Annahmen zu Akkukosten, Lebensdauer und Wirkungsgraden ein. Die Anzeige berechnet Preisabstand und Restwert. Wirkungsgrade, Zykluskosten und Marge gelten außerdem für die Peak-Reserve und entscheiden, ob vor einer Preisspitze aus dem Netz vorgeladen wird; ungültige Angaben sperren dieses Vorladen. Der optionale Entladeschutz hält Energie nur bei vollständiger Bedarfs-, PV- und Preisprognose für eine nachweislich wertvollere spätere Restlast zurück. Er lädt nicht aus dem Netz und lässt Schutz-, Lade- und unbekannte Entscheidungen unverändert.",
         "data": {
           "enabled": "Vergleich berechnen",
           "hold_enabled": "Restwert als automatischen Entladeschutz verwenden",
@@ -632,7 +632,7 @@
       },
       "arbitrage": {
         "title": "Wirtschaftlichkeitsvergleich für Akku-Arbitrage",
-        "description": "Trage deine Annahmen zu Akkukosten, Lebensdauer und Wirkungsgraden ein. Die Anzeige berechnet Preisabstand und Restwert. Der optionale Entladeschutz hält Energie nur bei vollständiger Bedarfs-, PV- und Preisprognose für eine nachweislich wertvollere spätere Restlast zurück. Er lädt nicht aus dem Netz und lässt Schutz-, Lade- und unbekannte Entscheidungen unverändert.",
+        "description": "Trage deine Annahmen zu Akkukosten, Lebensdauer und Wirkungsgraden ein. Die Anzeige berechnet Preisabstand und Restwert. Wirkungsgrade, Zykluskosten und Marge gelten außerdem für die Peak-Reserve und entscheiden, ob vor einer Preisspitze aus dem Netz vorgeladen wird; ungültige Angaben sperren dieses Vorladen. Der optionale Entladeschutz hält Energie nur bei vollständiger Bedarfs-, PV- und Preisprognose für eine nachweislich wertvollere spätere Restlast zurück. Er lädt nicht aus dem Netz und lässt Schutz-, Lade- und unbekannte Entscheidungen unverändert.",
         "data": {
           "enabled": "Vergleich berechnen",
           "hold_enabled": "Restwert als automatischen Entladeschutz verwenden",

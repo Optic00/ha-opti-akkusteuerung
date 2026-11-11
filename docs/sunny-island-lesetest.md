@@ -21,6 +21,14 @@ Die Steuerregister 40149, 40151, 40236, 40795, 40799 und 40801 werden nur
 zurückgelesen. So zeigt die Diagnose, ob das Gerät sie anbietet. Geschrieben
 wird nichts.
 
+Ebenfalls nur gelesen wird Register 40210, die Betriebsart der
+Wirkleistungsvorgabe. Laut #194 folgt ein SI 6.0H-13 den Registern 40149 und
+40151 erst, wenn dort „Externe Wirkleistungsvorgabe“ (Wert 1079) eingestellt
+ist. Der Parameter steht in der Weboberfläche unter Anlagen- und
+Gerätesteuerung, Wechselrichter, Wirkleistungsverfahren und lässt sich nur mit
+SMA-Grid-Guard-Code ändern. Für den Lesetest muss er nicht umgestellt werden.
+Der Rohwert in der Diagnose zeigt, was eingestellt ist.
+
 ## Einrichten
 
 1. Am Sunny Island Modbus TCP aktivieren (Port 502). Opti Akku schlägt Unit ID 3 vor, die SMA-Voreinstellung.

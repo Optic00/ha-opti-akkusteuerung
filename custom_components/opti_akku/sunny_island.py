@@ -10,7 +10,9 @@ community evidence for the Sunny Island. Sources:
   ``SIx.xx-12ff``: 30845, 30775, 31009, 31007, 30867, 30865, 30053, 30783,
   40035, 40149, 40151, 40189, 40191, 40236, 40795, 40799, 40801.
 - Issue #194 (SI 6.0H-13, reporter quoting the SMA Modbus list): 40029
-  OperMode with 303 off, 569 run, 1295 standby, 1795 locked; 30853.
+  OperMode with 303 off, 569 run, 1295 standby, 1795 locked; 30853; 40210
+  operating mode of the active power setpoint, which the reporter had to set
+  to 1079 (external setpoint) before the device followed 40149 and 40151.
 
 None of these reads has been verified on a Sunny Island with this
 integration yet. The profile never writes; the control registers are only
@@ -37,6 +39,7 @@ SI_REGISTER_PROBE = (
     (31009, False, "maverick_si"),
     (40149, True, "maverick_si_evcc"),
     (40151, False, "maverick_si_evcc"),
+    (40210, False, "issue_194"),
     (40236, False, "maverick_si"),
     (40795, False, "maverick_si"),
     (40799, False, "maverick_si"),

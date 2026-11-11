@@ -40,11 +40,12 @@ allein noch kein Nachweis einer besseren Strategie.
   ein rechnerisch passendes, aber energetisch bedeutungsloses Schwachlichtfenster
   nicht als Wiederaufladebeginn gewertet.
 - Der Vorschlag deckt das größte kumulierte Energiedefizit bis dahin, mit
-  20 % plus 0,2 kWh Puffer, 90 % Entladewirkungsgrad und eingestelltem Mindest-SoC.
+  20 % plus 0,2 kWh Puffer, dem Entladewirkungsgrad des Akkumodells (Standard 90 %)
+  und eingestelltem Mindest-SoC.
   Eine über der nutzbaren Kapazität liegende Anforderung wird separat ausgewiesen.
   Zusätzlich zeigt der Bericht den danach innerhalb des ab Berechnungszeitpunkt
-  maximal 24-stündigen Horizonts verfügbaren Nettoüberschuss, mit 90 %
-  Ladeeffizienz, und ob dieser den errechneten
+  maximal 24-stündigen Horizonts verfügbaren Nettoüberschuss, mit dem
+  Ladewirkungsgrad des Akkumodells (Standard 90 %), und ob dieser den errechneten
   Batteriebedarf innerhalb der nutzbaren Min-/Max-SoC-Spanne wieder auffüllen
   könnte. Potenziell verfügbare und tatsächlich speicherbare Energie werden
   getrennt gezeigt. Zwischenzeitliche Defizite werden vom aufgebauten Überschuss
@@ -354,6 +355,35 @@ Vergleich Max-SoC.
 Der Support-Export enthält hiervon nur Status und Grundcodes, keine Energiewerte,
 Zeitfenster, Profile oder Quellnamen.
 
+### Akkumodell
+
+Lade- und Entladewirkungsgrad sowie die Zykluskosten des Hausakkus stehen an einer
+Stelle, im Diagnosesensor `sensor.opti_battery_model` („Akkumodell“). Ist unter
+**Konfigurieren → Optionale Funktionen → Wirtschaftlichkeitsvergleich** der Vergleich
+eingeschaltet und sind alle Annahmen gültig, kommen die Werte von dort (Zustand
+`configured`): Wirkungsgrade aus den Prozentangaben, Durchsatzkosten je kWh aus
+Akkuanteil am Preis mal Wertverlust, geteilt durch zweimal Vollzyklen mal nutzbare
+Kapazität, dazu die Marge. Ohne diese Konfiguration gelten 90 % Lade- und 90 %
+Entladewirkungsgrad, 1,5 ct Durchsatzkosten je kWh (also 3 ct je gespeicherter und
+wieder entnommener kWh) und keine Marge (Zustand `default`). Ist der Vergleich
+eingeschaltet, aber eine Annahme ungültig, gelten ebenfalls diese Standardwerte und der
+Zustand heißt `invalid`.
+
+Das Akkumodell nutzen die Bedarfsprognose (Vorschlag „gesamter Bedarf bis PV“ und
+Refill-Felder), die Schattenvergleiche PV-Ladung bis zum Preisfenster und
+Peak-Rangfolge, der Horizont-Planer im Schattenbetrieb (Verschleiß je entladener kWh
+`2 × Durchsatzkosten / Entladewirkungsgrad`, sofern unter `planner` kein eigener
+`wear_ct_kwh` gesetzt ist) und die Arbitrage-Anzeige. Die Anzeige selbst bleibt ohne
+Konfiguration bei `not_configured` und zeigt keine angenommenen Zahlen.
+
+Steuernd wirkt der Entladewirkungsgrad auf die Peak-Reserve: Die benötigte Energie der
+teuren Stunden wird durch ihn geteilt (`sensor.opti_peak_reserve_soc`, `reserve_ve_soc`,
+`extreme_reserve_soc`). Mit den Standardwerten bleibt die Reserve wie bisher. Bei 95 %
+wird der Reserveanteil über dem Mindest-SoC rund 5 % kleiner, bei 85 % rund 6 % größer.
+Fehlt das Akkumodell oder ist sein Wert nicht plausibel (nicht größer 0 und höchstens
+1), rechnet die Reserve weiter mit 90 %. Der Reserveplan meldet den verwendeten Wert
+unter `assumed_discharge_efficiency`.
+
 ### Schattenvergleich der Peak-Vorladeschwelle
 
 Ist die Arbitrage-Anzeige konfiguriert und liegt ein aktueller Preis vor, vergleicht
@@ -366,13 +396,29 @@ heißt: Nur die feste Schwelle würde vorladen, die hergeleitete nicht.
 `derived_only` heißt das Gegenteil. Verglichen wird ausschließlich das
 Spread-Kriterium (`compares: spread_criterion_only`), nicht SoC-Grenzen oder
 Ladefenster. Der Vergleich beeinflusst weder Modus noch Parameter oder
-Entscheidungs-ID; die tatsächliche Vorladung folgt unverändert der festen Schwelle.
+Entscheidungs-ID. Er rechnet weiter mit dem ungewichteten Peak-Durchschnitt
+`peak_preis_avg_ct`. Die tatsächliche Vorladung verlangt seit der wirtschaftlichen
+Vorlade-Bedingung beide Schwellen, die hergeleitete mit dem lastgewichteten
+künftigen Spitzenpreis `peak_preis_kuenftig_ct` (siehe unten).
 
 Unter `totals` werden die Sekunden je Urteil zeitgewichtet summiert, dazu die
 Sekunden mit aktivem Vorladen und davon die, in denen die hergeleitete Schwelle
 blockiert hätte. Lücken über 90 Sekunden, der erste Durchlauf nach einem Neustart
 und rückwärts laufende Uhren zählen nicht. Ändert sich eine Annahme der
 Arbitrage-Anzeige oder der feste Spread, starten die Zähler neu.
+
+### Wirtschaftlichkeit des Peak-Vorladens im Reserveplan
+
+Der Reserveplan enthält unter `precharge`, ob Peak-Vorladen nach dem Akkumodell
+wirtschaftlich zulässig ist. `status` ist `allowed`, wenn der künftige Spitzenpreis
+`future_peak_price_ct` mindestens `minimum_peak_price_ct` erreicht, sonst
+`blocked_price`; `blocked_model` bei ungültigen Arbitrage-Annahmen;
+`not_applicable`, wenn Netzladen nicht erlaubt oder die Peak-Reserve nicht aktiv ist
+oder Preis bzw. künftiger Spitzenpreis fehlen. Dazu kommen der billigste künftige
+Spitzen-Slot `cheapest_future_peak_price_ct` (nur Diagnose), der aktuelle Preis und
+`model_source`. Verglichen wird nur das Preiskriterium
+(`compares: economic_criterion_only`), ohne Halteband, SoC, Ladefenster und festen
+Preisabstand.
 
 ### Schattenvergleich Peak-Reserve gegen Refill-Reserve
 
@@ -437,8 +483,8 @@ mit einem Preis unter `opti_einspeiseverguetung_ct`. Vor dem Fenster lautet das
 Urteil `hold`, wenn der Prognose-Score mindestens 3 beträgt, der Ladestand über
 dem Mindest-SoC und einer aktiven Peak-Reserve liegt und der P10-Überschuss ab
 Fensterbeginn bis Mitternacht nach Abzug der aktuellen Hauslast (60-Minuten-Wert)
-und 90 % Ladewirkungsgrad mindestens das 1,2-Fache der bis zum maximalen
-Ladestand fehlenden Energie deckt. Sonst nennt das Urteil den Grund:
+und mit dem Ladewirkungsgrad des Akkumodells (Standard 90 %) mindestens das
+1,2-Fache der bis zum maximalen Ladestand fehlenden Energie deckt. Sonst nennt das Urteil den Grund:
 `no_window`, `in_window`, `forecast_weak`, `min_soc`, `peak_reserve`, `full`
 oder `insufficient_pv`. Ist die Peak-Reserve aktiv, ihr Wert aber unbekannt,
 gibt es kein Urteil (`data_missing`). Benötigt wird das `detailedForecast` der
@@ -478,7 +524,11 @@ genau bis zur Grenze genügt.
 Bei eingeschaltetem `opti_prognose_netzladen` sucht der Vergleich außerdem nach
 möglichen früheren Netzladefenstern. Er spiegelt die Ladebedingungen der
 Strategie: Peak-Vorladen braucht eine aktive Peak-Reserve, den eingestellten
-Spread zum Peak-Durchschnitt und beim Einstieg `SoC < Reserve-SoC - 3`.
+Spread zum Peak-Durchschnitt, die Wirtschaftlichkeit nach dem Akkumodell
+(Peak-Durchschnitt mindestens Mindest-Spitzenpreis, bei laufendem Netzladen 1 ct
+Halteband, gültige Annahmen) und beim Einstieg `SoC < Reserve-SoC - 3`. Anders als
+die Strategie nutzt der Vergleich dafür seinen eigenen ungewichteten Durchschnitt
+der künftigen Peaks; das ist eine Näherung.
 Laden unter der Einspeisevergütung braucht Prognose-Score unter 3 und
 `SoC < MaxSOC - 3`. Für beide Zweige gilt das Ladefenster bis zum Tiefstpreis
 vor dem nächsten Peak plus 0,5 ct. Bei bereits laufendem Netzladen entfallen
@@ -504,7 +554,8 @@ Horizont kein solcher Sonderpfad den Akku nachlädt.
 
 Jeder Slot bekommt die erwartete Hauslast aus dem Peak-Lastprofil
 (`sensor.opti_peak_load_profile`), ersatzweise `opti_peak_verbrauch_kw`. Der
-nutzbare Inhalt über dem Mindest-SoC mit 90 % Entladewirkungsgrad wird vom
+nutzbare Inhalt über dem Mindest-SoC mit dem Entladewirkungsgrad des Akkumodells
+(Standard 90 %) wird vom
 teuersten Slot abwärts verteilt; `threshold_price_ct` ist der Preis des letzten
 bedienten Slots. Liegt der laufende Slot unter den bedienten, lautet das Urteil
 während L1 oder L2 `discharge`, sonst `hold`. Bei jeder anderen Entscheidung

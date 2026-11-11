@@ -12,11 +12,124 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 - Das Aktivieren einer standardmäßig deaktivierten Entität beendet keinen manuellen
   Modus mehr ([#183](https://github.com/Optic00/ha-opti-akkusteuerung/issues/183)).
-  Home Assistant lädt den Eintrag danach neu; manueller Modus, Schreibfreigabe
-  (auch ohne Strategie) und die prognoseunabhängige Ladegrenze bleiben dabei
-  erhalten. Die kurze Pause beim Entladen bleibt als Absicherung. Ohne bestätigte
+  Home Assistant lädt den Eintrag danach neu; manueller Modus samt seiner
+  SoC-Sperren, Schreibfreigabe (auch ohne Strategie) und die prognoseunabhängige
+  Ladegrenze bleiben dabei erhalten. Die kurze Pause beim Entladen bleibt als Absicherung. Ohne bestätigte
   Pause, bei geänderter Verbindung oder Quellen und bei einem gewöhnlichen
   Neustart gilt weiter der bisherige Ablauf. Siehe [Betrieb](docs/operation.md).
+
+## [2026.11-beta3] - 2026-11-11
+
+### Geändert
+
+- Der Sperrgrund im manuellen Betrieb nennt den wirksamen Grenzwert und die
+  Freigabeschwelle, etwa „Max-SoC 95 % sperrt Ladung (frei ab 92 %)“.
+  Automationen, die den bisherigen Text wörtlich auswerten, müssen angepasst
+  werden.
+- Die Entitäten „Minimaler Ladestand“ und „Maximaler Ladestand“ sind bei neuen
+  Installationen aktiviert. Bestehende Installationen bleiben unverändert; die
+  Entitäten lassen sich in der Entitätsverwaltung aktivieren (Home Assistant lädt
+  die Integration danach neu), die Werte bleiben auch unter „Konfigurieren →
+  Akku“ einstellbar.
+- **Peak-Vorladen aus dem Netz rechnet jetzt mit Verlusten und Zykluskosten.**
+  Bisher genügte ein fester Preisabstand zur kommenden Spitze (Standard 10 ct).
+  Jetzt muss der erwartete Spitzenpreis zusätzlich die Ladekosten samt Lade- und
+  Entladeverlusten und Zykluskosten decken:
+  `Spitzenpreis ≥ (Ladepreis / η_Laden + Zykluskosten + Marge) / η_Entladen`.
+  Ohne eigene Arbitrage-Annahmen gelten 90 %/90 % und 3 ct/kWh; dann wird ab etwa
+  28 ct Ladepreis mehr Abstand verlangt als bisher (bei 38 ct rund 12 ct, bei 48 ct
+  rund 15 ct). Der feste Preisabstand gilt weiter als zusätzliche Mindestbedingung.
+  Es wird dadurch nie häufiger aus dem Netz geladen als bisher, an Hochpreistagen
+  seltener. Betroffen ist nur, wer **Reserveplanung mit Netzladen erlauben**
+  eingeschaltet hat. Laden bei negativen Preisen ist nicht betroffen.
+- Als Spitzenpreis zählt jetzt der mit der erwarteten Last gewichtete Mittelpreis der
+  noch kommenden Spitzen-Slots (Attribut `peak_preis_kuenftig_ct`); bereits
+  abgelaufene Viertelstunden der laufenden Stunde zählen nicht mehr mit.
+- Ungültige Arbitrage-Annahmen sperren das Peak-Vorladen, bis sie korrigiert sind.
+- Der Reserveplan zeigt unter `precharge`, ob und warum Vorladen wirtschaftlich
+  zulässig ist.
+- Wirkungsgrad und Zykluskosten des Akkus kommen jetzt für alle Berechnungen aus
+  einem gemeinsamen Akkumodell. Ohne konfigurierte Arbitrage-Annahmen gelten 90 %
+  Lade- und 90 % Entladewirkungsgrad und 3 ct/kWh Zykluskosten; die Steuerung rechnet
+  damit wie bisher. Die Werte stehen im neuen Diagnosesensor „Akkumodell“.
+- Wer unter **Konfigurieren → Optionale Funktionen → Wirtschaftlichkeitsvergleich**
+  eigene Wirkungsgrade eingetragen hat: Der Entladewirkungsgrad bestimmt jetzt auch
+  die Peak-Reserve. Bei 95 % wird der Reserveanteil über dem Mindest-SoC rund 5 %
+  kleiner, bei 85 % rund 6 % größer.
+- Der Horizont-Planer (Schattenbetrieb) rechnet mit denselben Werten statt fest mit
+  95 % und 3 ct. Seine Vergleichszahlen sind mit früheren nicht direkt vergleichbar.
+- Zwei Reservezweige der Strategie (SoC unter 20 % und SoC unter 75 % bei
+  schwacher Prognose heute und morgen) sind entfernt. Sie waren vollständig vom
+  Zweig „SoC unter 80 %“ überdeckt und lieferten denselben Modus. Der Akkumodus
+  ändert sich nicht. In der Begründung steht in diesen Fällen jetzt
+  „SOC<80 Wintermodus“, die Entscheidungs-ID ist `reserve_winter` statt
+  `reserve_low` oder `reserve_forecast`.
+
+### Behoben
+
+- Ein interner Fehler im Steuerzyklus bleibt nicht mehr unbemerkt. Bisher wurde
+  die Bewertung still ausgesetzt, das Gerät führte den letzten Befehl weiter,
+  und weder Störmeldung noch Schreibstillstand wurden ausgelöst. Hält ein
+  solcher Fehler 30 Sekunden an, schreibt Opti Akku bei erteilter
+  Schreibfreigabe „Akku Pause“, meldet den Vorfall und hält die Pause, bis der
+  Fehler 60 Sekunden lang nicht mehr auftritt. Das gilt auch im manuellen
+  Modus; die Auswahl bleibt erhalten. Ist das Gerät nicht erreichbar, bleibt es
+  beim letzten Befehl; Meldung und Schreibstillstand zeigen das an.
+- Ein hängender Steuerzyklus wird nach 120 Sekunden gemeldet. Schreiben kann
+  Opti Akku in diesem Zustand nicht.
+- Manuelle SoC-Sperren gelten nur noch für die laufende manuelle Sitzung. Bisher
+  blieb eine einmal gesetzte Lade- oder Entladesperre über den Wechsel zur
+  Strategie, über Neustarts und über eine geänderte Min-/Max-SoC-Grenze hinweg
+  bestehen und sperrte später einen manuellen Modus, obwohl der SoC innerhalb der
+  Grenzen lag. Die Sperren werden jetzt bei jedem Moduswechsel, bei geändertem
+  Min- oder Max-SoC und beim Start zurückgesetzt und sofort neu bestimmt.
+- Eine laufende Erneuerung des bereits aktiven Modus wird nicht mehr abgebrochen,
+  wenn sich währenddessen nur eine PV-Prognose, die Preisreihe, die Zellspreizung
+  oder der Tibber-Cache aktualisiert. Bisher folgten darauf eine Sicherheits-Pause
+  und in „Akku Dynamisch“ erneut 330 Sekunden Begrenzung auf 500 W. Die neue
+  Information wirkt mit der nächsten Bewertung. Moduswechsel, der aktuelle Preis,
+  EV-Zustände und ungültige Quellen brechen weiterhin sofort ab. Geänderte
+  Einstellungen werden wie bisher nach dem Ende der laufenden Schreibsequenz
+  übernommen. Huawei ist unverändert.
+- Der Horizont-Planer misst das Prognosealter wie Bedarfsprofil und
+  Clipping-Abschätzung ab `last_reported`. Eine unverändert neu abgerufene
+  Solcast-Prognose galt dort bisher nach Ablauf der Altersgrenze als veraltet
+  (`pv_forecast_stale`).
+- Leitermodi außerhalb der Planer-Sprache (etwa `Akku Automatisch`,
+  `Akku schnell Entladen`, Beobachtung) zählen im Schattenplaner als eigene
+  Kategorie `ladder_unrated` statt als Abweichung `other` und verzerren die
+  Uneinigkeitsquote nicht mehr. Bestehende Zähler bleiben erhalten; ihre
+  bisherigen `other`-Sekunden werden nicht nachträglich aufgeteilt.
+- Native Tibber-Preise bleiben gültig, solange ihre datierten Intervalle den
+  aktuellen Zeitpunkt abdecken. Bisher verwarf ein über `price_max_age` hinaus
+  gealterter Abruf den ganzen Snapshot, obwohl die Day-Ahead-Preise noch galten.
+  `price_max_age` steuert nun nur noch den Abrufrhythmus; harte Obergrenze sind
+  24 Stunden seit dem letzten erfolgreichen Abruf. Fehlgeschlagene Abrufe
+  bleiben als `price_provider_error` sichtbar. Siehe [Preisquellen](PRICE_SOURCES.md).
+- SMA: Ein alter Sollwert in 40149 wirkt nicht mehr in den 2 s nach einem 802.
+  Bisher wurde nur ein positiver Entladesollwert gelöscht; ein negativer
+  Ladesollwert (nach „schnell Laden“, „Netzladen“ oder „0.2C Laden“) blieb
+  stehen, und die Automatik-Erneuerung 802 → 2 s → 803 konnte dadurch alle
+  120 s kurz mit ihm laden. Jetzt wird ein Sollwert mit anderer Wirkrichtung
+  als der neue Befehl unter bestätigtem 802 auf 0 gesetzt, notfalls direkt nach
+  dem eigenen 802 vor der Wartezeit. Nach Neustart oder Neuladen ist der
+  Gerätewert unbekannt; der erste Befehl mit 802 setzt ihn deshalb einmal
+  vor der Wartezeit auf 0.
+  Unter 803-Sperren bleibt er wirkungslos stehen. Die Sicherheits-Pause nach
+  einem Schreibfehler löscht einen Sollwert beider Richtungen, solange 802 noch
+  bestätigt ist.
+- Ladedeckel: Pause nur noch, wenn L3, L4, die Extrempreis-Reserve oder die
+  EV-Sperre an dieser Stelle tatsächlich halten würden. Eine bloß aktive
+  Peak-Reserve weit unter dem SoC hielt den Akku sonst dauerhaft in Pause.
+- Kein Peak-Vorladen bei Preisniveau EXPENSIVE oder VERY_EXPENSIVE oder wenn
+  der laufende Slot selbst zur Spitze zählt (neues Attribut
+  `aktueller_slot_peak`). Negativpreis-Laden bleibt unverändert.
+- Ein guter Tages-Score leert den Peak-Horizont nur noch bei mindestens drei
+  Stunden bis Sonnenuntergang; sonst gilt der Nachthorizont. Ein fast voller
+  Akku entlud sonst am frühen Winterabend nicht in die Spitze.
+- Das Balancing-Haltefenster hält nur noch bei erkanntem Preisniveau bis
+  NORMAL, also nicht bei EXPENSIVE, VERY_EXPENSIVE oder fehlendem Niveau; die Option „Balancing-Halten vor Preisspitzen“
+  behält ihren 60-ct-Deckel. Siehe [Betrieb](docs/operation.md).
 
 ## [2026.11-beta2] - 2026-11-05
 
@@ -431,7 +544,8 @@ Alle Korrekturen aus [#196](https://github.com/Optic00/ha-opti-akkusteuerung/pul
 - Frühere YAML-Lösung bleibt im Legacy-Archiv erhalten. Bestehende
   Integrationseinträge bei der Migration beibehalten.
 
-[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta2...HEAD
+[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta3...HEAD
+[2026.11-beta3]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta3
 [2026.11-beta2]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta2
 [2026.11-beta1]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta1
 [2026.10-beta13]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.10-beta13

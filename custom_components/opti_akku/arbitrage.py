@@ -5,34 +5,18 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, datetime, time, timedelta
-from math import isfinite
 from typing import Any
 
+# Re-exported: the options form and tests import both from here.
+from .battery_model import FIELDS as FIELDS
+from .battery_model import BatteryModel, _number
+from .battery_model import invalid_arbitrage_fields as invalid_arbitrage_fields
 
-FIELDS = (
-    "battery_price_eur",
-    "degradation_percent",
-    "cycles",
-    "usable_capacity_kwh",
-    "charge_efficiency_percent",
-    "discharge_efficiency_percent",
-    "margin_ct",
-)
 
 HOLD_DECISIONS = frozenset({"above_target", "default", "peak_l1", "peak_l2"})
 DISCHARGING_MODES = frozenset(
     {"Akku Automatisch", "Akku Dynamisch", "Akku nur Entladen", "Akku schnell Entladen"}
 )
-
-
-def _number(value: Any) -> float | None:
-    if isinstance(value, bool):
-        return None
-    try:
-        result = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return result if isfinite(result) else None
 
 
 def _same_number(left: float | None, right: float | None, tolerance: float) -> bool:
@@ -372,29 +356,6 @@ def apply_discharge_hold(
     ), {**out, "hold_status": "holding", "hold_controls_battery": True}
 
 
-def invalid_arbitrage_fields(config: Any) -> set[str]:
-    """Return missing or invalid assumption names without filling defaults."""
-    if not isinstance(config, Mapping) or config.get("enabled") is not True:
-        return set(FIELDS)
-    values = {key: _number(config.get(key)) for key in FIELDS}
-    invalid = {key for key, value in values.items() if value is None}
-    ranges = {
-        "battery_price_eur": (0, 100_000),
-        "degradation_percent": (0, 100),
-        "cycles": (1, 100_000),
-        "usable_capacity_kwh": (0.1, 1_000),
-        "charge_efficiency_percent": (1, 100),
-        "discharge_efficiency_percent": (1, 100),
-        "margin_ct": (0, 100),
-    }
-    invalid.update(
-        key
-        for key, value in values.items()
-        if value is not None and not ranges[key][0] <= value <= ranges[key][1]
-    )
-    return invalid
-
-
 def build_arbitrage_estimate(
     config: Any,
     charge_price_ct_kwh: Any = None,
@@ -425,24 +386,19 @@ def build_arbitrage_estimate(
         }
 
     values = {key: float(config[key]) for key in FIELDS}
-    charge_efficiency = values["charge_efficiency_percent"] / 100
-    discharge_efficiency = values["discharge_efficiency_percent"] / 100
+    model = BatteryModel.from_options(config)
+    charge_efficiency = model.charge_efficiency
+    discharge_efficiency = model.discharge_efficiency
     degradation_value_eur = (
         values["battery_price_eur"] * values["degradation_percent"] / 100
     )
-    throughput_cost_ct_kwh = (
-        degradation_value_eur
-        / (2 * values["cycles"] * values["usable_capacity_kwh"])
-        * 100
-    )
-    cycle_cost_floor_ct_kwh = 2 * throughput_cost_ct_kwh + values["margin_ct"]
+    throughput_cost_ct_kwh = model.throughput_cost_ct_kwh
+    cycle_cost_floor_ct_kwh = model.cycle_cost_floor_ct_kwh
     charge_price = _number(charge_price_ct_kwh)
     minimum_high_price = None
     minimum_spread = None
     if charge_price is not None:
-        minimum_high_price = (
-            charge_price / charge_efficiency + cycle_cost_floor_ct_kwh
-        ) / discharge_efficiency
+        minimum_high_price = model.minimum_high_price(charge_price)
         minimum_spread = minimum_high_price - charge_price
 
     result = {

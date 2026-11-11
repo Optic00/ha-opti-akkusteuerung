@@ -315,7 +315,7 @@
       },
       "arbitrage": {
         "title": "Battery arbitrage estimate",
-        "description": "Enter your battery cost, lifetime and efficiency assumptions. The display calculates the price spread and residual energy value. The optional discharge hold retains energy only when complete demand, PV and price forecasts prove that later residual load is materially more valuable. It never starts grid charging and leaves protection, charging and unknown decisions unchanged.",
+        "description": "Enter your battery cost, lifetime and efficiency assumptions. The display calculates the price spread and residual energy value. Efficiencies, cycle costs and margin also size the peak reserve and decide whether the battery is precharged from the grid before a price peak; invalid values block this precharging. The optional discharge hold retains energy only when complete demand, PV and price forecasts prove that later residual load is materially more valuable. It never starts grid charging and leaves protection, charging and unknown decisions unchanged.",
         "data": {
           "enabled": "Calculate comparison",
           "hold_enabled": "Use residual value as an automatic discharge hold",
@@ -632,7 +632,7 @@
       },
       "arbitrage": {
         "title": "Battery arbitrage estimate",
-        "description": "Enter your battery cost, lifetime and efficiency assumptions. The display calculates the price spread and residual energy value. The optional discharge hold retains energy only when complete demand, PV and price forecasts prove that later residual load is materially more valuable. It never starts grid charging and leaves protection, charging and unknown decisions unchanged.",
+        "description": "Enter your battery cost, lifetime and efficiency assumptions. The display calculates the price spread and residual energy value. Efficiencies, cycle costs and margin also size the peak reserve and decide whether the battery is precharged from the grid before a price peak; invalid values block this precharging. The optional discharge hold retains energy only when complete demand, PV and price forecasts prove that later residual load is materially more valuable. It never starts grid charging and leaves protection, charging and unknown decisions unchanged.",
         "data": {
           "enabled": "Calculate comparison",
           "hold_enabled": "Use residual value as an automatic discharge hold",

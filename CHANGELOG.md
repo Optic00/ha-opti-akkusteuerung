@@ -8,6 +8,16 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Behoben
+
+- Stufentarife (etwa feste Zeitfenster mit einem günstigen Nachtfenster): Die
+  höchste Preisstufe gilt jetzt immer mindestens als teuer. Bisher hing das am
+  Anteil der günstigen Stunden. Mit weniger als 20 % günstigen Stunden, also
+  etwa bei vier günstigen Stunden pro Tag oder am Tag der Frühjahrs-Zeitumstellung
+  und am Tag davor, erkannte Opti Akku keine Preisspitze und plante weder
+  Reserve noch Vorladen. Tarife mit stündlich wechselnden Preisen sind nicht
+  betroffen.
+
 ## [2026.11-beta4] - 2026-11-11
 
 ### Hinzugefügt

@@ -664,6 +664,13 @@ template_blocks:
         {% set kleiner = prices | select('lt', current) | list | length %}
         {% set gleich  = prices | select('eq', current) | list | length %}
         {% set pct = (kleiner + 0.5 * gleich) / (prices | length) %}
+        {# Hoechste Preisstufe zaehlt mindestens als EXPENSIVE: Bei Stufentarifen
+           teilen sich viele Slots den Hoechstpreis, ihr Midrank liegt dann bei
+           (1 + Anteil guenstiger Slots) / 2 und faellt unter 0.60, sobald
+           weniger als 20 % der Slots guenstig sind (z. B. 4 von 23 Stunden am
+           Tag der Fruehjahrs-Zeitumstellung). Bei flachen Preisen (max == min)
+           bleibt es beim Midrank. #}
+        {% if current >= (prices | max) and (prices | max) > (prices | min) %}{% set pct = [pct, 0.60] | max %}{% endif %}
         {% if   pct < 0.20 %}{% set level = 'VERY_CHEAP' %}
         {% elif pct < 0.40 %}{% set level = 'CHEAP' %}
         {% elif pct < 0.60 %}{% set level = 'NORMAL' %}
@@ -935,6 +942,10 @@ template_blocks:
             {% set kleiner = ns.prices | select('lt', p) | list | length %}
             {% set gleich  = ns.prices | select('eq', p) | list | length %}
             {% set pct = (kleiner + 0.5 * gleich) / n %}
+            {# Wie in sensor.opti_price_level: die hoechste Preisstufe zaehlt
+               mindestens als EXPENSIVE, damit Stufentarife mit wenigen
+               guenstigen Stunden ueberhaupt Peaks haben. #}
+            {% if p >= (ns.prices | max) and (ns.prices | max) > (ns.prices | min) %}{% set pct = [pct, 0.60] | max %}{% endif %}
             {% set ist_peak_preis = fenster_min is none or p >= fenster_min + aufschlag %}
             {# The extra buffer applies only to remaining extreme-price demand.
                Keep the legacy base integration and learned load profile intact. #}

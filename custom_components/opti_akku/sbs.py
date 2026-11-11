@@ -195,7 +195,8 @@ class SbsDevice:
         if self._pending_probe is None and (
             self._register_probe_at is None or now - self._register_probe_at >= REGISTER_PROBE_SECONDS
         ):
-            # Stamp first: a snapshot cut short by a timeout waits for the next interval.
+            # Stamp at the start. A register timeout ends the snapshot until the
+            # next interval; a cancelled or over-budget one continues next probe.
             self._register_probe_at = now
             self._pending_probe = []
         if self._pending_probe is not None and await self._snapshot_registers(self._pending_probe):

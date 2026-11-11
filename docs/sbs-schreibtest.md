@@ -151,9 +151,13 @@ Abbruch sofort und Rückweg, wenn
 - ein Schreibzugriff mit Exception oder Timeout endet. Ein Timeout kann trotzdem
   angekommen sein; der Zustand gilt dann als unbekannt, bis der Rückweg gewirkt hat,
 - der SBS eine Ereignismeldung zeigt, 33003 nicht mehr 235 ist oder der Ladestand
-  die Grenzen aus Vorbedingung 6 verlässt.
+  die Grenzen aus Vorbedingung 6 verlässt,
+- eine der Beobachtungsgrößen ausfällt oder länger als 30 s nicht aktualisiert wird.
 
-Nach einem Abbruch keine weiteren Schritte am selben Tag ohne Rücksprache in #170.
+Rückweg nach einem Abbruch: Antwortet Modbus zuverlässig und steht 33003 auf 235,
+erst N, dann V2. Sonst zuerst der unabhängige Rückweg aus Vorbedingung 5, ohne
+weitere Modbus-Schreibzugriffe. Danach keine weiteren Schritte am selben Tag ohne
+Rücksprache in #170.
 
 Zwei Stufen:
 
@@ -165,7 +169,7 @@ Zwei Stufen:
 
 **N (Sollwert neutralisieren):** 40151=802, sofort 40149=0, dann 40151=803.
 N steht vor dem ersten Schreibtest, weil niemand weiß, was in 40149 noch steht,
-und nach jedem Abbruch. Grund: Am STP SE bleibt ein Sollwert in 40149 unter 803
+und im Rückweg nach einem Abbruch, solange Modbus zuverlässig antwortet. Grund: Am STP SE bleibt ein Sollwert in 40149 unter 803
 stehen und wirkt beim nächsten 802 kurz weiter (#151, V5a).
 
 | Schritt | Ziel | Schreibfolge (Stufe A) |
@@ -181,7 +185,8 @@ stehen und wirkt beim nächsten 802 kurz weiter (#151, V5a).
 
 Die Folgen sind nach dem Muster des STP-SE-Pfads in `sma.py` gebildet
 (**STP SE**, vereinfacht; dort 0,5 s zwischen den Registern, und die
-CmpBMS-Folge vor 802 nur beim Wechsel aus einem Sperrmodus). Dass der SBS sie
+CmpBMS-Folge vor 802 nur beim Wechsel aus einem Sperrmodus sowie bei jedem
+Automatisch-Befehl, auch bei Wiederholungen). Dass der SBS sie
 genauso umsetzt, ist **Annahme**. Insbesondere:
 
 - Das Vorzeichen von 40149 (negativ = Laden) ist am SBS **Annahme**; V5 kommt vor

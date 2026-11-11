@@ -40,6 +40,17 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Ladegrenze bleiben dabei erhalten. Die kurze Pause beim Entladen bleibt als Absicherung. Ohne bestätigte
   Pause, bei geänderter Verbindung oder Quellen und bei einem gewöhnlichen
   Neustart gilt weiter der bisherige Ablauf. Siehe [Betrieb](docs/operation.md).
+- Sunny Boy Storage (lesender Test, #170): Der Betriebsstatus kommt immer zuerst
+  aus Register 33003. Register 33001 ist laut SMA nur der Standby-Status
+  (2531 = Energiesparmodus) und zählt nur noch, solange 33003 keinen Wert
+  liefert. Bisher blieb das Profil nach einer Standby-Antwort bei 33001.
+
+### Geändert
+
+- Sunny Boy Storage (lesender Test): Die Diagnose enthält zusätzlich Firmware,
+  Gerätezustände, die Betriebsart der Wirkleistungsvorgabe und das
+  Rückfallverhalten bei Kommunikationsausfall. Grundlage für den
+  [Schreibtest-Plan](docs/sbs-schreibtest.md).
 
 ## [2026.11-beta3] - 2026-11-11
 

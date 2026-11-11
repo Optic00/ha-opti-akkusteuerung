@@ -41,7 +41,11 @@ class FakeUnit:
             30053: 9357,
             30057: 3012345678,
             33003: 235,
-            33001: 307,
+            33001: 2531,
+            41193: 2507,
+            41195: 600,
+            41215: 0,
+            44035: -368000,
             30775: -1800,
             30843: 1200,
             30845: 61,
@@ -65,12 +69,16 @@ class FakeUnit:
         self.disconnect_at = None
         self.timeout_reads = set()
         self.spacing = None
+        self.clock = None  # optional Clock advanced by read_seconds per read
+        self.read_seconds = 0.0
 
     def set_message_spacing(self, value):
         self.spacing = value
 
     async def read_holding_registers(self, address, count):
         self.reads.append(address)
+        if self.clock is not None:
+            self.clock.now += self.read_seconds
         if address == self.disconnect_at:
             raise ModbusConnectionError("injected disconnect")
         if address in self.timeout_reads:
@@ -110,6 +118,39 @@ async def test_probe_rejects_an_stp_se_identity(unit):
         await sbs.SbsDevice(unit).async_probe()
 
 
+async def test_snapshot_reads_the_write_test_preconditions_without_writing(unit):
+    """#170: fallback behaviour, timeout and fallback values for the write-test plan."""
+    rows = {row["address"]: row for row in (await sbs.SbsDevice(unit).async_probe())["register_probe"]}
+    assert rows[41193] == {"address": 41193, "evidence": "sbs_modbus_list", "raw": 2507}
+    assert rows[41195]["raw"] == 600
+    assert rows[41215]["raw"] == 0
+    assert rows[44035]["raw"] == -368000  # signed
+    assert rows[30835]["error"] == "modbus_error"  # absent in the fake, still listed
+    write_only = {40149, 40151, 40236, 41259, 40793, 40795, 40797, 40799, 40801}
+    assert not write_only & {row[0] for row in sbs.REGISTER_PROBE}
+    assert not unit.writes
+
+
+async def test_slow_device_spreads_the_snapshot_over_several_cycles(unit):
+    """The coordinator gives probe and measurements 25 s together; the snapshot gets a budget."""
+    clock = Clock()
+    unit.clock, unit.read_seconds = clock, 0.5
+    device = sbs.SbsDevice(unit, monotonic=clock)
+    first = await device.async_probe()
+    assert first["register_probe"] == []  # nothing published from a partial snapshot
+    budget_reads = sbs.REGISTER_PROBE_BUDGET_SECONDS / unit.read_seconds
+    assert len(unit.reads) <= 4 + budget_reads + 1
+    cycles = 1
+    while not (await device.async_probe())["register_probe"]:
+        cycles += 1
+        assert cycles < 10
+    rows = (await device.async_probe())["register_probe"]
+    assert [row["address"] for row in rows] == [row[0] for row in sbs.REGISTER_PROBE]
+    identity = {30051, 30053, 30057, 33003, 33001}
+    assert cycles > 1
+    assert all(unit.reads.count(row[0]) == 1 for row in sbs.REGISTER_PROBE if row[0] not in identity)
+
+
 async def test_unsupported_and_nan_registers_are_reported_not_hidden(unit):
     unit.fail_reads.add(31061)
     unit.values[40073] = NAN_U32
@@ -136,11 +177,11 @@ async def test_status_falls_back_when_runstt_is_missing_or_a_placeholder(unit):
     unit.fail_reads.add(33003)
     device = sbs.SbsDevice(unit)
     probe = await device.async_probe()
-    assert (probe["inverter_status"], probe["status_register"]) == (307, 33001)
+    assert (probe["inverter_status"], probe["status_register"]) == (2531, 33001)
     unit.fail_reads.clear()
     unit.values[33003] = sbs.INFORMATION_NOT_AVAILABLE
     fresh = await sbs.SbsDevice(unit).async_probe()
-    assert (fresh["inverter_status"], fresh["status_register"]) == (307, 33001)
+    assert (fresh["inverter_status"], fresh["status_register"]) == (2531, 33001)
 
 
 async def test_placeholder_status_is_kept_when_no_other_register_answers(unit):
@@ -226,9 +267,12 @@ async def test_cached_status_register_still_falls_back_to_the_other(unit):
     assert (await device.async_probe())["status_register"] == 33003
     unit.values[33003] = sbs.INFORMATION_NOT_AVAILABLE
     probe = await device.async_probe()
-    assert (probe["inverter_status"], probe["status_register"]) == (307, 33001)
+    assert (probe["inverter_status"], probe["status_register"]) == (2531, 33001)
     unit.values[33003] = 235
-    assert (await device.async_read())["sensor.opti_inverter_status"] == 307  # 33001 is now preferred
+    # SBS Modbus list: 33001 is only the standby status; a real RunStt wins
+    # even while 33001 still reports energy saving mode.
+    assert (await device.async_read())["sensor.opti_inverter_status"] == 235
+    assert (await device.async_probe())["status_register"] == 33003
 
 
 async def test_lost_connection_ends_the_snapshot(unit):

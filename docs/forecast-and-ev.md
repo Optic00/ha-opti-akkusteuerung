@@ -506,8 +506,9 @@ Niveau ist nur ein Perzentil über heute und morgen. Bei wenig Inhalt kann L1 de
 Akku deshalb an einer Abendspitze leeren, obwohl vor dem nächsten Nachladen eine
 teurere Morgenspitze folgt. Die Diagnose-Entität `sensor.opti_peak_rank`
 (standardmäßig deaktiviert) prüft in jedem Zyklus, ob eine Preisrangfolge die
-Energie stattdessen zurückhalten würde. Sie steuert nichts; die Entladefreigabe
-von L1 und L2 bleibt unverändert.
+Energie stattdessen zurückhalten würde. Ohne die Option
+[Peak-Rangfolge steuernd](#optional-steuernd-peak-rangfolge-hält-die-entladung)
+steuert sie nichts; die Entladefreigabe von L1 und L2 bleibt dann unverändert.
 
 Berücksichtigt werden der laufende Slot und die kommenden Peak-Slots bis zum
 nächsten belastbaren Nachladen. Peak-Slots sind wie bei
@@ -583,6 +584,67 @@ Einspeisevergütung, ein geänderter Ersatzwert `opti_peak_verbrauch_kw` oder ei
 umgeschaltetes Netzladen starten die Summen neu. Das gelernte Lastprofil ändert
 sich laufend und setzt die Summen nicht zurück.
 Die Summen liegen nur im lokalen Speicher der Integration.
+
+### Optional steuernd: Peak-Rangfolge hält die Entladung
+
+Experimentell und standardmäßig aus. Unter **Konfigurieren → Optionale
+Funktionen → Peak-Rangfolge (experimentell)** schaltet „Entladen in teuren
+Stunden für noch teurere zurückhalten“ das Urteil `hold` steuernd. Die Option
+wird in jedem Zyklus gelesen; eine Änderung lädt die Integration nicht neu, wie
+beim Entladeschutz des Wirtschaftlichkeitsvergleichs.
+
+Mit der Option rechnet der Vergleich vor dem Schreibbefehl, unabhängig davon, ob
+`sensor.opti_peak_rank` aktiviert ist, und mit der Entscheidung der Strategie.
+Die Sperre greift nur, wenn alles zutrifft:
+
+- Die Strategie hat `peak_l1` oder `peak_l2` gewählt, nach Entladeschutz und
+  Auto-Vorbereitung, die vorher wirken, und der gewählte Modus entlädt.
+- Kein manueller Modus ist aktiv und die Strategie ist eingeschaltet.
+- Der Vergleich liefert `status: ready` mit `verdict: hold`.
+
+Dann gilt statt `Akku Dynamisch` der Modus `Akku nur Laden`: PV-Überschuss lädt
+weiter, entladen wird nicht. Statt `Akku nur Entladen` gilt `Akku Pause`. L1 und
+L2 wählen `Akku nur Entladen`, wenn sie das Laden sperren (Ladedeckel,
+PV-Überschussladung aus, nachts); die Sperre öffnet das Laden also nie dort, wo die
+Strategie es nicht vorsah. Mindestlade- und Mindestentladeleistung sind dabei 0.
+Die Entscheidung heißt `peak_rank_hold`, der Grund etwa „Peak-Rangfolge (halten
+für Slots ab 72.0 ct, jetzt 63.8 ct)“. Bei jedem anderen Ergebnis (`discharge`,
+`uncertain`, `incomplete`, `data_missing`, `not_applicable`, Fehler oder
+Ausnahme im Vergleich) bleibt die Entscheidung der Strategie unverändert.
+Sicherheits-Pausen, MinSOC-Schutz, Balancing, EV-Sperren und alle anderen Zweige
+haben Vorrang. Damit die Strategie nicht auf den Haltemodus reagiert (das
+Halteband von L2 liest den vorherigen Modus), sieht sie im nächsten Zyklus wie
+beim Entladeschutz ihren eigenen L1/L2-Modus.
+
+Gegen Flattern bleibt eine gesetzte Sperre bis zum Ende des laufenden
+Preis-Slots, solange die Strategie bei derselben Entscheidung (L1 oder L2)
+bleibt und der Vergleich `ready` liefert. Grund: Beim Halten bleibt der nutzbare
+Inhalt gleich oder steigt durch PV-Laden, beim Entladen sinkt er wieder; das
+Urteil könnte sonst innerhalb eines Slots zwischen `hold` und `discharge`
+wechseln. Wechselt der Slot oder die Entscheidung, oder ist das Ergebnis nicht
+`ready`, entscheidet wieder der frische Vergleich. Der Merker liegt nur im
+Arbeitsspeicher; nach einem Neustart entscheidet der frische Vergleich.
+
+`sensor.opti_peak_rank` zeigt mit der Option zusätzlich `control_enabled: true`
+und `control_status`: `holding` (Sperre neu oder bestätigt), `latched` (Sperre
+bleibt bis Slotende, obwohl das frische Urteil `discharge` lautet),
+`released`, `not_applicable` (keine L1/L2-Entladung oder manueller Modus),
+`higher_priority` (eine Sicherheits-Pause hat den Haltemodus ersetzt) oder
+`error`. `controls_battery` ist nur in Zyklen `true`, in denen die Sperre den
+geschriebenen Modus bestimmt und Schreibzugriffe freigegeben sind;
+`observation_only` ist mit der Option `false`. `verdict` bleibt das frische
+Urteil. Die Summen unter `totals` behalten ihre Bedeutung als Vergleich des
+frischen Urteils mit der tatsächlichen Entladung: Mit der Option ist
+`discharged_while_hold_kwh` die Energie, die trotz `hold` entladen wurde, etwa
+wegen Vorrangs einer anderen Entscheidung. Neu ist `blocked_seconds`, die Zeit,
+in der die Sperre tatsächlich gesteuert hat. Diese Summe zählt auch Sekunden im
+Zustand `latched` und gehört nicht zu `peak_seconds`; ältere gespeicherte Summen
+starten sie mit 0.
+
+Risiko: Hauslast, Preise und Refill-Grenze sind Annahmen. Liegt die Last höher
+oder kommt die teurere Spitze nicht, bleibt Energie ungenutzt und es wird
+Netzstrom zum aktuellen Preis bezogen. Eine Abschätzung über historische Daten
+ergab nur einen kleinen Nutzen.
 
 ### Passiver Energierestwert
 

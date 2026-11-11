@@ -337,6 +337,13 @@
           "margin_ct": "Additional margin per kWh battery energy"
         }
       },
+      "peak_rank": {
+        "title": "Peak rank control (experimental)",
+        "description": "Experimental. Otherwise the peak ladder discharges in every hour classified as very expensive or expensive. With this option it holds the battery in an expensive hour when, according to the peak rank shadow comparison, the usable energy only covers even more expensive hours before the next PV refill. Instead of discharging, the mode is then 'Akku nur Laden' (PV charging stays allowed) or, when the strategy currently blocks charging, 'Akku Pause'. It only affects the peak L1 and L2 decisions and only on a clear 'hold' result; with uncertain or missing data the strategy decides as before. Manual modes and all protection functions take precedence. The load and price assumptions can be wrong; energy may then remain unused or expensive grid power may be drawn.",
+        "data": {
+          "enabled": "Hold discharge in expensive hours for even more expensive ones"
+        }
+      },
       "observation": {
         "title": "Observe measurement sources",
         "description": "Read-only: active house source stays unchanged. Match the grid connection, additional inverters and excluded loads. HA report timestamps are not proof of a new device measurement. Compare our time-weighted 60-minute value with legacy smoothing; interpolation can differ.",
@@ -594,6 +601,7 @@
           "balancing": "Balancing",
           "demand": "Demand profile and peak reserve",
           "arbitrage": "Battery arbitrage estimate",
+          "peak_rank": "Peak rank control (experimental)",
           "notifications": "Notifications",
           "init": "Back to overview"
         }
@@ -672,6 +680,13 @@
           "charge_efficiency_percent": "Charge efficiency",
           "discharge_efficiency_percent": "Discharge efficiency",
           "margin_ct": "Additional margin per kWh battery energy"
+        }
+      },
+      "peak_rank": {
+        "title": "Peak rank control (experimental)",
+        "description": "Experimental. Otherwise the peak ladder discharges in every hour classified as very expensive or expensive. With this option it holds the battery in an expensive hour when, according to the peak rank shadow comparison, the usable energy only covers even more expensive hours before the next PV refill. Instead of discharging, the mode is then 'Akku nur Laden' (PV charging stays allowed) or, when the strategy currently blocks charging, 'Akku Pause'. It only affects the peak L1 and L2 decisions and only on a clear 'hold' result; with uncertain or missing data the strategy decides as before. Manual modes and all protection functions take precedence. The load and price assumptions can be wrong; energy may then remain unused or expensive grid power may be drawn.",
+        "data": {
+          "enabled": "Hold discharge in expensive hours for even more expensive ones"
         }
       },
       "observation": {

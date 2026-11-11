@@ -65,7 +65,8 @@ from .load_profile import LoadProfile
 from .clipping import clipping_forecast
 from .source_quality import DEFAULT_FORECAST_MAX_AGE
 from .negative_price_hold import NegativePriceHoldShadow, negative_price_hold_check
-from .peak_rank import PeakRankShadow, peak_rank_check
+from .peak_rank import HOLD_DECISION as PEAK_RANK_HOLD_DECISION
+from .peak_rank import PeakRankShadow, apply_peak_rank_hold, peak_rank_check
 from .peak_rank import model_assumptions as peak_rank_model_assumptions
 from .planner_shadow import ForecastHistory, PlannerInputs, PlannerShadow, price_periods, pv_forecast_hourly
 from .demand import EV_SCOPE_VERSION, DemandForecast, pv_intervals, ev_profile_sources, ev_profile_scope, profile_house_value
@@ -314,6 +315,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._evcc_comparison = EvccComparison()
         self._negative_price_hold = NegativePriceHoldShadow()
         self._peak_rank = PeakRankShadow()
+        # ((decision_id, price slot start), reason) of a set peak rank hold.
+        # Memory only: after a restart the fresh check decides.
+        self._peak_rank_latch: tuple[tuple[str, Any], str] | None = None
         self._planner = PlannerShadow()
         self._battery_model = BatteryModel.default()
         self._planner_history = ForecastHistory()
@@ -1135,9 +1139,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         previous_data = self.data if isinstance(self.data, dict) else {}
         previous_mode = previous_data.get("mode", "Akku Pause")
         if (
-            previous_data.get("decision_id") == "arbitrage_hold"
-            and previous_mode == "Akku nur Laden"
+            (previous_data.get("decision_id") == "arbitrage_hold"
+             and previous_mode == "Akku nur Laden")
+            or (previous_data.get("decision_id") == PEAK_RANK_HOLD_DECISION
+                and previous_mode in ("Akku nur Laden", "Akku Pause"))
         ):
+            # The engine continues from its own L1/L2 mode, not from the hold:
+            # the L2 band reads the previous mode.
             previous_mode = previous_data.get(
                 "engine_base_mode",
                 previous_data.get("engine_requested_mode", previous_mode),
@@ -1335,6 +1343,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 hold_status="higher_priority",
                 hold_controls_battery=False,
             )
+        peak_rank_cfg = captured_options.get("peak_rank_control")
+        peak_rank_control = isinstance(peak_rank_cfg, dict) and peak_rank_cfg.get("enabled") is True
+        peak_rank_early: dict[str, Any] | None = None
+        if peak_rank_control:
+            result, peak_rank_early = self._apply_peak_rank_hold(result, now)
+        else:
+            self._peak_rank_latch = None
         for key, value in result.helper_updates.items():
             if (key in self.settings and revision == self._revision
                     and soft_revision == self._soft_revision):
@@ -1360,7 +1375,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             charge_power_limits.append("Akkutemperatur ab 45 °C: Ladeleistung im manuellen Modus begrenzt")
         if (curve := self._charge_curve_limit(result.states)) is not None:
             charge_power_limits.append(curve[1])
-        if arbitrage_hold.get("hold_controls_battery"):
+        if arbitrage_hold.get("hold_controls_battery") or result.decision_id == PEAK_RANK_HOLD_DECISION:
             params["min_charge_w"] = 0
             params["min_discharge_w"] = 0
         if pv_peak_release_applies(result, mode, self.manual_mode, self.strategy_enabled):
@@ -1469,8 +1484,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 != fresh_attributes.get("sensor.opti_price_current_ct_kwh")):
                             return False
                     if (
-                        isinstance(arbitrage_cfg, dict)
-                        and arbitrage_cfg.get("hold_enabled") is True
+                        (peak_rank_control or (isinstance(arbitrage_cfg, dict)
+                                               and arbitrage_cfg.get("hold_enabled") is True))
                         and (
                             result.states.get("sensor.opti_price_current_ct_kwh")
                             != fresh_states.get("sensor.opti_price_current_ct_kwh")
@@ -1603,7 +1618,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             captured_options)
         await self._async_update_planner(data, now, captured_options, demand_sources)
         self._update_evcc_comparison(data, now, captured_options)
-        self._update_peak_rank(data, now)
+        self._update_peak_rank(data, now, peak_rank_early)
         self._update_arbitrage_report(data, now, captured_options, arbitrage_hold, safety_reason)
         await self._async_update_observations(data, now, captured_options)
         # Only a real on<->off transition or a changed latch origin forces a
@@ -1951,32 +1966,72 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         states[key] = check.get("verdict", "unavailable") if check.get("status") == "ready" else "unavailable"
         attributes[key] = check
 
-    def _update_peak_rank(self, data, now):
-        """Shadow price-rank allocation for L1/L2; runs after the decision and never changes it."""
+    def _peak_rank_check(self, states, attributes, now, decision_id, strategy_mode):
+        settings = self.settings
+        peak = attributes.get("sensor.opti_peak_reserve_soc") or {}
+        profile = attributes.get("sensor.opti_peak_load_profile") or {}
+        return peak_rank_check(
+            now=now, timezone=dt_util.DEFAULT_TIME_ZONE,
+            price_series=attributes.get("sensor.opti_price_series"),
+            horizon_end=peak.get("horizont_ende"), load_hours=profile.get("hours"),
+            fallback_load_kw=settings.get("input_number.opti_peak_verbrauch_kw"),
+            surcharge_ct=settings.get("input_number.opti_peak_min_aufschlag_ct"),
+            soc=states.get("sensor.opti_soc"), capacity_kwh=states.get("sensor.opti_battery_capacity_kwh"),
+            minsoc=settings.get("input_number.minsoc"), maxsoc=settings.get("input_number.maxsoc"),
+            decision_id=decision_id,
+            strategy_mode=strategy_mode,
+            peak_reserve_active=states.get("binary_sensor.opti_peak_reserve_aktiv") == "on",
+            grid_charging=settings.get("input_boolean.opti_prognose_netzladen") is True,
+            spread_ct=settings.get("input_number.opti_netzlade_spread_ct"),
+            feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
+            score=states.get("sensor.opti_forecast_score"),
+            discharge_efficiency=self._battery_model.discharge_efficiency,
+            battery_model=self._battery_model,
+        )
+
+    def _apply_peak_rank_hold(self, result, now):
+        """Optional hold before the write; any failure keeps the strategy decision."""
+        try:
+            check = self._peak_rank_check(result.states, result.attributes, now,
+                                          result.decision_id, result.mode)
+        except Exception as err:  # Never disturbs the control cycle.
+            _LOGGER.debug("Peak rank check unavailable: %s", type(err).__name__)
+            check = {"status": "error"}
+        try:
+            held, status, self._peak_rank_latch = apply_peak_rank_hold(
+                result, check, self._peak_rank_latch,
+                eligible=self.strategy_enabled and self.manual_mode is None)
+        except Exception as err:
+            _LOGGER.debug("Peak rank hold unavailable: %s", type(err).__name__)
+            held, status, self._peak_rank_latch = result, "error", None
+        check = {**check, "observation_only": False, "control_enabled": True,
+                 "control_status": status, "controls_battery": held is not result}
+        return held, check
+
+    def _update_peak_rank(self, data, now, early=None):
+        """Price-rank allocation for L1/L2.
+
+        Without the option it runs after the decision and never changes it.
+        With the option ``early`` is the check from before the write; this
+        only records it.
+        """
         states, attributes = data["states"], data["attributes"]
         key = "sensor.opti_peak_rank"
         try:
+            if early is not None:
+                if early.get("status") == "error":
+                    raise RuntimeError("early peak rank check failed")
+                check = dict(early)
+                if check["controls_battery"] and (data.get("decision_id") != PEAK_RANK_HOLD_DECISION
+                                                  or data.get("mode") != data.get("engine_requested_mode")):
+                    # A safety pause or the failsafe replaced the hold mode.
+                    check.update(controls_battery=False, control_status="higher_priority")
+                elif check["controls_battery"] and data.get("write_enabled") is not True:
+                    check["controls_battery"] = False
+            else:
+                check = self._peak_rank_check(states, attributes, now, data.get("decision_id"),
+                                              data.get("engine_requested_mode"))
             settings = self.settings
-            peak = attributes.get("sensor.opti_peak_reserve_soc") or {}
-            profile = attributes.get("sensor.opti_peak_load_profile") or {}
-            check = peak_rank_check(
-                now=now, timezone=dt_util.DEFAULT_TIME_ZONE,
-                price_series=attributes.get("sensor.opti_price_series"),
-                horizon_end=peak.get("horizont_ende"), load_hours=profile.get("hours"),
-                fallback_load_kw=settings.get("input_number.opti_peak_verbrauch_kw"),
-                surcharge_ct=settings.get("input_number.opti_peak_min_aufschlag_ct"),
-                soc=states.get("sensor.opti_soc"), capacity_kwh=states.get("sensor.opti_battery_capacity_kwh"),
-                minsoc=settings.get("input_number.minsoc"), maxsoc=settings.get("input_number.maxsoc"),
-                decision_id=data.get("decision_id"),
-                strategy_mode=data.get("engine_requested_mode"),
-                peak_reserve_active=states.get("binary_sensor.opti_peak_reserve_aktiv") == "on",
-                grid_charging=settings.get("input_boolean.opti_prognose_netzladen") is True,
-                spread_ct=settings.get("input_number.opti_netzlade_spread_ct"),
-                feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
-                score=states.get("sensor.opti_forecast_score"),
-                discharge_efficiency=self._battery_model.discharge_efficiency,
-                battery_model=self._battery_model,
-            )
             # Changed model values restart the totals.
             assumptions = [*peak_rank_model_assumptions(self._battery_model), *(settings.get(name) for name in (
                 "input_number.minsoc", "input_number.opti_netzlade_spread_ct",
@@ -1984,10 +2039,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "input_boolean.opti_prognose_netzladen", "input_number.opti_peak_verbrauch_kw"))]
             check["totals"] = self._peak_rank.observe(
                 now, check, assumptions, states.get("sensor.opti_battery_power_w"))
-        except Exception as err:  # Observation only; never affects the decision.
+        except Exception as err:  # Reporting only; never affects the decision.
             _LOGGER.debug("Peak rank check unavailable: %s", type(err).__name__)
             self._peak_rank.interrupt()
-            check = {"status": "error", "observation_only": True, "controls_battery": False}
+            check = {"status": "error", "observation_only": early is None, "controls_battery": False,
+                     **({"control_enabled": True, "control_status": "error"} if early is not None else {})}
         states[key] = (check.get("verdict", "unavailable")
                        if check.get("status") in ("ready", "uncertain", "incomplete") else "unavailable")
         attributes[key] = check

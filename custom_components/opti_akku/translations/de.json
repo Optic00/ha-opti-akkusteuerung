@@ -337,6 +337,13 @@
           "margin_ct": "Zusätzliche Marge je kWh Akkuenergie"
         }
       },
+      "peak_rank": {
+        "title": "Peak-Rangfolge steuernd (experimentell)",
+        "description": "Experimentell. Die Peak-Leiter entlädt sonst in jeder als sehr teuer oder teuer eingestuften Stunde. Mit dieser Option hält sie den Akku in einer teuren Stunde zurück, wenn der nutzbare Inhalt nach dem Schattenvergleich Peak-Rangfolge nur für noch teurere Stunden bis zum nächsten Nachladen aus PV reicht. Statt zu entladen gilt dann „Akku nur Laden“ (PV-Laden bleibt frei) oder, wenn die Strategie das Laden gerade sperrt, „Akku Pause“. Es wirkt nur auf die Entscheidungen Peak L1 und L2 und nur bei einem eindeutigen Ergebnis „Halten“; bei unsicheren oder fehlenden Daten entscheidet die Strategie wie bisher. Manuelle Modi und alle Schutzfunktionen haben Vorrang. Die Annahmen zu Hauslast und Preisen können falsch sein; dann bleibt Energie ungenutzt oder es wird teurer Netzstrom bezogen.",
+        "data": {
+          "enabled": "Entladen in teuren Stunden für noch teurere zurückhalten"
+        }
+      },
       "observation": {
         "title": "Messquellen beobachten",
         "description": "Rein lesend: keine Änderung der aktiven Hausquelle. Bilanz benötigt denselben Netzanschlusspunkt, weitere Wechselrichter und abgezogene Lasten. Zeitstempel sind HA-Meldungen, kein Beweis einer neuen Gerätemessung. Vergleich: eigener zeitgewichteter 60-Minuten-Wert gegen Legacy-Glättung; Unterschiede der Mittelungsverfahren bleiben sichtbar.",
@@ -594,6 +601,7 @@
           "balancing": "Balancing",
           "demand": "Bedarfsprofil und Peak-Reserve",
           "arbitrage": "Wirtschaftlichkeitsvergleich",
+          "peak_rank": "Peak-Rangfolge (experimentell)",
           "notifications": "Benachrichtigungen",
           "init": "Zurück zur Übersicht"
         }
@@ -672,6 +680,13 @@
           "charge_efficiency_percent": "Ladewirkungsgrad",
           "discharge_efficiency_percent": "Entladewirkungsgrad",
           "margin_ct": "Zusätzliche Marge je kWh Akkuenergie"
+        }
+      },
+      "peak_rank": {
+        "title": "Peak-Rangfolge steuernd (experimentell)",
+        "description": "Experimentell. Die Peak-Leiter entlädt sonst in jeder als sehr teuer oder teuer eingestuften Stunde. Mit dieser Option hält sie den Akku in einer teuren Stunde zurück, wenn der nutzbare Inhalt nach dem Schattenvergleich Peak-Rangfolge nur für noch teurere Stunden bis zum nächsten Nachladen aus PV reicht. Statt zu entladen gilt dann „Akku nur Laden“ (PV-Laden bleibt frei) oder, wenn die Strategie das Laden gerade sperrt, „Akku Pause“. Es wirkt nur auf die Entscheidungen Peak L1 und L2 und nur bei einem eindeutigen Ergebnis „Halten“; bei unsicheren oder fehlenden Daten entscheidet die Strategie wie bisher. Manuelle Modi und alle Schutzfunktionen haben Vorrang. Die Annahmen zu Hauslast und Preisen können falsch sein; dann bleibt Energie ungenutzt oder es wird teurer Netzstrom bezogen.",
+        "data": {
+          "enabled": "Entladen in teuren Stunden für noch teurere zurückhalten"
         }
       },
       "observation": {

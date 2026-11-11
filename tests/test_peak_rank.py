@@ -7,9 +7,12 @@ import pytest
 
 from custom_components.opti_akku.battery_model import BatteryModel
 from custom_components.opti_akku.engine import StrategyEngine
+from custom_components.opti_akku.engine import Evaluation
 from custom_components.opti_akku.peak_rank import (
+    HOLD_DECISION,
     PeakRankShadow,
     _grid_charge_possible,
+    apply_peak_rank_hold,
     peak_rank_check,
 )
 
@@ -522,3 +525,139 @@ def test_restore_migrates_snapshots_with_only_the_discharge_efficiency():
     restored.restore({**shadow.snapshot(), "assumptions": [0.9, *SETTINGS]})
     assert restored.data["assumptions"] == ASSUMPTIONS
     assert restored.data["hold_seconds"] == 60
+
+
+def test_restore_counts_missing_blocked_time_as_zero():
+    """Snapshots before the optional hold have no blocked_seconds."""
+    shadow = PeakRankShadow()
+    start = local(18, 17, 0)
+    shadow.observe(start, check(), ASSUMPTIONS, -2000)
+    shadow.observe(start + timedelta(seconds=60), check(), ASSUMPTIONS, -2000)
+    saved = {key: value for key, value in shadow.snapshot().items() if key != "blocked_seconds"}
+    restored = PeakRankShadow()
+    restored.restore(saved)
+    assert restored.data["hold_seconds"] == 60 and restored.data["blocked_seconds"] == 0
+    restored.restore({**saved, "blocked_seconds": -1})
+    assert restored.data["hold_seconds"] == 0
+
+
+def test_shadow_counts_blocked_time_separately():
+    shadow = PeakRankShadow()
+    start = local(18, 17, 0)
+    blocked = {**check(), "controls_battery": True}
+    shadow.observe(start, blocked, ASSUMPTIONS, 0)
+    shadow.observe(start + timedelta(seconds=60), check(), ASSUMPTIONS, 0)
+    totals = shadow.observe(start + timedelta(seconds=120), check(), ASSUMPTIONS, 0)
+    assert totals["blocked_seconds"] == 60
+    assert totals["hold_seconds"] == 120
+    saved = shadow.snapshot()
+    restored = PeakRankShadow()
+    restored.restore(saved)
+    assert restored.data["blocked_seconds"] == 60
+
+
+def evaluation(mode="Akku Dynamisch", decision_id="peak_l1"):
+    return Evaluation({"sensor.opti_strategie_vorschau": mode, "sensor.opti_soc": 23},
+                      {"sensor.opti_strategie_vorschau": {"grund": "Peak-Leiter"}},
+                      mode, "Peak-Leiter", {}, decision_id=decision_id)
+
+
+@pytest.mark.parametrize("mode,held_mode", [
+    ("Akku Dynamisch", "Akku nur Laden"),
+    # L1/L2 block charging with "nur Entladen" (charge cap, night): never charge there.
+    ("Akku nur Entladen", "Akku Pause"),
+])
+@pytest.mark.parametrize("decision_id", ["peak_l1", "peak_l2"])
+def test_clear_hold_blocks_the_discharge(mode, held_mode, decision_id):
+    result = check(decision_id=decision_id)
+    assert (result["status"], result["verdict"]) == ("ready", "hold")
+    source = evaluation(mode, decision_id)
+    held, status, latch = apply_peak_rank_hold(source, result, None, eligible=True)
+    assert status == "holding"
+    assert held.mode == held_mode
+    assert held.decision_id == HOLD_DECISION
+    assert held.reason == "Peak-Rangfolge (halten für Slots ab 44.7 ct, jetzt 44.0 ct)"
+    assert held.states["sensor.opti_strategie_vorschau"] == held_mode
+    assert held.attributes["sensor.opti_strategie_vorschau"]["grund"] == held.reason
+    assert latch == ((decision_id, local(18, 17, 0).isoformat()), held.reason)
+    # The strategy result itself stays untouched.
+    assert (source.mode, source.decision_id) == (mode, decision_id)
+    assert source.states["sensor.opti_strategie_vorschau"] == mode
+
+
+def test_hold_without_usable_energy_names_it():
+    result = check(soc=5)
+    held, status, _latch = apply_peak_rank_hold(evaluation(), result, None, eligible=True)
+    assert status == "holding" and result["threshold_price_ct"] is None
+    assert held.reason == "Peak-Rangfolge (halten: kein nutzbarer Inhalt über MinSOC, jetzt 44.0 ct)"
+
+
+@pytest.mark.parametrize("other", [
+    check(soc=60),  # discharge
+    check(price_series=series(night=30)),  # uncertain
+    check(price_series={"today": series()["today"]}),  # incomplete
+    check(soc=None),  # data_missing
+    check(peak_reserve_active=False),  # not_applicable
+    {"status": "error"},
+    {"status": "ready"},
+    {"status": "ready", "verdict": "not_peak"},
+    None,
+    "hold",
+])
+def test_every_other_result_keeps_the_strategy_decision(other):
+    source = evaluation()
+    latch = (("peak_l1", local(18, 17, 0).isoformat()), "alt")
+    if isinstance(other, dict) and other.get("verdict") == "discharge":
+        latch = (("peak_l1", "other slot"), "alt")
+    held, status, new_latch = apply_peak_rank_hold(source, other, latch, eligible=True)
+    assert held is source
+    assert status == "released"
+    assert new_latch is None
+
+
+@pytest.mark.parametrize("eligible,mode,decision_id", [
+    (False, "Akku Dynamisch", "peak_l1"),  # manual mode or strategy off
+    (True, "Akku nur Laden", "peak_l1"),  # nothing to block
+    (True, "Akku Pause", "peak_l2"),
+    *((True, "Akku nur Entladen", decision) for decision in (
+        "minimum_soc", "balancing_hold", "arbitrage_hold", "ev_preparation", "above_target",
+        "default", "peak_precharge", "unknown", HOLD_DECISION)),
+])
+def test_hold_applies_only_to_l1_l2_discharge(eligible, mode, decision_id):
+    source = evaluation(mode, decision_id)
+    latch = ((decision_id, local(18, 17, 0).isoformat()), "alt")
+    held, status, new_latch = apply_peak_rank_hold(source, check(), latch, eligible=eligible)
+    assert held is source
+    assert status == "not_applicable"
+    assert new_latch is None
+
+
+def test_set_hold_stays_until_slot_or_decision_changes():
+    first = check()
+    _held, _status, latch = apply_peak_rank_hold(evaluation(), first, None, eligible=True)
+    # PV charging raised the usable energy within the slot: fresh verdict discharge.
+    later = check(now=local(18, 17, 10), soc=60)
+    assert (later["verdict"], later["current_slot_start"]) == ("discharge", first["current_slot_start"])
+    held, status, latch = apply_peak_rank_hold(evaluation(), later, latch, eligible=True)
+    assert status == "latched"
+    assert held.mode == "Akku nur Laden" and held.decision_id == HOLD_DECISION
+    assert held.reason == "Peak-Rangfolge (halten für Slots ab 44.7 ct, jetzt 44.0 ct)"
+    # The engine changes from L1 to L2 in the same slot: the fresh check decides.
+    held, status, released = apply_peak_rank_hold(evaluation(decision_id="peak_l2"), later, latch,
+                                                  eligible=True)
+    assert (held.decision_id, status, released) == ("peak_l2", "released", None)
+    # Next price slot: the fresh check decides.
+    next_slot = check(now=local(18, 17, 15), soc=60)
+    assert next_slot["current_slot_start"] != first["current_slot_start"]
+    held, status, released = apply_peak_rank_hold(evaluation(), next_slot, latch, eligible=True)
+    assert (held.decision_id, status, released) == ("peak_l1", "released", None)
+    # Without a remembered state the fresh discharge verdict decides (fail-open).
+    held, status, _latch = apply_peak_rank_hold(evaluation(), later, None, eligible=True)
+    assert (held.decision_id, status) == ("peak_l1", "released")
+
+
+def test_uncertain_result_releases_a_set_hold():
+    _held, _status, latch = apply_peak_rank_hold(evaluation(), check(), None, eligible=True)
+    uncertain = check(now=local(18, 17, 10), price_series=series(night=30))
+    held, status, latch = apply_peak_rank_hold(evaluation(), uncertain, latch, eligible=True)
+    assert (held.decision_id, status, latch) == ("peak_l1", "released", None)

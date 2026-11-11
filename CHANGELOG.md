@@ -8,6 +8,22 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- **Peak-Rangfolge steuernd (experimentell, Standard aus).** Unter
+  **Optionale Funktionen → Peak-Rangfolge (experimentell)** lässt sich das Urteil
+  „Halten“ des Schattenvergleichs `sensor.opti_peak_rank` steuernd schalten. Hat
+  die Peak-Leiter L1 oder L2 entschieden und reicht der nutzbare Inhalt nur für
+  noch teurere Slots bis zum nächsten Nachladen aus PV, gilt `Akku nur Laden`
+  statt `Akku Dynamisch` (PV-Laden bleibt frei) und `Akku Pause` statt
+  `Akku nur Entladen`. Entscheidung `peak_rank_hold`, Grund etwa
+  „Peak-Rangfolge (halten für Slots ab 72.0 ct, jetzt 63.8 ct)“. Jedes andere
+  Ergebnis, auch Fehler im Vergleich, lässt die Strategie unverändert; manuelle
+  Modi und Schutzfunktionen haben Vorrang. Eine gesetzte Sperre hält bis zum
+  Slotwechsel oder bis sich die Entscheidung ändert. Die Entität zeigt
+  `control_status`, `controls_battery` und die neue Summe `blocked_seconds`.
+  Ohne die Option ändert sich nichts.
+
 ## [2026.11-beta5] - 2026-11-11
 
 ### Hinzugefügt

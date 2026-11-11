@@ -4229,6 +4229,299 @@ async def test_peak_rank_error_never_stops_the_update(coordinator):
     assert data["mode"] == "Akku Pause"
 
 
+PEAK_HOLD_CHECK = {
+    "status": "ready", "verdict": "hold", "rank_discharges": False,
+    "current_slot_start": "2026-10-18T15:00:00+00:00", "current_price_ct": 63.8,
+    "threshold_price_ct": 72.0, "reason": "Halten: Test", "observation_only": True,
+    "controls_battery": False,
+}
+PEAK_HOLD_REASON = "Peak-Rangfolge (halten für Slots ab 72.0 ct, jetzt 63.8 ct)"
+
+
+def peak_evaluation(mode="Akku Dynamisch", decision_id="peak_l1", **states):
+    from custom_components.opti_akku.engine import Evaluation
+
+    return Evaluation(
+        {**active_hold_evaluation().states, "sensor.opti_soc": 23, **states}, {}, mode,
+        "Peak-Leiter", {}, decision_id=decision_id,
+    )
+
+
+def set_peak_rank_control(coordinator, hass, enabled=True):
+    options = {key: value for key, value in coordinator.entry.options.items()
+               if key != "peak_rank_control"}
+    if enabled:
+        options["peak_rank_control"] = {"enabled": True}
+    hass.config_entries.async_update_entry(coordinator.entry, options=options)
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.minsoc"] = 5
+    coordinator.settings["input_number.akkusteuerung_min_ladestaerke"] = 500
+    coordinator.settings["input_number.akkusteuerung_min_entladestaerke"] = 500
+    coordinator.write_enabled = True
+
+
+async def run_peak_cycle(coordinator, evaluation, check=PEAK_HOLD_CHECK, **check_patch):
+    coordinator.device.async_apply.reset_mock()
+    coordinator._last_apply = None  # Require a fresh write for every cycle.
+    calls = []
+
+    def fake_check(**kwargs):
+        calls.append(kwargs)
+        return dict(check)
+
+    side_effect = check_patch.get("side_effect", fake_check)
+    with (
+        patch.object(coordinator.engine, "evaluate", return_value=evaluation),
+        patch("custom_components.opti_akku.coordinator.peak_rank_check", side_effect=side_effect),
+    ):
+        data = await coordinator._async_update_data()
+    return data, calls
+
+
+@pytest.mark.parametrize("decision_id", ["peak_l1", "peak_l2"])
+@pytest.mark.parametrize("mode,held_mode", [
+    ("Akku Dynamisch", "Akku nur Laden"),
+    ("Akku nur Entladen", "Akku Pause"),
+])
+async def test_peak_rank_control_blocks_the_l1_l2_discharge(coordinator, hass, decision_id, mode, held_mode):
+    set_peak_rank_control(coordinator, hass)
+    data, calls = await run_peak_cycle(coordinator, peak_evaluation(mode, decision_id))
+
+    # One check per cycle, before the write and with the strategy decision.
+    assert len(calls) == 1
+    assert (calls[0]["decision_id"], calls[0]["strategy_mode"]) == (decision_id, mode)
+    coordinator.device.async_apply.assert_awaited_once()
+    command, params = coordinator.device.async_apply.await_args.args[:2]
+    assert command == data["mode"] == held_mode
+    assert params["min_charge_w"] == 0 and params["min_discharge_w"] == 0
+    assert data["decision_id"] == data["reason_details"]["decision_id"] == "peak_rank_hold"
+    assert data["reason"] == PEAK_HOLD_REASON
+    assert data["engine_base_mode"] == mode
+    assert data["engine_requested_mode"] == held_mode
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert data["states"]["sensor.opti_peak_rank"] == "hold"
+    assert (attrs["control_enabled"], attrs["control_status"], attrs["controls_battery"],
+            attrs["observation_only"]) == (True, "holding", True, False)
+    assert attrs["totals"]["blocked_seconds"] == 0
+
+
+@pytest.mark.parametrize("check", [
+    {**PEAK_HOLD_CHECK, "verdict": "discharge", "rank_discharges": True},
+    {"status": "uncertain", "verdict": "uncertain"},
+    {"status": "incomplete", "verdict": "uncertain"},
+    {"status": "data_missing", "detail": "price_series"},
+    {"status": "not_applicable", "detail": "peak_reserve_inactive"},
+    {"status": "error"},
+    {**PEAK_HOLD_CHECK, "status": "uncertain"},
+])
+async def test_peak_rank_control_keeps_the_strategy_for_other_results(coordinator, hass, check):
+    set_peak_rank_control(coordinator, hass)
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation(), check)
+    assert coordinator.device.async_apply.await_args.args[0] == data["mode"] == "Akku Dynamisch"
+    assert data["decision_id"] == "peak_l1"
+    assert data["reason"] == "Peak-Leiter"
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert attrs.get("controls_battery") is False
+    assert attrs["control_status"] in ("released", "error")
+
+
+async def test_peak_rank_without_option_never_blocks(coordinator, hass):
+    set_peak_rank_control(coordinator, hass, enabled=False)
+    data, calls = await run_peak_cycle(coordinator, peak_evaluation())
+    assert len(calls) == 1
+    assert coordinator.device.async_apply.await_args.args[0] == data["mode"] == "Akku Dynamisch"
+    assert data["decision_id"] == "peak_l1"
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert data["states"]["sensor.opti_peak_rank"] == "hold"
+    assert attrs["observation_only"] is True and attrs["controls_battery"] is False
+    assert "control_enabled" not in attrs and "control_status" not in attrs
+
+
+@pytest.mark.parametrize("target", ["peak_rank_check", "apply_peak_rank_hold"])
+async def test_peak_rank_control_error_keeps_the_strategy(coordinator, hass, target):
+    set_peak_rank_control(coordinator, hass)
+    evaluation = peak_evaluation()
+    coordinator.device.async_apply.reset_mock()
+    with (
+        patch.object(coordinator.engine, "evaluate", return_value=evaluation),
+        patch(f"custom_components.opti_akku.coordinator.{target}",
+              side_effect=RuntimeError("boom")),
+    ):
+        data = await coordinator._async_update_data()
+    coordinator.device.async_apply.assert_awaited_once()
+    assert coordinator.device.async_apply.await_args.args[0] == data["mode"] == "Akku Dynamisch"
+    assert data["decision_id"] == "peak_l1"
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert (attrs["controls_battery"], attrs["control_status"]) == (False, "error")
+    if target == "peak_rank_check":
+        assert data["states"]["sensor.opti_peak_rank"] == "unavailable"
+        assert attrs["status"] == "error"
+    assert coordinator._peak_rank_latch is None
+
+
+@pytest.mark.parametrize("decision_id,mode", [
+    ("minimum_soc", "Akku Pause"),
+    ("maximum_soc", "Akku nur Entladen"),
+    ("battery_full", "Akku nur Entladen"),
+    ("balancing_hold", "Akku nur Entladen"),
+    ("ev_lock", "Akku nur Entladen"),
+    ("peak_l3", "Akku nur Entladen"),
+    ("extreme_peak_hold", "Akku nur Entladen"),
+    ("default", "Akku Dynamisch"),
+])
+async def test_peak_rank_control_leaves_other_decisions_alone(coordinator, hass, decision_id, mode):
+    set_peak_rank_control(coordinator, hass, enabled=False)
+    baseline, _calls = await run_peak_cycle(coordinator, peak_evaluation(mode, decision_id))
+    baseline_command = coordinator.device.async_apply.await_args.args[:2]
+    set_peak_rank_control(coordinator, hass)
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation(mode, decision_id))
+    assert coordinator.device.async_apply.await_args.args[:2] == baseline_command
+    assert (data["mode"], data["decision_id"], data["reason"]) == (
+        baseline["mode"], decision_id, baseline["reason"])
+    assert data["attributes"]["sensor.opti_peak_rank"]["control_status"] == "not_applicable"
+
+
+@pytest.mark.parametrize("manual", ["Akku nur Entladen", "Akku schnell Entladen", "Akku Dynamisch"])
+async def test_manual_mode_takes_precedence_over_peak_rank_control(coordinator, hass, manual):
+    set_peak_rank_control(coordinator, hass, enabled=False)
+    coordinator.manual_mode = manual
+    baseline, _calls = await run_peak_cycle(coordinator, peak_evaluation(**{"sensor.opti_soc": 60}))
+    baseline_command = coordinator.device.async_apply.await_args.args[:2]
+    set_peak_rank_control(coordinator, hass)
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation(**{"sensor.opti_soc": 60}))
+    assert coordinator.device.async_apply.await_args.args[:2] == baseline_command
+    assert data["mode"] == baseline["mode"] == manual
+    assert data["decision_id"] == "peak_l1"
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert (attrs["control_status"], attrs["controls_battery"]) == ("not_applicable", False)
+
+
+async def test_charge_cap_keeps_charging_blocked_under_peak_rank_hold(coordinator, hass):
+    """L1/L2 at the charge cap pick 'nur Entladen'; the hold must not open charging."""
+    set_peak_rank_control(coordinator, hass)
+    evaluation = peak_evaluation("Akku nur Entladen", **{
+        "sensor.opti_soc": 95, "binary_sensor.opti_ladedeckel_aktiv": "on"})
+    data, _calls = await run_peak_cycle(coordinator, evaluation)
+    assert coordinator.device.async_apply.await_args.args[0] == data["mode"] == "Akku Pause"
+    assert data["decision_id"] == "peak_rank_hold"
+
+
+async def test_safety_pause_takes_precedence_over_peak_rank_hold(coordinator, hass):
+    set_peak_rank_control(coordinator, hass)
+    data, _calls = await run_peak_cycle(
+        coordinator, peak_evaluation(**{"sensor.opti_battery_temp": 60}))
+    assert coordinator.device.async_apply.await_args.args[0] == data["mode"] == "Akku Pause"
+    assert data["reason"] != PEAK_HOLD_REASON
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert (attrs["control_status"], attrs["controls_battery"]) == ("higher_priority", False)
+
+
+async def test_safety_pause_with_the_same_mode_takes_precedence_over_peak_rank_hold(coordinator, hass):
+    """'nur Entladen' becomes 'Akku Pause' anyway; the safety reason still wins."""
+    set_peak_rank_control(coordinator, hass)
+    evaluation = peak_evaluation("Akku nur Entladen", **{"sensor.opti_battery_temp": 60})
+    data, _calls = await run_peak_cycle(coordinator, evaluation)
+    assert coordinator._peak_rank._previous is not None
+    coordinator._peak_rank._previous = (
+        coordinator._peak_rank._previous[0] - timedelta(seconds=30), *coordinator._peak_rank._previous[1:])
+    data, _calls = await run_peak_cycle(coordinator, evaluation)
+    assert data["mode"] == "Akku Pause" and data["reason"] != PEAK_HOLD_REASON
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert (attrs["control_status"], attrs["controls_battery"]) == ("higher_priority", False)
+    assert attrs["totals"]["blocked_seconds"] == 0
+
+
+async def test_failed_write_of_the_hold_controls_nothing(coordinator, hass):
+    set_peak_rank_control(coordinator, hass)
+    coordinator.device.async_apply.side_effect = RuntimeError("bus")
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation())
+    coordinator._peak_rank._previous = (
+        coordinator._peak_rank._previous[0] - timedelta(seconds=30), *coordinator._peak_rank._previous[1:])
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation())
+    assert data["command_result_this_update"] == "failed"
+    assert data["mode"] == "Akku nur Laden"
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert (attrs["control_status"], attrs["controls_battery"]) == ("holding", False)
+    assert attrs["totals"]["blocked_seconds"] == 0
+    # Once the device confirms the hold mode, it controls the battery.
+    coordinator.device.async_apply.side_effect = None
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation())
+    assert data["attributes"]["sensor.opti_peak_rank"]["controls_battery"] is True
+
+
+async def test_peak_rank_hold_without_write_permission_controls_nothing(coordinator, hass):
+    set_peak_rank_control(coordinator, hass)
+    coordinator.write_enabled = False
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation())
+    coordinator.device.async_apply.assert_not_awaited()
+    assert data["mode"] == "Akku nur Laden"
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert (attrs["control_status"], attrs["controls_battery"]) == ("holding", False)
+
+
+async def test_peak_rank_hold_stays_within_the_slot(coordinator, hass):
+    set_peak_rank_control(coordinator, hass)
+    discharge = {**PEAK_HOLD_CHECK, "verdict": "discharge", "rank_discharges": True}
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation())
+    assert data["mode"] == "Akku nur Laden"
+    # PV charging raised the usable energy: the fresh verdict flips within the slot.
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation(), discharge)
+    assert coordinator.device.async_apply.await_args.args[0] == data["mode"] == "Akku nur Laden"
+    assert data["reason"] == PEAK_HOLD_REASON
+    attrs = data["attributes"]["sensor.opti_peak_rank"]
+    assert (attrs["verdict"], attrs["control_status"], attrs["controls_battery"]) == (
+        "discharge", "latched", True)
+    # The next price slot releases the hold.
+    next_slot = {**discharge, "current_slot_start": "2026-10-18T15:15:00+00:00"}
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation(), next_slot)
+    assert coordinator.device.async_apply.await_args.args[0] == data["mode"] == "Akku Dynamisch"
+    assert data["attributes"]["sensor.opti_peak_rank"]["control_status"] == "released"
+
+
+@pytest.mark.parametrize("change", ["decision", "option", "manual"])
+async def test_peak_rank_hold_latch_ends_with_the_decision(coordinator, hass, change):
+    set_peak_rank_control(coordinator, hass)
+    discharge = {**PEAK_HOLD_CHECK, "verdict": "discharge", "rank_discharges": True}
+    await run_peak_cycle(coordinator, peak_evaluation())
+    assert coordinator._peak_rank_latch is not None
+    if change == "decision":
+        await run_peak_cycle(coordinator, peak_evaluation(decision_id="balancing_hold"), discharge)
+    elif change == "option":
+        set_peak_rank_control(coordinator, hass, enabled=False)
+        await run_peak_cycle(coordinator, peak_evaluation(), discharge)
+    else:
+        coordinator.manual_mode = "Akku nur Laden"
+        await run_peak_cycle(coordinator, peak_evaluation(), discharge)
+        coordinator.manual_mode = None
+    assert coordinator._peak_rank_latch is None
+    set_peak_rank_control(coordinator, hass)
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation(), discharge)
+    assert data["mode"] == "Akku Dynamisch" and data["decision_id"] == "peak_l1"
+
+
+async def test_peak_rank_hold_counts_blocked_time(coordinator, hass):
+    set_peak_rank_control(coordinator, hass)
+    await run_peak_cycle(coordinator, peak_evaluation())
+    first = coordinator._peak_rank.data["last_observation"]
+    coordinator._peak_rank._previous = (
+        datetime.fromisoformat(first) - timedelta(seconds=30), *coordinator._peak_rank._previous[1:])
+    data, _calls = await run_peak_cycle(coordinator, peak_evaluation())
+    totals = data["attributes"]["sensor.opti_peak_rank"]["totals"]
+    assert totals["blocked_seconds"] > 0
+    assert coordinator._stored_data()["peak_rank"]["blocked_seconds"] == pytest.approx(
+        totals["blocked_seconds"], abs=1e-3)
+
+
+async def test_peak_rank_hold_hides_its_mode_from_engine_feedback(coordinator):
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    for held in ("Akku nur Laden", "Akku Pause"):
+        coordinator.async_set_updated_data(
+            {"mode": held, "decision_id": "peak_rank_hold", "engine_base_mode": "Akku Dynamisch"})
+        with patch.object(coordinator.engine, "evaluate", return_value=peak_evaluation()) as evaluate:
+            await coordinator._async_update_data()
+        assert evaluate.call_args.args[0]["input_select.akkusteuerung_modus"] == "Akku Dynamisch"
+
+
 REFILL_DEMAND = {
     "status": "ready", "suggested_reserve_soc": 40.0, "refill_profile_ready": True,
     "refill_covered": True, "refill_coverage_percent": 95.0, "pv_cover_from": "x",

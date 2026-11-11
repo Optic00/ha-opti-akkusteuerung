@@ -9,7 +9,8 @@ externen Helfer oder Automationen angelegt.
 
 Später öffnet **Konfigurieren** die Bereiche Anlage, Batterie, Stromtarif und
 PV-Prognose. Unter **Optionale Funktionen** stehen Wallbox, PV-Vorbereitung fürs
-Auto, Balancing, Bedarfsprofil, Wirtschaftlichkeitsvergleich und Benachrichtigungen.
+Auto, Balancing, Bedarfsprofil, Wirtschaftlichkeitsvergleich, die experimentelle
+Peak-Rangfolge und Benachrichtigungen.
 **Erweitert und Diagnose** enthält Verbindung, Messquellenvergleich und Feinabstimmung.
 Die eigenständige Vergleichskonfiguration bleibt erhalten, um andere Messquellen
 vor einer aktiven Umstellung zu prüfen.
@@ -274,6 +275,19 @@ stehen unter „Akkumodell“ in [Prognose und Auto](forecast-and-ev.md#akkumode
 Wirkungsgrade, Zykluskosten und Marge steuern außerdem das Peak-Vorladen aus dem
 Netz, auch wenn „Restwert als automatischen Entladeschutz verwenden“ aus ist.
 Ungültige Angaben sperren das Peak-Vorladen, bis sie korrigiert sind.
+
+### Peak-Rangfolge steuernd (experimentell)
+
+Unter **Optionale Funktionen → Peak-Rangfolge (experimentell)** steht ein Schalter
+„Entladen in teuren Stunden für noch teurere zurückhalten“, Standard aus. Ist er
+an, hält die Peak-Leiter L1/L2 den Akku in einer teuren Stunde zurück, wenn der
+nutzbare Inhalt nach dem Schattenvergleich Peak-Rangfolge nur für noch teurere
+Stunden bis zum nächsten Nachladen aus PV reicht: `Akku nur Laden` statt
+`Akku Dynamisch`, `Akku Pause` statt `Akku nur Entladen`. Nur ein eindeutiges
+Ergebnis „Halten“ wirkt; manuelle Modi und Schutzfunktionen haben Vorrang. Eine
+Änderung lädt die Integration nicht neu. Einzelheiten stehen unter „Optional
+steuernd: Peak-Rangfolge hält die Entladung“ in
+[Prognose und Auto](forecast-and-ev.md#optional-steuernd-peak-rangfolge-hält-die-entladung).
 
 ### Preisabstand für Netzladen
 

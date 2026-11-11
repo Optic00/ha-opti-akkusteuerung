@@ -27,7 +27,9 @@ CONF_SOURCES = "sources"
 CONF_SETTINGS = "settings"
 NO_RELOAD_OPTION_KEYS = frozenset(
     # Observation-only options; a reload would stop control and write a pause.
-    {"settings", "settings_revision", "notification_service", "arbitrage_estimate", "evcc_comparison"}
+    # The arbitrage and peak rank holds read their option in every cycle.
+    {"settings", "settings_revision", "notification_service", "arbitrage_estimate", "evcc_comparison",
+     "peak_rank_control"}
 )
 # key: (canonical virtual ID, German label, expected family)
 SOURCE_DEFINITIONS = {

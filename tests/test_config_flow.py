@@ -21,7 +21,7 @@ async def configure_options(hass, flow_id, user_input):
     """Navigate the real submenu before submitting an existing feature test."""
     section = user_input.get("next_step_id")
     parents = {
-        **dict.fromkeys(("ev_preparation", "demand", "arbitrage", "notifications"), "features"),
+        **dict.fromkeys(("ev_preparation", "demand", "arbitrage", "peak_rank", "notifications"), "features"),
         **dict.fromkeys(("connection", "observation", "evcc_comparison", "advanced"), "maintenance"),
     }
     if section in parents and hass.config_entries.options.async_get(flow_id)["step_id"] == "init":
@@ -467,7 +467,8 @@ async def test_options_menu_groups_optional_features(hass):
     assert "features" in result["menu_options"]
     assert "ev" not in result["menu_options"]
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "features"})
-    assert result["menu_options"] == ["ev", "ev_preparation", "balancing", "demand", "arbitrage", "notifications", "init"]
+    assert result["menu_options"] == ["ev", "ev_preparation", "balancing", "demand", "arbitrage", "peak_rank",
+                                      "notifications", "init"]
     hass.config_entries.options.async_abort(result["flow_id"])
     assert not entry.options
 
@@ -1201,6 +1202,54 @@ async def test_arbitrage_estimate_requires_explicit_assumptions_and_stays_option
     result = await hass.config_entries.options.async_configure(result["flow_id"], {})
     assert result["type"] == "create_entry"
     assert "arbitrage_estimate" not in entry.options
+
+
+async def test_peak_rank_control_is_optional_and_off_by_default(hass):
+    from custom_components.opti_akku.config_flow import SHADOW_COPY_OPTIONS
+    from custom_components.opti_akku.const import NO_RELOAD_OPTION_KEYS
+
+    # Read in every cycle like the arbitrage hold; a change needs no reload.
+    assert "peak_rank_control" in NO_RELOAD_OPTION_KEYS
+    assert "peak_rank_control" in SHADOW_COPY_OPTIONS
+    entry = MockConfigEntry(domain="opti_akku", title="Test", data={"host": "127.0.0.1", "port": 502, "unit_id": 3},
+                            options={"single_inverter": True, "sources": {}})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "peak_rank"})
+    assert result["step_id"] == "peak_rank"
+    assert [marker.schema for marker in result["data_schema"].schema] == ["enabled"]
+    assert form_values(result) == {"enabled": False}
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"enabled": True})
+    assert result["type"] == "menu"
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "peak_rank"})
+    assert form_values(result) == {"enabled": True}
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"enabled": True})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["type"] == "create_entry"
+    assert entry.options["peak_rank_control"] == {"enabled": True}
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "peak_rank"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"enabled": False})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["type"] == "create_entry"
+    assert "peak_rank_control" not in entry.options
+
+
+def test_peak_rank_control_texts_exist_in_every_language():
+    import json
+    from pathlib import Path
+
+    base = Path(__file__).parents[1] / "custom_components" / "opti_akku"
+    for path in (base / "strings.json", base / "translations" / "de.json", base / "translations" / "en.json"):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["options"]["step"]["features"]["menu_options"]["peak_rank"]
+        for flow in ("config", "options"):
+            step = data[flow]["step"]["peak_rank"]
+            assert step["title"] and step["data"]["enabled"]
+            assert ("experimentell" if path.name == "de.json" else "experimental") in step["description"].lower()
 
 
 async def test_active_arbitrage_hold_requires_demand_forecast_and_is_saved(hass):

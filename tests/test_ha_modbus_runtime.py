@@ -190,6 +190,29 @@ async def test_options_settings_do_not_reload_running_shadow(hass, simulator):
     assert entry.runtime_data.settings["input_number.maxsoc"] == 90
     assert entry.runtime_data.settings["input_number.opti_forecast_optimismus"] == 35
 
+async def test_peak_rank_control_change_does_not_reload(hass, simulator):
+    from unittest.mock import patch
+    from tests.test_config_flow import configure_options
+
+    entry = await configure(hass, simulator, shadow=True)
+    coordinator = entry.runtime_data
+    for enabled in (True, False):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await configure_options(hass, result["flow_id"], {"next_step_id": "peak_rank"})
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"enabled": enabled})
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+        with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+            await hass.config_entries.options.async_configure(result["flow_id"], {})
+            await hass.async_block_till_done()
+            reload.assert_not_called()
+        assert entry.runtime_data is coordinator
+        assert ("peak_rank_control" in entry.options) is enabled
+        await coordinator.async_refresh()
+        attrs = coordinator.data["attributes"]["sensor.opti_peak_rank"]
+        assert attrs.get("control_enabled", False) is enabled
+    assert not simulator.writes
+
+
 async def test_options_patch_preserves_engine_update_while_waiting_for_lock(hass, simulator):
     from tests.test_config_flow import form_values
 

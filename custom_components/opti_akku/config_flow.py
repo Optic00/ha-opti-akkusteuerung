@@ -232,7 +232,7 @@ SHADOW_COPY_OPTIONS = frozenset({
     *DEFAULT_OPTIONS, *(key for keys in OPTION_GROUPS.values() for key in keys),
     "tibber_home", "tibber_entry_id", "tibber_eur_confirmed", "price_windows", "charge_curve", "notification_service",
     "ev_preparation", "demand_forecast", "arbitrage_estimate", "source_observation",
-    "evcc_comparison",
+    "evcc_comparison", "peak_rank_control",
 }) - {"settings", "single_writer_confirmed", "shadow_reference_mode"}
 SHADOW_COPY_CONNECTION = frozenset({
     CONF_HOST, CONF_PORT, CONF_UNIT_ID, CONF_PROFILE, "backend", "serial_number",
@@ -949,6 +949,19 @@ class WizardSections:
             step_id="arbitrage", data_schema=vol.Schema(schema), errors=errors
         )
 
+    async def async_step_peak_rank(self, user_input=None):
+        """Experimental: let the peak rank comparison hold L1/L2 discharge."""
+        cfg = self._draft.get("peak_rank_control", {})
+        if user_input is not None:
+            if user_input.get("enabled") is True:
+                self._draft["peak_rank_control"] = {"enabled": True}
+            else:
+                self._draft.pop("peak_rank_control", None)
+            return await self.async_step_init()
+        return self.async_show_form(step_id="peak_rank", data_schema=vol.Schema({
+            vol.Required("enabled", default=cfg.get("enabled", False) is True): BooleanSelector(),
+        }))
+
     async def async_step_sources(self, user_input=None):
         return await self._section("sources", user_input)
 
@@ -1044,7 +1057,7 @@ class WizardSections:
 
     async def async_step_features(self, user_input=None):
         if not self._guided:
-            return self.async_show_menu(step_id="features", menu_options=["ev", "ev_preparation", "balancing", "demand", "arbitrage", "notifications", "init"])
+            return self.async_show_menu(step_id="features", menu_options=["ev", "ev_preparation", "balancing", "demand", "arbitrage", "peak_rank", "notifications", "init"])
         if user_input is not None:
             self._use_balancing = user_input.get("configure_balancing", False)
             if not self._use_balancing:
@@ -1168,7 +1181,8 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
                 self._use_balancing = self._settings["input_number.opti_balancing_intervall_tage"] > 0
                 self._copy_review_steps = ["advanced"] + [
                     step for step, key in (("demand", "demand_forecast"), ("ev_preparation", "ev_preparation"),
-                                          ("arbitrage", "arbitrage_estimate"), ("observation", "source_observation"))
+                                          ("arbitrage", "arbitrage_estimate"), ("peak_rank", "peak_rank_control"),
+                                          ("observation", "source_observation"))
                     if self._draft.get(key)]
                 if error := await self._check_shadow_copy():
                     errors["base"] = error

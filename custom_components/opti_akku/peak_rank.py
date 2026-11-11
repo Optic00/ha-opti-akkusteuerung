@@ -1,6 +1,9 @@
-"""Shadow check: would a price-rank allocation keep peak energy for later?
+"""Price-rank allocation for peak energy: shadow check and optional hold.
 
-Observation only. Neither the strategy nor any write reads this result.
+Without the option ``peak_rank_control`` this is observation only; neither the
+strategy nor any write reads the result. With the option the coordinator
+calls ``apply_peak_rank_hold`` before the write: a clear ``hold`` for an L1/L2
+discharge blocks the discharge (see there).
 
 Peak ladder L1 discharges in every VERY_EXPENSIVE slot, which is only a
 percentile over today and tomorrow. With little usable energy it can spend the
@@ -22,11 +25,12 @@ Prices must cover the whole reserve horizon, also for the refill's peak average.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime, tzinfo
 from math import isfinite
 from typing import Any
 
-from .arbitrage import _instant, _price_periods
+from .arbitrage import DISCHARGING_MODES, _instant, _price_periods
 from .battery_model import (
     DEFAULT_CHARGE_EFFICIENCY,
     DEFAULT_MARGIN_CT,
@@ -42,6 +46,7 @@ HOLD_WINDOW_BAND_CT = 1.5
 # Same hold band as the economic precharge condition in decisions.yaml.
 ECONOMIC_HOLD_BAND_CT = 1.0
 PEAK_DECISIONS = frozenset({"peak_l1", "peak_l2"})
+HOLD_DECISION = "peak_rank_hold"
 MAX_INTERVAL = 90
 # Model assumptions (model_assumptions) plus six settings, as the coordinator
 # passes them.
@@ -60,6 +65,9 @@ _COUNTERS = (
     "discharged_while_agree_kwh",
     "discharged_while_hold_kwh",
 )
+# Time in which the optional hold actually blocked a discharge. Not part of
+# the shadow counters above; snapshots before the option count as zero.
+_CONTROL_COUNTERS = ("blocked_seconds",)
 
 Slot = tuple[datetime, datetime, float]
 
@@ -310,6 +318,7 @@ def peak_rank_check(
         "strategy_mode": strategy_mode if strategy is not None and isinstance(strategy_mode, str) else None,
         "rank_discharges": rank_discharges,
         "reason": reason,
+        "current_slot_start": periods[current][0].isoformat(),
         "current_price_ct": round(current_price, 2),
         "threshold_price_ct": round(threshold, 2) if threshold is not None else None,
         "current_rank": rank,
@@ -321,6 +330,66 @@ def peak_rank_check(
         "refill_kind": "pv_horizon",
         "horizon_end": end.isoformat(),
     }
+
+
+def _hold_reason(check: Mapping[str, Any]) -> str:
+    current = _number(check.get("current_price_ct"))
+    threshold = _number(check.get("threshold_price_ct"))
+    now_text = f"jetzt {current:.1f} ct" if current is not None else "jetzt ohne Preis"
+    if threshold is None:
+        return f"Peak-Rangfolge (halten: kein nutzbarer Inhalt über MinSOC, {now_text})"
+    return f"Peak-Rangfolge (halten für Slots ab {threshold:.1f} ct, {now_text})"
+
+
+def apply_peak_rank_hold(
+    result: Any,
+    check: Any,
+    latch: tuple[tuple[str, Any], str] | None,
+    *,
+    eligible: bool,
+) -> tuple[Any, str, tuple[tuple[str, Any], str] | None]:
+    """Block an L1/L2 discharge on a clear ``hold``; otherwise keep ``result``.
+
+    Returns the possibly replaced result, a control status and the new latch.
+    Only ``status == "ready"`` with ``verdict == "hold"`` sets the hold. Within
+    one price slot and the same strategy decision a set hold stays while the
+    fresh verdict is ``discharge``: holding keeps the usable energy, PV
+    charging can raise it, and discharging lowers it again, so the verdict
+    could otherwise alternate within the slot. Any other result (uncertain,
+    incomplete, missing data, error) releases the hold and clears the latch:
+    without a remembered state the fresh check decides (fail-open).
+
+    "Akku Dynamisch" becomes "Akku nur Laden", so PV charging stays as the
+    strategy allowed it. L1/L2 choose "Akku nur Entladen" when charging is
+    blocked (charge cap, PV surplus charging off, night); that becomes
+    "Akku Pause", so the hold never charges where the strategy did not.
+    """
+    if (not eligible or getattr(result, "decision_id", None) not in PEAK_DECISIONS
+            or getattr(result, "mode", None) not in DISCHARGING_MODES):
+        return result, "not_applicable", None
+    if not isinstance(check, Mapping) or check.get("status") != "ready":
+        return result, "released", None
+    key = (result.decision_id, check.get("current_slot_start"))
+    verdict = check.get("verdict")
+    if verdict == "hold":
+        reason, status = _hold_reason(check), "holding"
+    elif verdict == "discharge" and latch is not None and latch[0] == key:
+        reason, status = latch[1], "latched"
+    else:
+        return result, "released", None
+    mode = "Akku nur Laden" if result.mode == "Akku Dynamisch" else "Akku Pause"
+    values = dict(result.states)
+    values["sensor.opti_strategie_vorschau"] = mode
+    attrs = {
+        **result.attributes,
+        "sensor.opti_strategie_vorschau": {
+            **result.attributes.get("sensor.opti_strategie_vorschau", {}),
+            "grund": reason,
+        },
+    }
+    held = replace(result, mode=mode, reason=reason, states=values, attributes=attrs,
+                   decision_id=HOLD_DECISION)
+    return held, status, (key, reason)
 
 
 class PeakRankShadow:
@@ -337,7 +406,7 @@ class PeakRankShadow:
     @staticmethod
     def _fresh() -> dict[str, Any]:
         return {"version": 2, "started_at": None, "last_observation": None,
-                "assumptions": None, **dict.fromkeys(_COUNTERS, 0.0)}
+                "assumptions": None, **dict.fromkeys(_COUNTERS + _CONTROL_COUNTERS, 0.0)}
 
     def snapshot(self) -> dict[str, Any]:
         return dict(self.data)
@@ -368,6 +437,10 @@ class PeakRankShadow:
             counters = {key: _number(saved.get(key)) for key in _COUNTERS}
             if any(value is None or value < 0 for value in counters.values()):
                 return
+            for key in _CONTROL_COUNTERS:
+                counters[key] = _number(saved.get(key, 0.0))
+                if counters[key] is None or counters[key] < 0:
+                    return
             if abs(counters["agree_seconds"] + counters["hold_seconds"]
                    - counters["peak_seconds"]) > 1e-6 * max(1.0, counters["peak_seconds"]):
                 return
@@ -381,7 +454,7 @@ class PeakRankShadow:
         self._previous = None
 
     def totals(self) -> dict[str, Any]:
-        out: dict[str, Any] = {key: round(self.data[key], 3) for key in _COUNTERS}
+        out: dict[str, Any] = {key: round(self.data[key], 3) for key in _COUNTERS + _CONTROL_COUNTERS}
         peak = self.data["peak_seconds"]
         out["hold_percent"] = round(self.data["hold_seconds"] / peak * 100, 3) if peak > 0 else None
         out["started_at"] = self.data["started_at"]
@@ -410,6 +483,8 @@ class PeakRankShadow:
                     self.data["peak_seconds"] += elapsed
                     self.data[f"{key}_seconds"] += elapsed
                     self.data[f"discharged_while_{key}_kwh"] += discharged
+                if held.get("controls_battery") is True:
+                    self.data["blocked_seconds"] += elapsed
         self._previous = (now, dict(check), _number(battery_power_w))
         self.data["last_observation"] = now.isoformat()
         return self.totals()

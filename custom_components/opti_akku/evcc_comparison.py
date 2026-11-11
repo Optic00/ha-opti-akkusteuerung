@@ -47,8 +47,11 @@ LADDER_MODES = {
     "holdcharge": ONLY_DISCHARGE,
 }
 ACTIONS = (*LADDER_MODES, "discharge")
+# ``ladder_unrated``: the ladder is in a mode outside this vocabulary (manual,
+# "Akku Automatisch", observation). Such time is neither agreement nor
+# disagreement and leaves the disagreement share.
 VERDICTS = ("agree", "evcc_grid_charge", "ladder_grid_charge", "evcc_hold",
-            "evcc_discharge", "evcc_no_charge", "other")
+            "evcc_discharge", "evcc_no_charge", "other", "ladder_unrated")
 SOURCES = ("suggestion", "evopt")
 _VERDICT_COUNTERS = tuple(f"{verdict}_seconds" for verdict in VERDICTS)
 _SOURCE_COUNTERS = tuple(f"{source}_seconds" for source in SOURCES)
@@ -328,9 +331,9 @@ class EvccComparison:
 
     def _totals(self) -> dict[str, Any]:
         out: dict[str, Any] = {key: round(self.data[key], 3) for key in _COUNTERS}
-        ready = self.data["ready_seconds"]
+        decided = self.data["ready_seconds"] - self.data["ladder_unrated_seconds"]
         out["disagreement_percent"] = (
-            round((ready - self.data["agree_seconds"]) / ready * 100, 3) if ready > 0 else None
+            round((decided - self.data["agree_seconds"]) / decided * 100, 3) if decided > 0 else None
         )
         out["started_at"] = self.data["started_at"]
         out["last_observation"] = self.data["last_observation"]

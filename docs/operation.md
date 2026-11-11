@@ -834,7 +834,10 @@ Akku nur Laden, `charge` = Akku Netzladen, `holdcharge` = Akku nur Entladen.
 `discharge` (Entladen ins Netz) hat kein Gegenstück, für Akku Pause gibt es
 in evcc keinen Modus. Der Zustand nennt die Abweichung: `agree`,
 `evcc_grid_charge`, `ladder_grid_charge`, `evcc_hold`, `evcc_discharge`,
-`evcc_no_charge` oder `other`. Die Suggestion hat Vorrang. Liegen beide
+`evcc_no_charge`, `other` oder `ladder_unrated` (die Leiter steht in einem
+Modus ohne evcc-Gegenstück, etwa manuell, Akku Automatisch oder Beobachtung;
+diese Zeit zählt weder als Übereinstimmung noch im Nenner von
+`disagreement_percent`). Die Suggestion hat Vorrang. Liegen beide
 Quellen vor, zeigt `derivation_matches`, ob die Ableitung aus evopt evccs
 eigene Empfehlung trifft.
 

@@ -1292,7 +1292,8 @@
           "evcc_hold": "evcc hält den Akku",
           "evcc_discharge": "evcc entlädt",
           "evcc_no_charge": "evcc sperrt Laden",
-          "other": "Andere Abweichung"
+          "other": "Andere Abweichung",
+          "ladder_unrated": "Leiter ohne evcc-Gegenstück"
         }
       }
     },

@@ -131,7 +131,8 @@ def test_classify_uses_the_ladder_vocabulary():
     assert classify("holdcharge", "Akku nur Laden") == "evcc_discharge"
     assert classify("holdcharge", "Akku Dynamisch") == "evcc_no_charge"
     assert classify("discharge", "Akku Dynamisch") == "other"
-    assert classify("normal", "manuell") == "other"
+    assert classify("normal", "manuell") == "ladder_unrated"
+    assert classify("discharge", "manuell") == "other"
 
 
 @pytest.mark.parametrize("attributes,state,reported,status", [
@@ -191,6 +192,23 @@ def test_totals_hold_the_previous_verdict_and_skip_gaps():
     assert totals["ready_seconds"] == 60
     assert totals["started_at"] == T0.isoformat()
     assert EvccComparison().observe(T0, ready())["disagreement_percent"] is None
+
+
+def test_unrated_ladder_time_counts_but_leaves_the_disagreement_share():
+    """Manual, automatic or observation modes are neither agreement nor disagreement."""
+    comparison = EvccComparison()
+    comparison.observe(T0, ready("ladder_unrated"))
+    comparison.observe(T0 + timedelta(seconds=30), ready("evcc_hold"))
+    comparison.observe(T0 + timedelta(seconds=60), ready())
+    totals = comparison.observe(T0 + timedelta(seconds=90), ready())
+    assert totals["ready_seconds"] == 90 and totals["ladder_unrated_seconds"] == 30
+    assert totals["disagreement_percent"] == 50
+    only_unrated = EvccComparison()
+    only_unrated.observe(T0, ready("ladder_unrated"))
+    assert only_unrated.observe(T0 + timedelta(seconds=30), ready())["disagreement_percent"] is None
+    restored = EvccComparison()
+    restored.restore(comparison.snapshot())
+    assert restored.snapshot() == comparison.snapshot()
 
 
 def test_restore_round_trip_and_rejects_inconsistent_counters():

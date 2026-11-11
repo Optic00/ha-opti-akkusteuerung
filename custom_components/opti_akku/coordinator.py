@@ -78,6 +78,10 @@ from .reporting import OperatingReport, reserve_plan
 from .tibber_prices import READINESS_RETRY_SECONDS, REFRESH_SECONDS, RETRY_SECONDS, TibberPriceError, TibberPriceSnapshot, async_fetch_prices
 
 _LOGGER = logging.getLogger(__name__)
+# HA reloads 30 s after the last enable; the margin covers a busy event loop.
+ENTITY_ENABLE_RELOAD_WINDOW = 90.0
+# Unload to setup of the same reload; older handovers are stale.
+RELOAD_HANDOVER_MAX_AGE = 60.0
 # Errors a later confirmed write proves resolved (device reachable, sequence
 # accepted). Everything else, e.g. restore or settings warnings, is kept.
 WRITE_ERROR_PREFIXES = (
@@ -372,6 +376,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._serial_owner: str | None = None
         self._stop_lock = asyncio.Lock()
         self._stopped = False
+        self._entity_enabled_at: float | None = None
+        self._unload_pause_confirmed = False
         self._engine_snapshot: dict = {}
         self._routine_save_at: float | None = None
         self._write_stall_paused_at: float | None = None
@@ -392,8 +398,55 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, self._async_ha_stopping))
         entry.async_on_unload(self._release_device)
 
-    async def async_restore(self) -> None:
+    @callback
+    def note_entity_enabled(self) -> None:
+        """One of this entry's entities was enabled; HA reloads the entry soon."""
+        self._entity_enabled_at = time.monotonic()
+
+    @property
+    def entity_enable_noted(self) -> bool:
+        return (self._entity_enabled_at is not None
+                and time.monotonic() - self._entity_enabled_at <= ENTITY_ENABLE_RELOAD_WINDOW)
+
+    @property
+    def pause_unconfirmed(self) -> bool:
+        """An owed pause is open (Huawei), or unload ended active writes without a confirmed pause."""
+        if getattr(type(self.device), "PHASED", False) and self._pause_pending:
+            return True
+        return self._stopping and self.write_enabled and not self.shadow_mode and not self._unload_pause_confirmed
+
+    def reload_handover(self) -> dict | None:
+        """Manual control to keep across the reload HA does after enabling an entity (#183).
+
+        The caller decides whether the unload follows an entity enable."""
+        if self.shadow_mode:
+            return None
+        return {"manual_mode": self.manual_mode,
+                "manual_charge_blocked": self._manual_charge_blocked,
+                "manual_discharge_blocked": self._manual_discharge_blocked,
+                "minsoc": self.settings["input_number.minsoc"],
+                "maxsoc": self.settings["input_number.maxsoc"],
+                "write_enabled": self.write_enabled,
+                "manual_charge_limit": self.settings["input_boolean.opti_manuelle_ladegrenze"],
+                "connection": dict(self.connection_config), "sources": dict(self.source_options)}
+
+    def _usable_handover(self, handover: dict | None) -> dict | None:
+        if not isinstance(handover, dict):
+            return None
+        age = time.monotonic() - handover.get("at", float("-inf"))
+        # Only for the same connection and sources; any real reconfiguration
+        # keeps the restart contract (no forced mode resumes).
+        if (not 0 <= age <= RELOAD_HANDOVER_MAX_AGE or handover.get("connection") != self.connection_config
+                or handover.get("sources") != self.source_options):
+            return None
+        return handover
+
+    async def async_restore(self, handover: dict | None = None) -> None:
         """Restore settings; every setup still requires fresh device/source reads."""
+        handover = self._usable_handover(handover)
+        handover_mode = handover.get("manual_mode") if handover else None
+        if handover_mode not in self.supported_modes:
+            handover_mode = None
         stored = await self._store.async_load() or {}
         candidates = stored.get("settings", {})
         self._settings_revision = self.entry.options.get("settings_revision")
@@ -470,10 +523,16 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ("strategy_setting_changed", stored.get("strategy_enabled", True) is not self.strategy_enabled),
             ("invalid_settings", bool(invalid)),
             ("shadow_mode", self.shadow_mode),
-            ("strategy_disabled", not self.strategy_enabled),
+            # Without strategy, writes need a manual mode; only the entity
+            # enable reload hands one over.
+            ("strategy_disabled", not self.strategy_enabled and handover_mode is None),
             ("no_supported_modes", not self.supported_modes),
         ) if blocked]
         self.write_enabled = bool(stored.get("write_enabled", False)) and not restore_blockers
+        if handover is not None and handover.get("write_enabled") is not True:
+            # The live state at unload wins over a store that may lag behind,
+            # e.g. a write disable whose save did not complete.
+            self.write_enabled = False
         if stored.get("write_enabled") is True and restore_blockers:
             # Never silently lose control across a restart: name the reason.
             self._write_restore_blocked = restore_blockers[0]
@@ -492,10 +551,22 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._shadow_snapshot = self._shadow.snapshot()
         # A forced manual charging/discharging command is never resumed after
         # a restart. Strategy decisions are recomputed from current inputs.
-        self.manual_mode = None
+        # Exception: the reload HA performs after an entity was enabled (#183).
+        self.manual_mode = handover_mode
+        if handover is not None:
+            self.settings["input_boolean.opti_manuelle_ladegrenze"] = handover.get("manual_charge_limit") is True
+        if handover_mode is not None:
+            _LOGGER.info("Manueller Modus %s nach Neuladen durch Aktivieren einer Entität beibehalten", handover_mode)
         # SoC blocks belong to one manual session; the first cycle after a
         # start derives them from the current SoC. Old stored keys are ignored.
+        # A handed-over manual session keeps its blocks while its limits are
+        # unchanged; a limit change resets them like a change while running.
         self._reset_manual_soc_blocks()
+        if (handover_mode is not None and handover is not None
+                and handover.get("minsoc") == self.settings["input_number.minsoc"]
+                and handover.get("maxsoc") == self.settings["input_number.maxsoc"]):
+            self._manual_charge_blocked = handover.get("manual_charge_blocked") is True
+            self._manual_discharge_blocked = handover.get("manual_discharge_blocked") is True
         self._manual_ev_latched = stored.get("manual_ev_latched") is True
         self._manual_cell_latched = stored.get("manual_cell_latched") is True
         self._manual_cell_reserve_v = finite(stored.get("manual_cell_reserve_v")) or (
@@ -2464,6 +2535,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         await self._async_finish_huawei_pause()
                     else:
                         await self.device.async_apply("Akku Pause", self._parameters((self.data or {}).get("states", {})), lambda: True)
+                    # The Huawei pause may defer itself; only a cleared debt confirms it.
+                    self._unload_pause_confirmed = not self._pause_pending
                 except Exception as err:
                     self._last_error = f"Pause beim Entladen der Integration nicht bestätigt: {type(err).__name__}"
             self._release_device()

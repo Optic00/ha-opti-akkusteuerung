@@ -20,7 +20,11 @@ Entitäts-IDs bleiben erhalten, auch wenn die angezeigten Namen kürzer werden.
 Bei neuen Installationen sind einzelne Zahlen- und technische Schalterentitäten
 standardmäßig deaktiviert: Die Konfiguration erfolgt über das Menü. Wer diese
 Entitäten für eigene Automationen benötigt, kann sie in der Entitätsverwaltung
-aktivieren. Die Hauptfreigabe und Betriebsart bleiben direkt bedienbar. Bestehende
+aktivieren. Die Hauptfreigabe und Betriebsart bleiben direkt bedienbar, ebenso
+„Minimaler Ladestand“ und „Maximaler Ladestand“, die bei neuen Installationen
+aktiviert sind. In bestehenden Installationen lassen sich diese beiden
+Entitäten in der Entitätsverwaltung aktivieren; Home Assistant lädt die
+Integration danach neu. Bestehende
 Entitäten und deren Aktivierungszustand werden beim Upgrade nicht verändert. Interne Rechensensoren sind Diagnose und bei neuen
 Einträgen standardmäßig deaktiviert. Bereits aktivierte Diagnosen werden beim
 Upgrade nicht gegen die Auswahl des Benutzers deaktiviert.
@@ -152,6 +156,9 @@ wie alt eine zugeordnete PV-Prognose sein darf. Diese eine Grenze gilt für
 die Tagesprognosen heute/morgen, die Solcast-Intervalle des Bedarfsprofils,
 den Negativpreis-Schattenvergleich, die Clipping-Abschätzung und den
 Horizont-Planer; feste 6- oder 12-Stunden-Prüfungen gibt es nicht mehr.
+Gemessen wird überall ab der letzten Meldung der Entität (`last_reported`,
+ersatzweise `last_updated`): Eine unverändert neu abgerufene Prognose gilt
+damit als frisch, auch wenn HA `last_updated` nicht weiterschiebt.
 Standard für neue Einträge ist 43200 Sekunden (12 Stunden), weil der
 kostenlose Solcast-Tarif nur vier Abrufe pro Tag erlaubt und eine Prognose
 daher bis zum nächsten Abruf fast zwölf Stunden alt sein kann (#103).
@@ -177,6 +184,26 @@ Bei Gerätewechsel wird die Bestätigung für die alleinige Steuerung zurückges
 Der Referenz-Ladepreis neuer Einträge startet wie die ursprüngliche Strategie mit
 `-1 EUR/kWh` (noch keine Referenz), statt wie bisher mit `0`; gespeicherte Werte
 werden nicht geändert.
+
+### Wirtschaftlichkeitsvergleich (Arbitrage-Annahmen)
+
+Unter **Optionale Funktionen → Wirtschaftlichkeitsvergleich** eingetragene
+Wirkungsgrade, Akkukosten, Zyklen und Marge betreffen nicht mehr nur die Anzeige: Sie
+bilden das gemeinsame Akkumodell (`sensor.opti_battery_model`), mit dem auch
+Bedarfsprognose, Schattenvergleiche, Horizont-Planer und die Peak-Reserve rechnen.
+Ohne diese Angaben gelten 90 % je Richtung und 3 ct/kWh Zykluskosten. Einzelheiten
+stehen unter „Akkumodell“ in [Prognose und Auto](forecast-and-ev.md#akkumodell).
+Wirkungsgrade, Zykluskosten und Marge steuern außerdem das Peak-Vorladen aus dem
+Netz, auch wenn „Restwert als automatischen Entladeschutz verwenden“ aus ist.
+Ungültige Angaben sperren das Peak-Vorladen, bis sie korrigiert sind.
+
+### Preisabstand für Netzladen
+
+**Preisabstand für Netzladen** (`opti_netzlade_spread_ct`, Standard 10 ct/kWh) ist
+die Mindestdifferenz zwischen Ladepreis und Peak-Durchschnitt fürs Peak-Vorladen.
+Er gilt zusätzlich zur wirtschaftlichen Schwelle aus dem Akkumodell; vorgeladen wird
+nur, wenn beide erfüllt sind. Die Bedingung steht unter „Schreibender Betrieb“ in
+[Betrieb](operation.md).
 
 ### Referenz-Ladepreis und Mindestgewinn beim Entladen
 

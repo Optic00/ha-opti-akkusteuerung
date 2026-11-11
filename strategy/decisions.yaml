@@ -179,10 +179,12 @@ strategy:
         state: 'on'
       - condition: template
         value_template: |-
-          {% set cur = states('sensor.opti_price_current_ct_kwh') | float(none) %} {% set soc = states('sensor.opti_soc') | float(none) %} {% set ges = states('sensor.opti_peak_reserve_soc') | float(none) %} {% set avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_avg_ct') | float(none) %} {% set spread_min = states('input_number.opti_netzlade_spread_ct') | float(10) %} {% set minv = state_attr('sensor.opti_peak_reserve_soc', 'min_preis_vor_peak_ct') %} {% set stopband = 0 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 3 %} {# Ladefenster mit Hysterese (Issue #111): Einstieg bis minv+0.5 ct, im Modus 'Akku Netzladen' halten bis minv+1.5 ct, sonst flattert Netzladen<->L4 bei Viertelstundenpreisen. #} {% set fenster_band = 1.5 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 0.5 %} {{ cur is not none and soc is not none and ges is not none and avg is not none
+          {% set cur = states('sensor.opti_price_current_ct_kwh') | float(none) %} {% set soc = states('sensor.opti_soc') | float(none) %} {% set ges = states('sensor.opti_peak_reserve_soc') | float(none) %} {% set avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_avg_ct') | float(none) %} {% set spread_min = states('input_number.opti_netzlade_spread_ct') | float(10) %} {% set minv = state_attr('sensor.opti_peak_reserve_soc', 'min_preis_vor_peak_ct') %} {% set stopband = 0 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 3 %} {# Ladefenster mit Hysterese (Issue #111): Einstieg bis minv+0.5 ct, im Modus 'Akku Netzladen' halten bis minv+1.5 ct, sonst flattert Netzladen<->L4 bei Viertelstundenpreisen. #} {% set fenster_band = 1.5 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 0.5 %} {# Nie in einem teuren oder Peak-Slot vorladen: laeuft der Peak bereits, fehlt min_preis_vor_peak_ct und das Fenster waere offen. #} {% set vorlade_sperre = states('sensor.opti_price_level') in ['EXPENSIVE', 'VERY_EXPENSIVE'] or (state_attr('sensor.opti_peak_reserve_soc', 'aktueller_slot_peak') | string | lower) == 'true' %} {# Wirtschaftlich (A3/B2): der lastgewichtete Mittelpreis der kommenden Peak-Slots muss Ladepreis samt Lade-/Entladeverlusten und Zykluskosten decken, p_min = cur * faktor + sockel aus sensor.opti_battery_model. Fehlt oder ist das Modell ungueltig: kein Vorladen. Halteband 1 ct bei laufendem Netzladen gegen Flattern an der Schwelle. #} {% set faktor = state_attr('sensor.opti_battery_model', 'precharge_price_factor') | float(none) %} {% set sockel = state_attr('sensor.opti_battery_model', 'precharge_price_offset_ct') | float(none) %} {% set modell_ok = states('sensor.opti_battery_model') in ['configured', 'default'] and faktor is not none and faktor >= 1 and sockel is not none and sockel >= 0 %} {% set kuenftig = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_kuenftig_ct') | float(none) %} {% set halteband = 1.0 if is_state('input_select.akkusteuerung_modus', 'Akku Netzladen') else 0 %} {% set wirtschaftlich = cur is not none and modell_ok and kuenftig is not none and kuenftig + halteband >= cur * faktor + sockel %} {{ cur is not none and soc is not none and ges is not none and avg is not none
              and soc < ges - stopband
              and (avg - cur) >= spread_min
-             and (minv is none or cur <= (minv | float(cur)) + fenster_band) }}
+             and (minv is none or cur <= (minv | float(cur)) + fenster_band)
+             and not vorlade_sperre
+             and wirtschaftlich }}
       sequence:
       - action: input_select.select_option
         decision_id: peak_precharge
@@ -233,6 +235,31 @@ strategy:
           option: Akku nur Laden
         target:
           entity_id: input_select.akkusteuerung_modus
+    # Wie der spätere Haltezweig sperrt auch dieser die Entladung bei EV-Schnellladung
+    # und Extrempreis-Reserve. Die frühere Position schwächt diese Sperren nicht;
+    # balancing_hold verhindert außerdem Mindestladen aus dem Netz im Coordinator.
+    - alias: 'Balancing-Watchdog (Haltefenster, Vorrang vor Peak-Leiter)'
+      conditions:
+      - condition: state
+        entity_id: input_boolean.opti_balancing_halten_vor_peak
+        state: 'on'
+      - condition: state
+        entity_id: binary_sensor.opti_balancing_haltefenster_aktiv
+        state: 'on'
+      - condition: state
+        entity_id: sensor.opti_balancing_watchdog
+        state: aus
+      - condition: template
+        value_template: |-
+          {% set preis = states('sensor.opti_price_current_ct_kwh') %}
+          {{ is_number(preis) and preis | float(0) <= 60 }}
+      sequence:
+      - action: input_select.select_option
+        decision_id: balancing_hold
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
     - alias: 'Peak-Leiter L1 ''nur Entladen'' (tagsueber Dynamisch fuer PV-Laden): Preisspitze VERY_EXPENSIVE'
       conditions:
       - condition: template
@@ -279,9 +306,14 @@ strategy:
         entity_id: sensor.opti_price_level
         state: EXPENSIVE
       - condition: template
-        value_template: '{% set soc = states(''sensor.opti_soc'') | float(none) %} {% set ve = state_attr(''sensor.opti_peak_reserve_soc'',
-          ''reserve_ve_soc'') | float(none) %} {% set band = 2 if is_state(''input_select.akkusteuerung_modus'',
-          ''Akku nur Laden'') else 0 %} {{ soc is not none and ve is not none and soc > ve + band }}'
+        # Halteband wie L3. Zusätzlich in der Pause, die der aktive Ladedeckel
+        # selbst hält: sonst entlädt L2 sie im nächsten Durchlauf mit Band 0, bevor
+        # der Ladedeckel seinen L3-Haltefall erreicht (Flattern Pause/nur Entladen).
+        value_template: |-
+          {% set soc = states('sensor.opti_soc') | float(none) %} {% set ve = state_attr('sensor.opti_peak_reserve_soc',
+            'reserve_ve_soc') | float(none) %} {% set maximum = states('input_number.maxsoc') | float(95) %} {% set deckel = is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
+            and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc') | float(-1) == maximum %} {% set band = 2 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden')
+            or (is_state('input_select.akkusteuerung_modus', 'Akku Pause') and deckel) else 0 %} {{ soc is not none and ve is not none and soc > ve + band }}
       - alias: EV-Sperre inaktiv (Schnellladung sperrt Entladung)
         condition: template
         value_template: |-
@@ -329,7 +361,31 @@ strategy:
           option: Akku Netzladen
         target:
           entity_id: input_select.akkusteuerung_modus
-    - alias: 'Ladedeckel: oberhalb maxsoc Laden sperren, bei Reserve oder EV zusaetzlich Entladen sperren'
+    # Das Haltefenster hält nur bei erkannt nicht teurem Preisniveau (bis NORMAL).
+    # Bei teurem oder unbekanntem Niveau fällt die Entscheidung auf Ladedeckel und
+    # Entladen durch, statt den vollen Akku
+    # stundenlang gegen teuren Netzbezug zu halten (8.11.2026: 3 h bei 53-55 ct).
+    # Der optionale Vorrang-Zweig oben behält seinen eigenen 60-ct-Deckel.
+    - alias: 'Balancing-Watchdog (Haltefenster)'
+      conditions:
+      - condition: state
+        entity_id: binary_sensor.opti_balancing_haltefenster_aktiv
+        state: 'on'
+      - alias: Preisniveau erkannt nicht teuer (VERY_CHEAP, CHEAP oder NORMAL)
+        condition: template
+        value_template: "{{ states('sensor.opti_price_level') in ['VERY_CHEAP', 'CHEAP', 'NORMAL'] }}"
+      sequence:
+      - action: input_select.select_option
+        decision_id: balancing_hold
+        data:
+          option: Akku nur Laden
+        target:
+          entity_id: input_select.akkusteuerung_modus
+    # Pause nur, wenn an dieser Stelle tatsächlich gehalten werden muss: dieselben
+    # Haltebedingungen wie L3/L4 (inkl. Band), Extrempreis-Reserve oder EV-Sperre.
+    # Eine bloß aktive Peak-Reserve (benoetigt_kwh > 0) unter dem SoC hielt sonst
+    # den Akku in Pause, der SoC sank nie und der Deckel hielt sich selbst.
+    - alias: 'Ladedeckel: oberhalb maxsoc Laden sperren, bei Reserve-Haltefall oder EV zusaetzlich Entladen sperren'
       conditions:
       - condition: template
         value_template: |-
@@ -345,90 +401,29 @@ strategy:
           option: |-
             {% set ev = is_state('input_boolean.opti_ev_akku_pause', 'on')
                         and is_state('binary_sensor.opti_ev_schnellladung', 'on') %}
-            {{ 'Akku Pause'
-               if is_state('binary_sensor.opti_peak_reserve_aktiv', 'on') or ev
-               else 'Akku nur Entladen' }}
-        target:
-          entity_id: input_select.akkusteuerung_modus
-    - alias: 'Modus ''nur Laden'' (Reserve halten): Prognose heute+morgen schlecht, SOC unter 20% (tag+nacht)'
-      conditions:
-      - condition: state
-        entity_id: input_boolean.opti_prognose_netzladen
-        state: 'on'
-      - condition: state
-        entity_id: binary_sensor.opti_winter_charging_allowed
-        state: 'on'
-      - condition: template
-        value_template: |-
-          {{ has_value('sensor.opti_forecast_score')
-             and has_value('sensor.opti_forecast_score_tomorrow') }}
-      - condition: numeric_state
-        entity_id: sensor.opti_soc
-        below: 20
-      - condition: numeric_state
-        entity_id: sensor.opti_forecast_score
-        below: 3
-      - condition: numeric_state
-        entity_id: sensor.opti_forecast_score_tomorrow
-        below: 3
-      - alias: Aktuelles Preisniveau VERY_CHEAP bis EXPENSIVE
-        condition: or
-        conditions:
-        - condition: state
-          entity_id: sensor.opti_price_level
-          state: VERY_CHEAP
-        - condition: state
-          entity_id: sensor.opti_price_level
-          state: CHEAP
-        - condition: state
-          entity_id: sensor.opti_price_level
-          state: NORMAL
-        - condition: state
-          entity_id: sensor.opti_price_level
-          state: EXPENSIVE
-      sequence:
-      - action: input_select.select_option
-        decision_id: reserve_low
-        data:
-          option: Akku nur Laden
-        target:
-          entity_id: input_select.akkusteuerung_modus
-    - alias: 'Modus ''nur Laden'' (Reserve halten): Prognose heute+morgen schlecht, SOC unter 75%, Preis
-        bis NORMAL (tag+nacht)'
-      conditions:
-      - condition: state
-        entity_id: input_boolean.opti_prognose_netzladen
-        state: 'on'
-      - condition: template
-        value_template: |-
-          {{ has_value('sensor.opti_forecast_score')
-             and has_value('sensor.opti_forecast_score_tomorrow') }}
-      - condition: numeric_state
-        entity_id: sensor.opti_soc
-        below: 75
-      - condition: numeric_state
-        entity_id: sensor.opti_forecast_score
-        below: 3
-      - condition: numeric_state
-        entity_id: sensor.opti_forecast_score_tomorrow
-        below: 3
-      - alias: Aktuelles Preisniveau VERY_CHEAP bis NORMAL
-        condition: or
-        conditions:
-        - condition: state
-          entity_id: sensor.opti_price_level
-          state: VERY_CHEAP
-        - condition: state
-          entity_id: sensor.opti_price_level
-          state: CHEAP
-        - condition: state
-          entity_id: sensor.opti_price_level
-          state: NORMAL
-      sequence:
-      - action: input_select.select_option
-        decision_id: reserve_forecast
-        data:
-          option: Akku nur Laden
+            {% set aktiv = is_state('binary_sensor.opti_peak_reserve_aktiv', 'on') %}
+            {% set soc = states('sensor.opti_soc') | float(none) %}
+            {# Halteband wie L3/L4, zusätzlich in der Pause, die dieser Zweig selbst
+               hält: sonst entfiele das Band nach dem Wechsel auf Pause und der Modus
+               flatterte an der Reservegrenze zwischen Pause und nur Entladen. Nur bei
+               aktivem Ladedeckel mit passendem maxsoc, nicht für eine fremde Pause. #}
+            {% set maximum = states('input_number.maxsoc') | float(95) %}
+            {% set deckel = is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
+                and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc') | float(-1) == maximum %}
+            {% set band = 2 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden')
+                or (is_state('input_select.akkusteuerung_modus', 'Akku Pause') and deckel) else 0 %}
+            {% set ve = state_attr('sensor.opti_peak_reserve_soc', 'reserve_ve_soc') | float(none) %}
+            {% set ges = states('sensor.opti_peak_reserve_soc') | float(none) %}
+            {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_ve_avg_ct') | float(none) %}
+            {% set cur = states('sensor.opti_price_current_ct_kwh') | float(none) %}
+            {% set halte_spread = states('input_number.opti_halte_spread_ct') | float(3) %}
+            {% set l3 = aktiv and is_state('sensor.opti_price_level', 'EXPENSIVE')
+                        and soc is not none and ve is not none and soc <= ve + band
+                        and ve_avg is not none and cur is not none and (ve_avg - cur) >= halte_spread %}
+            {% set l4 = aktiv and states('sensor.opti_price_level') in ['VERY_CHEAP', 'CHEAP', 'NORMAL']
+                        and soc is not none and ges is not none and soc <= ges + band %}
+            {% set extrem = is_state('binary_sensor.opti_extreme_price_hold', 'on') %}
+            {{ 'Akku Pause' if l3 or l4 or extrem or ev else 'Akku nur Entladen' }}
         target:
           entity_id: input_select.akkusteuerung_modus
     - alias: 'Modus ''nur Laden'' (Reserve halten): Prognose schlecht, Wintermodus, SOC unter 80% (tag+nacht)'

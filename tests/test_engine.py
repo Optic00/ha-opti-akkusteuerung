@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from tests.battery_model_fixture import model_attributes, model_states
+
 # Import by path: proves that this module works without importing HA or the
 # integration lifecycle. It also keeps these tests runnable with Jinja2 only.
 _SPEC = importlib.util.spec_from_file_location(
@@ -50,6 +52,8 @@ def measurements(**overrides):
         "sensor.opti_battery_power_w": 0,
         "sensor.opti_pv_power_w": 1000,
         "sun.sun": "above_horizon",
+        # The coordinator publishes the battery model every cycle.
+        **model_states(),
     }
     states.update(overrides)
     return states
@@ -59,7 +63,7 @@ def solar_attrs(now=NOW):
     return {"sun.sun": {
         "next_setting": now.replace(hour=18).isoformat(),
         "next_rising": (now + dt.timedelta(days=1)).replace(hour=8).isoformat(),
-    }}
+    }, **model_attributes()}
 
 
 def peak_maxsoc_inputs(soc, **overrides):
@@ -440,13 +444,13 @@ def test_winter_soc15_keeps_forecast_reserve_after_ev_power_becomes_invalid():
     attrs = solar_attrs()
     attrs["sensor.opti_price_series"] = {"today": [20] * 24, "tomorrow": [20] * 24}
     valid = evaluate(states=states, attributes=attrs)
-    assert valid.decision_id == "reserve_low"
+    assert valid.decision_id == "reserve_winter"
     states["sensor.opti_forecast_house_60min_w"] = "unavailable"
     invalid = evaluate(states=states, attributes=attrs)
     assert invalid.states["sensor.opti_forecast_score"] == "0"
     assert invalid.states["sensor.opti_forecast_score_tomorrow"] == "0"
     assert invalid.states["sensor.opti_forecast_score_sonnentag"] == "0"
-    assert invalid.decision_id == "reserve_low"
+    assert invalid.decision_id == "reserve_winter"
     assert invalid.mode == "Akku nur Laden"
 
 
@@ -548,6 +552,119 @@ def test_balancing_counts_observed_minute_boundaries_and_restores_29_minutes():
     later = evaluate(restored, states, now=start + dt.timedelta(minutes=2))
     assert int(later.states[MINUTES]) == 0
     assert later.states[DONE_AT] == complete.states[DONE_AT]
+
+
+@pytest.mark.parametrize("done,soc,completes", [
+    (98.5, 98.4, False),
+    (98.5, 98.5, False),
+    (98.5, 98.6, True),
+    (100, 99.9, False),
+    (100, 100, True),
+])
+def test_balancing_done_soc_boundaries_and_restart(done, soc, completes):
+    engine = StrategyEngine()
+    states = measurements(**{SOC: soc, "input_number.opti_balancing_done_soc": done})
+    evaluate(engine, states)
+    for minute in range(1, 30):
+        result = evaluate(engine, states, now=NOW + dt.timedelta(minutes=minute))
+        assert int(result.states[MINUTES]) == (minute if completes else 0)
+        assert result.states[DONE_VALID] == "off"
+    restored = StrategyEngine()
+    restored.restore(engine.snapshot())
+    start = NOW + dt.timedelta(hours=1)
+    result = evaluate(restored, states, now=start)
+    assert int(result.states[MINUTES]) == (29 if completes else 0)
+    result = evaluate(restored, states, now=start + dt.timedelta(minutes=1))
+    assert result.states[DONE_VALID] == ("on" if completes else "off")
+    assert int(result.states[MINUTES]) == 0
+
+
+@pytest.mark.parametrize("initial,target", [(98, 99), (99, 98), (99, 100), (99, 99.0)])
+@pytest.mark.parametrize("restart", [False, True])
+@pytest.mark.parametrize("source", ["yaml", "generated"])
+def test_balancing_target_changes_discard_only_old_target_confirmations(initial, target, restart, source):
+    import yaml
+
+    # Execute the YAML action tree directly, independently of generated resources.
+    resource = load_resources()
+    if source == "yaml":
+        resource["balancing_automations"] = yaml.safe_load(
+            (Path(__file__).parents[1] / "strategy/balancing.yaml").read_text()
+        )["balancing_automations"]
+    engine = StrategyEngine(resource)
+    done_entity = "input_number.opti_balancing_done_soc"
+    states = measurements(**{SOC: 100, done_entity: initial})
+    evaluate(engine, states)
+    first = evaluate(engine, states, now=NOW + dt.timedelta(minutes=1))
+    assert int(first.states[MINUTES]) == 1
+    if restart:
+        snapshot = json.loads(json.dumps(engine.snapshot(), allow_nan=False))
+        assert snapshot["last_balancing_done_soc"] == initial
+        engine = StrategyEngine(resource)
+        engine.restore(snapshot)
+    states[done_entity] = target
+    result = evaluate(engine, states, now=NOW + dt.timedelta(minutes=1, seconds=5))
+    assert int(result.states[MINUTES]) == (1 if initial == target else 0)
+    assert result.states[DONE_VALID] == "off"
+    following = evaluate(engine, states, now=NOW + dt.timedelta(minutes=2))
+    assert int(following.states[MINUTES]) == (2 if initial == target else 1)
+
+
+@pytest.mark.parametrize("initial,target", [(98, 99), (99, 98), (99, 100)])
+def test_balancing_target_change_requires_all_30_new_confirmations(initial, target):
+    engine = StrategyEngine()
+    done_entity = "input_number.opti_balancing_done_soc"
+    states = measurements(**{SOC: 100, done_entity: initial})
+    evaluate(engine, states)
+    for minute in range(1, 30):
+        old = evaluate(engine, states, now=NOW + dt.timedelta(minutes=minute))
+    assert int(old.states[MINUTES]) == 29
+    states[done_entity] = target
+    changed = evaluate(engine, states, now=NOW + dt.timedelta(minutes=29, seconds=5))
+    assert int(changed.states[MINUTES]) == 0
+    assert changed.states[DONE_VALID] == "off"
+    for minute in range(1, 30):
+        result = evaluate(engine, states, now=NOW + dt.timedelta(minutes=29 + minute))
+        assert int(result.states[MINUTES]) == minute
+        assert result.states[DONE_VALID] == "off"
+    complete = evaluate(engine, states, now=NOW + dt.timedelta(minutes=59))
+    assert int(complete.states[MINUTES]) == 0
+    assert complete.states[DONE_VALID] == "on"
+
+
+def test_balancing_yaml_target_change_trigger_resets_confirmations():
+    import yaml
+
+    automations = yaml.safe_load(
+        (Path(__file__).parents[1] / "strategy/balancing.yaml").read_text()
+    )["balancing_automations"]
+    reset = automations[1]
+    trigger = next(item for item in reset["triggers"] if item["id"] == "ziel_geaendert")
+    assert trigger == {"trigger": "state", "entity_id": "input_number.opti_balancing_done_soc",
+                       "to": None, "id": "ziel_geaendert"}
+    branch = reset["actions"][0]["choose"][0]
+    assert "ziel_geaendert" in branch["conditions"][0]["id"]
+    assert branch["sequence"] == [
+        {"action": "counter.reset", "target": {"entity_id": MINUTES}}
+    ]
+
+
+@pytest.mark.parametrize("done,dip", [(98.5, 98.5), (100, 99.9)])
+def test_balancing_done_soc_dip_discards_confirmations_after_restart(done, dip):
+    engine = StrategyEngine()
+    states = measurements(**{SOC: 100, "input_number.opti_balancing_done_soc": done})
+    evaluate(engine, states)
+    result = evaluate(engine, states, now=NOW + dt.timedelta(minutes=1))
+    assert int(result.states[MINUTES]) == 1
+    snapshot = engine.snapshot()
+    # Both a live dip between ticks and a dip while offline discard the count.
+    states[SOC] = dip
+    result = evaluate(engine, states, now=NOW + dt.timedelta(minutes=1, seconds=5))
+    assert int(result.states[MINUTES]) == 0
+    restored = StrategyEngine()
+    restored.restore(snapshot)
+    result = evaluate(restored, states, now=NOW + dt.timedelta(hours=1))
+    assert int(result.states[MINUTES]) == 0
 
 
 @pytest.mark.parametrize("bad", [98.5, 98, "unavailable"])
@@ -699,7 +816,7 @@ def test_peak_precharge_requires_full_entry_gap_but_continues_below_reserve(
         "sun.sun": "below_horizon",
     })
     attrs = {"sun.sun": {"next_rising": "2026-10-19T08:01:00+02:00",
-                         "next_setting": "2026-10-19T18:00:00+02:00"}}
+                         "next_setting": "2026-10-19T18:00:00+02:00"}, **model_attributes()}
     prices = [30] * 96
     prices[30] = 53  # 07:30-07:45, the sole remaining peak.
     attrs["sensor.opti_price_series"] = {"today": prices, "tomorrow": [30] * 96}
@@ -722,7 +839,9 @@ def test_peak_precharge_requires_full_entry_gap_but_continues_below_reserve(
         (94.9, "Akku nur Laden", "Peak-Leiter L4"),
         (95, "Akku Pause", "Ladedeckel"),
         (96, "Akku Pause", "Ladedeckel"),
-        (98, "Akku Pause", "Ladedeckel"),
+        # Reserve 95 % plus L4-Halteband 2 (Modus 'nur Laden') = 97 %: darüber
+        # hält nichts mehr, der Überschuss über der Reserve darf entladen werden.
+        (98, "Akku nur Entladen", "Ladedeckel"),
     ],
 )
 def test_maxsoc_precedes_peak_reserve_holding(soc, expected_mode, reason_prefix):
@@ -1949,3 +2068,76 @@ def test_fractional_raster_steps_do_not_lose_samples(steps_per_hour):
                                  start + dt.timedelta(seconds=index * 3600 / steps_per_hour))
     assert result.attributes[DAILY]["sample_coverage_ratio"] >= 0.99
     assert result.attributes[DAILY]["coverage_ok"] is True
+
+
+def _afternoon_peak_inputs(now, setting):
+    """8.11.: fast voller Akku am Nachmittag, Abendspitze nach Sonnenuntergang."""
+    states = measurements(**{
+        SOC: 97, CAPACITY: 10, MODE: "Akku Dynamisch",
+        "input_number.maxsoc": 100,
+        "sensor.opti_price_current_ct_kwh": 30,
+        "sensor.opti_forecast_remaining_today_kwh": 1,
+        "sun.sun": "above_horizon",
+    })
+    attrs = {"sun.sun": {"next_rising": (now + dt.timedelta(days=1)).replace(hour=7, minute=40).isoformat()}}
+    if setting is not None:
+        attrs["sun.sun"]["next_setting"] = setting
+    attrs["sensor.opti_price_series"] = {
+        "today": [30] * 17 + [55] * 4 + [30] * 3,
+        "tomorrow": [30] * 24,
+    }
+    return states, attrs
+
+
+@pytest.mark.parametrize("now,setting,collapsed", [
+    # Mehr als drei Stunden bis Sonnenuntergang: Tag-Score darf den Horizont leeren.
+    (dt.datetime(2026, 11, 8, 12, 0, tzinfo=TZ), "2026-11-08T16:45:00+01:00", True),
+    (dt.datetime(2026, 11, 8, 13, 45, tzinfo=TZ), "2026-11-08T16:45:00+01:00", True),
+    # Unter drei Stunden: der volle Akku muss für die Abendspitze zählen.
+    (dt.datetime(2026, 11, 8, 13, 46, tzinfo=TZ), "2026-11-08T16:45:00+01:00", False),
+    (dt.datetime(2026, 11, 8, 15, 47, tzinfo=TZ), "2026-11-08T16:45:00+01:00", False),
+    # Fehlender oder ungültiger Sonnenuntergang: konservativ Nachthorizont.
+    (dt.datetime(2026, 11, 8, 12, 0, tzinfo=TZ), None, False),
+    (dt.datetime(2026, 11, 8, 12, 0, tzinfo=TZ), "kaputt", False),
+])
+def test_day_horizon_collapses_only_with_three_hours_to_sunset(now, setting, collapsed):
+    # Der Tages-Score ist hier Eingang: Bei fast vollem Akku geht der Bedarf
+    # gegen 0 und der Fit-Quotient wird hoch, unabhängig von der Restzeit.
+    resources = load_resources()
+    for block in resources["template_blocks"]:
+        block["sensor"] = [item for item in block.get("sensor", [])
+                           if item["unique_id"] != "opti_forecast_score"]
+    states, attrs = _afternoon_peak_inputs(now, setting)
+    states["sensor.opti_forecast_score"] = 10
+    result = evaluate(StrategyEngine(resources), states, attrs, now)
+
+    ende = dt.datetime.fromisoformat(result.attributes["sensor.opti_peak_reserve_soc"]["horizont_ende"])
+    if collapsed:
+        assert ende == now.replace(minute=0)
+        assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "off"
+    else:
+        assert ende > now.replace(hour=21)
+        assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "on"
+    # Ein ungültiger Sonnenuntergang stört andere Sensoren (Ziel-SoC), nicht die Reserve.
+    errors = result.attributes["sensor.opti_engine_diagnostics"].get("template_errors", {})
+    assert not any("peak" in entity for entity in errors)
+    if setting != "kaputt":
+        assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+
+
+def test_full_battery_discharges_into_afternoon_peak_shortly_before_sunset():
+    now = dt.datetime(2026, 11, 8, 15, 47, tzinfo=TZ)
+    resources = load_resources()
+    for block in resources["template_blocks"]:
+        block["sensor"] = [item for item in block.get("sensor", [])
+                           if item["unique_id"] != "opti_forecast_score"]
+    states, attrs = _afternoon_peak_inputs(now, "2026-11-08T16:45:00+01:00")
+    attrs["sensor.opti_price_series"]["today"] = [30] * 15 + [53, 54, 55, 55, 54] + [30] * 4
+    states["sensor.opti_price_current_ct_kwh"] = 53
+    states["sensor.opti_forecast_score"] = 10
+    result = evaluate(StrategyEngine(resources), states, attrs, now)
+
+    assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "on"
+    assert result.decision_id in ("peak_l1", "peak_l2")
+    assert result.mode in ("Akku nur Entladen", "Akku Dynamisch")
+    assert result.states["sensor.opti_strategie_vorschau"] == result.mode

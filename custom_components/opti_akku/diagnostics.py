@@ -30,6 +30,7 @@ def _source_error_summary(errors: Any) -> dict[str, Any]:
             role = "plant"
         elif role not in {
             "cell_spread",
+            "cell_voltage_min",
             "forecast_remaining",
             "forecast_today",
             "forecast_tomorrow",
@@ -172,6 +173,9 @@ async def async_get_config_entry_diagnostics(
             if isinstance(data.get("device_errors"), Mapping)
             else 0,
             "notification_error": bool(data.get("notification_error")),
+            "internal_error": data["internal_error"].get("error_type")
+            if isinstance(data.get("internal_error"), Mapping)
+            else None,
         },
         "features": {
             key: _status(data.get(key))

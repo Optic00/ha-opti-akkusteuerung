@@ -14,6 +14,12 @@ updates:
     open-pull-requests-limit: 3
     commit-message:
       prefix: chore
+    # pytest-homeassistant-custom-component pinnt diese Pakete exakt; sie
+    # folgen dem HA-Test-Stack und lassen sich nicht einzeln anheben. Bei einem
+    # HA-Stack-Update die Pins in beiden requirements-test*.txt von Hand angleichen.
+    ignore:
+      - dependency-name: pytest-asyncio
+      - dependency-name: pytest-cov
     groups:
       home-assistant-test-stack:
         patterns:

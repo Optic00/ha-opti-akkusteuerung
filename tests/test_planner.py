@@ -260,6 +260,16 @@ def test_pv_forecast_hourly_default_age_is_twelve_hours_and_the_option_overrides
     assert pv_forecast_hourly([aged], now, max_age=0)[0] == "ready"
 
 
+def test_pv_forecast_hourly_age_follows_last_reported_like_the_other_forecast_readers():
+    # Solcast refetched an unchanged forecast: HA keeps last_updated, refreshes last_reported.
+    now = T0 + timedelta(hours=6)
+    refetched = solcast(now, [(1.0, 2.0), (1.0, 2.0)], updated=now - timedelta(hours=13))
+    refetched.last_reported = now - timedelta(minutes=5)
+    assert pv_forecast_hourly([refetched], now)[0] == "ready"
+    refetched.last_reported = None
+    assert pv_forecast_hourly([refetched], now)[0] == "stale"
+
+
 def test_pv_forecast_hourly_counts_only_complete_hours():
     """A half-covered hour is a gap, not half the energy; the horizon ends there."""
     now = T0 + timedelta(hours=6)
@@ -410,6 +420,35 @@ def test_indifferent_time_is_not_disagreement():
     assert totals["today"]["indifferent_seconds"] == 30 and totals["today_disagreement_percent"] is None
 
 
+def test_ladder_modes_outside_the_planner_language_are_not_disagreement():
+    shadow = PlannerShadow()
+    now = T0
+    shadow.observe(now, TZ, {"status": "ready", "deviation": "agree"})
+    shadow.observe(now + timedelta(seconds=30), TZ, {"status": "ready", "deviation": "ladder_unrated"})
+    totals = shadow.observe(now + timedelta(seconds=90), TZ, {"status": "ready", "deviation": "agree"})
+    assert totals["today"]["agree_seconds"] == 30 and totals["today"]["ladder_unrated_seconds"] == 60
+    assert totals["today"]["other_seconds"] == 0
+    assert totals["today_disagreement_percent"] == 0.0
+
+
+def test_counter_restore_keeps_counters_saved_before_the_unrated_bucket():
+    # Exactly the version-1 layout written before ``ladder_unrated`` existed.
+    old_keys = ("ready_seconds", "agree_seconds", "planner_grid_charge_seconds", "ladder_grid_charge_seconds",
+                "planner_hold_seconds", "planner_discharge_seconds", "planner_no_charge_seconds",
+                "indifferent_seconds", "other_seconds")
+    total = {**dict.fromkeys(old_keys, 0.0), "ready_seconds": 50.0, "agree_seconds": 40.0, "other_seconds": 10.0}
+    saved = {"version": 1, "started_at": "2026-01-20T05:00:00+00:00", "last_observation": None,
+             "day": "2026-01-20", "today": dict.fromkeys(old_keys, 1.0), "total": total}
+    shadow = PlannerShadow()
+    shadow.restore(saved)
+    assert shadow.data["total"]["ready_seconds"] == 50.0 and shadow.data["total"]["other_seconds"] == 10.0
+    assert shadow.data["total"]["ladder_unrated_seconds"] == 0.0
+    assert shadow.totals()["total_disagreement_percent"] == 20.0
+    missing_old = {**saved, "total": {k: v for k, v in total.items() if k != "other_seconds"}}
+    shadow.restore(missing_old)
+    assert shadow.data["total"]["ready_seconds"] == 0
+
+
 def test_cached_plan_stays_consistent_with_the_shrinking_first_slot():
     # Review reproduction: flat prices, no PV, nothing to gain. Nine minutes into
     # the cached plan the saving must not turn negative through mismatched horizons.
@@ -511,7 +550,9 @@ def test_deviation_classes():
     assert deviation("Akku nur Entladen", "Akku Pause") == "planner_discharge"
     assert deviation(ONLY_CHARGE, "Akku Pause") == "other"
     assert deviation("Akku nur Entladen", DYNAMIC) == "planner_no_charge"
-    assert deviation(DYNAMIC, None) == "other"
+    assert deviation(DYNAMIC, None) == "ladder_unrated"
+    for ladder in ("Akku Automatisch", "Akku schnell Entladen", "Beobachtung"):
+        assert deviation(DYNAMIC, ladder) == "ladder_unrated"
 
 
 # -- forecast history ----------------------------------------------------------
@@ -654,7 +695,7 @@ def test_pv_forecast_rejects_naive_timestamps_and_oversized_rows():
     huge = solcast(now, [(1.0, 2.0)] * 101, updated=now)
     assert pv_forecast_hourly([huge], now) == ("invalid", {})
     bad_update = solcast(now, [(1.0, 2.0)], updated=now)
-    bad_update.last_updated = "yesterday"
+    bad_update.last_reported = bad_update.last_updated = "yesterday"
     assert pv_forecast_hourly([bad_update], now) == ("invalid", {})
     without_rows = SimpleNamespace(state="1", attributes={}, last_updated=now, last_reported=now)
     assert pv_forecast_hourly([without_rows, solcast(now, [(1.0, 2.0), (1.0, 2.0)], updated=now)], now)[0] == "ready"
@@ -713,3 +754,24 @@ def test_history_rejects_unpacked_or_misaligned_rows():
 
 
 HISTORY_STAMP = int(T0.timestamp())
+
+
+def test_shadow_battery_takes_the_model_efficiencies():
+    now, pv = day_context(6, {11: (0.6, 2.5), 12: (0.8, 3.0), 13: (0.8, 3.0)})
+    battery, problem = planner_shadow._battery(inputs(now, pv))
+    assert problem is None and (battery.eta_charge, battery.eta_discharge) == (0.95, 0.95)
+    battery, problem = planner_shadow._battery(inputs(now, pv, eta_charge=0.9, eta_discharge=0.85))
+    assert problem is None and (battery.eta_charge, battery.eta_discharge) == (0.9, 0.85)
+    _, problem = planner_shadow._battery(inputs(now, pv, eta_discharge=0))
+    assert problem == "battery_invalid"
+
+
+def test_shadow_plan_differs_between_battery_models():
+    now, pv = day_context(6, {11: (0.6, 2.5), 12: (0.8, 3.0), 13: (0.8, 3.0)})
+    efficient = PlannerShadow().evaluate(now, TZ, inputs(now, pv, eta_charge=1.0, eta_discharge=1.0,
+                                                          wear_ct_kwh=0.0))
+    lossy = PlannerShadow().evaluate(now, TZ, inputs(now, pv, eta_charge=0.5, eta_discharge=0.5,
+                                                      wear_ct_kwh=20.0))
+    assert efficient["status"] == lossy["status"] == "ready"
+    assert efficient["verdict"] == GRID_CHARGE
+    assert lossy["verdict"] != GRID_CHARGE

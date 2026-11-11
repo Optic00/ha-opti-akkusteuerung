@@ -233,6 +233,15 @@ helper_definitions:
     unit_of_measurement: '%'
     mode: box
     icon: mdi:battery-heart-variant
+  input_number.opti_balancing_haltezeit_h:
+    domain: input_number
+    name: Opti Balancing Haltezeit
+    min: 0
+    max: 6
+    step: 0.5
+    unit_of_measurement: h
+    mode: box
+    icon: mdi:battery-clock
   input_number.opti_balancing_spreizungs_schwelle:
     domain: input_number
     name: Opti Balancing Spreizungs-Schwelle
@@ -242,6 +251,15 @@ helper_definitions:
     unit_of_measurement: mV
     mode: box
     icon: mdi:arrow-collapse-vertical
+  input_number.opti_zellspannung_reserve_v:
+    domain: input_number
+    name: Opti Zellspannungs-Reserve
+    min: 0
+    max: 3.1
+    step: 0.01
+    unit_of_measurement: V
+    mode: box
+    icon: mdi:battery-low
   input_number.opti_balancing_bedarf_cooldown_tage:
     domain: input_number
     name: Opti Balancing Bedarf-Cooldown Tage
@@ -288,6 +306,10 @@ helper_definitions:
     domain: input_boolean
     name: Opti EV Akku-Pause
     icon: mdi:car-electric
+  input_boolean.opti_balancing_halten_vor_peak:
+    domain: input_boolean
+    name: Opti Balancing-Halten vor Preisspitzen
+    icon: mdi:battery-lock
   input_boolean.opti_balancing_netzladen:
     domain: input_boolean
     name: Opti Balancing darf ans Netz
@@ -353,8 +375,10 @@ helper_defaults:
   input_number.opti_balancing_karenz_tage: 3
   input_number.opti_balancing_max_ct: 0
   input_number.opti_balancing_done_soc: 98.5
+  input_number.opti_balancing_haltezeit_h: 0
   input_number.opti_balancing_spreizungs_schwelle: 0
   input_number.opti_balancing_bedarf_cooldown_tage: 5
+  input_number.opti_zellspannung_reserve_v: 0
   input_boolean.akku_opti_automatik: 'off'
   input_boolean.hausakku_aus_netz_laden: 'off'
   input_boolean.hausakku_wurde_netzgeladen: 'off'
@@ -364,6 +388,7 @@ helper_defaults:
   input_boolean.opti_prognose_netzladen: 'on'
   input_boolean.opti_pv_ueberschuss_ladung: 'on'
   input_boolean.opti_ev_akku_pause: 'off'
+  input_boolean.opti_balancing_halten_vor_peak: 'off'
   input_boolean.opti_balancing_netzladen: 'off'
   input_boolean.opti_balancing_abschluss_gueltig: 'off'
   counter.tage_seit_akku100: 0

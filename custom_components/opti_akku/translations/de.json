@@ -139,16 +139,20 @@
       },
       "balancing": {
         "title": "Balancing (optional)",
-        "description": "Optional. Intervall 0 deaktiviert die Balancing-Planung vollständig. Bei aktivierter Planung kann eine Zellspreizung zusätzlichen Bedarf auslösen. Netzladen benötigt eine eigene Freigabe. Neue Einträge übernehmen keine Zähler der bisherigen Automation; vorhandene Integrationszähler bleiben erhalten. Die Zellspreizungsquelle ist optional und kann entfernt werden. Die Altersgrenze unter Anlage und Messwerte gilt auch für die Ruhe-Zellspreizung. Mit 0 bleibt der letzte verfügbare Ruhewert unabhängig vom Alter gültig und kann Balancing auslösen; Intervall, Schwelle, Mindestabstand und die separate Netzladefreigabe gelten weiter.",
+        "description": "Optional. Intervall 0 deaktiviert die Balancing-Planung vollständig. Bei aktivierter Planung kann eine Zellspreizung zusätzlichen Bedarf auslösen. Netzladen benötigt eine eigene Freigabe. Neue Einträge übernehmen keine Zähler der bisherigen Automation; vorhandene Integrationszähler bleiben erhalten. Die Zellspreizungsquelle ist optional und kann entfernt werden. Die Altersgrenze unter Anlage und Messwerte gilt auch für die Ruhe-Zellspreizung. Mit 0 bleibt der letzte verfügbare Ruhewert unabhängig vom Alter gültig und kann Balancing auslösen; Intervall, Schwelle, Mindestabstand und die separate Netzladefreigabe gelten weiter. Die optionale Quelle der niedrigsten Zellspannung und die Zellspannungs-Reserve (0 = aus, sonst 2,90 bis 3,10 V) beenden die Entladung früher, sobald die niedrigste Zelle unter Last die Reserve erreicht (schnell aktualisierte Quelle verwenden, höchstens 3 Minuten alt); der Schutz endet, sobald die niedrigste Zelle 0,20 V über der Reserve liegt, und bleibt bei Quellenausfall bestehen, weil der Ladezustand unten unzuverlässig wird. Ohne Quelle oder mit 0 ändert sich nichts.",
         "data": {
           "cell_spread": "BYD-Zellspreizung in Ruhe",
+          "cell_voltage_min": "Niedrigste Zellspannung (optional, z. B. BYD BMU)",
           "opti_balancing_intervall_tage": "Balancing alle … Tage",
           "opti_balancing_karenz_tage": "Balancing-Karenz",
           "opti_balancing_max_ct": "Balancing-Preisgrenze",
           "opti_balancing_done_soc": "Balancing-Zielladestand",
+          "opti_balancing_haltezeit_h": "Balancing-Haltezeit (0 = aus)",
+          "opti_balancing_halten_vor_peak": "Balancing-Halten vor Preisspitzen",
           "opti_balancing_spreizungs_schwelle": "Zellabweichung für Balancing",
           "opti_balancing_bedarf_cooldown_tage": "Balancing-Abstand bei Bedarf",
-          "opti_balancing_netzladen": "Netzladen für Balancing erlauben"
+          "opti_balancing_netzladen": "Netzladen für Balancing erlauben",
+          "opti_zellspannung_reserve_v": "Zellspannungs-Reserve (V)"
         }
       },
       "finish": {
@@ -223,6 +227,7 @@
           "opti_balancing_done_soc": "input_number.opti_balancing_done_soc",
           "opti_balancing_spreizungs_schwelle": "input_number.opti_balancing_spreizungs_schwelle",
           "opti_balancing_bedarf_cooldown_tage": "input_number.opti_balancing_bedarf_cooldown_tage",
+          "opti_zellspannung_reserve_v": "input_number.opti_zellspannung_reserve_v",
           "hausakku_aus_netz_laden": "input_boolean.hausakku_aus_netz_laden",
           "opti_prognose_netzladen": "input_boolean.opti_prognose_netzladen",
           "opti_pv_ueberschuss_ladung": "input_boolean.opti_pv_ueberschuss_ladung",
@@ -310,7 +315,7 @@
       },
       "arbitrage": {
         "title": "Wirtschaftlichkeitsvergleich für Akku-Arbitrage",
-        "description": "Trage deine Annahmen zu Akkukosten, Lebensdauer und Wirkungsgraden ein. Die Anzeige berechnet Preisabstand und Restwert. Der optionale Entladeschutz hält Energie nur bei vollständiger Bedarfs-, PV- und Preisprognose für eine nachweislich wertvollere spätere Restlast zurück. Er lädt nicht aus dem Netz und lässt Schutz-, Lade- und unbekannte Entscheidungen unverändert.",
+        "description": "Trage deine Annahmen zu Akkukosten, Lebensdauer und Wirkungsgraden ein. Die Anzeige berechnet Preisabstand und Restwert. Wirkungsgrade, Zykluskosten und Marge gelten außerdem für die Peak-Reserve und entscheiden, ob vor einer Preisspitze aus dem Netz vorgeladen wird; ungültige Angaben sperren dieses Vorladen. Der optionale Entladeschutz hält Energie nur bei vollständiger Bedarfs-, PV- und Preisprognose für eine nachweislich wertvollere spätere Restlast zurück. Er lädt nicht aus dem Netz und lässt Schutz-, Lade- und unbekannte Entscheidungen unverändert.",
         "data": {
           "enabled": "Vergleich berechnen",
           "hold_enabled": "Restwert als automatischen Entladeschutz verwenden",
@@ -518,16 +523,20 @@
       },
       "balancing": {
         "title": "Balancing (optional)",
-        "description": "Optional. Intervall 0 deaktiviert die Balancing-Planung vollständig. Bei aktivierter Planung kann eine Zellspreizung zusätzlichen Bedarf auslösen. Netzladen benötigt eine eigene Freigabe. Neue Einträge übernehmen keine Zähler der bisherigen Automation; vorhandene Integrationszähler bleiben erhalten. Die Zellspreizungsquelle ist optional und kann entfernt werden. Die Altersgrenze unter Anlage und Messwerte gilt auch für die Ruhe-Zellspreizung. Mit 0 bleibt der letzte verfügbare Ruhewert unabhängig vom Alter gültig und kann Balancing auslösen; Intervall, Schwelle, Mindestabstand und die separate Netzladefreigabe gelten weiter.",
+        "description": "Optional. Intervall 0 deaktiviert die Balancing-Planung vollständig. Bei aktivierter Planung kann eine Zellspreizung zusätzlichen Bedarf auslösen. Netzladen benötigt eine eigene Freigabe. Neue Einträge übernehmen keine Zähler der bisherigen Automation; vorhandene Integrationszähler bleiben erhalten. Die Zellspreizungsquelle ist optional und kann entfernt werden. Die Altersgrenze unter Anlage und Messwerte gilt auch für die Ruhe-Zellspreizung. Mit 0 bleibt der letzte verfügbare Ruhewert unabhängig vom Alter gültig und kann Balancing auslösen; Intervall, Schwelle, Mindestabstand und die separate Netzladefreigabe gelten weiter. Die optionale Quelle der niedrigsten Zellspannung und die Zellspannungs-Reserve (0 = aus, sonst 2,90 bis 3,10 V) beenden die Entladung früher, sobald die niedrigste Zelle unter Last die Reserve erreicht (schnell aktualisierte Quelle verwenden, höchstens 3 Minuten alt); der Schutz endet, sobald die niedrigste Zelle 0,20 V über der Reserve liegt, und bleibt bei Quellenausfall bestehen, weil der Ladezustand unten unzuverlässig wird. Ohne Quelle oder mit 0 ändert sich nichts.",
         "data": {
           "cell_spread": "BYD-Zellspreizung in Ruhe",
+          "cell_voltage_min": "Niedrigste Zellspannung (optional, z. B. BYD BMU)",
           "opti_balancing_intervall_tage": "Balancing alle … Tage",
           "opti_balancing_karenz_tage": "Balancing-Karenz",
           "opti_balancing_max_ct": "Balancing-Preisgrenze",
           "opti_balancing_done_soc": "Balancing-Zielladestand",
+          "opti_balancing_haltezeit_h": "Balancing-Haltezeit (0 = aus)",
+          "opti_balancing_halten_vor_peak": "Balancing-Halten vor Preisspitzen",
           "opti_balancing_spreizungs_schwelle": "Zellabweichung für Balancing",
           "opti_balancing_bedarf_cooldown_tage": "Balancing-Abstand bei Bedarf",
-          "opti_balancing_netzladen": "Netzladen für Balancing erlauben"
+          "opti_balancing_netzladen": "Netzladen für Balancing erlauben",
+          "opti_zellspannung_reserve_v": "Zellspannungs-Reserve (V)"
         }
       },
       "finish": {
@@ -624,7 +633,7 @@
       },
       "arbitrage": {
         "title": "Wirtschaftlichkeitsvergleich für Akku-Arbitrage",
-        "description": "Trage deine Annahmen zu Akkukosten, Lebensdauer und Wirkungsgraden ein. Die Anzeige berechnet Preisabstand und Restwert. Der optionale Entladeschutz hält Energie nur bei vollständiger Bedarfs-, PV- und Preisprognose für eine nachweislich wertvollere spätere Restlast zurück. Er lädt nicht aus dem Netz und lässt Schutz-, Lade- und unbekannte Entscheidungen unverändert.",
+        "description": "Trage deine Annahmen zu Akkukosten, Lebensdauer und Wirkungsgraden ein. Die Anzeige berechnet Preisabstand und Restwert. Wirkungsgrade, Zykluskosten und Marge gelten außerdem für die Peak-Reserve und entscheiden, ob vor einer Preisspitze aus dem Netz vorgeladen wird; ungültige Angaben sperren dieses Vorladen. Der optionale Entladeschutz hält Energie nur bei vollständiger Bedarfs-, PV- und Preisprognose für eine nachweislich wertvollere spätere Restlast zurück. Er lädt nicht aus dem Netz und lässt Schutz-, Lade- und unbekannte Entscheidungen unverändert.",
         "data": {
           "enabled": "Vergleich berechnen",
           "hold_enabled": "Restwert als automatischen Entladeschutz verwenden",
@@ -746,6 +755,9 @@
       },
       "opti_ev_akku_pause": {
         "name": "Entladung bei Autoladung sperren"
+      },
+      "opti_balancing_halten_vor_peak": {
+        "name": "Balancing-Halten vor Preisspitzen"
       },
       "opti_balancing_netzladen": {
         "name": "Netzladen für Balancing erlauben"
@@ -1380,11 +1392,17 @@
       "opti_balancing_done_soc": {
         "name": "Balancing-Zielladestand"
       },
+      "opti_balancing_haltezeit_h": {
+        "name": "Balancing-Haltezeit (0 = aus)"
+      },
       "opti_balancing_spreizungs_schwelle": {
         "name": "Zellabweichung für Balancing"
       },
       "opti_balancing_bedarf_cooldown_tage": {
         "name": "Balancing-Abstand bei Bedarf"
+      },
+      "opti_zellspannung_reserve_v": {
+        "name": "Zellspannungs-Reserve"
       }
     }
   },

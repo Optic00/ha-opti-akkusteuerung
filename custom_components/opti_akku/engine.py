@@ -189,6 +189,7 @@ class StrategyEngine:
         self._buckets: dict[str, list[list[float]]] = {}
         self._last_evaluation: str | None = None
         self._last_minute: int | None = None
+        self._last_balancing_done_soc: float | None = None
         self._last_daily_increment: str | None = None
         self._starting = True
         self._states: dict[str, str] = {}
@@ -276,6 +277,8 @@ class StrategyEngine:
         self._last_evaluation = None
         self._last_minute = None
         self._last_daily_increment = snapshot.get("last_daily_increment")
+        done = snapshot.get("last_balancing_done_soc")
+        self._last_balancing_done_soc = float(done) if _finite(done) else None
         self._starting = True
 
     def reset_load_statistics(self) -> None:
@@ -313,6 +316,7 @@ class StrategyEngine:
             "pending_delays": self._delays,
             "last_evaluation": self._last_evaluation,
             "last_daily_increment": self._last_daily_increment,
+            "last_balancing_done_soc": self._last_balancing_done_soc,
         })
 
     def evaluate(
@@ -721,7 +725,7 @@ class StrategyEngine:
 
     def _update_balancing(self) -> None:
         # The original action tree remains the oracle; this scheduler supplies
-        # only its three meaningful triggers and avoids counting an offline gap.
+        # only its meaningful triggers and avoids counting an offline gap.
         automations = self.resources.get("balancing_automations", [])
         if len(automations) != 2:
             return
@@ -730,17 +734,29 @@ class StrategyEngine:
         soc = self._get_state("sensor.opti_soc")
         done = self._get_state("input_number.opti_balancing_done_soc")
         valid = _finite(soc) and _finite(done)
-        if self._starting:
+        # Preserve strict completion below 100%; the upper limit must be reachable.
+        reached = valid and (float(soc) > float(done)
+                             or (float(done) >= 100 and float(soc) >= float(done)))
+        done_value = float(done) if _finite(done) else None
+        target_changed = (self._last_balancing_done_soc is not None
+                          and done_value != self._last_balancing_done_soc)
+        self._last_balancing_done_soc = done_value
+        if target_changed:
+            trigger = "ziel_geaendert"
+        elif self._starting:
             trigger = "ha_start"
         elif not valid:
             trigger = "sensorfehler"
-        elif float(soc) <= float(done):
+        elif not reached:
             trigger = "rueckfall"
         elif minute != self._last_minute:
             trigger = "minute"
         else:
             trigger = None
         if trigger is not None:
+            # The YAML action tree also guards against reconfirmation during
+            # the hold period and on its end date, using the saved completion
+            # time. Derived entities have not been evaluated yet at this point.
             self._actions(reset["actions"], {"trigger_id": trigger})
         if not self._starting and minute != self._last_minute and self._now.hour == 23 and self._now.minute == 59:
             day = self._now.date().isoformat()

@@ -128,6 +128,11 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
         "codes": {"invalid_value": 2, "missing_or_stale": 1},
     }
     assert result["health"]["standby"] is None
+    assert result["health"]["internal_error"] is None
+    entry.runtime_data.data["internal_error"] = {"active": True, "error_type": "RuntimeError",
+                                                 "since": "2026-09-15T20:00:00+00:00", "pause": "confirmed"}
+    result = await async_get_config_entry_diagnostics(hass, entry)
+    assert result["health"]["internal_error"] == "RuntimeError"
     entry.runtime_data.data["connection_status"] = {"status": "not_ready", "standby": "night_empty",
                                                     "inverter_status": 303}
     result = await async_get_config_entry_diagnostics(hass, entry)

@@ -7,10 +7,11 @@ import json
 from math import isfinite
 from statistics import median
 
+from .battery_model import BatteryModel
 from .load_profile import LoadProfile
 from .demand_accuracy import DemandAccuracy
 from .demand_history import HistoricalPrior, CONTEXT_KEYS
-from .source_quality import DEFAULT_FORECAST_MAX_AGE, measurement_max_age, reported_recently
+from .source_quality import DEFAULT_FORECAST_MAX_AGE, measurement_max_age, reported_at, reported_recently
 
 
 SOURCE_KEYS = (
@@ -29,7 +30,6 @@ SOURCE_KEYS = (
 PV_COVER_FACTOR = 1.2
 PV_COVER_MIN_SECONDS = 3600
 PV_COVER_MIN_NET_KWH = 0.5
-REFILL_CHARGE_EFFICIENCY = 0.9
 EV_POWER_KEYS = ("ev1_power", "ev2_power")
 EV_SCOPE_VERSION = 2
 
@@ -70,7 +70,7 @@ def source_value(states, entity_id, now, *, kind, source_max_age=900):
             age = (
                 0
                 if kind == "target"
-                else (now - instant(s.last_reported or s.last_updated)).total_seconds()
+                else (now - instant(reported_at(s))).total_seconds()
             )
         except TypeError, ValueError, AttributeError:
             return None
@@ -168,7 +168,7 @@ def pv_intervals(states, sources, now, max_age=DEFAULT_FORECAST_MAX_AGE):
         if s is None or s.state in ("unknown", "unavailable"):
             continue
         try:
-            age = (now - instant(s.last_reported or s.last_updated)).total_seconds()
+            age = (now - instant(reported_at(s))).total_seconds()
             detail = s.attributes.get("detailedForecast")
             if not -60 <= age <= max_age or not isinstance(detail, list) or len(detail) > 100:
                 continue
@@ -318,17 +318,20 @@ class DemandForecast:
             median(v[2] for v in selected),
         )
 
-    def update(self, now, data, settings, options, states, timezone, fingerprint):
+    def update(self, now, data, settings, options, states, timezone, fingerprint, *, model=None):
+        """``model`` is the cycle's battery model; without one the defaults apply."""
         now = instant(now)
         house, house_error = profile_house_value(data, options, states, now)
         result = self._forecast(
-            now, data, settings, options, states, timezone, fingerprint, house, house_error
+            now, data, settings, options, states, timezone, fingerprint, house, house_error,
+            model if isinstance(model, BatteryModel) else BatteryModel.default(),
         )
         if result["status"] != "disabled":
             result["accuracy"] = self.accuracy.observe(now, house, result)
         return result
 
-    def _forecast(self, now, data, settings, options, states, timezone, fingerprint, house, house_error):
+    def _forecast(self, now, data, settings, options, states, timezone, fingerprint, house, house_error,
+                  model):
         cfg = options.get("demand_forecast", {})
         out = {"status": "disabled", "observation_only": True}
         if cfg.get("enabled") is not True:
@@ -565,8 +568,8 @@ class DemandForecast:
         ):
             return {**out, "status": "data_missing", "detail": "battery_limits"}
         # Explicit conservative assumptions, not a guaranteed physical optimum.
-        battery_need = (required * 1.2 + 0.2) / 0.9
-        refill_battery_kwh = refill_surplus_kwh * REFILL_CHARGE_EFFICIENCY
+        battery_need = (required * 1.2 + 0.2) / model.discharge_efficiency
+        refill_battery_kwh = refill_surplus_kwh * model.charge_efficiency
         usable_capacity_kwh = capacity * (high - low) / 100
         refill_target_kwh = min(battery_need, usable_capacity_kwh)
         refill_storable_kwh = min(refill_battery_kwh, refill_target_kwh)
@@ -586,11 +589,11 @@ class DemandForecast:
             expected_deficit_kwh=round(required, 3),
             safety_margin_percent=20,
             safety_margin_kwh=0.2,
-            discharge_efficiency=0.9,
+            discharge_efficiency=model.discharge_efficiency,
             required_battery_kwh=round(battery_need, 3),
             pv_cover_net_kwh=round(accepted_cover_net_kwh, 3),
             refill_surplus_kwh=round(refill_surplus_kwh, 3),
-            refill_charge_efficiency=REFILL_CHARGE_EFFICIENCY,
+            refill_charge_efficiency=model.charge_efficiency,
             refill_battery_kwh=round(refill_battery_kwh, 3),
             refill_target_kwh=round(refill_target_kwh, 3),
             refill_storable_kwh=round(refill_storable_kwh, 3),

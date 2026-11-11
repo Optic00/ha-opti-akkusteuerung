@@ -41,7 +41,11 @@ class OptiAkkuStateBinarySensor(OptiAkkuEntity, BinarySensorEntity):
         self._attr_icon = meta.get("icon")
         if key != "binary_sensor.opti_connection":
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
-            self._attr_entity_registry_enabled_default = key in {"binary_sensor.opti_block_violation", "binary_sensor.opti_write_stalled"}
+            self._attr_entity_registry_enabled_default = key in {
+                "binary_sensor.opti_balancing_haltefenster_aktiv",
+                "binary_sensor.opti_block_violation",
+                "binary_sensor.opti_write_stalled",
+            }
         try:
             self._attr_device_class = BinarySensorDeviceClass(meta["device_class"])
         except (KeyError, ValueError):

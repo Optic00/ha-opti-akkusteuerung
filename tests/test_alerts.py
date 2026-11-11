@@ -746,3 +746,21 @@ async def test_control_inactive_alerts_after_fifteen_minutes_and_clears(hass, al
     with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=1061)):
         alerts.update(health())
     assert not alerts._active
+
+
+async def test_internal_error_alerts_at_once_only_while_active_and_clears_after_60_seconds(hass, alerts):
+    start = dt_util.utcnow()
+    grace = {"active": False, "error_type": "RuntimeError", "since": start.isoformat(), "pause": "waiting"}
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start):
+        alerts.update(health(internal_error=grace))
+        assert "internal" not in alerts._active
+        with patch("custom_components.opti_akku.alerts.persistent_notification.async_create") as create:
+            alerts.update(health(internal_error={**grace, "active": True}))
+        assert "internal" in alerts._active
+        assert "Internal error in the control cycle" in create.call_args.args[1]
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=30)):
+        alerts.update(health(internal_error=None))
+        assert "internal" in alerts._active
+    with patch("custom_components.opti_akku.alerts.dt_util.utcnow", return_value=start + timedelta(seconds=91)):
+        alerts.update(health(internal_error=None))
+        assert "internal" not in alerts._active

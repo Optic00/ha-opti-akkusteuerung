@@ -15,6 +15,14 @@ RECONCILE_SECONDS = 120
 VIOLATION_SETTLE_SECONDS = 10
 VIOLATION_RENEW_SECONDS = 30
 VIOLATION_MAX_RENEWALS = 3
+# Internal cycle failures: grace before the safety pause, error-free time
+# that ends an incident, bounded pause retries and the independent watchdog.
+CYCLE_FAILURE_GRACE_SECONDS = 30
+CYCLE_FAILURE_CLEAR_SECONDS = 60
+FAILSAFE_RETRY_SECONDS = 30
+FAILSAFE_FAST_RETRIES = 3
+CYCLE_WATCHDOG_INTERVAL_SECONDS = 30
+CYCLE_STALL_SECONDS = 120
 CONF_SOURCES = "sources"
 CONF_SETTINGS = "settings"
 NO_RELOAD_OPTION_KEYS = frozenset(
@@ -32,6 +40,7 @@ SOURCE_DEFINITIONS = {
     "price_current": ("sensor.opti_price_current_ct_kwh", "Aktueller Strompreis", "price"),
     "price_series": ("sensor.opti_price_series", "Preisreihe (today/tomorrow)", "price"),
     "cell_spread": ("sensor.byd_zellspreizung_ruhe", "BYD-Zellspreizung in Ruhe (optional)", "voltage_spread"),
+    "cell_voltage_min": ("sensor.opti_cell_voltage_min_v", "Niedrigste Zellspannung (optional, z. B. BYD BMU)", "voltage"),
 }
 EV_SOURCE_KEYS = (
     "ev1_mode", "ev1_charging", "ev1_smart_cost", "ev1_power",

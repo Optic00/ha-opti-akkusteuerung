@@ -25,8 +25,9 @@ balancing_automations:
 - id: opti_balancing_counter_reset
   alias: 'Opti Balancing: Abschluss nach erreichtem Done-SoC'
   description: Schliesst einen Balancing-Zyklus nach 30 bestaetigten Minuten oberhalb des Done-SoC ab.
+    Bei Done-SoC ab 100 genuegt Gleichheit, damit die obere Grenze erreichbar bleibt.
     Persistente Minuten machen die Bestaetigung restartfest; der Abschluss-Zeitstempel verhindert Mehrfachabschluesse
-    am selben Tag.
+    am selben Tag sowie waehrend der Haltezeit und an deren Endtag.
   mode: queued
   triggers:
   - trigger: time_pattern
@@ -34,7 +35,7 @@ balancing_automations:
     id: minute
   - trigger: template
     value_template: '{% set soc = states(''sensor.opti_soc'') | float(none) %} {% set done = states(''input_number.opti_balancing_done_soc'')
-      | float(none) %} {{ soc is not none and done is not none and soc <= done }}'
+      | float(none) %} {{ soc is not none and done is not none and (soc < done or (done < 100 and soc == done)) }}'
     id: rueckfall
   - trigger: state
     entity_id: sensor.opti_soc
@@ -48,23 +49,28 @@ balancing_automations:
     - unknown
     - unavailable
     id: sensorfehler
+  - trigger: state
+    entity_id: input_number.opti_balancing_done_soc
+    to: null
+    id: ziel_geaendert
   - trigger: homeassistant
     event: start
     id: ha_start
   actions:
   - alias: Done-SoC minutenweise bestaetigen
     choose:
-    - alias: Bestaetigungen bei Rueckfall oder Sensorfehler verwerfen
+    - alias: Bestaetigungen bei Rueckfall, Sensorfehler oder Zielwechsel verwerfen
       conditions:
       - condition: trigger
         id:
         - rueckfall
         - sensorfehler
+        - ziel_geaendert
       sequence:
       - action: counter.reset
         target:
           entity_id: counter.opti_balancing_done_minuten
-    - alias: Nach heutigem Abschluss nicht erneut bestaetigen
+    - alias: Nach Abschluss bis zum Ende des Haltetags nicht erneut bestaetigen
       conditions:
       - condition: state
         entity_id: input_boolean.opti_balancing_abschluss_gueltig
@@ -74,8 +80,14 @@ balancing_automations:
           {% set letzter =
              states('input_datetime.opti_balancing_letzter_abschluss')
              | as_datetime %}
+          {% set haltezeit =
+             states('input_number.opti_balancing_haltezeit_h') | float(0) %}
           {{ letzter is not none
-             and (letzter | as_local).date() == now().date() }}
+             and ((letzter | as_local).date() == now().date()
+                  or (is_number(haltezeit) and haltezeit > 0
+                      and (as_timestamp(now()) - as_timestamp(letzter, 0) < haltezeit * 3600
+                           or (((letzter | as_utc) + timedelta(hours=haltezeit))
+                               | as_local).date() == now().date()))) }}
       sequence:
       - action: counter.reset
         target:
@@ -86,11 +98,11 @@ balancing_automations:
         id: ha_start
       - condition: template
         value_template: |-
+          {% set soc = states('sensor.opti_soc') | float(0) %}
+          {% set done = states('input_number.opti_balancing_done_soc') | float(100) %}
           {{ has_value('sensor.opti_soc')
              and has_value('input_number.opti_balancing_done_soc')
-             and (states('sensor.opti_soc') | float(0))
-                 <= (states('input_number.opti_balancing_done_soc')
-                     | float(100)) }}
+             and (soc < done or (done < 100 and soc == done)) }}
       sequence:
       - action: counter.reset
         target:
@@ -101,22 +113,25 @@ balancing_automations:
         id: minute
       - condition: template
         value_template: |-
+          {% set soc = states('sensor.opti_soc') | float(0) %}
+          {% set done = states('input_number.opti_balancing_done_soc') | float(100) %}
           {{ not has_value('sensor.opti_soc')
              or not has_value('input_number.opti_balancing_done_soc')
-             or (states('sensor.opti_soc') | float(0))
-                <= (states('input_number.opti_balancing_done_soc')
-                    | float(100)) }}
+             or soc < done or (done < 100 and soc == done) }}
       sequence:
       - action: counter.reset
         target:
           entity_id: counter.opti_balancing_done_minuten
-    - alias: Gueltige Minute oberhalb des Done-SoC bestaetigen
+    - alias: Gueltige Minute am Done-SoC-Ziel bestaetigen
       conditions:
       - condition: trigger
         id: minute
-      - condition: numeric_state
-        entity_id: sensor.opti_soc
-        above: input_number.opti_balancing_done_soc
+      - condition: template
+        value_template: |-
+          {% set soc = states('sensor.opti_soc') | float(none) %}
+          {% set done = states('input_number.opti_balancing_done_soc') | float(none) %}
+          {{ soc is not none and done is not none
+             and (soc > done or (done >= 100 and soc >= done)) }}
       sequence:
       - choose:
         - alias: Dreissigste Minute bestaetigt

@@ -8,8 +8,6 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
-## [2026.11-beta4] - 2026-11-11
-
 ### Hinzugefügt
 
 - **Einstellbare Ladekurve am Ladeende**
@@ -21,6 +19,11 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   PV-Spitzen bleiben wirksam; es gilt immer das Minimum. Die Leistung darf mit
   steigendem Ladestand nicht steigen. Ob die Kurve greift, zeigt
   `charge_power_limits` am Entscheidungsgrund. Ohne Eintrag ändert sich nichts.
+
+## [2026.11-beta4] - 2026-11-11
+
+### Hinzugefügt
+
 - **Feste Zeitfenster als Preisquelle** (#204), etwa für Tarife mit günstigem
   Nachtfenster. Im Stromtarif-Schritt „Feste Zeitfenster“ wählen und die Fenster
   mit Beginn, Ende und Preis in ct/kWh eintragen. Opti Akku erzeugt daraus die

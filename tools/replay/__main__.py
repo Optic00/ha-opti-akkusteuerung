@@ -43,6 +43,9 @@ def cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
+STRATEGY_MODIFIERS = {"lastprofil", "peakprofil"}
+
+
 def build_policy(spec: str, plant: dict, sun: SunModel, hours=None, params: BatteryParams | None = None,
                  forecast_mode: str = "calibrated", planner: dict | None = None, steps_per_hour: int = 4):
     """``oracle[@hold|@value]`` and ``rh[@naive|@calibrated]`` need the series and the battery."""
@@ -51,13 +54,17 @@ def build_policy(spec: str, plant: dict, sun: SunModel, hours=None, params: Batt
         return None
     if spec == "self_consumption":
         return SelfConsumptionPolicy()
-    if spec in ("strategy", "strategy+lastprofil") or spec.startswith(("strategy@", "strategy+lastprofil@")):
-        # ``strategy+lastprofil@ref``: the 24-h load statistic is replaced by the
-        # previous month's mean daily load (stand-in for the learned demand profile).
-        head, _, ref = spec.partition("@")
-        house_daily = "lastprofil" if head.endswith("+lastprofil") else "engine"
+    head, _, ref = spec.partition("@")
+    base, *modifiers = head.split("+")
+    if base == "strategy" and set(modifiers) <= STRATEGY_MODIFIERS and len(set(modifiers)) == len(modifiers):
+        # ``+lastprofil``: the 24-h load statistic is replaced by the previous
+        # month's mean daily load (stand-in for the learned demand profile).
+        # ``+peakprofil``: the peak reserve reads a learned hourly profile
+        # (sensor.opti_peak_load_profile) instead of only the fixed load.
         # The long-window statistics sample once per simulation step.
-        return StrategyPolicy(plant, ref or None, sun=sun, name=spec, house_daily=house_daily,
+        return StrategyPolicy(plant, ref or None, sun=sun, name=spec,
+                              house_daily="lastprofil" if "lastprofil" in modifiers else "engine",
+                              peak_profile="peakprofil" in modifiers,
                               sample_interval_s=3600.0 / steps_per_hour, battery=params,
                               wear_ct=planner.get("wear_ct", 3.0))
     if spec == "oracle" or spec.startswith("oracle@"):
@@ -205,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run = sub.add_parser("run", help="eine Policy simulieren")
     _add_sim_arguments(p_run)
     p_run.add_argument("--policy", required=True,
-                       help="actual | self_consumption | strategy[+lastprofil][@ref|@pfad] | oracle[@hold|@value] | rh[@naive|@calibrated]")
+                       help="actual | self_consumption | strategy[+lastprofil][+peakprofil][@ref|@pfad] | oracle[@hold|@value] | rh[@naive|@calibrated]")
     p_run.set_defaults(func=lambda args: _compare(argparse.Namespace(**vars(args), policies=[args.policy])))
 
     p_compare = sub.add_parser("compare", help="mehrere Policies nebeneinander")

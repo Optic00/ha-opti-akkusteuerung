@@ -14,6 +14,7 @@ from .resources import (
     load_engine_module,
     load_strategy,
 )
+from .peak_profile import PEAK_LOAD_PROFILE, PeakProfileFeed
 from .sun import SunModel
 
 CAPACITY = "sensor.opti_battery_capacity_kwh"
@@ -76,6 +77,7 @@ OBSERVED_STATES = {
 }
 DAILY_LOAD_STATISTIC = "sensor.opti_house_consumption_24h_w"
 HOUSE_DAILY_MODES = ("engine", "lastprofil")
+PEAK_RESERVE = "sensor.opti_peak_reserve_soc"
 
 
 class SelfConsumptionPolicy:
@@ -109,6 +111,9 @@ class StrategyPolicy:
     # integration's default model applies.
     battery: BatteryParams | None = None
     wear_ct: float | None = None  # ct per discharged AC kWh, as --wear-ct
+    # Learned hourly profile for the peak reserve (sensor.opti_peak_load_profile),
+    # learned by the integration's DemandForecast from completed steps only.
+    peak_profile: bool = False
 
     def __post_init__(self) -> None:
         if self.house_daily not in HOUSE_DAILY_MODES:
@@ -137,6 +142,11 @@ class StrategyPolicy:
                 self.settings[entity] = ("on" if value else "off") if isinstance(value, bool) else value
         self.settings.update(self.plant.get("settings", {}))
         self.battery_model_state = self._battery_model_state()
+        self.peak_feed = PeakProfileFeed(self.sample_interval_s) if self.peak_profile else None
+        self.peak_steps = 0
+        self.peak_hours = 0.0
+        self.peak_load_wh = 0.0
+        self.peak_profile_hours = 0.0
 
     def _battery_model_state(self) -> tuple[str, dict[str, Any]]:
         """Engine state of the battery model from the replay's battery parameters."""
@@ -191,7 +201,15 @@ class StrategyPolicy:
                 attributes["sensor.opti_price_series"] = {
                     "today": list(context.price_today), "tomorrow": list(context.price_tomorrow),
                 }
+        if self.peak_feed is not None:
+            # Live the coordinator passes the helpers with the strategy's defaults.
+            helpers = {**self._engine_resources.get("helper_defaults", {}), **self.settings}
+            profile = self.peak_feed.attributes(context.now, float(previous.load_w), helpers)
+            states[PEAK_LOAD_PROFILE] = profile["status"]
+            attributes[PEAK_LOAD_PROFILE] = profile
         result = self.engine.evaluate(states, attributes, context.now)
+        if self.peak_feed is not None:
+            self._observe_peak(result.attributes.get(PEAK_RESERVE) or {})
         self.steps += 1
         ok = result.states.get("sensor.opti_engine_diagnostics") == "ok"
         if not ok:
@@ -210,9 +228,22 @@ class StrategyPolicy:
             extra={key: result.states.get(entity) for key, entity in OBSERVED_STATES.items()},
         )
 
+    def _observe_peak(self, reserve: dict[str, Any]) -> None:
+        """Hours-weighted load the peak reserve assumed for its peak slots."""
+        hours = (_number(reserve.get("peak_stunden_ve")) or 0.0) + (_number(reserve.get("peak_stunden_exp")) or 0.0)
+        load = _number(reserve.get("assumed_load_w"))
+        if hours <= 0 or load is None:
+            return
+        self.peak_steps += 1
+        self.peak_hours += hours
+        self.peak_load_wh += load * hours
+        self.peak_profile_hours += _number(reserve.get("profile_hours")) or 0.0
+
     def reset(self) -> None:
         """Fresh engine state at a measurement block boundary (like a cold start)."""
         self.engine = self._engine_module.StrategyEngine(self._engine_resources)
+        if self.peak_feed is not None:
+            self.peak_feed.reset()
         self.resets += 1
 
     def summary(self) -> dict[str, Any]:
@@ -231,6 +262,18 @@ class StrategyPolicy:
             "battery_model": dict(self.battery_model_state[1]),
             "battery_temp_c": self.battery_temp_c,
             "house_daily": self.house_daily,
+            **(self._peak_summary() if self.peak_feed is not None else {}),
+        }
+
+    def _peak_summary(self) -> dict[str, Any]:
+        assert self.peak_feed is not None
+        return {
+            "peak_profile": "DemandForecast cells from completed steps, peak_load_profile unchanged",
+            "peak_profile_status_steps": dict(self.peak_feed.status_counts),
+            "peak_profile_current_hour_methods": dict(self.peak_feed.method_counts),
+            "peak_reserve_steps_with_peak_hours": self.peak_steps,
+            "peak_reserve_mean_assumed_load_w": round(self.peak_load_wh / self.peak_hours, 1) if self.peak_hours else None,
+            "peak_reserve_profile_hour_share": round(self.peak_profile_hours / self.peak_hours, 4) if self.peak_hours else None,
         }
 
 

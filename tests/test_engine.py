@@ -2141,3 +2141,64 @@ def test_full_battery_discharges_into_afternoon_peak_shortly_before_sunset():
     assert result.decision_id in ("peak_l1", "peak_l2")
     assert result.mode in ("Akku nur Entladen", "Akku Dynamisch")
     assert result.states["sensor.opti_strategie_vorschau"] == result.mode
+
+
+def _step_tariff(day, cheap_hours=(0, 1, 2, 3, 4), cheap=21.74, expensive=31.74):
+    """Hourly prices of a two-level tariff for one local day, DST-aware."""
+    start = dt.datetime.combine(day, dt.time(0), tzinfo=TZ)
+    end = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(0), tzinfo=TZ)
+    prices = []
+    instant = start.astimezone(dt.UTC)
+    while instant < end.astimezone(dt.UTC):
+        prices.append(cheap if instant.astimezone(TZ).hour in cheap_hours else expensive)
+        instant += dt.timedelta(hours=1)
+    return prices
+
+
+def _step_tariff_result(now, current, **tariff):
+    states = measurements(**{
+        "sun.sun": "below_horizon", "sensor.opti_forecast_today_kwh": 0,
+        "sensor.opti_forecast_tomorrow_kwh": 0,
+        "sensor.opti_forecast_remaining_today_kwh": 0,
+        "sensor.opti_price_current_ct_kwh": current,
+    })
+    attrs = solar_attrs(now)
+    attrs["sensor.opti_price_series"] = {
+        "today": _step_tariff(now.date(), **tariff),
+        "tomorrow": _step_tariff(now.date() + dt.timedelta(days=1), **tariff),
+    }
+    return evaluate(states=states, attributes=attrs, now=now)
+
+
+@pytest.mark.parametrize("day,cheap_hours", [
+    (dt.date(2026, 1, 15), (0, 1, 2, 3, 4)),   # 10 of 48 slots cheap: midrank .604
+    (dt.date(2026, 3, 28), (0, 1, 2, 3, 4)),   # day before spring DST: 9 of 47, midrank .596
+    (dt.date(2026, 3, 29), (0, 1, 2, 3, 4)),   # spring DST day: 9 of 47
+    (dt.date(2026, 1, 15), (1, 2, 3, 4)),      # four cheap hours: 8 of 48, midrank .583
+    (dt.date(2026, 1, 15), (2, 3)),            # two cheap hours: 4 of 48, midrank .542
+])
+def test_step_tariff_top_level_is_expensive_and_counts_as_peak(day, cheap_hours):
+    noon = dt.datetime.combine(day, dt.time(12, 0), tzinfo=TZ)
+    result = _step_tariff_result(noon, 31.74, cheap_hours=cheap_hours)
+    assert result.states["sensor.opti_price_level"] == "EXPENSIVE"
+    night = dt.datetime.combine(day, dt.time(0, 5), tzinfo=TZ)
+    result = _step_tariff_result(night, 21.74, cheap_hours=cheap_hours)
+    peak = result.attributes["sensor.opti_peak_reserve_soc"]
+    assert peak["peak_stunden_exp"] > 0
+    assert peak["peak_stunden_ve"] == 0.0
+    assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "on"
+    assert result.states["sensor.opti_price_level"] in ("VERY_CHEAP", "CHEAP")
+
+
+def test_flat_prices_stay_normal_without_peaks():
+    now = dt.datetime(2026, 1, 15, 0, 5, tzinfo=TZ)
+    result = _step_tariff_result(now, 30.0, cheap=30.0, expensive=30.0)
+    assert result.states["sensor.opti_price_level"] == "NORMAL"
+    assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "off"
+
+
+def test_top_level_below_surcharge_is_expensive_but_no_peak():
+    """The economic filter still applies: 3 ct above the cheap level is no peak."""
+    now = dt.datetime(2026, 1, 15, 0, 5, tzinfo=TZ)
+    result = _step_tariff_result(now, 21.74, cheap_hours=(2, 3), expensive=24.74)
+    assert result.states["binary_sensor.opti_peak_reserve_aktiv"] == "off"

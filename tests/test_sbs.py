@@ -69,12 +69,16 @@ class FakeUnit:
         self.disconnect_at = None
         self.timeout_reads = set()
         self.spacing = None
+        self.clock = None  # optional Clock advanced by read_seconds per read
+        self.read_seconds = 0.0
 
     def set_message_spacing(self, value):
         self.spacing = value
 
     async def read_holding_registers(self, address, count):
         self.reads.append(address)
+        if self.clock is not None:
+            self.clock.now += self.read_seconds
         if address == self.disconnect_at:
             raise ModbusConnectionError("injected disconnect")
         if address in self.timeout_reads:
@@ -125,6 +129,26 @@ async def test_snapshot_reads_the_write_test_preconditions_without_writing(unit)
     write_only = {40149, 40151, 40236, 41259, 40793, 40795, 40797, 40799, 40801}
     assert not write_only & {row[0] for row in sbs.REGISTER_PROBE}
     assert not unit.writes
+
+
+async def test_slow_device_spreads_the_snapshot_over_several_cycles(unit):
+    """The coordinator gives probe and measurements 25 s together; the snapshot gets a budget."""
+    clock = Clock()
+    unit.clock, unit.read_seconds = clock, 0.5
+    device = sbs.SbsDevice(unit, monotonic=clock)
+    first = await device.async_probe()
+    assert first["register_probe"] == []  # nothing published from a partial snapshot
+    budget_reads = sbs.REGISTER_PROBE_BUDGET_SECONDS / unit.read_seconds
+    assert len(unit.reads) <= 4 + budget_reads + 1
+    cycles = 1
+    while not (await device.async_probe())["register_probe"]:
+        cycles += 1
+        assert cycles < 10
+    rows = (await device.async_probe())["register_probe"]
+    assert [row["address"] for row in rows] == [row[0] for row in sbs.REGISTER_PROBE]
+    identity = {30051, 30053, 30057, 33003, 33001}
+    assert cycles > 1
+    assert all(unit.reads.count(row[0]) == 1 for row in sbs.REGISTER_PROBE if row[0] not in identity)
 
 
 async def test_unsupported_and_nan_registers_are_reported_not_hidden(unit):

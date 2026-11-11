@@ -35,6 +35,9 @@ STP_SE_DEVICE_CLASS = 8009
 STATUS_REGISTERS = (33003, 33001)
 INFORMATION_NOT_AVAILABLE = 16777213
 REGISTER_PROBE_SECONDS = 600.0
+# Snapshot reads per cycle; the rest continues in the next cycle. Probe and
+# measurements share the coordinator's 25 s limit, a slow device must not lose them.
+REGISTER_PROBE_BUDGET_SECONDS = 5.0
 # (address, signed, evidence). Raw values only; meaning and scale are what the
 # device test has to confirm. The serial number (30057) is deliberately absent.
 REGISTER_PROBE = (
@@ -102,6 +105,8 @@ class SbsDevice:
         self._status_source: int | None = None
         self._register_probe: list[dict[str, Any]] = []
         self._register_probe_at: float | None = None
+        # Rows of a snapshot that ran out of its per-cycle budget.
+        self._pending_probe: list[dict[str, Any]] | None = None
         self.unit.set_message_spacing(0.06)
 
     @property
@@ -144,28 +149,31 @@ class SbsDevice:
         self._status_source = None
         raise InvalidDataError("No status register available") from last_error
 
-    async def _snapshot_registers(self) -> list[dict[str, Any]]:
-        snapshot: list[dict[str, Any]] = []
-        for address, signed, evidence in REGISTER_PROBE:
+    async def _snapshot_registers(self, snapshot: list[dict[str, Any]]) -> bool:
+        """Continue the snapshot; True once it is complete or ended by the transport."""
+        started = self._monotonic()
+        for address, signed, evidence in REGISTER_PROBE[len(snapshot):]:
+            if self._monotonic() - started >= REGISTER_PROBE_BUDGET_SECONDS:
+                return False
             row: dict[str, Any] = {"address": address, "evidence": evidence}
             try:
                 row["raw"] = await self._read(address, signed=signed)
             except ModbusConnectionError:
                 row["error"] = "transport"
                 snapshot.append(row)
-                break  # Do not hammer an unreachable device once per register.
+                return True  # Do not hammer an unreachable device once per register.
             except TimeoutError:
                 # Before ModbusError: ModbusTimeoutError is both. Several silent
                 # registers would otherwise exceed the coordinator's time limit.
                 row["error"] = "timeout"
                 snapshot.append(row)
-                break
+                return True
             except InvalidDataError:
                 row["error"] = "not_available"
             except ModbusError:
                 row["error"] = "modbus_error"
             snapshot.append(row)
-        return snapshot
+        return True
 
     async def _probe(self) -> dict[str, Any]:
         self.last_probe_registers = {}
@@ -184,10 +192,14 @@ class SbsDevice:
         except ModbusError, InvalidDataError, TimeoutError:
             serial_number = 0
         now = self._monotonic()
-        if self._register_probe_at is None or now - self._register_probe_at >= REGISTER_PROBE_SECONDS:
+        if self._pending_probe is None and (
+            self._register_probe_at is None or now - self._register_probe_at >= REGISTER_PROBE_SECONDS
+        ):
             # Stamp first: a snapshot cut short by a timeout waits for the next interval.
             self._register_probe_at = now
-            self._register_probe = await self._snapshot_registers()
+            self._pending_probe = []
+        if self._pending_probe is not None and await self._snapshot_registers(self._pending_probe):
+            self._register_probe, self._pending_probe = self._pending_probe, None
         return {
             "profile": PROFILE_SMA_SBS,
             "inverter_status": status,

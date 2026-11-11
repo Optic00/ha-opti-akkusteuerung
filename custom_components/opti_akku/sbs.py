@@ -5,8 +5,10 @@ products, but not every product supports every register (SMA Modbus general
 TI, version 1.0). This profile therefore reads the STP SE addresses of the same
 parameters plus community evidence for the SBS (SBS 2.5 community list,
 ioBroker project Maverick78de for SBS 3.7-10, see the adapter repository's
-modbus-register-referenz.md). None of these reads has been verified on an
-SBS 3.7-10 with this integration yet.
+modbus-register-referenz.md). SMA's own Modbus list for the SBS 3.7-6.0
+(MODBUS-HTML_SBS3.7-6.0-10_GG10-V13, firmware 3.12.33.R or later with a
+country data set from 2018 on) confirms the addresses read below. Values,
+signs and scaling were first compared against the SMA portal in #170.
 
 The profile never writes: it supports no mode and every command is refused.
 A raw register snapshot in the probe result lets a tester compare values with
@@ -26,8 +28,10 @@ from .sma import MODEL_NAMES, InvalidDataError, UnsupportedDeviceError, decode_s
 
 PROFILE_SMA_SBS = "sma_sbs"
 STP_SE_DEVICE_CLASS = 8009
-# Operation.RunStt (SMA profile, used by the STP SE) first, then the SBS 2.5
-# community "Betriebsstatus" register.
+# SBS Modbus list GG10-V13: 33003 Operation.RunStt (235 grid-parallel, 1463
+# backup, 1469 shutting down, 1855 stand-alone, 2119 derating), then 33001
+# Operation.StandbyStt (1394 waiting for a valid AC grid, 2531 energy saving
+# mode). The code lists do not overlap; RunStt always has priority.
 STATUS_REGISTERS = (33003, 33001)
 INFORMATION_NOT_AVAILABLE = 16777213
 REGISTER_PROBE_SECONDS = 600.0
@@ -53,6 +57,22 @@ REGISTER_PROBE = (
     (40187, False, "stp_se"),
     (40189, False, "maverick"),
     (40191, False, "maverick"),
+    # Read-only preparation for the write test (SBS Modbus list GG10-V13).
+    # Only RO/RW registers: a write-only register cannot be read back.
+    (30059, False, "sbs_modbus_list"),  # Nameplate.PkgRev, firmware package
+    (30201, False, "sbs_modbus_list"),  # Operation.Health
+    (40029, False, "sbs_modbus_list"),  # Operation.OpStt
+    (30955, False, "sbs_modbus_list"),  # Bat.OpStt
+    (31057, False, "sbs_modbus_list"),  # BatUsDm.Stt
+    (30219, False, "sbs_modbus_list"),  # Operation.DrtStt
+    (30233, False, "sbs_modbus_list"),  # Inverter.WMax
+    (30835, False, "sbs_modbus_list"),  # Inverter.WModCfg.WMod
+    (41187, False, "sbs_modbus_list"),  # Inverter.CtlComCfg.CtlMsSrc
+    (41193, False, "sbs_modbus_list"),  # external active power, fallback behaviour
+    (41195, False, "sbs_modbus_list"),  # external active power, timeout
+    (41215, True, "sbs_modbus_list"),  # external active power, fallback setpoint
+    (44035, True, "sbs_modbus_list"),  # fallback minimum active power
+    (44037, True, "sbs_modbus_list"),  # fallback maximum active power
 )
 
 
@@ -79,7 +99,6 @@ class SbsDevice:
         self._monotonic = monotonic
         self._lock = asyncio.Lock()
         self._model_id: int | None = None
-        self._status_address: int | None = None
         self._status_source: int | None = None
         self._register_probe: list[dict[str, Any]] = []
         self._register_probe_at: float | None = None
@@ -98,17 +117,15 @@ class SbsDevice:
         return decode_s32(words) if signed else raw
 
     async def _read_status(self) -> int:
-        """Prefer the confirmed status register; remember which one answered.
+        """Read RunStt first; StandbyStt only answers while RunStt has no value.
 
-        16777213 is SMA's "information not available"; another register with a
-        real status wins, otherwise that code is reported as it is.
+        A running SBS must never be judged by its standby register, so the
+        order is fixed. 16777213 is SMA's "information not available"; another
+        register with a real status wins, otherwise that code is reported as it is.
         """
-        # The last real answer is tried first, never exclusively.
-        addresses = STATUS_REGISTERS if self._status_address is None else (
-            self._status_address, *(address for address in STATUS_REGISTERS if address != self._status_address))
         last_error: Exception | None = None
         placeholder: tuple[int, int] | None = None
-        for address in addresses:
+        for address in STATUS_REGISTERS:
             try:
                 value = await self._read(address)
             except (ModbusConnectionError, TimeoutError):
@@ -119,13 +136,12 @@ class SbsDevice:
             if value == INFORMATION_NOT_AVAILABLE:
                 placeholder = placeholder or (address, value)
                 continue
-            self._status_address = self._status_source = address
+            self._status_source = address
             return value
         if placeholder is not None:
-            # Keep probing all candidates until one reports a real status.
-            self._status_address, self._status_source = None, placeholder[0]
+            self._status_source = placeholder[0]
             return placeholder[1]
-        self._status_address = self._status_source = None
+        self._status_source = None
         raise InvalidDataError("No status register available") from last_error
 
     async def _snapshot_registers(self) -> list[dict[str, Any]]:

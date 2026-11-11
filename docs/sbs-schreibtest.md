@@ -99,36 +99,61 @@ möglich.
    Systemmanager den SBS steuert, und ob einer davon dieselben Parameter setzt
    (**Annahme**, Frage an Kalrael).
 2. **Steuerung über Kommunikation verfügbar.** 31061 stand im Energiesparmodus
-   auf 1130 (Nein). Vor V1 muss 31061 im Betrieb gelesen werden. Was 1130 auslöst,
-   sagt die SMA-Liste nicht (**Annahme**: Standby oder fehlende Freigabe).
-3. **Rückfallverhalten bekannt.** 41193, 41195, 41215, 44035, 44037 einmal lesen
-   und im Protokoll festhalten. Nicht ändern ohne Absprache.
+   auf 1130 (Nein). Vor V1 muss 31061 im Betrieb 1129 (Ja) zeigen. Was 1130
+   auslöst, sagt die SMA-Liste nicht (**Annahme**: Standby oder fehlende Freigabe).
+3. **Rückfallverhalten bekannt.** 41193, 41195, 41215, 44035, 44037 lesen und im
+   Protokoll festhalten (44035/44037 sind FIX2, Rohwert ÷ 100 = W). Nicht ändern
+   ohne Absprache.
 4. **Betriebsstatus 235** in 33003 zu Testbeginn.
-5. **Unabhängige Beobachtung und Abbruch.** SMA-App oder Webinterface des SBS
-   offen, mit einer Möglichkeit, den SBS ohne Home Assistant und Modbus in den
-   Normalbetrieb zu bringen.
+5. **Unabhängiger Rückweg.** SMA-App oder Webinterface des SBS offen. Vor dem
+   ersten Schreibtest legt Kalrael fest und probiert einmal aus, wie er den SBS
+   ohne Opti Akku in den Normalbetrieb bringt, etwa mit seiner bisherigen Lösung.
+   Welcher Weg am SBS wirkt, ist **Annahme**.
 6. **Ladestand zwischen 30 und 80 %**, damit Laden und Entladen nicht an den
    BMS-Grenzen enden.
 
+## Kodierung für ein eigenes Modbus-Werkzeug
+
+Alle Steuerwerte sind laut **SMA** 32 Bit breit und belegen zwei Register.
+Opti Akku und evcc schreiben sie mit Funktion 16 (Write Multiple Registers) an
+Unit ID 3, höheres Wort zuerst, unter den Adressen der SMA-Liste. Ein einzelnes
+16-Bit-Register zu schreiben reicht nicht.
+
+| Wert | Wörter (hex) |
+|---|---|
+| 0 | `0000 0000` |
+| 500 | `0000 01F4` |
+| −500 | `FFFF FE0C` |
+| 303 / 1438 / 2289 / 2290 / 2424 | `0000 012F` / `0000 059E` / `0000 08F1` / `0000 08F2` / `0000 0978` |
+| 802 / 803 | `0000 0322` / `0000 0323` |
+
 ## Ablauf
 
-Jeder Versuch höchstens 15 Minuten, kleine Leistungen (500 W, beim Entladen nicht
-mehr als der aktuelle Hausverbrauch, damit nichts ins Netz geht). Nach jedem
-Versuch zurück in den Normalbetrieb und 5 Minuten warten.
+Jeder Versuch höchstens 15 Minuten (außer V7), Vorgaben höchstens 500 W. Nach
+jedem Versuch der Rückweg aus Vorbedingung 5 oder V2, dann 5 Minuten warten.
 
 Beobachten, in dieser Reihenfolge priorisiert:
 
 - 31393 / 31395 Lade- und Entladeleistung, 30775 AC-Leistung des SBS
+- Netzbezug und Einspeisung am Sunny Home Manager
 - 30955 `Bat.OpStt` (2291 Standby, 2292 Laden, 2293 Entladen), 30845 Ladestand
 - 33003 / 33001 Status, 30219 Grund der Leistungsbegrenzung
-- Netzbezug und Einspeisung am Sunny Home Manager
 - Ereignismeldungen des SBS, besonders 8708 „Timeout in communication for
   active power limitation“ laut
   [SMA-Betriebsanleitung, Ereignismeldungen](https://manuals.sma.de/SBSxx-10/en-US/391460235.html)
 
-Abbruch sofort, wenn die Leistung in die falsche Richtung geht, mehr als 200 W
-über der Vorgabe liegt, der SBS eine Ereignismeldung zeigt, 33003 nicht mehr 235
-ist oder der Ladestand die Grenzen aus Vorbedingung 6 verlässt.
+Abbruch sofort und Rückweg, wenn
+
+- die Leistung in die falsche Richtung geht oder mehr als 200 W über der Vorgabe liegt,
+- in einem Entladeversuch am Netzanschlusspunkt mehr als 100 W eingespeist werden,
+- in einem Ladeversuch der Netzbezug um mehr als 700 W steigt (V5 darf bis 500 W
+  aus dem Netz laden, das ist der erwartete Effekt),
+- ein Schreibzugriff mit Exception oder Timeout endet. Ein Timeout kann trotzdem
+  angekommen sein; der Zustand gilt dann als unbekannt, bis der Rückweg gewirkt hat,
+- der SBS eine Ereignismeldung zeigt, 33003 nicht mehr 235 ist oder der Ladestand
+  die Grenzen aus Vorbedingung 6 verlässt.
+
+Nach einem Abbruch keine weiteren Schritte am selben Tag ohne Rücksprache in #170.
 
 Zwei Stufen:
 
@@ -138,40 +163,63 @@ Zwei Stufen:
 - **Stufe B, Testversion mit aktivem SBS-Pfad.** Opti Akku schreibt Modus für
   Modus, in derselben Reihenfolge. Erst nach Stufe A.
 
+**N (Sollwert neutralisieren):** 40151=802, sofort 40149=0, dann 40151=803.
+N steht vor dem ersten Schreibtest, weil niemand weiß, was in 40149 noch steht,
+und nach jedem Abbruch. Grund: Am STP SE bleibt ein Sollwert in 40149 unter 803
+stehen und wirkt beim nächsten 802 kurz weiter (#151, V5a).
+
 | Schritt | Ziel | Schreibfolge (Stufe A) |
 |---|---|---|
 | V0 nur lesen | Vorbedingungen 2 bis 4 erfassen | keine; Diagnose im Betrieb tagsüber herunterladen |
-| V1 Pause | Laden und Entladen gesperrt, einmal beim Laden, einmal beim Entladen | 40151=803, 40793=0, 40795=0, 40797=0, 40799=0, 40801=0, 41259=303 |
-| V2 Automatisch | zurück in den Normalbetrieb | 40151=803, 40793=0, 40795=Wert aus 40189, 40797=0, 40799=Wert aus 40191, 40801=0, 41259=1438, dann 40151=802, nach 2 s 40151=803 |
+| V1 Pause | Laden und Entladen gesperrt, einmal beim Laden, einmal beim Entladen | N, 40793=0, 40795=0, 40797=0, 40799=0, 40801=0, 41259=303 |
+| V2 Automatisch | zurück in den Normalbetrieb | 40151=803, 40793=0, 40795=Wert aus 40189, 40797=0, 40799=Wert aus 40191, 40801=0, 41259=1438, dann 40151=802, sofort 40149=0, nach 2 s 40151=803 |
 | V3 nur Laden | Entladen gesperrt, Laden bis 500 W | wie V1, aber 40795=500, 41259=2289 |
 | V4 nur Entladen | Laden gesperrt, Entladen bis 500 W | wie V1, aber 40799=500, 41259=2290 |
-| V5 schnell Laden | Ladung mit fester Leistung | V2-Folge bis 41259=1438, dann 40151=802, 40149=0, nach 2 s 40149=−500; nach 120 s 40151=802, 40149=−500; Ende 40149=0, 40151=803 |
-| V6 schnell Entladen | Entladung mit fester Leistung | wie V5 mit 40149=500 |
+| V5 schnell Laden | Ladung mit fester Leistung | V2 bis 41259=1438, dann 40151=802, sofort 40149=0, nach 2 s 40149=−500; nach 120 s erneuern: 40151=802, nach 2 s 40149=−500; Ende: 40149=0, 40151=803 |
+| V6 schnell Entladen | Entladung mit fester Leistung | V2 bis 41259=1438, dann 40151=802, sofort 40149=0, nach 2 s 40149=500; nach 120 s erneuern: 40151=802, nach 2 s 40149=500; Ende: 40149=0, 40151=803 |
 | V7 Ausfall | Verhalten nach Kommunikationsverlust | siehe unten |
 
-Die Folgen V1 bis V6 entsprechen dem, was Opti Akku am STP SE schreibt
-(**STP SE**, vereinfacht; Pausen von 0,5 s zwischen den Registern). Das
-evcc-Template setzt für den Normalbetrieb dagegen 40236=2424 (Voreinstellung). Das Vorzeichen von 40149 (negativ = Laden) ist am SBS **Annahme**;
-V5 beginnt deshalb mit −500 W und bricht bei falscher Richtung ab. Am STP SE
-verwirft der Wechselrichter CmpBMS-Werte, solange 802 aktiv ist; deshalb steht
-803 vor jeder CmpBMS-Folge (**STP SE**, am SBS **Annahme**).
+Die Folgen sind nach dem Muster des STP-SE-Pfads in `sma.py` gebildet
+(**STP SE**, vereinfacht; dort 0,5 s zwischen den Registern, und die
+CmpBMS-Folge vor 802 nur beim Wechsel aus einem Sperrmodus). Dass der SBS sie
+genauso umsetzt, ist **Annahme**. Insbesondere:
+
+- Das Vorzeichen von 40149 (negativ = Laden) ist am SBS **Annahme**; V5 kommt vor
+  V6 und bricht bei falscher Richtung ab.
+- Der Treiber schreibt 803 vor jede CmpBMS-Folge, weil CmpBMS-Werte unter 802
+  verworfen werden. Das steht als Grundlage im STP-SE-Code, ein unabhängiger
+  Hardwarebeleg liegt hier nicht vor.
+- Für den Normalbetrieb schreibt Opti Akku 41259=1438, das evcc-Template dagegen
+  40236=2424 (Voreinstellung). Was davon den SBS wirklich in seinen Normalbetrieb
+  bringt, klärt V2. Bis dahin ist V2 kein belegter Rückweg.
 
 Je Schritt festhalten: Uhrzeit jedes Schreibvorgangs, Antwort des Geräts
 (Exception ja/nein), Zeit bis zur Wirkung, eingeschwungene Leistung,
-Abweichung zur Vorgabe.
+Abweichung zur Vorgabe, Netzbezug und Einspeisung.
 
 ### V7 Kommunikationsausfall
 
-Zuerst geordnet: nach einem vollständigen V3-Befehl den Modbus-Client beenden und
-beobachten, ob der SBS die Vorgabe hält, in den Normalbetrieb fällt oder die
-Rückfallwerte übernimmt. Danach dasselbe mit V5 (aktive Vorgabe über 40149).
-
 Laut **SMA** gilt für die externe Wirkleistungsvorgabe: Nach 41195 Sekunden ohne
 Vorgabe greift 41193, also Werte beibehalten (2506) oder Rückfallwerte übernehmen
-(2507, mit 41215, 44035, 44037). Ob das auch für die CmpBMS-Fenster und die
+(2507, mit 41215 und 44035/44037). Ob das auch für die CmpBMS-Fenster und die
 BMS-Betriebsart gilt, steht nicht in der Liste (**Annahme**, zentraler Punkt von
-V7). Opti Akku erneuert Befehle alle 120 Sekunden (**STP SE**); ein Timeout unter
-120 s würde zwischen zwei Erneuerungen auslösen.
+V7).
+
+V7 nur, wenn die in V0 gelesenen Werte das zulassen:
+
+- 41193=2506, oder 41193=2507 mit Rückfallwerten, die zusammen höchstens 500 W
+  Lade- oder Entladeleistung ergeben können. Sonst erst in #170 besprechen.
+- 41195 höchstens 900 s. Die Beobachtung dauert 41195 plus 5 Minuten; erst danach
+  zählt „keine Reaktion“ als Ergebnis. Bei längerem Timeout kein V7 ohne
+  Absprache über eine Änderung von 41195.
+
+Ablauf: Zuerst nach einem vollständigen V3-Befehl den Modbus-Client beenden und
+beobachten, ob der SBS die Sperre hält, in den Normalbetrieb fällt oder die
+Rückfallwerte übernimmt. Danach dasselbe mit V5 (aktive Vorgabe über 40149).
+Die Abbruchkriterien gelten weiter.
+
+Opti Akku erneuert Befehle alle 120 Sekunden (**STP SE**). Ein Timeout unter
+120 s plus Reserve würde zwischen zwei Erneuerungen auslösen.
 
 Bekannte Lücke wie beim STP SE: Die Sicherheits-Pause nach einem abgebrochenen
 Schreibvorgang prüft den Betriebsstatus. Steht der SBS dann im Energiesparmodus
@@ -190,19 +238,31 @@ wiederzuverwenden statt einen zweiten zu schreiben.
 2. **Status.** 33003 zuerst, 33001 nur ohne Wert aus 33003, wie jetzt im
    Leseprofil. Für Länderdatensätze vor 2018 eine Entscheidung zu 40029.
    `allowed_statuses` bleibt 235/2119.
-3. **Nacht-Bereitschaft.** `SMA_STANDBY_STATUS_CODES` in `alerts.py` um 2531
-   erweitern, mit denselben Bedingungen wie bei #103.
-4. **Messwerte.** `SbsDevice.async_read` beibehalten: kein PV-Eingang,
+3. **Schreibvoraussetzungen.** 31061 vor jeder Transaktion lesen und bei 1130
+   nicht schreiben (fail closed). 41195 und 41193 beim Start lesen; ist der
+   Timeout kürzer als das Erneuerungsintervall plus Reserve, nicht freigeben
+   oder das Intervall anpassen.
+4. **Energiesparmodus.** Mit 2531 bleibt `write_ready` falsch (`recovery.py`),
+   der Treiber verweigert Schreibzugriffe. Nachts mit leerem Akku kann Opti Akku
+   damit kein Netzladen starten. Ob ein Schreibzugriff den SBS aus 2531 weckt,
+   ist offen und braucht einen eigenen Versuch; bis dahin ist das eine
+   dokumentierte Einschränkung. 2531 pauschal als bereit zu werten deckt der
+   Beleg nicht.
+5. **Nacht-Bereitschaft.** `SMA_STANDBY_STATUS_CODES` in `alerts.py` um 2531
+   erweitern, mit denselben Bedingungen wie bei #103. Das unterdrückt nur den
+   Alarm, nicht die Einschränkung aus Punkt 4.
+6. **Messwerte.** `SbsDevice.async_read` beibehalten: kein PV-Eingang,
    PV-Erzeugung aus einer HA-Quelle, Akkuleistung aus 31393/31395.
-5. **Profil und Einrichtung.** Ein aktives SBS-Profil neben dem lesenden
+7. **Profil und Einrichtung.** Ein aktives SBS-Profil neben dem lesenden
    `sma_sbs`. Die heutige Sperre in `__init__.py` und `config_flow.py`
    (immer Shadow, keine Übernahme in die aktive Steuerung) gilt weiter für das
    lesende Profil; das aktive Profil durchläuft wie der STP SE erst den
    Shadow-Abschluss.
-6. **Modusauswahl.** Erst die Modi anbieten, die in Stufe A bestanden haben.
+8. **Modusauswahl.** Erst die Modi anbieten, die in Stufe A bestanden haben.
    `supported_modes` je Profil gibt es schon.
-7. **Tests.** Fake-Gerät mit SBS-Identität für jeden freigegebenen Modus,
-   Rückfall bei 2531 vor und während einer Transaktion, Grenzen aus 40189/40191.
+9. **Tests.** Fake-Gerät mit SBS-Identität für jeden freigegebenen Modus,
+   Rückfall bei 2531 vor und während einer Transaktion, 31061=1130, kurzer
+   Timeout in 41195, Grenzen aus 40189/40191.
 
 Offen bleibt die Abstimmung mit dem Sunny-Island-Profil aus PR #203, das dieselbe
 Geräteklasse erweitert.

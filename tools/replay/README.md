@@ -36,6 +36,27 @@ Policies:
   Tag-/Nachtverhältnis bildet das nicht ab. Rastergestützte Statistiken
   (`sample_interval`) bekommen den Simulationsschritt als Raster, damit ihre
   Abdeckung (`coverage_ok`) zur Schrittweite passt.
+  `strategy+peakprofil[@…]` liefert der Engine in jedem Schritt
+  `sensor.opti_peak_load_profile` mit den Attributen `hours`/`methods`, die
+  die Peak-Reserve (`peak` in `strategy/templates.yaml`) statt des festen
+  `input_number.opti_peak_verbrauch_kw` liest. Erzeugt wird es mit dem
+  unveränderten Integrationscode: `DemandForecast._expected` (Median der letzten
+  42 Tage je Ortsstunde, gleicher Wochentag ab 2 Tagen, sonst gleiche
+  Werktag/Wochenend-Klasse ab 3 Tagen, je Zelle mindestens 30 min) und
+  `peak_load_profile` (20 % Aufschlag, Kurzzeit-Aufschlag `extra_base_load_w`,
+  fester Wert je Stunde ohne Profil, 37 Stunden). Gelernt wird nur aus
+  abgeschlossenen Schritten: Jeder Schritt schreibt die mittlere Hauslast des
+  vorigen Schritts für dessen Dauer in die Zelle seiner Ortsstunde
+  (minutengenau geteilt wie `_learn`). Annäherungen gegenüber live: Live lernt
+  `_learn` aus Messpunkten mit höchstens 90 s Abstand, hier aus 15-min-Mitteln;
+  keine Wärme-, Warmwasser- oder EV-Quellen (Kontext immer `unknown`); kein
+  Recorder-Vorwissen (`HistoricalPrior` leer), ein neues Profil fällt also
+  bis zu einigen Tagen auf den festen Wert zurück. Gelernte Zellen überdauern
+  Messlücken (live gespeichert), über eine Lücke hinweg wird nichts gelernt.
+  Die Modifikatoren lassen sich kombinieren (`strategy+lastprofil+peakprofil`).
+  Die Zusammenfassung nennt Profilstatus je Schritt und die mittlere von der
+  Reserve angenommene Last in den Peak-Stunden (`peak_reserve_mean_assumed_load_w`,
+  nach Peak-Stunden gewichtet über alle Schritte mit Peak im Horizont).
 - `oracle[@hold|@value]`: perfekte Voraussicht je Messblock mit dem Planer-Kern
   (`custom_components/opti_akku/planner.py`, DP über die gespeicherte Energie).
   `hold` (Standard) verlangt am Blockende mindestens den Start-SoC, `value`
@@ -139,7 +160,8 @@ Jeder Schritt erfüllt `pv + import + discharge = load + export + charge`.
   `interpolated` markiert, längere bleiben `missing`; Kosten zählen nur Schritte mit Preis.
 - **Live-Messwerte** für die Engine (PV, Hausverbrauch, Netz, Akku) sind die
   Leistungen des vorherigen Simulationsschritts; der SoC ist der simulierte.
-  Batterietemperatur fest 25 °C, keine EV-, Zellspreizungs- oder Lastprofil-Eingänge.
+  Batterietemperatur fest 25 °C, keine EV- oder Zellspreizungs-Eingänge; ein
+  Lastprofil nur mit `+lastprofil` oder `+peakprofil`.
 - **Sonnenstand** über `astral` (Standard 51° N, 10° O, `--latitude/--longitude`),
   ohne astral eine grobe Monatstabelle; der Bericht nennt die Quelle.
 - **Engine-Zustand** (Latches, Hysteresen, Statistik) bleibt über alle Schritte in

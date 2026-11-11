@@ -893,7 +893,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         try:
             curve = parse_curve(self.entry.options.get("charge_curve"))
-        except ChargeCurveError:
+        except (ChargeCurveError, TypeError, ValueError, OverflowError):
             return 0.0, "Ladekurve ungültig: Laden gesperrt"
         limit = curve_limit(curve, finite(states.get("sensor.opti_soc")))
         if limit is None:

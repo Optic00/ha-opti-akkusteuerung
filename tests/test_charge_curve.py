@@ -61,6 +61,8 @@ def test_points_are_sorted_and_stored_as_whole_numbers():
     ([point(85, 70.5)], "charge_curve_power"),
     ([point(85, float("inf"))], "charge_curve_power"),
     ([point(85, None)], "charge_curve_power"),
+    ([point(10**309, 100)], "charge_curve_soc"),
+    ([point(85, 10**309)], "charge_curve_power"),
     ([point(85, 4000), point(85, 3000)], "charge_curve_duplicate"),
     ([point(85, 3000), point(93, 4000)], "charge_curve_rising"),
     ([point(99, 2500), point(85, 250)], "charge_curve_rising"),
@@ -80,6 +82,7 @@ def test_format_curve_summarises_without_raising():
     assert format_curve(SVEN).startswith("ab 85 % 4000 W, ab 93 % 3000 W")
     assert format_curve(None) == "—"
     assert format_curve([point(85, 3000), point(93, 4000)]) == "ungültig"
+    assert format_curve([point(85, 10**309)]) == "ungültig"
 
 
 # --- Step selection at the boundaries ---------------------------------------
@@ -255,6 +258,10 @@ async def test_invalid_stored_curve_blocks_charging(coordinator):
     states = {SOC: 50, TEMP: 22, POWER: 2000, "sensor.opti_battery_capacity_kwh": 12.8}
     params = params_for(coordinator, states, [point(85, 3000), point(93, 4000)])
     assert all(params[key] == 0 for key in CHARGE_KEYS)
+    # Any unexpected parser error also blocks instead of skipping the curve.
+    with patch("custom_components.opti_akku.coordinator.parse_curve", side_effect=OverflowError):
+        broken = coordinator._parameters(states)
+    assert all(broken[key] == 0 for key in CHARGE_KEYS)
     assert coordinator._charge_curve_limit(states) == (0.0, "Ladekurve ungültig: Laden gesperrt")
 
 

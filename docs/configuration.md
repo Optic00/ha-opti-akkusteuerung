@@ -100,9 +100,13 @@ Kleine Leistungen und Sonderfälle:
   ab. Beides kann die Grenze nur unterschreiten.
 - Die Einschwingbegrenzung des SMA-Adapters in **Akku Dynamisch** (500 W in
   den ersten 330 Sekunden) senkt nur weiter ab.
-- Vorgezogene Schreibvorgänge vergleicht der SMA-Adapter in 50-W-Schritten.
-  Ein Wechsel von 250 auf 70 W wird sofort geschrieben; kleinere Änderungen
-  folgen spätestens mit der regelmäßigen Erneuerung nach 120 Sekunden.
+- Die Kurve wirkt mit dem nächsten Steuerzyklus (alle 15 Sekunden).
+  Vorgezogene Schreibvorgänge vergleicht der SMA-Adapter in 50-W-Schritten:
+  Ein Wechsel von 250 auf 70 W löst sofort einen Schreibvorgang aus, kleinere
+  Änderungen folgen spätestens mit der regelmäßigen Erneuerung nach
+  120 Sekunden. In den Modi mit festem Sollwert (**Akku Netzladen**,
+  **Akku schnell Laden**, **Akku 0.2C Laden**) gilt der bisherige Sollwert
+  während der Umschaltsequenz noch etwa zwei Sekunden, bevor der neue greift.
 - Ob Wechselrichter und BMS sehr kleine Leistungen wie 70 W genau halten, hängt
   vom Gerät ab und ist nicht geprüft. Liegt die Kurvenleistung unter dem, was
   das Gerät regeln kann, lädt der Akku je nach Gerät etwas mehr, gar nicht oder

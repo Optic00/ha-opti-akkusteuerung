@@ -36,9 +36,11 @@ class ChargeCurveError(ValueError):
 
 def _whole(value: Any) -> int | None:
     """A finite whole number (selectors deliver 85.0), never a bool or text."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool):
         return None
-    if not math.isfinite(value) or value != int(value):
+    if isinstance(value, int):
+        return value  # Range checks follow; no float conversion (10**309 overflows).
+    if not isinstance(value, float) or not math.isfinite(value) or value != int(value):
         return None
     return int(value)
 

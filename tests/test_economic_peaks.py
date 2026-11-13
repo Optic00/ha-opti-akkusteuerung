@@ -99,14 +99,15 @@ def _slot_price(now, today, tomorrow):
 
 def evaluate(now, *, soc, today=TODAY_1311, tomorrow=TOMORROW_1311, mode="Akku Dynamisch",
              rising=dt.datetime(2026, 11, 14, 7, 48, tzinfo=TZ), model=True, score=0,
-             capacity=12.8, minsoc=15, halte_spread=5):
+             capacity=12.8, minsoc=15, halte_spread=5, current_price=None):
     values = {
         "input_boolean.akku_opti_automatik": "on",
         "input_boolean.opti_prognose_netzladen": "on",
         "input_boolean.opti_pv_ueberschuss_ladung": "on",
         "sensor.opti_soc": soc,
         "sensor.opti_battery_capacity_kwh": capacity,
-        "sensor.opti_price_current_ct_kwh": _slot_price(now, today, tomorrow),
+        "sensor.opti_price_current_ct_kwh": (
+            _slot_price(now, today, tomorrow) if current_price is None else current_price),
         "sensor.opti_forecast_score": score,
         "sensor.opti_forecast_score_tomorrow": 4,
         "binary_sensor.opti_peak_horizont_lang": "off",
@@ -157,13 +158,14 @@ def test_cheap_window_precharges_for_economic_evening_and_night():
 
 def test_afternoon_after_the_low_keeps_holding_the_charged_energy():
     # 15:00, 34,5 ct: das 28-ct-Tief ist vorbei. Die gespeicherte Energie zaehlt
-    # fuer die Slots, die das Tief vor ihnen schlagen; der Akku entlaedt nicht
-    # unter Ladepreis, die Reserve steigt aber nicht ueber den SoC.
-    result = evaluate(at(15), soc=82)
+    # fuer Slots, die das Tief vor ihnen schlagen und mindestens den
+    # Halte-Spread (5 ct) ueber dem jetzigen Preis liegen; der Akku entlaedt
+    # nicht unter Ladepreis, die Reserve steigt aber nicht ueber den SoC.
+    result = evaluate(at(15), soc=80)
     attrs = reserve(result)
     assert result.states["sensor.opti_price_level"] in ("VERY_CHEAP", "CHEAP", "NORMAL")
-    assert float(attrs["reserve_kern_soc"]) < 82
-    assert float(result.states["sensor.opti_peak_reserve_soc"]) == pytest.approx(82)
+    assert float(attrs["reserve_kern_soc"]) < 80
+    assert float(result.states["sensor.opti_peak_reserve_soc"]) == pytest.approx(80)
     assert result.decision_id == "peak_l4"
     assert result.mode == "Akku nur Laden"
 
@@ -190,15 +192,17 @@ def test_economic_slot_discharges_only_the_surplus_over_later_expensive_slots():
     assert result.decision_id == "peak_l2"
 
 
-def test_economic_slot_keeps_energy_for_more_expensive_later_slots():
-    # Gleicher Slot, die Energie reicht nicht fuer die teureren Abendslots:
-    # nicht angehoben, L4 haelt.
+def test_economic_slot_below_hold_spread_is_not_raised_but_may_discharge():
+    # 15:45, 39,37 ct, SoC 82 %: zu wenig fuer alle teureren Folge-Slots, also
+    # nicht angehoben. Die Abendslots liegen aber weniger als den Halte-Spread
+    # hoeher, deshalb haelt die Leiter den Inhalt ueber der Kernreserve nicht.
     result = evaluate(at(15, 45), soc=82)
     attrs = reserve(result)
     assert attrs["aktueller_slot_wirtschaftlich"] is False
     assert result.states["sensor.opti_price_level"] == "NORMAL"
-    assert result.decision_id == "peak_l4"
-    assert result.mode == "Akku nur Laden"
+    assert float(result.states["sensor.opti_peak_reserve_soc"]) == pytest.approx(
+        float(attrs["reserve_kern_soc"]))
+    assert result.decision_id != "peak_l4"
 
 
 def _issue_231_prices():
@@ -269,8 +273,21 @@ def test_peak_rank_mirror_counts_the_same_peak_hours(moment):
     end = dt.datetime.fromisoformat(attrs["horizont_ende"])
     start = _hour_start(now, TZ)
     window = [i for i, slot in enumerate(periods) if start <= slot[0] < end]
-    peaks, _stored = _classify(
+    peaks, _stored, _percentile = _classify(
         periods, window, now, prices=[slot[2] for slot in periods],
         window_min=min(periods[i][2] for i in window), surcharge=5,
-        model=BatteryModel.default())
+        model=BatteryModel.default(), spread=10)
     assert len(peaks) / 4 == pytest.approx(attrs["peak_stunden_ve"] + attrs["peak_stunden_exp"])
+
+
+def test_mismatched_current_price_never_raises_the_level():
+    # Review-Befund: Preisreihe und aktueller Preis kommen aus getrennten
+    # Quellen. Passt der aktuelle Preis (28 ct) nicht zum eingestuften Slot
+    # (39,37 ct), bleibt es beim Perzentil und der Akku entlaedt nicht.
+    now = at(15, 45)
+    values_price = 28.0
+    result = evaluate(now, soc=95, current_price=values_price)
+    assert reserve(result)["aktueller_slot_wirtschaftlich"] is True
+    assert result.attributes["sensor.opti_price_level"]["wirtschaftlich_angehoben"] is False
+    assert result.states["sensor.opti_price_level"] != "EXPENSIVE"
+    assert result.decision_id not in ("peak_l1", "peak_l2")

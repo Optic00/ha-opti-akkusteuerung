@@ -16,16 +16,21 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Morgenstunden heraus. Die Reserve blieb dann zu klein, und Peak-Vorladen griff
   im günstigsten Fenster des Tages nicht. Jetzt zählt ein Slot zusätzlich, wenn
   er das günstigste noch erreichbare Tief vor ihm samt Lade- und
-  Entladeverlusten, Zykluskosten (Akkumodell) und Peak-Aufschlag übersteigt.
-  Energie, die schon günstig geladen ist, hält die Leiter für Slots, die das
-  Tagestief vor ihnen schlagen, höchstens bis zum aktuellen Ladestand. Ein so
-  erkannter Slot gilt als „teuer“ (`sensor.opti_price_level` EXPENSIVE,
-  Attribut `wirtschaftlich_angehoben`), aber nur, solange der Akku mehr enthält,
-  als teurere spätere Slots brauchen. Sonst hält L4 die Energie für die teureren
-  Slots. Ohne gültiges Akkumodell bleibt es beim reinen Perzentil. Neue
-  Attribute an `sensor.opti_peak_reserve_soc`: `aktueller_slot_wirtschaftlich`,
+  Entladeverlusten und Zykluskosten (Akkumodell) übersteigt, mindestens um den
+  Netzlade-Spread. Die Spread-Prüfung des Peak-Vorladens rechnet weiter mit dem
+  Mittel der Perzentil-Peaks. Energie, die schon günstig geladen ist, hält die
+  Leiter höchstens bis zum aktuellen Ladestand für Slots, die das Tagestief vor
+  ihnen schlagen und mindestens den Halte-Spread über dem jetzigen Preis
+  liegen. Ein so erkannter laufender Slot gilt als „teuer“
+  (`sensor.opti_price_level` EXPENSIVE, Attribut `wirtschaftlich_angehoben`),
+  aber nur, wenn der aktuelle Preis zum Slot der Preisreihe passt und der Akku
+  mehr enthält, als teurere spätere Slots brauchen. Sonst hält L4 die Energie
+  für die teureren Slots. Ohne gültiges Akkumodell bleibt es beim reinen
+  Perzentil. Neue Attribute an `sensor.opti_peak_reserve_soc`:
+  `aktueller_slot_wirtschaftlich`, `aktueller_slot_preis_ct`,
   `reserve_kern_soc`, `reserve_schutz_soc`, `peak_preis_schutz_avg_ct`. Die
-  Peak-Rangfolge stuft Slots gleich ein.
+  Peak-Rangfolge stuft Slots gleich ein. Replay über 14 Monate gegen `main`:
+  −0,5 € bei gleicher Netzladung und Einspeisung.
 
 ## [2026.11-beta7] - 2026-11-11
 

@@ -97,34 +97,39 @@ def _peak_percentile(prices: Sequence[float], price: float) -> float:
     return result
 
 
-def _economic_floor(low: float, surcharge: float, model: BatteryModel) -> float:
-    """Model minimum, at least the peak surcharge over the reference."""
-    return max(model.minimum_high_price(low), low + surcharge)
+def _economic_floor(low: float, margin: float, model: BatteryModel) -> float:
+    """Model minimum, at least ``margin`` (spread or surcharge) over the reference."""
+    return max(model.minimum_high_price(low), low + margin)
 
 
 def _classify(periods: Sequence[Slot], window: Sequence[int], now: datetime, *,
               prices: Sequence[float], window_min: float | None, surcharge: float,
-              model: BatteryModel) -> tuple[set[int], set[int]]:
+              model: BatteryModel, spread: float = 10.0) -> tuple[set[int], set[int], set[int]]:
     """Peak and stored-economic slots exactly as ``sensor.opti_peak_reserve_soc``.
 
     Peak: percentile >= 0.6 above the surcharge, or forward economic (beats the
     cheapest not yet ended window slot before it by the model's minimum and the
-    surcharge). Stored: not a peak, but beats the cheapest slot before it since
-    the start of the price series the same way (issue #231). The template caps stored slots at the
+    grid-charge spread, as precharging itself). Stored: not a peak, but beats
+    the cheapest slot before it since the start of the price series by the
+    model's minimum and the surcharge (issue #231). The template caps stored slots at the
     current battery content; the rank allocation does that through
-    ``usable`` already.
+    ``usable`` already. The third set holds the percentile peaks alone, the
+    template's reference for the precharge spread average.
     """
     economic = model.economics_valid
     in_window = set(window)
     peaks: set[int] = set()
     stored: set[int] = set()
+    percentile: set[int] = set()
     reference: float | None = None
     forward: float | None = None
     for index, (_start, stop, price) in enumerate(periods):
         if index in in_window:
             percentile_peak = (_peak_percentile(prices, price) >= PEAK_PERCENTILE
                                and (window_min is None or price >= window_min + surcharge))
-            ahead = economic and forward is not None and price >= _economic_floor(forward, surcharge, model)
+            ahead = economic and forward is not None and price >= _economic_floor(forward, spread, model)
+            if percentile_peak:
+                percentile.add(index)
             if percentile_peak or ahead:
                 peaks.add(index)
             elif economic and reference is not None and price >= _economic_floor(reference, surcharge, model):
@@ -132,7 +137,7 @@ def _classify(periods: Sequence[Slot], window: Sequence[int], now: datetime, *,
             if stop > now:
                 forward = price if forward is None else min(forward, price)
         reference = price if reference is None else min(reference, price)
-    return peaks, stored
+    return peaks, stored, percentile
 
 
 def _load_kw(hours: Any, start: datetime, fallback_kw: float) -> float:
@@ -179,7 +184,7 @@ def _grid_charge_possible(*, price: float, minimum: float | None, average: float
 
 
 def _refill(slots: Sequence[Slot], peaks: set[int], first: int, end: datetime, timezone: tzinfo, *,
-            grid: bool, spread: float, feed_in: float, maxsoc: float,
+            grid: bool, percentile: set[int] | None = None, spread: float, feed_in: float, maxsoc: float,
             surcharge: float, charging: bool, model: BatteryModel) -> tuple[int, str] | None:
     """Erstes mögliches Netzladefenster, kein belastbarer Refill.
 
@@ -209,7 +214,10 @@ def _refill(slots: Sequence[Slot], peaks: set[int], first: int, end: datetime, t
             if i in future_peaks:
                 break
             before_peak.append(slots[i][2])
-        ahead = [slots[i][2] for i in view if i in future_peaks]
+        # Spread average over percentile peaks, as the template; economic
+        # peaks only when there is none (issue #231).
+        spread_peaks = [i for i in view if i in future_peaks and (percentile is None or i in percentile)]
+        ahead = [slots[i][2] for i in (spread_peaks or [i for i in view if i in future_peaks])]
         kind = _grid_charge_possible(
             price=price, minimum=round(min(before_peak), 2) if before_peak else None,
             average=round(sum(ahead) / len(ahead), 2) if ahead else None,
@@ -295,10 +303,12 @@ def peak_rank_check(
     window_start = _hour_start(now, timezone)
     window = [i for i, slot in enumerate(periods) if window_start <= slot[0] < end]
     window_min = min(periods[i][2] for i in window) if window else None
-    peaks, stored = _classify(periods, window, now, prices=prices, window_min=window_min,
-                              surcharge=values["surcharge"], model=battery_model)
+    spread = value if (value := _number(spread_ct)) is not None else 10
+    peaks, stored, percentile = _classify(periods, window, now, prices=prices, window_min=window_min,
+                                          surcharge=values["surcharge"], model=battery_model,
+                                          spread=spread)
     refill = _refill(
-        periods, peaks, current + 1, end, timezone, grid=grid_charging,
+        periods, peaks, current + 1, end, timezone, grid=grid_charging, percentile=percentile,
         spread=value if (value := _number(spread_ct)) is not None else 10,
         feed_in=value if (value := _number(feed_in_ct)) is not None else 0,
         maxsoc=value if (value := _number(maxsoc)) is not None else 95,

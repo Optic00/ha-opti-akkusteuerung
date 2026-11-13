@@ -258,6 +258,7 @@ def peak_rank_check(
     discharge_efficiency: float,
     battery_model: BatteryModel,
     maxsoc: Any = 95,
+    hold_spread_ct: Any = 3,
 ) -> dict[str, Any]:
     """Return the rank verdict for this cycle; never raises on bad input.
 
@@ -324,10 +325,13 @@ def peak_rank_check(
                           "Lademodus für das mögliche Netzladefenster sind nicht belegt"}
     boundary = end
 
-    # Stored economic slots compete for the battery like peaks (as the
-    # template's rank protection does); only the refill check uses peaks.
+    # Stored economic slots compete for the battery like peaks, but only at
+    # least the hold spread above the current price, as the reserve template
+    # holds them; only the refill check uses peaks.
+    hold_spread = value if (value := _number(hold_spread_ct)) is not None else 3
+    held = {i for i in stored if periods[i][2] >= periods[current][2] + hold_spread}
     candidates = sorted(
-        {current, *(i for i in peaks | stored if current < i and periods[i][0] < boundary)},
+        {current, *(i for i in peaks | held if current < i and periods[i][0] < boundary)},
         key=lambda i: (-periods[i][2], periods[i][0]),
     )
     usable = values["capacity"] * max(0.0, values["soc"] - values["minsoc"]) / 100 * discharge_efficiency

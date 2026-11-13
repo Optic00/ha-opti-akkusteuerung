@@ -677,6 +677,15 @@ template_blocks:
         {% elif pct < 0.80 %}{% set level = 'EXPENSIVE' %}
         {% else %}{% set level = 'VERY_EXPENSIVE' %}
         {% endif %}
+        {# Issue #231: Zaehlt die Peak-Reserve den laufenden Slot als
+           wirtschaftlichen Peak, gilt er mindestens als EXPENSIVE. Sonst hielte
+           L4 genau in den Slots, fuer die die Reserve geladen wurde. Ohne
+           gueltige Reserve bleibt es beim reinen Perzentil. #}
+        {% if level in ['VERY_CHEAP', 'CHEAP', 'NORMAL']
+              and has_value('sensor.opti_peak_reserve_soc')
+              and (state_attr('sensor.opti_peak_reserve_soc', 'aktueller_slot_wirtschaftlich') | string | lower) == 'true' %}
+          {% set level = 'EXPENSIVE' %}
+        {% endif %}
         {{ level }}
       {% else %}
         {# Zweite Verteidigungslinie zur availability oben: auch wenn dieses
@@ -698,6 +707,9 @@ template_blocks:
           {% endif %}
         {% endfor %} {% set prices = ns.prices %} {% if prices | length >= 4 %}{{ (((prices | select('lt', current) | list | length) + 0.5 * (prices | select('eq', current) | list | length)) / (prices | length) * 100) | round(1) }}{% else %}none{% endif %}
       aktueller_preis: '{{ states(''sensor.opti_price_current_ct_kwh'') | float(0) }}'
+      wirtschaftlich_angehoben: |
+        {{ has_value('sensor.opti_peak_reserve_soc')
+           and (state_attr('sensor.opti_peak_reserve_soc', 'aktueller_slot_wirtschaftlich') | string | lower) == 'true' }}
       anzahl_preise: |
         {% set ns = namespace(c=0) %} {% for key in ['today', 'tomorrow'] %}
           {% set arr = state_attr('sensor.opti_price_series', key) %}
@@ -774,7 +786,7 @@ template_blocks:
     availability: '{{ has_value(''sensor.opti_soc'') and has_value(''sensor.opti_battery_capacity_kwh'')
       }}'
     state: |
-      {% set soc = states('sensor.opti_soc')|float(-1) %} {% set s = states('sensor.opti_forecast_score')|float(-1) %} {% set st = states('sensor.opti_forecast_score_tomorrow')|float(-1) %} {% set price = states('sensor.opti_price_level') %} {% set target = states('sensor.opti_target_soc')|float(100) %} {% set minsoc = states('input_number.minsoc')|float(10) %} {% set day = is_state('sun.sun','above_horizon') %} {% set prog = states('input_boolean.opti_prognose_netzladen') == 'on' %} {% set ueb = states('input_boolean.opti_pv_ueberschuss_ladung') == 'on' %} {% set win = states('binary_sensor.opti_winter_charging_allowed') == 'on' %} {% set hv_s = has_value('sensor.opti_forecast_score') %} {% set hv_st = has_value('sensor.opti_forecast_score_tomorrow') %} {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %} {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %} {% set p_c = price in ['VERY_CHEAP','CHEAP'] %} {% set H = 3 %} {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %} {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %} {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %} {% set spread = states('input_number.opti_netzlade_spread_ct')|float(10) %} {% set aktiv = is_state('binary_sensor.opti_peak_reserve_aktiv','on') %} {% set ges_res = states('sensor.opti_peak_reserve_soc')|float(101) %} {% set ve_res = state_attr('sensor.opti_peak_reserve_soc','reserve_ve_soc')|float(101) %} {% set minv_raw = state_attr('sensor.opti_peak_reserve_soc','min_preis_vor_peak_ct') %} {% set minv = minv_raw|float(none) if minv_raw is not none else none %} {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %} {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_ve_avg_ct')|float(none) %} {% set halte_spread = states('input_number.opti_halte_spread_ct')|float(3) %} {% set band = 2 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 0 %} {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %} {# Ladefenster mit Hysterese (Issue #111): Einstieg bis minv+0.5 ct, im Modus
+      {% set soc = states('sensor.opti_soc')|float(-1) %} {% set s = states('sensor.opti_forecast_score')|float(-1) %} {% set st = states('sensor.opti_forecast_score_tomorrow')|float(-1) %} {% set price = states('sensor.opti_price_level') %} {% set target = states('sensor.opti_target_soc')|float(100) %} {% set minsoc = states('input_number.minsoc')|float(10) %} {% set day = is_state('sun.sun','above_horizon') %} {% set prog = states('input_boolean.opti_prognose_netzladen') == 'on' %} {% set ueb = states('input_boolean.opti_pv_ueberschuss_ladung') == 'on' %} {% set win = states('binary_sensor.opti_winter_charging_allowed') == 'on' %} {% set hv_s = has_value('sensor.opti_forecast_score') %} {% set hv_st = has_value('sensor.opti_forecast_score_tomorrow') %} {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %} {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %} {% set p_c = price in ['VERY_CHEAP','CHEAP'] %} {% set H = 3 %} {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %} {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %} {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %} {% set spread = states('input_number.opti_netzlade_spread_ct')|float(10) %} {% set aktiv = is_state('binary_sensor.opti_peak_reserve_aktiv','on') %} {% set ges_res = states('sensor.opti_peak_reserve_soc')|float(101) %} {% set ve_res = state_attr('sensor.opti_peak_reserve_soc','reserve_schutz_soc')|float(101) %} {% set minv_raw = state_attr('sensor.opti_peak_reserve_soc','min_preis_vor_peak_ct') %} {% set minv = minv_raw|float(none) if minv_raw is not none else none %} {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %} {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_schutz_avg_ct')|float(none) %} {% set halte_spread = states('input_number.opti_halte_spread_ct')|float(3) %} {% set band = 2 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 0 %} {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %} {# Ladefenster mit Hysterese (Issue #111): Einstieg bis minv+0.5 ct, im Modus
          'Akku Netzladen' halten bis minv+1.5 ct. Viertelstundenpreise schwanken
          um bis zu 1 ct um das Horizont-Tief; ohne Band flattert der Modus
          Netzladen<->L4 im Viertelstundentakt. #}
@@ -804,7 +816,7 @@ template_blocks:
       {%- elif soc >= 0 %}Akku Dynamisch {%- else %}unbekannt{% endif %}
     attributes:
       grund: |
-        {% set soc = states('sensor.opti_soc')|float(-1) %} {% set s = states('sensor.opti_forecast_score')|float(-1) %} {% set st = states('sensor.opti_forecast_score_tomorrow')|float(-1) %} {% set price = states('sensor.opti_price_level') %} {% set target = states('sensor.opti_target_soc')|float(100) %} {% set minsoc = states('input_number.minsoc')|float(10) %} {% set day = is_state('sun.sun','above_horizon') %} {% set prog = states('input_boolean.opti_prognose_netzladen') == 'on' %} {% set ueb = states('input_boolean.opti_pv_ueberschuss_ladung') == 'on' %} {% set win = states('binary_sensor.opti_winter_charging_allowed') == 'on' %} {% set hv_s = has_value('sensor.opti_forecast_score') %} {% set hv_st = has_value('sensor.opti_forecast_score_tomorrow') %} {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %} {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %} {% set p_c = price in ['VERY_CHEAP','CHEAP'] %} {% set H = 3 %} {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %} {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %} {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %} {% set spread = states('input_number.opti_netzlade_spread_ct')|float(10) %} {% set aktiv = is_state('binary_sensor.opti_peak_reserve_aktiv','on') %} {% set ges_res = states('sensor.opti_peak_reserve_soc')|float(101) %} {% set ve_res = state_attr('sensor.opti_peak_reserve_soc','reserve_ve_soc')|float(101) %} {% set minv_raw = state_attr('sensor.opti_peak_reserve_soc','min_preis_vor_peak_ct') %} {% set minv = minv_raw|float(none) if minv_raw is not none else none %} {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %} {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_ve_avg_ct')|float(none) %} {% set halte_spread = states('input_number.opti_halte_spread_ct')|float(3) %} {% set band = 2 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 0 %} {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %} {# Ladefenster mit Hysterese (Issue #111): Einstieg bis minv+0.5 ct, im Modus
+        {% set soc = states('sensor.opti_soc')|float(-1) %} {% set s = states('sensor.opti_forecast_score')|float(-1) %} {% set st = states('sensor.opti_forecast_score_tomorrow')|float(-1) %} {% set price = states('sensor.opti_price_level') %} {% set target = states('sensor.opti_target_soc')|float(100) %} {% set minsoc = states('input_number.minsoc')|float(10) %} {% set day = is_state('sun.sun','above_horizon') %} {% set prog = states('input_boolean.opti_prognose_netzladen') == 'on' %} {% set ueb = states('input_boolean.opti_pv_ueberschuss_ladung') == 'on' %} {% set win = states('binary_sensor.opti_winter_charging_allowed') == 'on' %} {% set hv_s = has_value('sensor.opti_forecast_score') %} {% set hv_st = has_value('sensor.opti_forecast_score_tomorrow') %} {% set p_e = price in ['VERY_CHEAP','CHEAP','NORMAL','EXPENSIVE'] %} {% set p_n = price in ['VERY_CHEAP','CHEAP','NORMAL'] %} {% set p_c = price in ['VERY_CHEAP','CHEAP'] %} {% set H = 3 %} {% set cur = states('sensor.opti_price_current_ct_kwh')|float(0) %} {% set hv_cur = has_value('sensor.opti_price_current_ct_kwh') %} {% set eeg = states('input_number.opti_einspeiseverguetung_ct')|float(0) %} {% set spread = states('input_number.opti_netzlade_spread_ct')|float(10) %} {% set aktiv = is_state('binary_sensor.opti_peak_reserve_aktiv','on') %} {% set ges_res = states('sensor.opti_peak_reserve_soc')|float(101) %} {% set ve_res = state_attr('sensor.opti_peak_reserve_soc','reserve_schutz_soc')|float(101) %} {% set minv_raw = state_attr('sensor.opti_peak_reserve_soc','min_preis_vor_peak_ct') %} {% set minv = minv_raw|float(none) if minv_raw is not none else none %} {% set avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_avg_ct')|float(none) %} {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc','peak_preis_schutz_avg_ct')|float(none) %} {% set halte_spread = states('input_number.opti_halte_spread_ct')|float(3) %} {% set band = 2 if states('input_select.akkusteuerung_modus') == 'Akku nur Laden' else 0 %} {% set stopband = 0 if states('input_select.akkusteuerung_modus') == 'Akku Netzladen' else 3 %} {# Ladefenster mit Hysterese (Issue #111): Einstieg bis minv+0.5 ct, im Modus
              'Akku Netzladen' halten bis minv+1.5 ct. Viertelstundenpreise schwanken
              um bis zu 1 ct um das Horizont-Tief; ohne Band flattert der Modus
              Netzladen<->L4 im Viertelstundentakt. #}
@@ -848,7 +860,7 @@ template_blocks:
     - input_number.opti_peak_min_aufschlag_ct
   variables:
     peak: |
-      {% set cap_kwh = states('sensor.opti_battery_capacity_kwh') | float(0) %} {% set verbrauch_kw = states('input_number.opti_peak_verbrauch_kw') | float(0.8) %} {% set min_soc = states('input_number.minsoc') | float(10) %} {% set max_soc = states('input_number.maxsoc') | float(95) %} {% set aufschlag = states('input_number.opti_peak_min_aufschlag_ct') | float(10) %} {# Entladewirkungsgrad aus dem Akkumodell; fehlt er oder ist er unplausibel, gilt 0.9, damit die Reserve nie wegfaellt. #} {% set eta_roh = state_attr('sensor.opti_battery_model', 'discharge_efficiency') | float(none) %} {% set eta = eta_roh if eta_roh is not none and 0 < eta_roh <= 1 else 0.9 %} {# Integration adaptation: validate each list against the actual local calendar day (23/24/25h or 92/96/100 quarter-hours). Add fixed-duration slots to UTC midnight; this preserves both occurrences of a repeated hour without inventing a spring-forward hour. #}
+      {% set cap_kwh = states('sensor.opti_battery_capacity_kwh') | float(0) %} {% set verbrauch_kw = states('input_number.opti_peak_verbrauch_kw') | float(0.8) %} {% set min_soc = states('input_number.minsoc') | float(10) %} {% set max_soc = states('input_number.maxsoc') | float(95) %} {% set aufschlag = states('input_number.opti_peak_min_aufschlag_ct') | float(10) %} {# Entladewirkungsgrad aus dem Akkumodell; fehlt er oder ist er unplausibel, gilt 0.9, damit die Reserve nie wegfaellt. #} {% set eta_roh = state_attr('sensor.opti_battery_model', 'discharge_efficiency') | float(none) %} {% set eta = eta_roh if eta_roh is not none and 0 < eta_roh <= 1 else 0.9 %} {# Wirtschaftlicher Peak (Issue #231): gleiche Formel wie Peak-Vorladen und BatteryModel.minimum_high_price. Fehlt das Modell oder ist es ungueltig, zaehlt nur das Perzentil wie bisher. #} {% set w_faktor = state_attr('sensor.opti_battery_model', 'precharge_price_factor') | float(none) %} {% set w_sockel = state_attr('sensor.opti_battery_model', 'precharge_price_offset_ct') | float(none) %} {% set w_modell_ok = states('sensor.opti_battery_model') in ['configured', 'default'] and w_faktor is not none and w_faktor >= 1 and w_sockel is not none and w_sockel >= 0 %} {# Integration adaptation: validate each list against the actual local calendar day (23/24/25h or 92/96/100 quarter-hours). Add fixed-duration slots to UTC midnight; this preserves both occurrences of a repeated hour without inventing a spring-forward hour. #}
       {% set ns = namespace(prices=[], future=[], raster_ok=true) %} {% set heute = today_at('00:00') %} {% for key in ['today', 'tomorrow'] %}
         {% set arr = state_attr('sensor.opti_price_series', key) %}
         {% if arr is iterable and arr is not string and arr | length > 0 %}
@@ -906,12 +918,13 @@ template_blocks:
          Zukunftsstunden im Horizont bestimmen - Basis fuer die oekonomische
          Peak-Filterung (Hebel 1: nur Stunden, die den Aufschlag ueber dem
          Horizont-Tief bringen, zaehlen als Peak). #}
-      {% set start = now().replace(minute=0, second=0, microsecond=0) %} {% set fw = namespace(min=none) %} {% if n >= 4 %}
+      {% set start = now().replace(minute=0, second=0, microsecond=0) %} {% set fw = namespace(min=none, aktuell=none) %} {% if n >= 4 %}
         {% for eintrag in ns.future %}
           {% set t = eintrag[0] %}
           {% set p = eintrag[1] %}
           {% if t >= start and t < horizont_ende %}
             {% set fw.min = p if fw.min is none else ([fw.min, p] | min) %}
+            {% if t <= now() and t + timedelta(hours=eintrag[2]) > now() %}{% set fw.aktuell = p %}{% endif %}
           {% endif %}
         {% endfor %}
       {% endif %} {% set fenster_min = fw.min %} {# 3b. Zweiter Durchlauf: Zukunftsslots im Horizont klassifizieren
@@ -929,7 +942,7 @@ template_blocks:
          koennen - deshalb Namespace-Summe statt Zaehler * Konstante. #}
       {% set load_hours = state_attr('sensor.opti_peak_load_profile', 'hours') %}
       {% set load_methods = state_attr('sensor.opti_peak_load_profile', 'methods') %}
-      {% set f = namespace(ve=0.0, exp=0.0, ve_energy=0.0, exp_energy=0.0, extreme_energy=0.0, ve_extra=0.0, exp_extra=0.0, profile_hours=0.0, minpre=none, summe=0.0, anz=0, peak_gesehen=false, aktueller_peak=false, ve_summe=0.0, ve_anz=0, kuenftig_summe=0.0, kuenftig_energie=0.0, kuenftig_min=none) %} {% if n >= 4 %}
+      {% set f = namespace(ve=0.0, exp=0.0, ve_energy=0.0, exp_energy=0.0, extreme_energy=0.0, ve_extra=0.0, exp_extra=0.0, profile_hours=0.0, minpre=none, summe=0.0, anz=0, peak_gesehen=false, aktueller_peak=false, ve_summe=0.0, ve_anz=0, kuenftig_summe=0.0, kuenftig_energie=0.0, kuenftig_min=none, ref=none, vor_min=none, aktuell_vorwaerts=false, aktuell_gespeichert=false, gespeichert_energie=0.0, teurer_energie=0.0, teurer_summe=0.0, teurer_anz=0) %} {% if n >= 4 %}
         {% for eintrag in ns.future %}
           {% set t = eintrag[0] %}
           {% set p = eintrag[1] %}
@@ -942,27 +955,48 @@ template_blocks:
             {% set kleiner = ns.prices | select('lt', p) | list | length %}
             {% set gleich  = ns.prices | select('eq', p) | list | length %}
             {% set pct = (kleiner + 0.5 * gleich) / n %}
-            {# Wie in sensor.opti_price_level: die hoechste Preisstufe zaehlt
+            {# Wie im Preisniveau-Sensor (opti_price_level): die hoechste Preisstufe zaehlt
                mindestens als EXPENSIVE, damit Stufentarife mit wenigen
                guenstigen Stunden ueberhaupt Peaks haben. #}
             {% if p >= (ns.prices | max) and (ns.prices | max) > (ns.prices | min) %}{% set pct = [pct, 0.60] | max %}{% endif %}
             {% set ist_peak_preis = fenster_min is none or p >= fenster_min + aufschlag %}
+            {# Wirtschaftliche Peaks (Issue #231). Das Perzentil laeuft ueber
+               heute und morgen; ist morgen teurer, fallen klar teure Slots von
+               heute darunter. Zwei Zusatzklassen, beide mit der Formel des
+               Peak-Vorladens (BatteryModel.minimum_high_price):
+               vorwaerts: der Slot schlaegt das guenstigste noch nicht
+                 abgelaufene Slot-Tief zwischen jetzt und ihm. Fuer ihn lohnt
+                 Vorladen; er zaehlt voll wie ein Perzentil-Peak.
+               gespeichert: der Slot schlaegt das guenstigste Tief vor ihm ab
+                 00:00 des Preistags, aber kein vorwaerts erreichbares. Ein
+                 frueheres Tief belegt keinen geladenen Akku; diese Slots
+                 zaehlen deshalb nur bis zum aktuell gespeicherten Inhalt
+                 (siehe 4.). So bleibt die Energie nach dem Ladefenster fuer
+                 den Abend gehalten, ohne dass ein 1-ct-Slot am Morgen bei
+                 leerem Akku das jetzige Ladefenster zum Peak macht. #}
+            {# Beide zusaetzlich mindestens den Peak-Aufschlag ueber ihrer
+               Referenz, wie Perzentil-Peaks ueber dem Horizont-Tief. #}
+            {% set vorwaerts = w_modell_ok and f.vor_min is not none
+                 and p >= f.vor_min * w_faktor + w_sockel and p >= f.vor_min + aufschlag %}
+            {% set ist_peak = (pct >= 0.60 and ist_peak_preis) or vorwaerts %}
+            {% set gespeichert = not ist_peak and w_modell_ok and f.ref is not none
+                 and p >= f.ref * w_faktor + w_sockel and p >= f.ref + aufschlag %}
             {# The extra buffer applies only to remaining extreme-price demand.
                Keep the legacy base integration and learned load profile intact. #}
             {% set remaining_h = [0, ([t + timedelta(hours=slot_h), horizont_ende] | min - [t, now()] | max).total_seconds() / 3600] | max %}
             {% set factor = 0.25 * ([1, ([0, (p - 60) / 40] | max)] | min) if is_number(p) else 0 %}
             {% set extra = slot_kw * remaining_h * factor %}
-            {% if pct >= 0.60 and ist_peak_preis and factor > 0 %}
+            {% if ist_peak and factor > 0 %}
               {% set f.extreme_energy = f.extreme_energy + slot_kw * remaining_h %}
             {% endif %}
             {% if pct >= 0.80 and ist_peak_preis %}
               {% set f.ve_extra = f.ve_extra + extra %}{% set f.ve = f.ve + slot_h %}{% set f.ve_energy = f.ve_energy + slot_kw * slot_h %}{% if 'profile' in load_method %}{% set f.profile_hours = f.profile_hours + slot_h %}{% endif %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}
               {% set f.ve_summe = f.ve_summe + p %}{% set f.ve_anz = f.ve_anz + 1 %}
-            {% elif pct >= 0.60 and ist_peak_preis %}
+            {% elif ist_peak %}
               {% set f.exp_extra = f.exp_extra + extra %}{% set f.exp = f.exp + slot_h %}{% set f.exp_energy = f.exp_energy + slot_kw * slot_h %}{% if 'profile' in load_method %}{% set f.profile_hours = f.profile_hours + slot_h %}{% endif %}{% set f.summe = f.summe + p %}{% set f.anz = f.anz + 1 %}
             {% endif %}
             {% if t + timedelta(hours=slot_h) > now() %}
-              {% if pct >= 0.60 and ist_peak_preis %}
+              {% if ist_peak %}
                 {# Referenz fuers Peak-Vorladen: lastgewichteter Mittelpreis der
                    noch nicht beendeten Peak-Slots, laufender Slot nur mit seiner
                    Restdauer. Abgelaufene Viertelstunden zaehlen nicht. #}
@@ -974,11 +1008,24 @@ template_blocks:
                 {# Laufender Slot selbst ist Peak: sperrt Peak-Vorladen, weil
                    min_preis_vor_peak_ct dann fehlt und das Fenster offen waere. #}
                 {% if t <= now() %}{% set f.aktueller_peak = true %}{% endif %}
+                {% if t <= now() and pct < 0.60 %}{% set f.aktuell_vorwaerts = true %}{% endif %}
               {% elif not f.peak_gesehen %}
                 {% set f.minpre = p if f.minpre is none else ([f.minpre, p] | min) %}
               {% endif %}
+              {% if gespeichert %}
+                {% set f.gespeichert_energie = f.gespeichert_energie + slot_kw * remaining_h %}
+                {% if t <= now() %}{% set f.aktuell_gespeichert = true %}{% endif %}
+              {% endif %}
+              {# Rangschutz: Energie fuer spaetere Peak- oder gespeicherte Slots,
+                 die teurer sind als der laufende Slot. #}
+              {% if (ist_peak or gespeichert) and t > now() and fw.aktuell is not none and p > fw.aktuell %}
+                {% set f.teurer_energie = f.teurer_energie + slot_kw * slot_h %}
+                {% set f.teurer_summe = f.teurer_summe + p %}{% set f.teurer_anz = f.teurer_anz + 1 %}
+              {% endif %}
+              {% set f.vor_min = p if f.vor_min is none else ([f.vor_min, p] | min) %}
             {% endif %}
           {% endif %}
+          {% set f.ref = p if f.ref is none else ([f.ref, p] | min) %}
         {% endfor %}
       {% endif %} {# 4. Reserve in kWh und SoC (mit Entladeverlusten), Kappung bei maxsoc.
          Stundenlast je Slot aus Profil oder Ersatzwert; Energie bereits
@@ -997,7 +1044,33 @@ template_blocks:
       {% else %}
         {% set ve_soc = max_soc %}
         {% set ges_soc = max_soc %}
-      {% endif %} {{ {'gueltig': n >= 4,
+      {% endif %} {# Gespeicherte wirtschaftliche Slots: hoechstens der aktuelle
+         Inhalt ueber der Reserve. Die Reserve steigt dadurch nie ueber den
+         SoC und loest kein Vorladen aus; sie haelt nur, was schon geladen ist. #}
+      {% set soc_jetzt = states('sensor.opti_soc') | float(none) %}
+      {% set ges_kern_soc = ges_soc %}
+      {% if cap_kwh > 0 and soc_jetzt is not none and f.gespeichert_energie > 0 %}
+        {% set ges_soc = [ges_soc, [ges_soc + f.gespeichert_energie / eta / cap_kwh * 100, soc_jetzt, max_soc] | min] | max %}
+        {% set ges_kwh = (ges_soc - min_soc) / 100 * cap_kwh %}
+      {% endif %}
+      {# Rangschutz: Reserve fuer spaetere Slots, die teurer sind als der
+         laufende (Peaks und gespeicherte wirtschaftliche Slots). #}
+      {% set teurer_soc = [min_soc + f.teurer_energie / eta / cap_kwh * 100, max_soc] | min if cap_kwh > 0 else max_soc %}
+      {# Laufender Slot gilt als wirtschaftlicher Peak (Preisniveau EXPENSIVE),
+         wenn er vorwaerts zaehlt oder gespeichert zaehlt und Inhalt ueber der
+         Kernreserve liegt, und der Akku mehr enthaelt, als die teureren
+         Folge-Slots brauchen. Sonst bleibt das Perzentil-Niveau und L4 haelt:
+         so entlaedt ein 43-ct-Nachtslot nicht die 55-ct-Morgenspitze, und
+         ein knapper Halte-Spread laesst die Leiter nicht in Dynamisch fallen. #}
+      {% set aktuell_wirtschaftlich = (f.aktuell_vorwaerts
+           or (f.aktuell_gespeichert and soc_jetzt is not none and soc_jetzt > ges_kern_soc))
+           and soc_jetzt is not none and soc_jetzt > teurer_soc %}
+      {# Schutzreserve fuer die Leiter (L2/L3/Ladedeckel): die VE-Reserve, im
+         angehobenen Slot mindestens die Reserve der teureren Folge-Slots. #}
+      {% set schutz_soc = [ve_soc, teurer_soc] | max if aktuell_wirtschaftlich else ve_soc %}
+      {% set teurer_avg = (f.teurer_summe / f.teurer_anz) if f.teurer_anz > 0 else none %}
+      {% set ve_avg = (f.ve_summe / f.ve_anz) if f.ve_anz > 0 else none %}
+      {% set schutz_avg = teurer_avg if aktuell_wirtschaftlich and teurer_avg is not none else ve_avg %} {{ {'gueltig': n >= 4,
           've_soc': ve_soc | round(1),
           'ges_soc': ges_soc | round(1),
           've_stunden': f.ve | round(2),
@@ -1011,6 +1084,10 @@ template_blocks:
           'assumed_load_w': ((f.ve_energy + f.exp_energy) / (f.ve + f.exp) * 1000) | round(1) if f.ve + f.exp > 0 else verbrauch_kw * 1000,
           'min_preis_vor_peak_ct': (f.minpre | round(2)) if f.minpre is not none else none,
           'aktueller_slot_peak': f.aktueller_peak,
+          'aktueller_slot_wirtschaftlich': aktuell_wirtschaftlich,
+          'kern_soc': ges_kern_soc | round(1),
+          'schutz_soc': schutz_soc | round(1),
+          'schutz_preis_avg_ct': (schutz_avg | round(2)) if schutz_avg is not none else none,
           'peak_preis_avg_ct': ((f.summe / f.anz) | round(2)) if f.anz > 0 else none,
           've_preis_avg_ct': ((f.ve_summe / f.ve_anz) | round(2)) if f.ve_anz > 0 else none,
           'peak_preis_kuenftig_ct': ((f.kuenftig_summe / f.kuenftig_energie) | round(2)) if f.kuenftig_energie > 0 else none,
@@ -1038,6 +1115,10 @@ template_blocks:
       assumed_load_w: '{{ peak.assumed_load_w }}'
       min_preis_vor_peak_ct: '{{ peak.min_preis_vor_peak_ct }}'
       aktueller_slot_peak: '{{ peak.aktueller_slot_peak }}'
+      aktueller_slot_wirtschaftlich: '{{ peak.aktueller_slot_wirtschaftlich }}'
+      reserve_schutz_soc: '{{ peak.schutz_soc }}'
+      reserve_kern_soc: '{{ peak.kern_soc }}'
+      peak_preis_schutz_avg_ct: '{{ peak.schutz_preis_avg_ct }}'
       peak_preis_avg_ct: '{{ peak.peak_preis_avg_ct }}'
       peak_preis_ve_avg_ct: '{{ peak.ve_preis_avg_ct }}'
       peak_preis_kuenftig_ct: '{{ peak.peak_preis_kuenftig_ct }}'

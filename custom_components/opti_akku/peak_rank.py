@@ -14,7 +14,8 @@ house load and fills them from the most expensive one with the usable energy.
 The current slot is worth discharging only if it is among the served slots.
 
 Peak slots use the same classification as ``sensor.opti_peak_reserve_soc``
-(midrank percentile >= 0.6 and the minimum surcharge over the window low).
+(midrank percentile >= 0.6 and the minimum surcharge over the window low, or
+economic against the battery model, issue #231; see ``_classify``).
 Only peak slots and the current slot draw on the battery; consumption between
 peaks is not modelled. The confirmed boundary is the PV horizon of the peak
 reserve. Future SoC, reserve and forecast score are not predicted: a possible
@@ -86,6 +87,52 @@ def _percentile(prices: Sequence[float], price: float) -> float:
     lower = sum(1 for item in prices if item < price)
     equal = sum(1 for item in prices if item == price)
     return (lower + 0.5 * equal) / len(prices)
+
+
+def _peak_percentile(prices: Sequence[float], price: float) -> float:
+    """Midrank with the template's floor: the top price tier counts as EXPENSIVE."""
+    result = _percentile(prices, price)
+    if price >= max(prices) and max(prices) > min(prices):
+        result = max(result, PEAK_PERCENTILE)
+    return result
+
+
+def _economic_floor(low: float, surcharge: float, model: BatteryModel) -> float:
+    """Model minimum, at least the peak surcharge over the reference."""
+    return max(model.minimum_high_price(low), low + surcharge)
+
+
+def _classify(periods: Sequence[Slot], window: Sequence[int], now: datetime, *,
+              prices: Sequence[float], window_min: float | None, surcharge: float,
+              model: BatteryModel) -> tuple[set[int], set[int]]:
+    """Peak and stored-economic slots exactly as ``sensor.opti_peak_reserve_soc``.
+
+    Peak: percentile >= 0.6 above the surcharge, or forward economic (beats the
+    cheapest not yet ended window slot before it by the model's minimum and the
+    surcharge). Stored: not a peak, but beats the cheapest slot before it since
+    the start of the price series the same way (issue #231). The template caps stored slots at the
+    current battery content; the rank allocation does that through
+    ``usable`` already.
+    """
+    economic = model.economics_valid
+    in_window = set(window)
+    peaks: set[int] = set()
+    stored: set[int] = set()
+    reference: float | None = None
+    forward: float | None = None
+    for index, (_start, stop, price) in enumerate(periods):
+        if index in in_window:
+            percentile_peak = (_peak_percentile(prices, price) >= PEAK_PERCENTILE
+                               and (window_min is None or price >= window_min + surcharge))
+            ahead = economic and forward is not None and price >= _economic_floor(forward, surcharge, model)
+            if percentile_peak or ahead:
+                peaks.add(index)
+            elif economic and reference is not None and price >= _economic_floor(reference, surcharge, model):
+                stored.add(index)
+            if stop > now:
+                forward = price if forward is None else min(forward, price)
+        reference = price if reference is None else min(reference, price)
+    return peaks, stored
 
 
 def _load_kw(hours: Any, start: datetime, fallback_kw: float) -> float:
@@ -248,11 +295,8 @@ def peak_rank_check(
     window_start = _hour_start(now, timezone)
     window = [i for i, slot in enumerate(periods) if window_start <= slot[0] < end]
     window_min = min(periods[i][2] for i in window) if window else None
-    peaks = {
-        i for i in window
-        if _percentile(prices, periods[i][2]) >= PEAK_PERCENTILE
-        and (window_min is None or periods[i][2] >= window_min + values["surcharge"])
-    }
+    peaks, stored = _classify(periods, window, now, prices=prices, window_min=window_min,
+                              surcharge=values["surcharge"], model=battery_model)
     refill = _refill(
         periods, peaks, current + 1, end, timezone, grid=grid_charging,
         spread=value if (value := _number(spread_ct)) is not None else 10,
@@ -270,8 +314,10 @@ def peak_rank_check(
                           "Lademodus für das mögliche Netzladefenster sind nicht belegt"}
     boundary = end
 
+    # Stored economic slots compete for the battery like peaks (as the
+    # template's rank protection does); only the refill check uses peaks.
     candidates = sorted(
-        {current, *(i for i in peaks if current < i and periods[i][0] < boundary)},
+        {current, *(i for i in peaks | stored if current < i and periods[i][0] < boundary)},
         key=lambda i: (-periods[i][2], periods[i][0]),
     )
     usable = values["capacity"] * max(0.0, values["soc"] - values["minsoc"]) / 100 * discharge_efficiency

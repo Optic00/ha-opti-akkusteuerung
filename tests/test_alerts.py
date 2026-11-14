@@ -8,7 +8,10 @@ from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 import pytest
 
+from homeassistant.exceptions import HomeAssistantError
+
 from custom_components.opti_akku.alerts import HealthAlerts
+from tests.translated import raises_translated
 
 
 @pytest.fixture
@@ -783,3 +786,9 @@ async def test_fixed_price_windows_never_raise_a_price_source_alert(hass, alerts
             alerts.update(data)
         assert data['price_status'] == 'ready'
         assert not alerts._active
+
+
+async def test_explicit_test_reports_failed_delivery_as_translated_error(hass, alerts):
+    hass.config_entries.async_update_entry(alerts.entry, options={"notification_service": "switch.turn_on"})
+    with raises_translated(HomeAssistantError, "invalid_notification_service"):
+        await alerts.async_test()

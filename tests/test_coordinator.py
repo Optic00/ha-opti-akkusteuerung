@@ -4100,6 +4100,41 @@ async def test_negative_price_hold_falls_back_to_demand_solcast_intervals(coordi
     assert data["states"]["sensor.opti_negative_price_hold"] == "no_window"
 
 
+async def test_pv_forecast_hours_feed_the_strategy_from_the_demand_solcast_source(coordinator, hass, entry):
+    """#155: the peak precharge reads P10 hours; a daily total has none, the demand source is next."""
+    now = dt_util.utcnow()
+    start = now.replace(minute=0, second=0, microsecond=0)
+    detail = [{"period_start": (start + timedelta(minutes=30 * i)).isoformat(),
+               "pv_estimate": 5.0, "pv_estimate10": 4.0} for i in range(4)]
+    hass.states.async_set("sensor.daily_total", "40", {})
+    hass.states.async_set("sensor.solcast_demand", "40", {"detailedForecast": detail})
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "sources": {"forecast_today": "sensor.daily_total"},
+        "demand_forecast": {"enabled": True, "sources": {"pv_today": "sensor.solcast_demand"}}})
+    seen = {}
+    evaluate = coordinator.engine.evaluate
+
+    def spy(states, attributes, at):
+        seen.update(state=states.get("sensor.opti_pv_forecast_hours"),
+                    attributes=attributes.get("sensor.opti_pv_forecast_hours"))
+        return evaluate(states, attributes, at)
+
+    with patch.object(coordinator.engine, "evaluate", side_effect=spy):
+        await coordinator._async_update_data()
+    assert seen["state"] == "ready"
+    assert seen["attributes"]["source"] == "sensor.solcast_demand"
+    assert seen["attributes"]["hours"] == {str(int(start.timestamp())): 4.0,
+                                           str(int((start + timedelta(hours=1)).timestamp())): 4.0}
+
+
+async def test_pv_forecast_hours_error_credits_no_pv(coordinator):
+    with patch("custom_components.opti_akku.coordinator.pv_forecast_hours",
+               side_effect=RuntimeError("boom")):
+        data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_pv_forecast_hours"] == "error"
+    assert data["attributes"]["sensor.opti_pv_forecast_hours"] == {"status": "error", "hours": {}}
+
+
 async def test_peak_rank_is_published_as_observation(coordinator):
     data = await coordinator._async_update_data()
     attrs = data["attributes"]["sensor.opti_peak_rank"]

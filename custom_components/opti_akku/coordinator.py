@@ -74,6 +74,7 @@ from .refill_comparison import RefillReserveComparison, refill_reserve_check
 from .evcc_comparison import FETCH_INTERVAL as EVCC_FETCH_INTERVAL, EvccComparison, derive_plan, evcc_check, fetch_evopt, suggestion_status
 from .demand_comparison import build_strategy_comparison, remaining_day_profile
 from .peak_load import peak_load_profile
+from .precharge_pv import ENTITY as PV_FORECAST_HOURS, pv_forecast_hours
 from .ev_preparation import EVPreparation, apply_preparation, command_signals
 from .observation import SourceObservation
 from .recovery import RecoveryState
@@ -1238,6 +1239,20 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             peak_profile = {"status": "fallback", "hours": {}, "methods": {}, "reason": "profile_error"}
         states["sensor.opti_peak_load_profile"] = peak_profile["status"]
         attributes["sensor.opti_peak_load_profile"] = peak_profile
+        # Strategy input (#155): PV before the peak lowers the precharge target.
+        # Without a usable forecast the strategy credits no PV, as before.
+        try:
+            sources = captured_options.get("sources", {})
+            pv_state, pv_attributes = pv_forecast_hours(
+                self.hass.states.get,
+                ((sources.get("forecast_today"), sources.get("forecast_tomorrow")),
+                 (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow"))),
+                now, max_age=captured_options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE))
+        except Exception as err:  # A missing PV credit is the old, safe behaviour.
+            _LOGGER.debug("PV forecast hours unavailable: %s", type(err).__name__)
+            pv_state, pv_attributes = "error", {"status": "error", "hours": {}}
+        states[PV_FORECAST_HOURS] = pv_state
+        attributes[PV_FORECAST_HOURS] = pv_attributes
         # Observation only: the strategy never reads this estimate. A daily-total
         # forecast source has no intervals; the demand Solcast source is tried next.
         candidates = [entity for entity in (captured_options.get("sources", {}).get("forecast_today"),

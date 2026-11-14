@@ -4,8 +4,8 @@
 # Hassfest prüft diese Datei nur für Core-Integrationen. Für Opti Akku prüft
 # tests/test_quality_scale.py Schema, Vollständigkeit und einige Aussagen
 # (z. B. PARALLEL_UPDATES). Die Datei dient als Prüfliste, nicht als offizielle
-# Einstufung. Fachliche Abnahmen stehen in Issue #85, Lücken in
-# docs/RELEASE_PLAN.md.
+# Einstufung. Fachliche Abnahmen stehen in Issue #85, offene Lücken im
+# Release-Plan (PR #237, docs/RELEASE_PLAN.md).
 rules:
   # Bronze
   action-setup:

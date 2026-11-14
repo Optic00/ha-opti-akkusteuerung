@@ -1035,6 +1035,26 @@ async def test_removed_entry_deletes_its_private_stores(hass, hass_storage, entr
     assert other in hass_storage
 
 
+
+async def test_pending_history_save_cannot_recreate_removed_store(hass, hass_storage, entry, coordinator):
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.opti_akku import async_remove_entry
+    from custom_components.opti_akku.coordinator import HISTORY_SAVE_DELAY
+
+    key = coordinator._history_store.key
+    # As the control cycle does after recording a new history hour.
+    coordinator._history_store.async_delay_save(coordinator._planner_history.snapshot, HISTORY_SAVE_DELAY)
+    coordinator._history_save_pending = True
+    await coordinator.async_stop()
+    await hass.async_block_till_done()
+    assert key in hass_storage  # flushed on stop, nothing lost on reload
+    await async_remove_entry(hass, entry)
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=HISTORY_SAVE_DELAY + 1))
+    await hass.async_block_till_done()
+    assert key not in hass_storage
+
 async def test_reload_handover_not_left_for_retry_after_failed_setup(hass, entry):
     hass.data["opti_akku_reload_handover"] = {entry.entry_id: {"at": time.monotonic(), "manual_mode": "Akku schnell Entladen"}}
     with patch("custom_components.opti_akku.StrategyEngine", side_effect=RuntimeError("boom")):

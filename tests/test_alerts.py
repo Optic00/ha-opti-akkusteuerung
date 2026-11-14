@@ -693,7 +693,9 @@ async def test_real_connection_problems_still_alert_at_night(hass, alerts, docum
         data = night_standby(**overrides)
         alerts.update(data)
     assert alerts._active == {"connection"}
-    assert "standby" not in data["connection_status"]
+    # Grid charging that meets the standby is labelled as such (#222), never as a normal standby.
+    expected = "grid_charge_blocked" if overrides.get("mode") == "Akku Netzladen" else None
+    assert data["connection_status"].get("standby") == expected
 
 
 async def test_night_standby_exception_covers_only_the_confirmed_code(hass, alerts):

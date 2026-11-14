@@ -1,0 +1,26 @@
+# Lokale Schnellprüfung vor jedem Commit. Einrichtung:
+#   pip install pre-commit && pre-commit install
+# Die CI bleibt maßgeblich; diese Hooks fangen nur die häufigsten Fehler früher ab.
+# Ruff-Version mit requirements-test*.txt synchron halten.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.3
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-json
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+  - repo: local
+    hooks:
+      - id: strategy-resources
+        name: Strategie-JSON aus strategy/*.yaml aktuell
+        entry: python tools/build_strategy_resources.py --check
+        language: system
+        files: ^(strategy/|custom_components/opti_akku/resources/|tools/build_strategy_resources\.py)
+        pass_filenames: false

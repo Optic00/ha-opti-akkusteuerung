@@ -21,11 +21,48 @@ from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from .demand import pv_intervals
+from .demand import instant, number
+from .source_quality import reported_at
 
 ENTITY = "sensor.opti_pv_forecast_hours"
 QUANTILE = "p10"
 STEP = timedelta(minutes=30)
+# The peak reserve horizon spans up to 36 hours; demand.pv_intervals stops at 25.
+HORIZON = timedelta(hours=37)
+ROW_LIMIT = 100
+
+
+def _rows(states: Any, entities: Sequence[str], now: datetime,
+          max_age: float) -> list[tuple[datetime, float]]:
+    """Validated future P10 half hours (start, W) of ``detailedForecast``.
+
+    Like ``demand.pv_intervals``, but up to :data:`HORIZON`. A stale or
+    invalid entity, or conflicting rows, invalidate the whole result (fail
+    closed: no PV credit).
+    """
+    rows: dict[datetime, float] = {}
+    for entity in entities:
+        state = states.get(entity)
+        if state is None or state.state in ("unknown", "unavailable"):
+            continue
+        try:
+            age = (now - instant(reported_at(state))).total_seconds()
+            detail = state.attributes.get("detailedForecast")
+            if not -60 <= age <= max_age or not isinstance(detail, list) or len(detail) > ROW_LIMIT:
+                continue
+            for row in detail:
+                start = instant(row["period_start"])
+                p10 = number(row.get("pv_estimate10"))
+                if p10 is None or not 0 <= p10 <= 1000:
+                    raise ValueError("Missing P10 power")
+                if start + STEP <= now or start > now + HORIZON:
+                    continue
+                if start in rows and rows[start] != p10 * 1000:
+                    raise ValueError("Conflicting PV intervals")
+                rows[start] = p10 * 1000
+        except KeyError, ValueError, TypeError, AttributeError:
+            return []
+    return sorted(rows.items())
 
 
 def _contiguous(rows: Sequence[tuple[datetime, float]], now: datetime) -> dict[str, float]:
@@ -67,9 +104,8 @@ def pv_forecast_hours(
     for today, tomorrow in source_pairs:
         if not today and not tomorrow:
             continue
-        rows = pv_intervals(states, {"pv_today": today or "", "pv_tomorrow": tomorrow or ""}, now,
-                            max_age=max_age)
-        halfhours = _contiguous(rows, now)
+        entities = [entity for entity in (today, tomorrow) if entity]
+        halfhours = _contiguous(_rows(states, entities, now, max_age), now)
         if len(halfhours) > len(best):
             best, source = halfhours, today or tomorrow
     status = "ready" if best else "no_forecast"

@@ -128,28 +128,36 @@ template_blocks:
     icon: mdi:solar-power-variant
     # Issue #155: kein Peak-Vorladen aus dem Netz, solange PV mehr liefert als
     # das Haus verbraucht. Gemessen wird der Ueberschuss vor dem Akku
-    # (Export - Bezug + Akkuladung). Er bleibt auch waehrend des Netzladens
-    # gueltig, weil Netzbezug und Akkuladung sich dort aufheben. Ein-
-    # verzoegerung gegen kurze Spitzen, laengere Ausverzoegerung gegen Wolken.
-    # Fehlen Messwerte, ist der Sensor aus und das Vorladen bleibt wie bisher.
+    # (Export - Bezug + Akkuladung), jeder positive Wert zaehlt. Er bleibt auch
+    # waehrend des Netzladens gueltig, weil Netzbezug und Akkuladung sich dort
+    # aufheben. Einverzoegerung gegen Messrauschen, laengere Ausverzoegerung
+    # gegen Wolken. Fehlt ein Messwert, sperrt der Sensor tagsueber
+    # vorsichtshalber; nachts gibt es keinen PV-Ueberschuss, dort bleibt das
+    # Vorladen wie bisher moeglich (Codex-Review zu #155).
     delay_on:
       seconds: 60
     delay_off:
       seconds: 300
     state: |
-      {% set ok = has_value('sensor.opti_grid_export_w')
-                  and has_value('sensor.opti_grid_import_w')
-                  and has_value('sensor.opti_battery_power_w') %}
-      {% set netto = states('sensor.opti_grid_export_w')|float(0)
-                     - states('sensor.opti_grid_import_w')|float(0)
-                     + states('sensor.opti_battery_power_w')|float(0) %}
-      {{ ok and netto > 200 }}
+      {% set netz_ok = has_value('sensor.opti_grid_export_w')
+                       and has_value('sensor.opti_grid_import_w')
+                       and has_value('sensor.opti_battery_power_w') %}
+      {% if netz_ok %}
+        {% set netto = states('sensor.opti_grid_export_w')|float(0)
+                       - states('sensor.opti_grid_import_w')|float(0)
+                       + states('sensor.opti_battery_power_w')|float(0) %}
+        {{ netto > 0 }}
+      {% else %}
+        {{ is_state('sun.sun', 'above_horizon') }}
+      {% endif %}
     attributes:
+      quelle: |
+        {% if has_value('sensor.opti_grid_export_w') and has_value('sensor.opti_grid_import_w')
+              and has_value('sensor.opti_battery_power_w') %}netz{% else %}messwerte_fehlen{% endif %}
       ueberschuss_vor_akku_w: |
         {{ (states('sensor.opti_grid_export_w')|float(0)
             - states('sensor.opti_grid_import_w')|float(0)
             + states('sensor.opti_battery_power_w')|float(0)) | round(0) }}
-      grenze_w: 200
   - unique_id: opti_pv_reichtag
     name: Opti PV Reichtag
     icon: mdi:weather-sunny

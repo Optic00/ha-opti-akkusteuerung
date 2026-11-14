@@ -192,9 +192,10 @@ def _surplus_engine():
     return ENGINE.StrategyEngine(resource)
 
 
-def _surplus(engine, at, export, imported, battery):
+def _surplus(engine, at, export, imported, battery, sun="above_horizon"):
     values = {"sensor.opti_grid_export_w": export, "sensor.opti_grid_import_w": imported,
-              "sensor.opti_battery_power_w": battery, "input_boolean.akku_opti_automatik": "off"}
+              "sensor.opti_battery_power_w": battery, "input_boolean.akku_opti_automatik": "off",
+              "sun.sun": sun}
     values = {k: v for k, v in values.items() if v is not None}
     return engine.evaluate(values, {}, at).states["binary_sensor.opti_vorladen_pv_ueberschuss"]
 
@@ -212,21 +213,56 @@ def test_surplus_sensor_measures_before_the_battery_with_delays():
     assert _surplus(engine, t0 + dt.timedelta(seconds=421), 0, 400, 0) == "off"
 
 
-def test_surplus_sensor_is_off_without_measurements():
+def test_small_permanent_surplus_locks_too():
+    """Codex review: 150 W lasting surplus must lock, not only above 200 W."""
+    engine = _surplus_engine()
+    t0 = dt.datetime(2026, 1, 14, 12, 0, tzinfo=TZ)
+    assert _surplus(engine, t0, 150, 0, 0) == "off"
+    assert _surplus(engine, t0 + dt.timedelta(seconds=61), 150, 0, 0) == "on"
+    # While grid charging: 3 kW into the battery, 2.9 kW import -> 100 W PV surplus.
+    assert _surplus(engine, t0 + dt.timedelta(minutes=10), 0, 2900, 3000) == "on"
+
+
+def test_missing_measurements_lock_by_day_and_not_at_night():
+    """Codex review: a grid meter outage must not allow grid precharge during PV
+    hours. At night there is no PV surplus; the precharge stays possible."""
     engine = _surplus_engine()
     t0 = dt.datetime(2026, 1, 14, 12, 0, tzinfo=TZ)
     assert _surplus(engine, t0, 3000, None, 0) == "off"
-    assert _surplus(engine, t0 + dt.timedelta(seconds=120), 3000, None, 0) == "off"
+    day = _surplus(engine, t0 + dt.timedelta(seconds=61), 3000, None, 0)
+    assert day == "on"
+    assert not precharges(run(overrides={"binary_sensor.opti_vorladen_pv_ueberschuss": day}))
+    night_engine = _surplus_engine()
+    night = _surplus(night_engine, t0, None, None, 0, sun="below_horizon")
+    night = _surplus(night_engine, t0 + dt.timedelta(seconds=61), None, None, 0, sun="below_horizon")
+    assert night == "off"
+    assert precharges(run(overrides={"binary_sensor.opti_vorladen_pv_ueberschuss": night}))
 
 
-def test_missing_measurements_keep_the_previous_precharge_behaviour():
-    """Deliberate fail direction (Codex review): without grid measurements the
-    surplus lock is off and the precharge decides as before #155, like the other
-    surplus sensors. A missing house balance stops control in the coordinator."""
-    engine = _surplus_engine()
-    t0 = dt.datetime(2026, 1, 14, 12, 0, tzinfo=TZ)
-    state = _surplus(engine, t0 + dt.timedelta(seconds=120), 3000, None, 0)
-    assert precharges(run(overrides={"binary_sensor.opti_vorladen_pv_ueberschuss": state}))
+def test_l4_holds_the_full_reserve_above_the_lowered_target():
+    """Codex review: L3/L4 must keep the full reserve, not the PV-lowered target.
+    Good forecast so the low-forecast hold does not win before L4."""
+    hours = {13: 1.3, 14: 1.3, 15: 1.3, 16: 1.3}
+    overrides = {"sensor.opti_forecast_score": 8, "sensor.opti_forecast_score_tomorrow": 8,
+                 "sensor.opti_soc": 20}
+    result = run(hours, overrides=overrides)
+    assert reserve(result)["vorlade_ziel_soc"] < 20 < RESERVE
+    assert result.decision_id == "peak_l4"
+    assert result.mode == "Akku nur Laden"
+
+
+def test_pv_more_than_25_hours_ahead_still_counts():
+    """Codex review: the reserve looks up to 36 h ahead; the PV forecast must too."""
+    now = dt.datetime(2026, 1, 14, 12, 0, tzinfo=TZ)
+    start = now.astimezone(UTC)
+    entity = solcast(start, [0.0] * 52 + [1.0] * 8, updated=now)  # PV only 26-30 h ahead
+    status, attrs = pv_forecast_hours({"a": entity}, [("a", None)], now, max_age=3600)
+    assert status == "ready" and len(attrs["halfhours"]) == 60
+    assert attrs["halfhours"][str(int((start + dt.timedelta(hours=27)).timestamp()))] == 1.0
+    # Beyond 37 h nothing is published.
+    far = solcast(start, [0.5] * 90, updated=now)
+    _, attrs = pv_forecast_hours({"a": far}, [("a", None)], now, max_age=3600)
+    assert len(attrs["halfhours"]) == 75
 
 
 # -- forecast half hours from Solcast -------------------------------------------

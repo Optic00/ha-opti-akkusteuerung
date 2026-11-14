@@ -28,6 +28,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
 from .alerts import HealthAlerts, night_standby
+from .repairs import RepairIssues
 from .arbitrage import (
     PrechargeComparison,
     apply_discharge_hold,
@@ -224,8 +225,8 @@ def _rebind_load_prefix(value: str | None, old: str, new: str, length: int) -> s
     return value
 
 
-def validate_setting(key: str, value: Any, current: dict) -> float | bool:
-    """Validate individual values AND limits that must remain ordered."""
+def validate_single_setting(key: str, value: Any) -> float | bool:
+    """Validate one value on its own; shared by the apply and restore paths."""
     if key in SWITCH_DEFINITIONS:
         if not isinstance(value, bool):
             raise HomeAssistantError("Schalter benötigen einen Wahrheitswert")
@@ -234,12 +235,21 @@ def validate_setting(key: str, value: Any, current: dict) -> float | bool:
     number = finite(value)
     if definition is None or number is None or not definition["min"] <= number <= definition["max"]:
         raise HomeAssistantError("Ungültiger Einstellwert")
+    if key == "input_number.opti_zellspannung_reserve_v" and number != 0 and not 2.9 <= number <= 3.1:
+        raise HomeAssistantError("Die Zellspannungs-Reserve muss 0 (aus) oder 2,90 bis 3,10 V betragen")
+    return number
+
+
+def validate_setting(key: str, value: Any, current: dict) -> float | bool:
+    """Validate individual values AND limits that must remain ordered."""
+    result = validate_single_setting(key, value)
+    if key in SWITCH_DEFINITIONS:
+        return result
+    number = result
     updated = dict(current, **{key: number})
     pairs = [("minsoc", "maxsoc"), ("akkusteuerung_min_ladestaerke", "akkusteuerung_max_ladestaerke"),
              ("akkusteuerung_min_entladestaerke", "akkusteuerung_max_entladestaerke"),
              ("akkusteuerung_ueberschuss_veto_aus_grenze", "akkusteuerung_ueberschuss_veto_grenze")]
-    if key == "input_number.opti_zellspannung_reserve_v" and number != 0 and not 2.9 <= number <= 3.1:
-        raise HomeAssistantError("Die Zellspannungs-Reserve muss 0 (aus) oder 2,90 bis 3,10 V betragen")
     for lower, upper in pairs:
         if float(updated[f"input_number.{lower}"]) > float(updated[f"input_number.{upper}"]):
             raise HomeAssistantError("Die Untergrenze darf nicht über der Obergrenze liegen")
@@ -413,8 +423,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._evcc_fetch_error: str | None = None
         self._price_next_fetch: datetime | None = None
         self._price_provider_error: str | None = None
+        # Raised as repair issues (repairs.py); both need a user action.
+        self._identity_mismatch = False
+        self.settings_rejected = False
         self._price_last_success: datetime | None = None
         self.alerts = HealthAlerts(hass, entry)
+        self.repairs = RepairIssues(hass, entry)
         entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, self._async_ha_stopping))
         entry.async_on_unload(self._release_device)
 
@@ -470,7 +484,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stored = await self._store.async_load() or {}
         candidates = stored.get("settings", {})
         self._settings_revision = self.entry.options.get("settings_revision")
-        if self._settings_revision and self._settings_revision != stored.get("settings_revision"):
+        new_revision = bool(self._settings_revision and self._settings_revision != stored.get("settings_revision"))
+        if new_revision:
             candidates = {**candidates, **self.entry.options.get("settings", {})}
         # Validate against the complete saved set so restoring ordered limits
         # doesn't depend on the order in which the settings were serialized.
@@ -478,13 +493,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for key, value in candidates.items():
             if key not in self.settings:
                 continue
-            definition = NUMBER_DEFINITIONS.get(key)
-            number = finite(value)
-            valid = (isinstance(value, bool) if key in SWITCH_DEFINITIONS else
-                     number is not None and definition["min"] <= number <= definition["max"])
-            if valid:
-                self.settings[key] = value if key in SWITCH_DEFINITIONS else number
-            else:
+            # Same single-value rules as the apply path, so restore cannot
+            # accept (and clear a rejection for) what apply would refuse.
+            try:
+                self.settings[key] = validate_single_setting(key, value)
+            except HomeAssistantError:
                 invalid.append(key)
         for lower, upper in [("minsoc", "maxsoc"), ("akkusteuerung_min_ladestaerke", "akkusteuerung_max_ladestaerke"),
                              ("akkusteuerung_min_entladestaerke", "akkusteuerung_max_entladestaerke"),
@@ -550,6 +563,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ("no_supported_modes", not self.supported_modes),
         ) if blocked]
         self.write_enabled = bool(stored.get("write_enabled", False)) and not restore_blockers
+        # Keeps the repair issue for a rejected options patch across reload and
+        # restart. A new revision applied here (options change with reload)
+        # decides afresh: clean settings clear it, reset values set it.
+        self.settings_rejected = (bool(invalid) if new_revision
+                                  else stored.get("settings_rejected") is True)
         if handover is not None and handover.get("write_enabled") is not True:
             # The live state at unload wins over a store that may lag behind,
             # e.g. a write disable whose save did not complete.
@@ -615,7 +633,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         serial = identity.get("serial_number")
         expected = self.entry.data.get("serial_number")
         if expected and serial != expected:
+            self._identity_mismatch = True
             raise HomeAssistantError("Geräteidentität hat sich geändert; Verbindung neu konfigurieren")
+        self._identity_mismatch = False
         if self.shadow_mode:
             return
         if not serial:
@@ -656,6 +676,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "load_source_fingerprint": self._load_source_fingerprint,
                 "score_load_fingerprint": self._score_load_fingerprint,
                 "write_enabled": self.write_enabled,
+                "settings_rejected": self.settings_rejected,
                 "writer_binding": self._writer_binding,
                 "pause_pending": self._pause_pending,
                 "pause_binding": self._pause_binding,
@@ -946,6 +967,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Alerting and the journal must never fail the control cycle.
         with self._auxiliary_guard("alerts"):
             self.alerts.update(data)
+        with self._auxiliary_guard("repairs"):
+            self.repairs.sync(data)
         data["notification_error"] = self.alerts.delivery_error
         # Never await journal I/O here: HA serializes this whole method.
         with self._auxiliary_guard("journal"):
@@ -1604,6 +1627,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "score_load_error": score_load_error,
                 "device_errors": dict(read_errors) if isinstance(read_errors, dict) else {}, "load_profile": self._load_profile_status,
                 "price_provider_error": self._price_provider_error,
+                "identity_mismatch": self._identity_mismatch,
+                "settings_rejected": self.settings_rejected,
                 "price_last_success": self._price_last_success,
                 "notification_error": self.alerts.delivery_error,
                 "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled,
@@ -1856,6 +1881,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "last_error": self._last_error,
                 "device_errors": dict(read_errors) if isinstance(read_errors, dict) else {},
                 "price_provider_error": self._price_provider_error,
+                "identity_mismatch": self._identity_mismatch,
+                "settings_rejected": self.settings_rejected,
                 "price_last_success": self._price_last_success,
                 "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled,
                 "control_inactive": bool(self.strategy_enabled and not self.shadow_mode and not self.write_enabled
@@ -2674,6 +2701,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._store.async_save(self._stored_data())
         await self.async_refresh()
 
+    async def async_mark_settings_rejected(self) -> None:
+        """Remember a rejected options patch and show its repair issue now."""
+        self.settings_rejected = True
+        await self._store.async_save(self._stored_data())
+        self.repairs.sync({**(self.data or {}), "settings_rejected": True})
+
     async def async_apply_settings(self, settings: dict, revision: str) -> None:
         """Apply one validated wizard transaction without reloading the device."""
         async with self._update_lock:
@@ -2686,6 +2719,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._reset_manual_soc_blocks()
             self.settings = validated
             self._settings_revision = revision
+            self.settings_rejected = False
             self._revision += 1
         await self._store.async_save(self._stored_data())
         await self.async_refresh()

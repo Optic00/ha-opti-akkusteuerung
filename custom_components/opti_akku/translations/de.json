@@ -1246,6 +1246,63 @@
     "binary_sensor": {
       "connection": {
         "name": "Verbindung"
+      },
+      "state_balancing_haltefenster_aktiv": {
+        "name": "Balancing-Haltefenster aktiv"
+      },
+      "state_block_violation": {
+        "name": "Sperrverletzung"
+      },
+      "state_ev_lp1_schnell": {
+        "name": "Ladepunkt 1 Schnellladen"
+      },
+      "state_ev_lp2_schnell": {
+        "name": "Ladepunkt 2 Schnellladen"
+      },
+      "state_ev_schnellladung": {
+        "name": "E-Auto-Schnellladung"
+      },
+      "state_extreme_price_hold": {
+        "name": "Extrempreis-Reserve halten"
+      },
+      "state_ladedeckel_aktiv": {
+        "name": "Ladedeckel aktiv"
+      },
+      "state_minsoc_schutz_aktiv": {
+        "name": "Mindestladestand-Schutz aktiv"
+      },
+      "state_peak_horizont_lang": {
+        "name": "Langer Peak-Horizont"
+      },
+      "state_peak_reserve_aktiv": {
+        "name": "Peak-Reserve aktiv"
+      },
+      "state_pv_reichtag": {
+        "name": "PV-reicher Tag"
+      },
+      "state_pv_spitze": {
+        "name": "PV-Spitze"
+      },
+      "state_ueberschuss_70_aktiv": {
+        "name": "70-%-Überschuss aktiv"
+      },
+      "state_ueberschuss_ac_aktiv": {
+        "name": "AC-Überschuss aktiv"
+      },
+      "state_ueberschuss_veto_aktiv": {
+        "name": "Überschuss-Veto aktiv"
+      },
+      "state_vorladen_pv_ueberschuss": {
+        "name": "PV-Überschuss sperrt Vorladen"
+      },
+      "state_winter_charging_allowed": {
+        "name": "Winterladen erlaubt"
+      },
+      "state_write_stalled": {
+        "name": "Schreibstillstand"
+      },
+      "state_zellspannung_unter_reserve": {
+        "name": "Zellspannung unter Reserve"
       }
     },
     "sensor": {
@@ -1776,6 +1833,111 @@
           "other": "Andere Abweichung",
           "ladder_unrated": "Leiter ohne evcc-Gegenstück"
         }
+      },
+      "state_balancing_done_minuten": {
+        "name": "Balancing-Minuten erreicht"
+      },
+      "state_tage_seit_akku100": {
+        "name": "Tage seit 100 % Ladung"
+      },
+      "state_akkusteuerung_modbus_letzter_schreibzeitpunkt": {
+        "name": "Letzter Modbus-Schreibzeitpunkt"
+      },
+      "state_balancing_letzter_abschluss": {
+        "name": "Letzter Balancing-Abschluss"
+      },
+      "state_byd_zellspreizung_ruhe": {
+        "name": "Zellspreizung in Ruhe"
+      },
+      "state_haus_stromverbrauch_60_min": {
+        "name": "Hausverbrauch 60 Minuten (bisheriger Helfer)"
+      },
+      "state_house_battery_load_30_mins": {
+        "name": "Akkulast 30 Minuten (bisheriger Helfer)"
+      },
+      "state_balancing_watchdog": {
+        "name": "Balancing-Überwachung"
+      },
+      "state_battery_model": {
+        "name": "Akkumodell (Wirkungsgrad und Zykluskosten)"
+      },
+      "state_cell_voltage_min_v": {
+        "name": "Niedrigste Zellspannung"
+      },
+      "state_clipping_forecast_kwh": {
+        "name": "Erwartete Energie über AC-Grenze"
+      },
+      "state_engine_diagnostics": {
+        "name": "Strategie-Diagnose"
+      },
+      "state_forecast_effective_remaining_kwh": {
+        "name": "Wirksame Rest-PV heute"
+      },
+      "state_forecast_house_24h_w": {
+        "name": "Hausverbrauch-Prognose 24 Stunden"
+      },
+      "state_forecast_house_60min_w": {
+        "name": "Hausverbrauch-Prognose 60 Minuten"
+      },
+      "state_forecast_remaining_load_profile_kwh": {
+        "name": "Verbrauchsprofil Resttag"
+      },
+      "state_forecast_remaining_today_kwh": {
+        "name": "PV-Prognose verbleibend heute"
+      },
+      "state_forecast_score": {
+        "name": "PV-Prognosebewertung heute"
+      },
+      "state_forecast_score_sonnentag": {
+        "name": "PV-Prognosebewertung Sonnentag"
+      },
+      "state_forecast_score_tomorrow": {
+        "name": "PV-Prognosebewertung morgen"
+      },
+      "state_forecast_today_kwh": {
+        "name": "PV-Prognose heute"
+      },
+      "state_house_balance_w": {
+        "name": "Hausbilanz"
+      },
+      "state_house_consumption_24h_w": {
+        "name": "Hausverbrauch 24 Stunden"
+      },
+      "state_house_consumption_60min_w": {
+        "name": "Hausverbrauch 60 Minuten"
+      },
+      "state_inverter_status": {
+        "name": "Wechselrichterstatus"
+      },
+      "state_mindestentladepreis_ct_kwh": {
+        "name": "Mindestpreis zum Entladen"
+      },
+      "state_negative_price_hold": {
+        "name": "Schattenvergleich PV-Ladung bis Preisfenster"
+      },
+      "state_peak_load_profile": {
+        "name": "Peak-Lastprofil"
+      },
+      "state_peak_rank": {
+        "name": "Schattenvergleich Peak-Rangfolge"
+      },
+      "state_peak_reserve_soc": {
+        "name": "Peak-Reserve"
+      },
+      "state_price_level": {
+        "name": "Preisniveau"
+      },
+      "state_price_series": {
+        "name": "Strompreisreihe"
+      },
+      "state_pv_forecast_hours": {
+        "name": "PV-Prognose je Stunde"
+      },
+      "state_runtime_h": {
+        "name": "Akku-Restlaufzeit"
+      },
+      "state_strategie_vorschau": {
+        "name": "Strategievorschau"
       }
     },
     "button": {

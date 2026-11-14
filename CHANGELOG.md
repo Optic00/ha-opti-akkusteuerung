@@ -10,6 +10,12 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Geändert
 
+- **Alle Diagnose-Entitäten haben übersetzte Namen.** Rund 55 Diagnose-Sensoren
+  und Binärsensoren der Strategie hießen bisher nach internen Schlüsseln wie
+  „Opti Ueberschuss Veto Aktiv“. Sie haben jetzt deutsche und englische Namen
+  in der Sprache von Home Assistant. Bestehende Entity-IDs bleiben erhalten;
+  bei einer neuen Einrichtung bildet HA die IDs wie üblich aus den englischen
+  Namen.
 - **Entfernen räumt die privaten Speicher des Eintrags auf.** Einstellungen und
   Prognoseverlauf eines gelöschten Eintrags bleiben nicht mehr unter `.storage`
   liegen. Ein noch ausstehendes Speichern des Verlaufs wird beim Entladen

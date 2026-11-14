@@ -199,3 +199,29 @@ async def test_translated_error_renders_the_english_log_message(hass):
     error = translated(ConfigEntryError, "huawei_config_invalid", error="KeyError")
     assert error.translation_placeholders == {"error": "KeyError"}
     assert "(KeyError)" in str(error)
+
+
+def test_translated_state_entities_have_names_in_every_language():
+    from custom_components.opti_akku.entity import TRANSLATED_STATE_KEYS, state_translation_key
+
+    for name in FILES:
+        entity = _load(name)["entity"]
+        for key in TRANSLATED_STATE_KEYS:
+            platform = "binary_sensor" if key.startswith("binary_sensor.") else "sensor"
+            label = entity[platform].get(state_translation_key(key), {}).get("name", "")
+            assert label.strip(), (name, key)
+
+
+def test_every_described_state_entity_has_a_translated_name():
+    """Strategy, source and fixed metadata entities must not fall back to raw names."""
+    from custom_components.opti_akku.coordinator import _build_metadata
+    from custom_components.opti_akku.engine import StrategyEngine
+    from custom_components.opti_akku.entity import TRANSLATED_STATE_KEYS
+    from custom_components.opti_akku.sensor import CORE_UNITS, EVCC_COMPARISON_KEY, PLAN_SHADOW_KEY
+
+    own_translation = {"binary_sensor.opti_connection", PLAN_SHADOW_KEY, EVCC_COMPARISON_KEY}
+    described = {
+        key for key in _build_metadata(StrategyEngine())
+        if key not in own_translation and key.removeprefix("sensor.opti_") not in CORE_UNITS
+    }
+    assert not described - TRANSLATED_STATE_KEYS, sorted(described - TRANSLATED_STATE_KEYS)

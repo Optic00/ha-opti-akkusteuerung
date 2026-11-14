@@ -26,6 +26,20 @@ Was eine stabile Version noch aufhält, sind vor allem drei Dinge:
    unübersetzte Fehlermeldungen, wenige Feldbeschreibungen im Einrichtungsdialog
    und Hinweise über `persistent_notification` statt Reparaturen.
 
+## Umsetzungsstand
+
+Stand 14.11.2026 nach den PRs #239 bis #243 und dem Folge-PR zu 1.6:
+
+- **P1 vollständig erledigt:** 1.1 übersetzte Ausnahmen und 1.2 Feldbeschreibungen (#242),
+  1.3 `PARALLEL_UPDATES` und 1.5 `quality_scale.yaml` (#240), 1.4 Reparaturen (#243),
+  1.6 Entitätsnamen übersetzt (Folge-PR). Bestehende Installationen behalten ihre
+  Entity-IDs; neu eingerichtete bekommen IDs aus den englischen Namen, wie in HA üblich.
+- **P3 erledigt bis auf 3.4:** Wochenlauf, `concurrency`, `pytest-xdist` und
+  `pre-commit` (#239). Offen bleibt 3.4 (`ruff format` und erweitertes Regelset).
+- **Offen:** P0 (Abnahmen in #85, Feature-Freeze, Unterstützungsumfang) und P2.
+
+Die Tabellen unten zeigen den Befund vom 14.11. vor der Umsetzung.
+
 ## Priorisierte Lückenliste
 
 Legende: **P0** blockiert die stabile Version, **P1** vor der stabilen Version
@@ -79,7 +93,7 @@ Diese Punkte gehören in einen eigenen CI-PR.
   HACS-Validierung in CI grün.
 - **Manifest:** `codeowners`, `documentation`, `issue_tracker`, `iot_class`,
   `version`, `config_flow`; Hassfest in CI grün.
-- **Bronze:** Config-Flow mit Verbindungstest (Feldbeschreibungen fehlen, siehe 1.2), `unique_id` gegen Doppelanlage,
+- **Bronze:** Config-Flow mit Verbindungstest, `unique_id` gegen Doppelanlage,
   `runtime_data`, `has_entity_name`, Übersetzungen, Entity-Kategorien,
   `async_config_entry_first_refresh`, Tests für Config-Flow.
 - **Silber:** Entladen der Entry, `available` an allen Plattformen, Codeowner,

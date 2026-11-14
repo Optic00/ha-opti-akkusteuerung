@@ -321,8 +321,12 @@ class HealthAlerts:
                                              notification_id=f"opti_akku_test_{self.entry.entry_id}")
         await self._deliver(message)
         if self.delivery_error:
-            from homeassistant.exceptions import HomeAssistantError
-            raise HomeAssistantError(self.delivery_error)
+            from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+            from .errors import translated
+            # A non-notify action is a configuration mistake, a failed call is not.
+            cls = (ServiceValidationError if self.delivery_error == "invalid_notification_service"
+                   else HomeAssistantError)
+            raise translated(cls, self.delivery_error)
 
     async def async_stop(self):
         self._stopped = True

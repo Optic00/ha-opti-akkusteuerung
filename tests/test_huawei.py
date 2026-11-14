@@ -2,6 +2,7 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from tests.translated import raises_translated
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import dt as dt_util
@@ -322,7 +323,7 @@ async def test_huawei_factory_requires_controls_for_standard_entry(hass):
     from homeassistant.exceptions import ConfigEntryError
     entry = MockConfigEntry(domain="opti_akku", data={"backend": "huawei_solar", "shadow_mode": False})
     entry.add_to_hass(hass)
-    with pytest.raises(ConfigEntryError, match="actuator bindings"):
+    with raises_translated(ConfigEntryError, "huawei_bindings_required"):
         await async_setup_entry(hass, entry)
 
 
@@ -347,5 +348,5 @@ async def test_malformed_huawei_constructor_is_config_entry_error(hass):
     from homeassistant.exceptions import ConfigEntryError
     entry = MockConfigEntry(domain="opti_akku", data={"backend": "huawei_solar", "shadow_mode": True})
     entry.add_to_hass(hass)
-    with pytest.raises(ConfigEntryError, match="Invalid Huawei configuration"):
+    with raises_translated(ConfigEntryError, "huawei_config_invalid"):
         await async_setup_entry(hass, entry)

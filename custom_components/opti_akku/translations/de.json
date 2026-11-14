@@ -1518,5 +1518,19 @@
         }
       }
     }
+  },
+  "issues": {
+    "identity_changed": {
+      "title": "{entry}: Geräteidentität hat sich geändert",
+      "description": "Der Wechselrichter von {entry} meldet eine andere Seriennummer als die eingerichtete. Opti Akku liest und schreibt ihn nicht mehr, die Schreibfreigabe bleibt gesperrt. Wurde das Gerät getauscht, die Verbindung unter Konfigurieren → Erweitert und Diagnose → Verbindung neu eingeben oder einen neuen Eintrag anlegen. Andernfalls prüfen, ob Host, Port und Unit-ID noch auf das richtige Gerät zeigen."
+    },
+    "tibber_config": {
+      "title": "{entry}: Tibber-Auswahl passt nicht mehr",
+      "description": "Opti Akku kann für {entry} keine Tibber-Preise nutzen: Das gewählte Zuhause oder der Tibber-Eintrag ist nicht mehr vorhanden, oder Home Assistant hat jetzt mehr als einen Tibber-Eintrag oder mehr als ein Zuhause. Bis das behoben ist, fehlen der preisabhängigen Steuerung die Preise. Das Tibber-Zuhause unter Konfigurieren → Stromtarif erneut auswählen. Unterstützt wird genau ein Tibber-Eintrag mit einem Zuhause."
+    },
+    "settings_rejected": {
+      "title": "{entry}: Einstellungen nicht übernommen",
+      "description": "Eine gespeicherte Änderung der Einstellungen für {entry} wurde abgelehnt, weil Grenzwerte oder benötigte Quellen nicht mehr gültig sind. Die Änderung wurde verworfen, die bisherigen Einstellungen bleiben aktiv. Konfigurieren öffnen, Werte prüfen und erneut speichern. Der Hinweis verschwindet, sobald Einstellungen übernommen wurden."
+    }
   }
 }

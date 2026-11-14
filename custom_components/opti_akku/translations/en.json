@@ -2088,6 +2088,18 @@
     "grid_charge_standby": {
       "title": "Grid charging blocked: inverter in standby",
       "description": "At {time} Opti Akku wanted to charge the battery from the grid for **{entry}**, but the inverter was in night standby (empty battery, no PV) and accepted no command. The grid charge was lost.\n\nThe *Standby reserve before grid charging* (currently {reserve} %) keeps the inverter awake in nights with planned grid charging. If it is 0, set it to a few percent; 2 to 3 % are usually enough. If the inverter goes into standby despite the reserve, raise it and report this in issue #222.\n\nThis message closes itself once grid charging works again at night, or when you dismiss it."
+    },
+    "identity_changed": {
+      "title": "{entry}: device identity has changed",
+      "description": "The inverter of {entry} reports a different serial number than the one configured. Opti Akku no longer reads or writes it, and write access stays locked. If the device was replaced, enter the connection again under Configure → Advanced and diagnostics → Connection, or set up a new entry. If not, check that host, port and unit ID still point to the right device."
+    },
+    "tibber_config": {
+      "title": "{entry}: Tibber selection no longer matches",
+      "description": "Opti Akku cannot use Tibber prices for {entry}: the selected home or Tibber entry is no longer available, or Home Assistant now has more than one Tibber entry or home. Price-based control runs without prices until this is fixed. Select the Tibber home again under Configure → Electricity tariff. Only one Tibber entry with one home is supported."
+    },
+    "settings_rejected": {
+      "title": "{entry}: settings were not applied",
+      "description": "A saved settings change for {entry} was rejected because limits or required sources are no longer valid. The change was discarded and the previous settings stay active. Open Configure, check the values and save again. This notice disappears once settings are applied."
     }
   }
 }

@@ -4860,11 +4860,11 @@ async def test_plan_shadow_records_hourly_forecast_history_in_its_own_store(coor
     hass.states.async_set("sensor.solcast_demand", "40", {"detailedForecast": detail})
     hass.config_entries.async_update_entry(entry, options={
         **entry.options, "demand_forecast": {"enabled": True, "sources": {"pv_today": "sensor.solcast_demand"}}})
-    with patch.object(coordinator._history_store, "async_delay_save") as delay_save:
+    with patch.object(coordinator, "_schedule_history_save") as schedule:
         data = await coordinator._async_update_data()
-        assert delay_save.call_count == 1
+        assert schedule.call_count == 1
         await coordinator._async_update_data()
-        assert delay_save.call_count == 1  # one snapshot per hour
+        assert schedule.call_count == 1  # one snapshot per hour
     history = data["attributes"]["sensor.opti_plan_shadow"]["forecast_history"]
     assert history["entries"] == 1
     saved = coordinator._planner_history.snapshot()

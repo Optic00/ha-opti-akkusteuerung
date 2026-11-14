@@ -223,6 +223,26 @@ def test_small_permanent_surplus_locks_too():
     assert _surplus(engine, t0 + dt.timedelta(minutes=10), 0, 2900, 3000) == "on"
 
 
+def test_meter_offset_during_grid_charging_does_not_lock():
+    """Codex review round 3: 5 W offset between battery and grid metering while
+    grid charging is noise, not PV surplus."""
+    engine = _surplus_engine()
+    t0 = dt.datetime(2026, 1, 14, 12, 0, tzinfo=TZ)
+    assert _surplus(engine, t0, 0, 2995, 3000) == "off"
+    assert _surplus(engine, t0 + dt.timedelta(minutes=10), 0, 2950, 3000) == "off"
+    assert _surplus(engine, t0 + dt.timedelta(minutes=11), 0, 2940, 3000) == "off"
+    assert _surplus(engine, t0 + dt.timedelta(minutes=12, seconds=1), 0, 2940, 3000) == "on"
+
+
+@pytest.mark.parametrize("sun", ["unavailable", "unknown", None])
+def test_missing_measurements_with_unknown_sun_lock(sun):
+    """Codex review round 3: an unavailable sun state counts as day."""
+    engine = _surplus_engine()
+    t0 = dt.datetime(2026, 1, 14, 12, 0, tzinfo=TZ)
+    _surplus(engine, t0, None, 100, 0, sun=sun)
+    assert _surplus(engine, t0 + dt.timedelta(seconds=61), None, 100, 0, sun=sun) == "on"
+
+
 def test_missing_measurements_lock_by_day_and_not_at_night():
     """Codex review: a grid meter outage must not allow grid precharge during PV
     hours. At night there is no PV surplus; the precharge stays possible."""

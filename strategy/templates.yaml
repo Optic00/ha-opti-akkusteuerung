@@ -128,12 +128,14 @@ template_blocks:
     icon: mdi:solar-power-variant
     # Issue #155: kein Peak-Vorladen aus dem Netz, solange PV mehr liefert als
     # das Haus verbraucht. Gemessen wird der Ueberschuss vor dem Akku
-    # (Export - Bezug + Akkuladung), jeder positive Wert zaehlt. Er bleibt auch
+    # (Export - Bezug + Akkuladung) ab 50 W; die Totzone faengt Messversatz
+    # zwischen Netz- und Akkumessung ab (z. B. 5 W beim Netzladen). Er bleibt auch
     # waehrend des Netzladens gueltig, weil Netzbezug und Akkuladung sich dort
     # aufheben. Einverzoegerung gegen Messrauschen, laengere Ausverzoegerung
-    # gegen Wolken. Fehlt ein Messwert, sperrt der Sensor tagsueber
-    # vorsichtshalber; nachts gibt es keinen PV-Ueberschuss, dort bleibt das
-    # Vorladen wie bisher moeglich (Codex-Review zu #155).
+    # gegen Wolken. Fehlt ein Messwert, sperrt der Sensor vorsichtshalber,
+    # ausser sun.sun meldet ausdruecklich below_horizon: nachts gibt es keinen
+    # PV-Ueberschuss, dort bleibt das Vorladen wie bisher moeglich. Ein
+    # unbekannter Sonnenstand zaehlt als Tag (Codex-Review zu #155).
     delay_on:
       seconds: 60
     delay_off:
@@ -146,9 +148,9 @@ template_blocks:
         {% set netto = states('sensor.opti_grid_export_w')|float(0)
                        - states('sensor.opti_grid_import_w')|float(0)
                        + states('sensor.opti_battery_power_w')|float(0) %}
-        {{ netto > 0 }}
+        {{ netto > 50 }}
       {% else %}
-        {{ is_state('sun.sun', 'above_horizon') }}
+        {{ not is_state('sun.sun', 'below_horizon') }}
       {% endif %}
     attributes:
       quelle: |

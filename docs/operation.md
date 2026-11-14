@@ -182,10 +182,10 @@ nur bis zum **Vorladeziel** (`vorlade_ziel_soc` an der Peak-Reserve, im Reservep
 volle Reserve; die PV lädt sie bis zur Spitze auf. Fehlt eine Solcast-Prognose mit
 Intervallen, zählt keine PV und es wird wie bisher bis zur Reserve vorgeladen.
 Halbstunden ohne Prognose zählen mit 0; bei mehreren Prognosequellen gilt die, die am weitesten reicht. Zusätzlich lädt Peak-Vorladen nicht aus dem
-Netz, solange die PV gerade mehr liefert, als das Haus verbraucht
+Netz, solange die PV gerade mehr als 50 W über dem Hausverbrauch liefert
 (`binary_sensor.opti_vorladen_pv_ueberschuss`, Ein nach 60 s, Aus nach 5 min).
-Fehlen dafür Netz- oder Akkumesswerte, ist Peak-Vorladen tagsüber gesperrt und
-nachts wie bisher möglich. Die PV-Prognose wird bis 37 Stunden im Voraus gelesen.
+Fehlen dafür Netz- oder Akkumesswerte, ist Peak-Vorladen gesperrt, außer nachts
+(`sun.sun` unter dem Horizont). Die PV-Prognose wird bis 37 Stunden im Voraus gelesen.
 
 In teuren und sehr teuren Preisphasen entlädt der Akku bei Hausbedarf. Tagsüber
 setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, solange

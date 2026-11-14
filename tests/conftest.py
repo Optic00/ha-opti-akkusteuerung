@@ -2,7 +2,7 @@
 
 import pytest
 
-pytest_plugins = ["tests.assertion_guard"]
+pytest_plugins = ["tests.assertion_guard", "tests.form_labels"]
 
 
 @pytest.fixture(autouse=True)

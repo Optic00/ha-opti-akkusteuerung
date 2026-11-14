@@ -248,6 +248,15 @@ def test_any_measured_export_locks_below_the_deadband():
     assert _surplus(engine, t0 + dt.timedelta(minutes=11, seconds=1), 0, 2995, 3000) == "off"
 
 
+def test_export_noise_at_night_does_not_lock():
+    """Codex review round 5: a meter reporting 1 W export at night is noise,
+    not PV surplus; it must not block the precharge."""
+    engine = _surplus_engine()
+    t0 = dt.datetime(2026, 1, 14, 2, 0, tzinfo=TZ)
+    _surplus(engine, t0, 1, 0, 0, sun="below_horizon")
+    assert _surplus(engine, t0 + dt.timedelta(minutes=10), 1, 0, 0, sun="below_horizon") == "off"
+
+
 @pytest.mark.parametrize("sun", ["unavailable", "unknown", None])
 def test_missing_measurements_with_unknown_sun_lock(sun):
     """Codex review round 3: an unavailable sun state counts as day."""

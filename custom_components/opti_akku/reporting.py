@@ -117,6 +117,10 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool,
         "assumed_discharge_efficiency": template_discharge_efficiency(
             (data.get("attributes", {}).get(BATTERY_MODEL_ENTITY) or {}).get("discharge_efficiency")),
         "required_battery_kwh": number(attrs.get("benoetigt_kwh")) if valid else None,
+        # #155: grid precharge only up to the reserve minus the P10 PV before the peak.
+        "precharge_target_soc": number(attrs.get("vorlade_ziel_soc")) if valid else None,
+        "pv_before_peak_kwh": number(attrs.get("pv_vor_peak_kwh")) if valid else None,
+        "pv_before_peak_forecast": attrs.get("pv_prognose") if valid else None,
         "extreme_buffer_kwh": round(extreme_buffer_kwh, 4)
         if valid and extreme_buffer_kwh is not None else None,
         "extreme_buffer_soc": round(extreme_buffer_soc, 2)

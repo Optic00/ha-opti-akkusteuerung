@@ -54,8 +54,11 @@ def resources():
 
 
 def evaluate(prices, *, current, model=None, minute=5, hour=13, overrides=None, tomorrow=None,
-             check=True):
-    """Evaluate the reserve and preview; ``model`` is ``(state, attributes)`` or ``None``."""
+             check=True, attributes=None):
+    """Evaluate the reserve and preview; ``model`` is ``(state, attributes)`` or ``None``.
+
+    ``attributes`` adds further input attributes, e.g. the PV forecast hours.
+    """
     now = dt.datetime(2026, 1, 14, hour, minute, tzinfo=TZ)
     values = {
         "input_boolean.akku_opti_automatik": "on",
@@ -78,13 +81,15 @@ def evaluate(prices, *, current, model=None, minute=5, hour=13, overrides=None, 
     series = {"today": list(prices)}
     if tomorrow is not None:
         series["tomorrow"] = list(tomorrow)
-    attributes = {"sensor.opti_price_series": series}
+    attributes_in = {"sensor.opti_price_series": series}
     if model is not None:
         values[MODEL_ENTITY], model_attributes = model
         if model_attributes is not None:
-            attributes[MODEL_ENTITY] = dict(model_attributes)
+            attributes_in[MODEL_ENTITY] = dict(model_attributes)
     values.update(overrides or {})
-    result = ENGINE.StrategyEngine(resources()).evaluate(values, attributes, now)
+    for entity, extra in (attributes or {}).items():
+        attributes_in[entity] = dict(extra)
+    result = ENGINE.StrategyEngine(resources()).evaluate(values, attributes_in, now)
     if check:
         assert result.states["sensor.opti_engine_diagnostics"] == "ok"
         assert result.states["sensor.opti_strategie_vorschau"] == result.mode

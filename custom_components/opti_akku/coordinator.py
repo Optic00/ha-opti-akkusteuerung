@@ -375,6 +375,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # entry.async_on_unload, which also runs after a failed setup, so no
         # late write can recreate the file of a removed entry.
         self._history_save_unsub = None
+        self._history_save_task: asyncio.Task | None = None
         entry.async_on_unload(self._cancel_history_save)
         self._measurements: dict = {}
         self._violation_since: float | None = None
@@ -2787,8 +2788,14 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._history_save_unsub()
             self._history_save_unsub = None
 
-    async def _async_history_save_due(self, _now) -> None:
+    @callback
+    def _async_history_save_due(self, _now) -> None:
         self._history_save_unsub = None
+        # Tracked so async_stop can wait for a write already in progress.
+        self._history_save_task = self.hass.async_create_task(
+            self._async_save_history(), "Opti planner history save", eager_start=True)
+
+    async def _async_save_history(self) -> None:
         try:
             await self._history_store.async_save(self._planner_history.snapshot())
         except Exception as err:  # noqa: BLE001 - history is diagnosis only
@@ -2830,13 +2837,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 except Exception as err:
                     self._last_error = f"Pause beim Entladen der Integration nicht bestätigt: {type(err).__name__}"
             self._release_device()
-        # Write a scheduled history save now instead of losing it.
+        # Write a scheduled history save now instead of losing it, and let a
+        # write already in progress finish before removal can delete the file.
         if self._history_save_unsub is not None:
             self._cancel_history_save()
-            try:
-                await self._history_store.async_save(self._planner_history.snapshot())
-            except Exception as err:  # noqa: BLE001 - history is diagnosis only
-                _LOGGER.debug("Planner history not saved on stop: %s", type(err).__name__)
+            await self._async_save_history()
+        if self._history_save_task is not None and not self._history_save_task.done():
+            await asyncio.shield(self._history_save_task)
         # Only now wait for journal writes: a slow disk never delays the pause above.
         await asyncio.shield(self._start_journal_job(
             self._async_journal_final_save_job(), "Opti final save"))

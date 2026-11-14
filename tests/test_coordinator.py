@@ -1056,6 +1056,25 @@ async def test_stop_flushes_scheduled_history_save(hass, hass_storage, coordinat
     assert coordinator._history_save_unsub is None
 
 
+
+async def test_stop_waits_for_history_write_in_progress(hass, coordinator):
+    started, release, done = asyncio.Event(), asyncio.Event(), []
+
+    async def slow_save(data):
+        started.set()
+        await release.wait()
+        done.append(data)
+
+    with patch.object(coordinator._history_store, "async_save", side_effect=slow_save):
+        coordinator._async_history_save_due(None)  # as when the timer fires
+        await asyncio.wait_for(started.wait(), 1)
+        stop = hass.async_create_task(coordinator.async_stop())
+        with pytest.raises(TimeoutError):  # removal cannot start while the write runs
+            await asyncio.wait_for(asyncio.shield(stop), 0.5)
+        release.set()
+        await asyncio.wait_for(stop, 5)
+    assert done
+
 async def test_history_save_cannot_recreate_store_of_entry_removed_after_failed_setup(
     hass, hass_storage, entry, coordinator
 ):

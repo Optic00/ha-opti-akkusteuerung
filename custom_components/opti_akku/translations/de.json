@@ -13,6 +13,12 @@
           "profile": "Geräteprofil",
           "shadow_mode": "Strikt lesender Shadow-Modus (später nicht abschaltbar)",
           "migrate_legacy": "Bisherige Opti-Automation übernehmen (immer Shadow)"
+        },
+        "data_description": {
+          "host": "IP-Adresse oder Hostname des Wechselrichters im lokalen Netz. Modbus TCP muss am Gerät aktiviert sein.",
+          "port": "Modbus-TCP-Port des Wechselrichters, bei SMA meist 502.",
+          "unit_id": "Modbus-Unit-ID des Wechselrichters. SMA-Wechselrichter antworten in der Regel unter 3.",
+          "shadow_mode": "Liest nur und schreibt nie auf das Gerät. Ein Shadow-Eintrag bleibt dauerhaft lesend; für eine spätere Steuerung wird ein eigener Standard-Eintrag angelegt."
         }
       },
       "sma_connection": {
@@ -25,6 +31,12 @@
           "profile": "Geräteprofil",
           "shadow_mode": "Strikt lesender Shadow-Modus",
           "migrate_legacy": "Bisherige Opti-Automation übernehmen (immer Shadow)"
+        },
+        "data_description": {
+          "host": "IP-Adresse oder Hostname des Wechselrichters im lokalen Netz. Modbus TCP muss am Gerät aktiviert sein.",
+          "port": "Modbus-TCP-Port des Wechselrichters, bei SMA meist 502.",
+          "unit_id": "Modbus-Unit-ID des Wechselrichters. SMA-Wechselrichter antworten in der Regel unter 3.",
+          "shadow_mode": "Liest nur und schreibt nie auf das Gerät. Ein Shadow-Eintrag bleibt dauerhaft lesend; für eine spätere Steuerung wird ein eigener Standard-Eintrag angelegt."
         }
       },
       "huawei_device": {
@@ -33,6 +45,9 @@
         "data": {
           "huawei_device_id": "Huawei-Wechselrichter",
           "shadow_mode": "Shadow-Modus (dauerhaft nur lesen)"
+        },
+        "data_description": {
+          "shadow_mode": "Liest nur und schreibt nie auf das Gerät. Ein Shadow-Eintrag bleibt dauerhaft lesend; für eine spätere Steuerung wird ein eigener Standard-Eintrag angelegt."
         }
       },
       "huawei_sources": {
@@ -87,7 +102,13 @@
           "charge_curve": "Ladekurve (optional)"
         },
         "data_description": {
+          "minsoc": "Untere Grenze, bis zu der die Strategie den Akku entlädt. Standard 10 %.",
+          "maxsoc": "Obere Grenze, bis zu der die Strategie den Akku lädt. Standard 95 %.",
+          "akkusteuerung_max_ladestaerke": "Höchste Ladeleistung, die Opti anfordert. Das ist eine Strategiegrenze; die Grenzen von Wechselrichter und BMS gelten weiter.",
+          "akkusteuerung_max_entladestaerke": "Höchste Entladeleistung, die Opti anfordert. Das ist eine Strategiegrenze; die Grenzen von Wechselrichter und BMS gelten weiter.",
+          "opti_pv_ueberschuss_ladung": "Erlaubt der Strategie, tagsüber PV-Überschuss in den Akku zu laden, einschließlich 70-%-Grenze, AC-Überschussgrenze und Einspeise-Freigabe.",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 schaltet die Funktion aus. Sinnvoll, wenn die PV-Leistung die AC-Leistung des Wechselrichters übersteigt und mittags abgeregelt wird. Dann lädt der Akku oberhalb der Grenze aus dem Überschuss, sofern PV-Überschussladen erlaubt ist. Vorschlag für das erkannte Modell: {ac_limit_suggestion}. Der Wert wird nicht automatisch übernommen.",
+          "opti_manuelle_ladegrenze": "Nutzt vorübergehend die maximale Ladeleistung statt der prognoseabhängigen Staffelung. Temperatur-, SoC- und Balancing-Grenzen bleiben wirksam. Nach einem Neustart oder Neuladen wieder aus.",
           "charge_curve": "Bis zu fünf Punkte aus Ladestand und maximaler Ladeleistung. Ab dem Ladestand eines Punkts gilt seine Leistung als Obergrenze; fällt der Ladestand, hält ein Punkt seine Leistung, bis der Ladestand 2 Prozentpunkte darunter liegt. Unterhalb dieses Bands des ersten Punkts begrenzt die Kurve nicht. Beispiel: ab 85 % 4000 W, ab 93 % 3000 W, ab 99 % 250 W, bei 100 % 70 W. Sie gilt in jedem Modus, auch in manuellen Modi und beim Netzladen, und senkt nur ab: Temperatur, Balancing und maximale Ladeleistung bleiben wirksam, und eine PV-Spitze hebt sie nicht auf. Die Leistung darf mit steigendem Ladestand nicht steigen. 0 W sperrt das Laden ab diesem Punkt. Leer lassen für unverändertes Verhalten."
         }
       },
@@ -109,7 +130,11 @@
         },
         "data_description": {
           "ladepreis": "-1 bedeutet: noch kein Referenz-Ladepreis bekannt. Vorhandene gespeicherte Werte bleiben beim Upgrade erhalten. Die Strategie schreibt den Wert nach Netzladen; er ist nur Anzeige und hat keine Steuerwirkung.",
-          "mindestpreisdifferenz_lade_entladepreis": "Nur Anzeige, keine Steuerwirkung: speist den Sensor Opti Mindestentladepreis (Referenz-Ladepreis plus Aufschlag). Kein Strategiezweig liest ihn."
+          "mindestpreisdifferenz_lade_entladepreis": "Nur Anzeige, keine Steuerwirkung: speist den Sensor Opti Mindestentladepreis (Referenz-Ladepreis plus Aufschlag). Kein Strategiezweig liest ihn.",
+          "opti_einspeiseverguetung_ct": "Deine Einspeisevergütung. Bei schlechter Prognose und erlaubtem Netzladen für die Reserve darf die Strategie aus dem Netz laden, solange der Strompreis darunter liegt. Bei 0 gilt das nur für negative Preise.",
+          "opti_netzlade_spread_ct": "Mindestabstand zwischen Ladepreis und Durchschnitt der kommenden Preisspitzen, damit vor einer Spitze aus dem Netz vorgeladen wird. Gilt zusätzlich zur Wirtschaftlichkeit aus dem Akkumodell. Standard 10 ct/kWh.",
+          "opti_peak_min_aufschlag_ct": "Ein Zeitfenster zählt nur als Preisspitze, wenn es mindestens so viel über dem Tiefstpreis im Planungshorizont liegt. Standard 5 ct/kWh.",
+          "opti_halte_spread_ct": "In teuren Stunden hält die Strategie den Akku nur für noch teurere Spitzen zurück, wenn deren Durchschnittspreis mindestens so viel über dem aktuellen Preis liegt. Standard 5 ct/kWh."
         }
       },
       "forecast": {
@@ -122,6 +147,14 @@
           "opti_forecast_optimismus": "Prognose-Optimismus",
           "opti_peak_verbrauch_kw": "Erwarteter Hausverbrauch",
           "opti_prognose_netzladen": "Reserveplanung mit Netzladen erlauben"
+        },
+        "data_description": {
+          "forecast_today": "PV-Prognose für heute in kWh oder Wh. Das Attribut estimate10 (P10) wird genutzt, falls vorhanden.",
+          "forecast_tomorrow": "PV-Prognose für morgen in kWh oder Wh. Das Attribut estimate10 (P10) wird genutzt, falls vorhanden.",
+          "forecast_remaining": "Restliche PV-Prognose für heute in kWh oder Wh. Das Attribut estimate10 (P10) wird genutzt, falls vorhanden.",
+          "opti_forecast_optimismus": "Mischt die vorsichtige P10-Prognose mit dem Median: 0 % nutzt nur P10, 100 % nur den Median. Standard 0 %.",
+          "opti_peak_verbrauch_kw": "Ersatzwert für die Hauslast in Preisspitzen, solange kein Peak-Lastprofil vorliegt. Damit schätzt die Peak-Reserve, wie viel Akku die Spitzen brauchen.",
+          "opti_prognose_netzladen": "Erlaubt Netzladen für die Reserve: bei schlechter Prognose und Preisen unter der Einspeisevergütung sowie zum Vorladen vor Preisspitzen. Ohne diese Freigabe lädt die Strategie in diesen Fällen nicht aus dem Netz."
         }
       },
       "ev": {
@@ -155,6 +188,19 @@
           "opti_balancing_bedarf_cooldown_tage": "Balancing-Abstand bei Bedarf",
           "opti_balancing_netzladen": "Netzladen für Balancing erlauben",
           "opti_zellspannung_reserve_v": "Zellspannungs-Reserve (V)"
+        },
+        "data_description": {
+          "cell_voltage_min": "Schnell aktualisierter Sensor der niedrigsten Zellspannung (V oder mV), etwa von einer BYD-BMU. Werte älter als 180 s gelten als veraltet. Nötig für die Zellspannungs-Reserve.",
+          "opti_balancing_intervall_tage": "Balancing wird fällig, wenn seit dem letzten Vollladen auf 100 % so viele Tage vergangen sind. 0 schaltet die Balancing-Planung aus.",
+          "opti_balancing_karenz_tage": "Zusätzliche Tage nach dem Intervall, bevor Balancing nachts zu einem günstigen Preis unter der Balancing-Preisgrenze aus dem Netz laden darf. Erfordert Netzladen für Balancing.",
+          "opti_balancing_max_ct": "Höchstpreis für Netzladen zum Balancing nach der Karenz. 0 schaltet diesen Weg aus.",
+          "opti_balancing_done_soc": "Balancing gilt als abgeschlossen, wenn der Ladestand 30 Minuten über diesem Wert liegt; bei 100 % genügt das Erreichen. Eine Änderung startet die Bestätigung neu.",
+          "opti_balancing_haltezeit_h": "Hält nach abgeschlossenem Balancing die Entladung so lange gesperrt und erlaubt nur PV-Nachladen. Hält nur bei Preisniveau sehr günstig, günstig oder normal. 0 = aus.",
+          "opti_balancing_halten_vor_peak": "Gibt einem laufenden Balancing-Haltefenster Vorrang vor der Entladung in Preisspitzen, solange der Preis gültig ist und höchstens 60 ct/kWh beträgt. Ohne PV kann das die Netzkosten erhöhen.",
+          "opti_balancing_spreizungs_schwelle": "Zieht das Balancing vor, wenn die Ruhe-Zellspreizung diesen Wert erreicht und der Mindestabstand vergangen ist. 0 = aus.",
+          "opti_balancing_bedarf_cooldown_tage": "Mindestabstand in Tagen seit dem letzten Vollladen, bevor eine hohe Zellspreizung das Balancing vorzieht.",
+          "opti_balancing_netzladen": "Erlaubt Balancing nachts aus dem Netz zu laden: unter der Einspeisevergütung oder nach der Karenz bei günstigem Preis bis zur Balancing-Preisgrenze. Standardmäßig aus.",
+          "opti_zellspannung_reserve_v": "Hält den Akku wie beim minimalen Ladestand, wenn die niedrigste Zelle unter Last 60 Sekunden lang diese Spannung erreicht. 0 = aus, sonst 2,90 bis 3,10 V; empfohlener Start 3,00 V. Braucht die Quelle Niedrigste Zellspannung."
         }
       },
       "finish": {
@@ -164,6 +210,10 @@
           "shadow_reference_mode": "Bestehende Modus-Entität zum Vergleich (optional)",
           "single_writer_confirmed": "Andere Wechselrichter-Steuerungen sind deaktiviert",
           "akku_opti_automatik": "Strategie berechnen"
+        },
+        "data_description": {
+          "single_writer_confirmed": "Erst bestätigen, wenn keine andere Automation, Integration oder Hersteller-App den Akku steuert. Ohne Bestätigung bleibt die Schreibfreigabe gesperrt.",
+          "akku_opti_automatik": "Berechnet die Strategie. Aus bedeutet Pause, auch bei manueller Moduswahl. Ersetzt nicht die Schreibfreigabe."
         }
       },
       "advanced": {
@@ -180,6 +230,14 @@
           "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Knappheitsfaktor",
           "forecast_max_age": "Maximales Alter von Prognosen (Sekunden)",
           "price_max_age": "Maximales Alter von Strompreisen (Sekunden)"
+        },
+        "data_description": {
+          "akkusteuerung_wr_70proz_ueberschuss_grenze": "0 schaltet die Funktion aus. Übersteigt die Einspeisung ohne Akkuladung tagsüber diesen Wert, lädt der Akku aus dem Überschuss, etwa bei einer Einspeisebegrenzung auf 70 %. Endet 1000 W darunter. Erfordert PV-Überschussladen.",
+          "akkusteuerung_ueberschuss_veto_grenze": "Übersteigt die Einspeisung ohne Akkuladung tagsüber diesen Wert, lädt der Akku über den Ziel-Ladestand hinaus bis zum maximalen Ladestand. Erfordert PV-Überschussladen.",
+          "akkusteuerung_ueberschuss_veto_aus_grenze": "Hysterese: Eine laufende Freigabe bleibt aktiv, solange die Einspeisung ohne Akkuladung mindestens diesen Wert erreicht. Darf nicht über der Freigabegrenze liegen.",
+          "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Die Freigabe greift nur, wenn der prognostizierte PV-Überschuss kleiner ist als die Energie bis zum Vollladen mal diesem Faktor. 1 = nur bei knapper Prognose; höhere Werte erlauben sie auch bei mehr erwartetem Überschuss. Ohne Prognose greift sie immer.",
+          "forecast_max_age": "Höchstalter von PV-Prognosen. Gilt für die Tagesprognosen, die Solcast-Intervalle des Bedarfsprofils, Clipping und den Planer. Standard 43200 s (12 h), weil der kostenlose Solcast-Tarif nur vier Abrufe pro Tag erlaubt.",
+          "price_max_age": "Höchstalter von Strompreisen. Ältere Preise gelten als ungültig. Standard 7200 s."
         }
       },
       "features": {
@@ -457,6 +515,11 @@
           "port": "Port",
           "unit_id": "Unit-ID",
           "profile": "Geräteprofil"
+        },
+        "data_description": {
+          "host": "IP-Adresse oder Hostname des Wechselrichters im lokalen Netz. Modbus TCP muss am Gerät aktiviert sein.",
+          "port": "Modbus-TCP-Port des Wechselrichters, bei SMA meist 502.",
+          "unit_id": "Modbus-Unit-ID des Wechselrichters. SMA-Wechselrichter antworten in der Regel unter 3."
         }
       },
       "sources": {
@@ -497,7 +560,13 @@
           "charge_curve": "Ladekurve (optional)"
         },
         "data_description": {
+          "minsoc": "Untere Grenze, bis zu der die Strategie den Akku entlädt. Standard 10 %.",
+          "maxsoc": "Obere Grenze, bis zu der die Strategie den Akku lädt. Standard 95 %.",
+          "akkusteuerung_max_ladestaerke": "Höchste Ladeleistung, die Opti anfordert. Das ist eine Strategiegrenze; die Grenzen von Wechselrichter und BMS gelten weiter.",
+          "akkusteuerung_max_entladestaerke": "Höchste Entladeleistung, die Opti anfordert. Das ist eine Strategiegrenze; die Grenzen von Wechselrichter und BMS gelten weiter.",
+          "opti_pv_ueberschuss_ladung": "Erlaubt der Strategie, tagsüber PV-Überschuss in den Akku zu laden, einschließlich 70-%-Grenze, AC-Überschussgrenze und Einspeise-Freigabe.",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 schaltet die Funktion aus. Sinnvoll, wenn die PV-Leistung die AC-Leistung des Wechselrichters übersteigt und mittags abgeregelt wird. Dann lädt der Akku oberhalb der Grenze aus dem Überschuss, sofern PV-Überschussladen erlaubt ist. Vorschlag für das erkannte Modell: {ac_limit_suggestion}. Der Wert wird nicht automatisch übernommen.",
+          "opti_manuelle_ladegrenze": "Nutzt vorübergehend die maximale Ladeleistung statt der prognoseabhängigen Staffelung. Temperatur-, SoC- und Balancing-Grenzen bleiben wirksam. Nach einem Neustart oder Neuladen wieder aus.",
           "charge_curve": "Bis zu fünf Punkte aus Ladestand und maximaler Ladeleistung. Ab dem Ladestand eines Punkts gilt seine Leistung als Obergrenze; fällt der Ladestand, hält ein Punkt seine Leistung, bis der Ladestand 2 Prozentpunkte darunter liegt. Unterhalb dieses Bands des ersten Punkts begrenzt die Kurve nicht. Beispiel: ab 85 % 4000 W, ab 93 % 3000 W, ab 99 % 250 W, bei 100 % 70 W. Sie gilt in jedem Modus, auch in manuellen Modi und beim Netzladen, und senkt nur ab: Temperatur, Balancing und maximale Ladeleistung bleiben wirksam, und eine PV-Spitze hebt sie nicht auf. Die Leistung darf mit steigendem Ladestand nicht steigen. 0 W sperrt das Laden ab diesem Punkt. Leer lassen für unverändertes Verhalten."
         }
       },
@@ -519,7 +588,11 @@
         },
         "data_description": {
           "ladepreis": "-1 bedeutet: noch kein Referenz-Ladepreis bekannt. Vorhandene gespeicherte Werte bleiben beim Upgrade erhalten. Die Strategie schreibt den Wert nach Netzladen; er ist nur Anzeige und hat keine Steuerwirkung.",
-          "mindestpreisdifferenz_lade_entladepreis": "Nur Anzeige, keine Steuerwirkung: speist den Sensor Opti Mindestentladepreis (Referenz-Ladepreis plus Aufschlag). Kein Strategiezweig liest ihn."
+          "mindestpreisdifferenz_lade_entladepreis": "Nur Anzeige, keine Steuerwirkung: speist den Sensor Opti Mindestentladepreis (Referenz-Ladepreis plus Aufschlag). Kein Strategiezweig liest ihn.",
+          "opti_einspeiseverguetung_ct": "Deine Einspeisevergütung. Bei schlechter Prognose und erlaubtem Netzladen für die Reserve darf die Strategie aus dem Netz laden, solange der Strompreis darunter liegt. Bei 0 gilt das nur für negative Preise.",
+          "opti_netzlade_spread_ct": "Mindestabstand zwischen Ladepreis und Durchschnitt der kommenden Preisspitzen, damit vor einer Spitze aus dem Netz vorgeladen wird. Gilt zusätzlich zur Wirtschaftlichkeit aus dem Akkumodell. Standard 10 ct/kWh.",
+          "opti_peak_min_aufschlag_ct": "Ein Zeitfenster zählt nur als Preisspitze, wenn es mindestens so viel über dem Tiefstpreis im Planungshorizont liegt. Standard 5 ct/kWh.",
+          "opti_halte_spread_ct": "In teuren Stunden hält die Strategie den Akku nur für noch teurere Spitzen zurück, wenn deren Durchschnittspreis mindestens so viel über dem aktuellen Preis liegt. Standard 5 ct/kWh."
         }
       },
       "forecast": {
@@ -532,6 +605,14 @@
           "opti_forecast_optimismus": "Prognose-Optimismus",
           "opti_peak_verbrauch_kw": "Erwarteter Hausverbrauch",
           "opti_prognose_netzladen": "Reserveplanung mit Netzladen erlauben"
+        },
+        "data_description": {
+          "forecast_today": "PV-Prognose für heute in kWh oder Wh. Das Attribut estimate10 (P10) wird genutzt, falls vorhanden.",
+          "forecast_tomorrow": "PV-Prognose für morgen in kWh oder Wh. Das Attribut estimate10 (P10) wird genutzt, falls vorhanden.",
+          "forecast_remaining": "Restliche PV-Prognose für heute in kWh oder Wh. Das Attribut estimate10 (P10) wird genutzt, falls vorhanden.",
+          "opti_forecast_optimismus": "Mischt die vorsichtige P10-Prognose mit dem Median: 0 % nutzt nur P10, 100 % nur den Median. Standard 0 %.",
+          "opti_peak_verbrauch_kw": "Ersatzwert für die Hauslast in Preisspitzen, solange kein Peak-Lastprofil vorliegt. Damit schätzt die Peak-Reserve, wie viel Akku die Spitzen brauchen.",
+          "opti_prognose_netzladen": "Erlaubt Netzladen für die Reserve: bei schlechter Prognose und Preisen unter der Einspeisevergütung sowie zum Vorladen vor Preisspitzen. Ohne diese Freigabe lädt die Strategie in diesen Fällen nicht aus dem Netz."
         }
       },
       "ev": {
@@ -565,6 +646,19 @@
           "opti_balancing_bedarf_cooldown_tage": "Balancing-Abstand bei Bedarf",
           "opti_balancing_netzladen": "Netzladen für Balancing erlauben",
           "opti_zellspannung_reserve_v": "Zellspannungs-Reserve (V)"
+        },
+        "data_description": {
+          "cell_voltage_min": "Schnell aktualisierter Sensor der niedrigsten Zellspannung (V oder mV), etwa von einer BYD-BMU. Werte älter als 180 s gelten als veraltet. Nötig für die Zellspannungs-Reserve.",
+          "opti_balancing_intervall_tage": "Balancing wird fällig, wenn seit dem letzten Vollladen auf 100 % so viele Tage vergangen sind. 0 schaltet die Balancing-Planung aus.",
+          "opti_balancing_karenz_tage": "Zusätzliche Tage nach dem Intervall, bevor Balancing nachts zu einem günstigen Preis unter der Balancing-Preisgrenze aus dem Netz laden darf. Erfordert Netzladen für Balancing.",
+          "opti_balancing_max_ct": "Höchstpreis für Netzladen zum Balancing nach der Karenz. 0 schaltet diesen Weg aus.",
+          "opti_balancing_done_soc": "Balancing gilt als abgeschlossen, wenn der Ladestand 30 Minuten über diesem Wert liegt; bei 100 % genügt das Erreichen. Eine Änderung startet die Bestätigung neu.",
+          "opti_balancing_haltezeit_h": "Hält nach abgeschlossenem Balancing die Entladung so lange gesperrt und erlaubt nur PV-Nachladen. Hält nur bei Preisniveau sehr günstig, günstig oder normal. 0 = aus.",
+          "opti_balancing_halten_vor_peak": "Gibt einem laufenden Balancing-Haltefenster Vorrang vor der Entladung in Preisspitzen, solange der Preis gültig ist und höchstens 60 ct/kWh beträgt. Ohne PV kann das die Netzkosten erhöhen.",
+          "opti_balancing_spreizungs_schwelle": "Zieht das Balancing vor, wenn die Ruhe-Zellspreizung diesen Wert erreicht und der Mindestabstand vergangen ist. 0 = aus.",
+          "opti_balancing_bedarf_cooldown_tage": "Mindestabstand in Tagen seit dem letzten Vollladen, bevor eine hohe Zellspreizung das Balancing vorzieht.",
+          "opti_balancing_netzladen": "Erlaubt Balancing nachts aus dem Netz zu laden: unter der Einspeisevergütung oder nach der Karenz bei günstigem Preis bis zur Balancing-Preisgrenze. Standardmäßig aus.",
+          "opti_zellspannung_reserve_v": "Hält den Akku wie beim minimalen Ladestand, wenn die niedrigste Zelle unter Last 60 Sekunden lang diese Spannung erreicht. 0 = aus, sonst 2,90 bis 3,10 V; empfohlener Start 3,00 V. Braucht die Quelle Niedrigste Zellspannung."
         }
       },
       "finish": {
@@ -574,6 +668,10 @@
           "shadow_reference_mode": "Bestehende Modus-Entität zum Vergleich (optional)",
           "single_writer_confirmed": "Andere Wechselrichter-Steuerungen sind deaktiviert",
           "akku_opti_automatik": "Strategie berechnen"
+        },
+        "data_description": {
+          "single_writer_confirmed": "Erst bestätigen, wenn keine andere Automation, Integration oder Hersteller-App den Akku steuert. Ohne Bestätigung bleibt die Schreibfreigabe gesperrt.",
+          "akku_opti_automatik": "Berechnet die Strategie. Aus bedeutet Pause, auch bei manueller Moduswahl. Ersetzt nicht die Schreibfreigabe."
         }
       },
       "advanced": {
@@ -590,6 +688,14 @@
           "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Knappheitsfaktor",
           "forecast_max_age": "Maximales Alter von Prognosen (Sekunden)",
           "price_max_age": "Maximales Alter von Strompreisen (Sekunden)"
+        },
+        "data_description": {
+          "akkusteuerung_wr_70proz_ueberschuss_grenze": "0 schaltet die Funktion aus. Übersteigt die Einspeisung ohne Akkuladung tagsüber diesen Wert, lädt der Akku aus dem Überschuss, etwa bei einer Einspeisebegrenzung auf 70 %. Endet 1000 W darunter. Erfordert PV-Überschussladen.",
+          "akkusteuerung_ueberschuss_veto_grenze": "Übersteigt die Einspeisung ohne Akkuladung tagsüber diesen Wert, lädt der Akku über den Ziel-Ladestand hinaus bis zum maximalen Ladestand. Erfordert PV-Überschussladen.",
+          "akkusteuerung_ueberschuss_veto_aus_grenze": "Hysterese: Eine laufende Freigabe bleibt aktiv, solange die Einspeisung ohne Akkuladung mindestens diesen Wert erreicht. Darf nicht über der Freigabegrenze liegen.",
+          "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Die Freigabe greift nur, wenn der prognostizierte PV-Überschuss kleiner ist als die Energie bis zum Vollladen mal diesem Faktor. 1 = nur bei knapper Prognose; höhere Werte erlauben sie auch bei mehr erwartetem Überschuss. Ohne Prognose greift sie immer.",
+          "forecast_max_age": "Höchstalter von PV-Prognosen. Gilt für die Tagesprognosen, die Solcast-Intervalle des Bedarfsprofils, Clipping und den Planer. Standard 43200 s (12 h), weil der kostenlose Solcast-Tarif nur vier Abrufe pro Tag erlaubt.",
+          "price_max_age": "Höchstalter von Strompreisen. Ältere Preise gelten als ungültig. Standard 7200 s."
         }
       },
       "features": {
@@ -1517,6 +1623,143 @@
           "name": "Maximale Ladeleistung"
         }
       }
+    }
+  },
+  "exceptions": {
+    "backend_read_only": {
+      "message": "Dieses Gerätebackend unterstützt noch keine geprüften Schreibaktionen."
+    },
+    "backend_unsupported": {
+      "message": "Dieses Gerätebackend wird nicht unterstützt."
+    },
+    "cell_voltage_reserve_invalid": {
+      "message": "Die Zellspannungs-Reserve muss 0 (aus) oder 2,90 bis 3,10 V betragen."
+    },
+    "comparison_requires_standard": {
+      "message": "Der 24-Stunden-Vergleich benötigt eine aktive Standard-Integration."
+    },
+    "comparison_start_busy": {
+      "message": "24-Stunden-Vergleich: Die vorherige Aktion läuft noch. Bitte erneut versuchen."
+    },
+    "comparison_start_failed": {
+      "message": "24-Stunden-Vergleich läuft bereits oder kann nicht angelegt werden."
+    },
+    "comparison_start_stopping": {
+      "message": "24-Stunden-Vergleich: Die Integration wird beendet."
+    },
+    "comparison_stop_busy": {
+      "message": "Vergleichsprotokoll: Die vorherige Aktion läuft noch. Bitte erneut versuchen."
+    },
+    "comparison_stop_failed": {
+      "message": "Vergleichsprotokoll kann nicht abgeschlossen werden."
+    },
+    "comparison_stop_stopping": {
+      "message": "Vergleichsprotokoll: Die Integration wird beendet."
+    },
+    "device_identity_changed": {
+      "message": "Die Geräteidentität hat sich geändert. Verbindung neu konfigurieren."
+    },
+    "ev_charger_required": {
+      "message": "Bitte zuerst einen evcc-Ladepunkt mit Modus und Ladestatus konfigurieren."
+    },
+    "history_import_config_changed": {
+      "message": "Die Konfiguration hat sich während des Imports geändert. Import erneut starten."
+    },
+    "history_import_ev_sources": {
+      "message": "Für das Hausprofil getrennte EV-Leistungsquellen auswählen."
+    },
+    "history_import_failed": {
+      "message": "Der historische Import ist fehlgeschlagen. Es wurden keine Steuerungseinstellungen geändert."
+    },
+    "history_import_no_interval": {
+      "message": "Vor den ersten Online-Beobachtungen gibt es keinen historischen Zeitraum."
+    },
+    "history_import_sensor_scope": {
+      "message": "Den historischen Sensor auswählen, der dieselbe Hauslast misst."
+    },
+    "history_import_unavailable": {
+      "message": "Zuerst die Beobachtung aktivieren und warten, bis ein laufender Import beendet ist."
+    },
+    "history_import_whole_house": {
+      "message": "Der historische Import erfordert derzeit ein Profil für das ganze Haus ohne separate Wärmepumpe."
+    },
+    "huawei_bindings_required": {
+      "message": "Ein aktiver Huawei-Eintrag benötigt geprüfte Stellglied-Zuordnungen. Huawei-Einrichtung erneut durchlaufen."
+    },
+    "huawei_config_invalid": {
+      "message": "Die Huawei-Konfiguration ist ungültig ({error}). Huawei-Einrichtung erneut durchlaufen."
+    },
+    "identity_unconfirmed": {
+      "message": "Ohne bestätigte Geräteidentität bleibt die Schreibfreigabe gesperrt."
+    },
+    "invalid_notification_service": {
+      "message": "Der eingestellte Benachrichtigungsdienst existiert nicht."
+    },
+    "inverter_already_controlled": {
+      "message": "Dieser Wechselrichter hat bereits eine Opti-Akku-Steuerung."
+    },
+    "inverter_unreachable": {
+      "message": "Der Wechselrichter ist nicht erreichbar."
+    },
+    "limits_order_invalid": {
+      "message": "Die Untergrenze darf nicht über der Obergrenze liegen."
+    },
+    "manual_mode_required": {
+      "message": "Ohne Strategie zuerst einen manuellen Gerätemodus auswählen."
+    },
+    "mode_unknown": {
+      "message": "Unbekannter Akkumodus."
+    },
+    "no_shadow_entry": {
+      "message": "Dies ist keine aktive Shadow-Integration."
+    },
+    "no_standard_entry": {
+      "message": "Dies ist keine aktive Standard-Integration."
+    },
+    "notification_delivery_failed": {
+      "message": "Die Benachrichtigung konnte nicht zugestellt werden."
+    },
+    "pause_other_binding": {
+      "message": "Eine unbestätigte Pause gehört zu einer anderen Gerätebindung. Vor neuer Steuerung den alten Gerätepfad wiederherstellen und die Pause nachholen."
+    },
+    "profile_read_only": {
+      "message": "Dieses SMA-Testprofil ist nur lesend und erfordert den Shadow-Modus."
+    },
+    "setting_invalid": {
+      "message": "Der Wert liegt außerhalb des erlaubten Bereichs dieser Einstellung."
+    },
+    "shadow_requires_connection": {
+      "message": "Die Shadow-Aufzeichnung benötigt eine aktive lesende Verbindung."
+    },
+    "shadow_start_busy": {
+      "message": "Shadow-Aufzeichnung: Die vorherige Aktion läuft noch. Bitte erneut versuchen."
+    },
+    "shadow_start_failed": {
+      "message": "Shadow-Aufzeichnung läuft bereits oder kann nicht angelegt werden."
+    },
+    "shadow_start_stopping": {
+      "message": "Shadow-Aufzeichnung: Die Integration wird beendet."
+    },
+    "shadow_stop_busy": {
+      "message": "Shadow-Protokoll: Die vorherige Aktion läuft noch. Bitte erneut versuchen."
+    },
+    "shadow_stop_failed": {
+      "message": "Shadow-Protokoll kann nicht abgeschlossen werden."
+    },
+    "shadow_stop_stopping": {
+      "message": "Shadow-Protokoll: Die Integration wird beendet."
+    },
+    "shadow_write_forbidden": {
+      "message": "Der Shadow-Modus erlaubt grundsätzlich keine Schreibzugriffe."
+    },
+    "single_writer_unconfirmed": {
+      "message": "Bitte zuerst in den Optionen bestätigen, dass andere Akkusteuerungen deaktiviert sind."
+    },
+    "strategy_disabled": {
+      "message": "Strategie zuerst in den Optionen aktivieren."
+    },
+    "switch_value_invalid": {
+      "message": "Schalter benötigen einen Wahrheitswert."
     }
   }
 }

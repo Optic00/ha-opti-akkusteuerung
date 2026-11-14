@@ -13,6 +13,12 @@
           "profile": "Device profile",
           "shadow_mode": "Read-only shadow mode (cannot be disabled later)",
           "migrate_legacy": "Import legacy Opti automation (always shadow)"
+        },
+        "data_description": {
+          "host": "IP address or host name of the inverter in your local network. Modbus TCP must be enabled on the device.",
+          "port": "Modbus TCP port of the inverter, usually 502 for SMA.",
+          "unit_id": "Modbus unit ID of the inverter. SMA inverters usually answer on 3.",
+          "shadow_mode": "Reads only and never writes to the device. A shadow entry stays read-only for good; active control later uses a separate standard entry."
         }
       },
       "sma_connection": {
@@ -25,6 +31,12 @@
           "profile": "Device profile",
           "shadow_mode": "Read-only shadow mode",
           "migrate_legacy": "Import legacy Opti automation (always shadow)"
+        },
+        "data_description": {
+          "host": "IP address or host name of the inverter in your local network. Modbus TCP must be enabled on the device.",
+          "port": "Modbus TCP port of the inverter, usually 502 for SMA.",
+          "unit_id": "Modbus unit ID of the inverter. SMA inverters usually answer on 3.",
+          "shadow_mode": "Reads only and never writes to the device. A shadow entry stays read-only for good; active control later uses a separate standard entry."
         }
       },
       "huawei_device": {
@@ -33,6 +45,9 @@
         "data": {
           "huawei_device_id": "Huawei inverter device",
           "shadow_mode": "Shadow mode (permanently read-only)"
+        },
+        "data_description": {
+          "shadow_mode": "Reads only and never writes to the device. A shadow entry stays read-only for good; active control later uses a separate standard entry."
         }
       },
       "huawei_sources": {
@@ -87,7 +102,13 @@
           "charge_curve": "Charge curve (optional)"
         },
         "data_description": {
+          "minsoc": "Lower state of charge the strategy discharges the battery to. Default 10 %.",
+          "maxsoc": "Upper state of charge the strategy charges the battery to. Default 95 %.",
+          "akkusteuerung_max_ladestaerke": "Highest charge power Opti requests. This is a strategy limit; the limits of inverter and BMS still apply.",
+          "akkusteuerung_max_entladestaerke": "Highest discharge power Opti requests. This is a strategy limit; the limits of inverter and BMS still apply.",
+          "opti_pv_ueberschuss_ladung": "Lets the strategy charge daytime PV surplus into the battery, including the 70 % limit, the AC surplus limit and the feed-in release.",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 turns this off. Useful when PV power exceeds the inverter's AC power and output is clipped around midday. The battery then charges from surplus above the limit if PV surplus charging is allowed. Suggestion for the detected model: {ac_limit_suggestion}. The value is not applied automatically.",
+          "opti_manuelle_ladegrenze": "Temporarily uses the maximum charge power instead of the forecast-based steps. Temperature, upper state-of-charge and balancing limits stay in effect. Turns off again after a restart or reload.",
           "charge_curve": "Up to five points of charge level and maximum charge power. From a point's charge level upwards its power is the upper limit; when the charge level falls, a point holds until it is 2 percentage points below it. Below that band of the first point the curve does not limit. Example: from 85 % 4000 W, from 93 % 3000 W, from 99 % 250 W, at 100 % 70 W. It applies in every mode, including manual modes and grid charging, and only lowers: temperature, balancing and maximum charge power stay active, and a PV peak does not lift it. Power must not rise with the charge level. 0 W blocks charging from that point. Leave empty for unchanged behaviour."
         }
       },
@@ -109,7 +130,11 @@
         },
         "data_description": {
           "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades. The strategy writes this value after grid charging; it is informational and has no control effect.",
-          "mindestpreisdifferenz_lade_entladepreis": "Display only, no control effect: feeds the sensor Opti Mindestentladepreis (reference charging price plus margin). No strategy branch reads it."
+          "mindestpreisdifferenz_lade_entladepreis": "Display only, no control effect: feeds the sensor Opti Mindestentladepreis (reference charging price plus margin). No strategy branch reads it.",
+          "opti_einspeiseverguetung_ct": "Your feed-in tariff. With a poor forecast and grid charging allowed for the reserve, the strategy may charge from the grid while the price is below it. At 0 this only applies to negative prices.",
+          "opti_netzlade_spread_ct": "Minimum gap between the charge price and the average of the coming price peaks before the battery is precharged from the grid. Applies in addition to the economics of the battery model. Default 10 ct/kWh.",
+          "opti_peak_min_aufschlag_ct": "A time slot only counts as a price peak if it is at least this much above the lowest price in the planning horizon. Default 5 ct/kWh.",
+          "opti_halte_spread_ct": "In expensive hours the battery is only held back for even more expensive peaks if their average price is at least this much above the current price. Default 5 ct/kWh."
         }
       },
       "forecast": {
@@ -122,6 +147,14 @@
           "opti_forecast_optimismus": "Forecast optimism",
           "opti_peak_verbrauch_kw": "Expected home consumption",
           "opti_prognose_netzladen": "Allow reserve planning with grid charging"
+        },
+        "data_description": {
+          "forecast_today": "PV forecast for today in kWh or Wh. The estimate10 attribute (P10) is used when present.",
+          "forecast_tomorrow": "PV forecast for tomorrow in kWh or Wh. The estimate10 attribute (P10) is used when present.",
+          "forecast_remaining": "Remaining PV forecast for today in kWh or Wh. The estimate10 attribute (P10) is used when present.",
+          "opti_forecast_optimismus": "Blends the cautious P10 forecast with the median: 0 % uses only P10, 100 % only the median. Default 0 %.",
+          "opti_peak_verbrauch_kw": "Fallback house load during price peaks while no peak load profile is available. The peak reserve uses it to estimate how much battery the peaks need.",
+          "opti_prognose_netzladen": "Allows grid charging for the reserve: with a poor forecast and a price below the feed-in tariff, and to precharge before price peaks. Without it the strategy does not charge from the grid in these cases."
         }
       },
       "ev": {
@@ -155,6 +188,19 @@
           "opti_balancing_bedarf_cooldown_tage": "Demand balancing cooldown",
           "opti_balancing_netzladen": "Allow grid charging for balancing",
           "opti_zellspannung_reserve_v": "Cell voltage reserve (V)"
+        },
+        "data_description": {
+          "cell_voltage_min": "Fast updating sensor of the lowest cell voltage (V or mV), for example from a BYD BMU. Values older than 180 s count as stale. Needed for the cell voltage reserve.",
+          "opti_balancing_intervall_tage": "Balancing is due after this many days since the last full charge to 100 %. 0 turns balancing planning off.",
+          "opti_balancing_karenz_tage": "Extra days after the interval before balancing may charge from the grid at night at a cheap price below the balancing price limit. Requires grid charging for balancing.",
+          "opti_balancing_max_ct": "Highest price for grid charging for balancing after the grace period. 0 turns this path off.",
+          "opti_balancing_done_soc": "Balancing counts as complete after 30 minutes above this state of charge; at 100 % reaching 100 % is enough. A change restarts the confirmation.",
+          "opti_balancing_haltezeit_h": "After a completed balancing, keeps discharging blocked for this time and allows PV recharging only. Holds only at price levels very cheap, cheap or normal. 0 = off.",
+          "opti_balancing_halten_vor_peak": "Gives a running balancing hold window priority over peak discharging, as long as the price is valid and at most 60 ct/kWh. Without PV this can raise grid costs.",
+          "opti_balancing_spreizungs_schwelle": "Brings balancing forward when the resting cell spread reaches this value and the minimum gap has passed. 0 = off.",
+          "opti_balancing_bedarf_cooldown_tage": "Minimum days since the last full charge before a high cell spread brings balancing forward.",
+          "opti_balancing_netzladen": "Allows balancing to charge from the grid at night: below the feed-in tariff, or after the grace period at a cheap price up to the balancing price limit. Off by default.",
+          "opti_zellspannung_reserve_v": "Holds the battery like the minimum state of charge when the lowest cell stays at or below this voltage under load for 60 seconds. 0 = off, otherwise 2.90 to 3.10 V; 3.00 V is a good start. Needs the lowest cell voltage source."
         }
       },
       "finish": {
@@ -164,6 +210,10 @@
           "shadow_reference_mode": "Existing mode entity for comparison (optional)",
           "single_writer_confirmed": "Other inverter controls are disabled",
           "akku_opti_automatik": "Calculate strategy"
+        },
+        "data_description": {
+          "single_writer_confirmed": "Confirm only when no other automation, integration or manufacturer app controls the battery. Without this confirmation write access stays locked.",
+          "akku_opti_automatik": "Calculates the strategy. Off means pause, even when a manual mode is selected. This does not replace the write release."
         }
       },
       "advanced": {
@@ -180,6 +230,14 @@
           "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Scarcity multiplier",
           "forecast_max_age": "Maximum forecast age (seconds)",
           "price_max_age": "Maximum electricity price age (seconds)"
+        },
+        "data_description": {
+          "akkusteuerung_wr_70proz_ueberschuss_grenze": "0 turns this off. If the feed-in without battery charging exceeds this value during the day, the battery charges from the surplus, for example with a 70 % feed-in limit. Releases again 1000 W below. Requires PV surplus charging.",
+          "akkusteuerung_ueberschuss_veto_grenze": "If the feed-in without battery charging exceeds this value during the day, the battery charges beyond the target state of charge up to the maximum state of charge. Requires PV surplus charging.",
+          "akkusteuerung_ueberschuss_veto_aus_grenze": "Hysteresis: a running release stays active while the feed-in without battery charging reaches at least this value. Must not be above the release limit.",
+          "akkusteuerung_ueberschuss_veto_knappheit_faktor": "The release only applies if the forecast PV surplus is smaller than the energy needed to fill the battery times this factor. 1 = only with a tight forecast; higher values also allow it with more expected surplus. Without a forecast it always applies.",
+          "forecast_max_age": "Maximum age of PV forecasts. Applies to the daily forecasts, the Solcast intervals of the demand profile, clipping and the planner. Default 43200 s (12 h), because the free Solcast plan allows only four updates per day.",
+          "price_max_age": "Maximum age of electricity prices. Older prices count as invalid. Default 7200 s."
         }
       },
       "features": {
@@ -457,6 +515,11 @@
           "port": "Port",
           "unit_id": "Unit ID",
           "profile": "Device profile"
+        },
+        "data_description": {
+          "host": "IP address or host name of the inverter in your local network. Modbus TCP must be enabled on the device.",
+          "port": "Modbus TCP port of the inverter, usually 502 for SMA.",
+          "unit_id": "Modbus unit ID of the inverter. SMA inverters usually answer on 3."
         }
       },
       "sources": {
@@ -497,7 +560,13 @@
           "charge_curve": "Charge curve (optional)"
         },
         "data_description": {
+          "minsoc": "Lower state of charge the strategy discharges the battery to. Default 10 %.",
+          "maxsoc": "Upper state of charge the strategy charges the battery to. Default 95 %.",
+          "akkusteuerung_max_ladestaerke": "Highest charge power Opti requests. This is a strategy limit; the limits of inverter and BMS still apply.",
+          "akkusteuerung_max_entladestaerke": "Highest discharge power Opti requests. This is a strategy limit; the limits of inverter and BMS still apply.",
+          "opti_pv_ueberschuss_ladung": "Lets the strategy charge daytime PV surplus into the battery, including the 70 % limit, the AC surplus limit and the feed-in release.",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 turns this off. Useful when PV power exceeds the inverter's AC power and output is clipped around midday. The battery then charges from surplus above the limit if PV surplus charging is allowed. Suggestion for the detected model: {ac_limit_suggestion}. The value is not applied automatically.",
+          "opti_manuelle_ladegrenze": "Temporarily uses the maximum charge power instead of the forecast-based steps. Temperature, upper state-of-charge and balancing limits stay in effect. Turns off again after a restart or reload.",
           "charge_curve": "Up to five points of charge level and maximum charge power. From a point's charge level upwards its power is the upper limit; when the charge level falls, a point holds until it is 2 percentage points below it. Below that band of the first point the curve does not limit. Example: from 85 % 4000 W, from 93 % 3000 W, from 99 % 250 W, at 100 % 70 W. It applies in every mode, including manual modes and grid charging, and only lowers: temperature, balancing and maximum charge power stay active, and a PV peak does not lift it. Power must not rise with the charge level. 0 W blocks charging from that point. Leave empty for unchanged behaviour."
         }
       },
@@ -519,7 +588,11 @@
         },
         "data_description": {
           "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades. The strategy writes this value after grid charging; it is informational and has no control effect.",
-          "mindestpreisdifferenz_lade_entladepreis": "Display only, no control effect: feeds the sensor Opti Mindestentladepreis (reference charging price plus margin). No strategy branch reads it."
+          "mindestpreisdifferenz_lade_entladepreis": "Display only, no control effect: feeds the sensor Opti Mindestentladepreis (reference charging price plus margin). No strategy branch reads it.",
+          "opti_einspeiseverguetung_ct": "Your feed-in tariff. With a poor forecast and grid charging allowed for the reserve, the strategy may charge from the grid while the price is below it. At 0 this only applies to negative prices.",
+          "opti_netzlade_spread_ct": "Minimum gap between the charge price and the average of the coming price peaks before the battery is precharged from the grid. Applies in addition to the economics of the battery model. Default 10 ct/kWh.",
+          "opti_peak_min_aufschlag_ct": "A time slot only counts as a price peak if it is at least this much above the lowest price in the planning horizon. Default 5 ct/kWh.",
+          "opti_halte_spread_ct": "In expensive hours the battery is only held back for even more expensive peaks if their average price is at least this much above the current price. Default 5 ct/kWh."
         }
       },
       "forecast": {
@@ -532,6 +605,14 @@
           "opti_forecast_optimismus": "Forecast optimism",
           "opti_peak_verbrauch_kw": "Expected home consumption",
           "opti_prognose_netzladen": "Allow reserve planning with grid charging"
+        },
+        "data_description": {
+          "forecast_today": "PV forecast for today in kWh or Wh. The estimate10 attribute (P10) is used when present.",
+          "forecast_tomorrow": "PV forecast for tomorrow in kWh or Wh. The estimate10 attribute (P10) is used when present.",
+          "forecast_remaining": "Remaining PV forecast for today in kWh or Wh. The estimate10 attribute (P10) is used when present.",
+          "opti_forecast_optimismus": "Blends the cautious P10 forecast with the median: 0 % uses only P10, 100 % only the median. Default 0 %.",
+          "opti_peak_verbrauch_kw": "Fallback house load during price peaks while no peak load profile is available. The peak reserve uses it to estimate how much battery the peaks need.",
+          "opti_prognose_netzladen": "Allows grid charging for the reserve: with a poor forecast and a price below the feed-in tariff, and to precharge before price peaks. Without it the strategy does not charge from the grid in these cases."
         }
       },
       "ev": {
@@ -565,6 +646,19 @@
           "opti_balancing_bedarf_cooldown_tage": "Demand balancing cooldown",
           "opti_balancing_netzladen": "Allow grid charging for balancing",
           "opti_zellspannung_reserve_v": "Cell voltage reserve (V)"
+        },
+        "data_description": {
+          "cell_voltage_min": "Fast updating sensor of the lowest cell voltage (V or mV), for example from a BYD BMU. Values older than 180 s count as stale. Needed for the cell voltage reserve.",
+          "opti_balancing_intervall_tage": "Balancing is due after this many days since the last full charge to 100 %. 0 turns balancing planning off.",
+          "opti_balancing_karenz_tage": "Extra days after the interval before balancing may charge from the grid at night at a cheap price below the balancing price limit. Requires grid charging for balancing.",
+          "opti_balancing_max_ct": "Highest price for grid charging for balancing after the grace period. 0 turns this path off.",
+          "opti_balancing_done_soc": "Balancing counts as complete after 30 minutes above this state of charge; at 100 % reaching 100 % is enough. A change restarts the confirmation.",
+          "opti_balancing_haltezeit_h": "After a completed balancing, keeps discharging blocked for this time and allows PV recharging only. Holds only at price levels very cheap, cheap or normal. 0 = off.",
+          "opti_balancing_halten_vor_peak": "Gives a running balancing hold window priority over peak discharging, as long as the price is valid and at most 60 ct/kWh. Without PV this can raise grid costs.",
+          "opti_balancing_spreizungs_schwelle": "Brings balancing forward when the resting cell spread reaches this value and the minimum gap has passed. 0 = off.",
+          "opti_balancing_bedarf_cooldown_tage": "Minimum days since the last full charge before a high cell spread brings balancing forward.",
+          "opti_balancing_netzladen": "Allows balancing to charge from the grid at night: below the feed-in tariff, or after the grace period at a cheap price up to the balancing price limit. Off by default.",
+          "opti_zellspannung_reserve_v": "Holds the battery like the minimum state of charge when the lowest cell stays at or below this voltage under load for 60 seconds. 0 = off, otherwise 2.90 to 3.10 V; 3.00 V is a good start. Needs the lowest cell voltage source."
         }
       },
       "finish": {
@@ -574,6 +668,10 @@
           "shadow_reference_mode": "Existing mode entity for comparison (optional)",
           "single_writer_confirmed": "Other inverter controls are disabled",
           "akku_opti_automatik": "Calculate strategy"
+        },
+        "data_description": {
+          "single_writer_confirmed": "Confirm only when no other automation, integration or manufacturer app controls the battery. Without this confirmation write access stays locked.",
+          "akku_opti_automatik": "Calculates the strategy. Off means pause, even when a manual mode is selected. This does not replace the write release."
         }
       },
       "advanced": {
@@ -590,6 +688,14 @@
           "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Scarcity multiplier",
           "forecast_max_age": "Maximum forecast age (seconds)",
           "price_max_age": "Maximum electricity price age (seconds)"
+        },
+        "data_description": {
+          "akkusteuerung_wr_70proz_ueberschuss_grenze": "0 turns this off. If the feed-in without battery charging exceeds this value during the day, the battery charges from the surplus, for example with a 70 % feed-in limit. Releases again 1000 W below. Requires PV surplus charging.",
+          "akkusteuerung_ueberschuss_veto_grenze": "If the feed-in without battery charging exceeds this value during the day, the battery charges beyond the target state of charge up to the maximum state of charge. Requires PV surplus charging.",
+          "akkusteuerung_ueberschuss_veto_aus_grenze": "Hysteresis: a running release stays active while the feed-in without battery charging reaches at least this value. Must not be above the release limit.",
+          "akkusteuerung_ueberschuss_veto_knappheit_faktor": "The release only applies if the forecast PV surplus is smaller than the energy needed to fill the battery times this factor. 1 = only with a tight forecast; higher values also allow it with more expected surplus. Without a forecast it always applies.",
+          "forecast_max_age": "Maximum age of PV forecasts. Applies to the daily forecasts, the Solcast intervals of the demand profile, clipping and the planner. Default 43200 s (12 h), because the free Solcast plan allows only four updates per day.",
+          "price_max_age": "Maximum age of electricity prices. Older prices count as invalid. Default 7200 s."
         }
       },
       "features": {
@@ -1517,6 +1623,143 @@
           "name": "Maximum charge power"
         }
       }
+    }
+  },
+  "exceptions": {
+    "backend_read_only": {
+      "message": "This device backend does not support verified write actions yet."
+    },
+    "backend_unsupported": {
+      "message": "This device backend is not supported."
+    },
+    "cell_voltage_reserve_invalid": {
+      "message": "The cell voltage reserve must be 0 (off) or between 2.90 and 3.10 V."
+    },
+    "comparison_requires_standard": {
+      "message": "The 24-hour comparison requires an active standard entry."
+    },
+    "comparison_start_busy": {
+      "message": "24-hour comparison: the previous action is still running. Please try again."
+    },
+    "comparison_start_failed": {
+      "message": "24-hour comparison is already running or cannot be created."
+    },
+    "comparison_start_stopping": {
+      "message": "24-hour comparison: the integration is shutting down."
+    },
+    "comparison_stop_busy": {
+      "message": "Comparison log: the previous action is still running. Please try again."
+    },
+    "comparison_stop_failed": {
+      "message": "Comparison log cannot be completed."
+    },
+    "comparison_stop_stopping": {
+      "message": "Comparison log: the integration is shutting down."
+    },
+    "device_identity_changed": {
+      "message": "The device identity has changed. Reconfigure the connection."
+    },
+    "ev_charger_required": {
+      "message": "Configure an evcc charge point with mode and charging state first."
+    },
+    "history_import_config_changed": {
+      "message": "The configuration changed during the import. Start the import again."
+    },
+    "history_import_ev_sources": {
+      "message": "Select separate EV power sources for the house profile."
+    },
+    "history_import_failed": {
+      "message": "The historical import failed. No controller settings were changed."
+    },
+    "history_import_no_interval": {
+      "message": "There is no historical period before the first online observations."
+    },
+    "history_import_sensor_scope": {
+      "message": "Select the historical sensor that measures the same house load."
+    },
+    "history_import_unavailable": {
+      "message": "Enable the observation first and wait until any running import has finished."
+    },
+    "history_import_whole_house": {
+      "message": "The historical import currently requires a whole-house profile without a separate heat pump."
+    },
+    "huawei_bindings_required": {
+      "message": "An active Huawei entry requires verified actuator bindings. Run the Huawei setup again."
+    },
+    "huawei_config_invalid": {
+      "message": "The Huawei configuration is invalid ({error}). Run the Huawei setup again."
+    },
+    "identity_unconfirmed": {
+      "message": "Write access stays locked until the device identity is confirmed."
+    },
+    "invalid_notification_service": {
+      "message": "The configured notification service does not exist."
+    },
+    "inverter_already_controlled": {
+      "message": "This inverter already has an Opti Akku controller."
+    },
+    "inverter_unreachable": {
+      "message": "The inverter is not reachable."
+    },
+    "limits_order_invalid": {
+      "message": "A lower limit must not be above its upper limit."
+    },
+    "manual_mode_required": {
+      "message": "Without the strategy, select a manual device mode first."
+    },
+    "mode_unknown": {
+      "message": "Unknown battery mode."
+    },
+    "no_shadow_entry": {
+      "message": "This is not an active shadow entry."
+    },
+    "no_standard_entry": {
+      "message": "This is not an active standard entry."
+    },
+    "notification_delivery_failed": {
+      "message": "The notification could not be delivered."
+    },
+    "pause_other_binding": {
+      "message": "An unconfirmed pause belongs to a different device binding. Restore the old device path and complete the pause before controlling again."
+    },
+    "profile_read_only": {
+      "message": "This SMA test profile is read-only and requires shadow mode."
+    },
+    "setting_invalid": {
+      "message": "The value is outside the allowed range for this setting."
+    },
+    "shadow_requires_connection": {
+      "message": "Shadow recording requires an active read-only connection."
+    },
+    "shadow_start_busy": {
+      "message": "Shadow recording: the previous action is still running. Please try again."
+    },
+    "shadow_start_failed": {
+      "message": "Shadow recording is already running or cannot be created."
+    },
+    "shadow_start_stopping": {
+      "message": "Shadow recording: the integration is shutting down."
+    },
+    "shadow_stop_busy": {
+      "message": "Shadow log: the previous action is still running. Please try again."
+    },
+    "shadow_stop_failed": {
+      "message": "Shadow log cannot be completed."
+    },
+    "shadow_stop_stopping": {
+      "message": "Shadow log: the integration is shutting down."
+    },
+    "shadow_write_forbidden": {
+      "message": "Shadow mode never allows write access."
+    },
+    "single_writer_unconfirmed": {
+      "message": "First confirm in the options that other battery controls are disabled."
+    },
+    "strategy_disabled": {
+      "message": "Enable the strategy in the options first."
+    },
+    "switch_value_invalid": {
+      "message": "Switches need a true or false value."
     }
   }
 }

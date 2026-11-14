@@ -18,7 +18,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -58,6 +58,7 @@ from .const import (
     VIOLATION_RENEW_SECONDS,
     VIOLATION_SETTLE_SECONDS,
 )
+from .errors import translated
 from .definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
 from .sources import build_inputs, finite
 from .plant import plant_entity_ids, plant_semantic_fingerprint
@@ -226,21 +227,21 @@ def validate_setting(key: str, value: Any, current: dict) -> float | bool:
     """Validate individual values AND limits that must remain ordered."""
     if key in SWITCH_DEFINITIONS:
         if not isinstance(value, bool):
-            raise HomeAssistantError("Schalter benötigen einen Wahrheitswert")
+            raise translated(ServiceValidationError, "switch_value_invalid")
         return value
     definition = NUMBER_DEFINITIONS.get(key)
     number = finite(value)
     if definition is None or number is None or not definition["min"] <= number <= definition["max"]:
-        raise HomeAssistantError("Ungültiger Einstellwert")
+        raise translated(ServiceValidationError, "setting_invalid")
     updated = dict(current, **{key: number})
     pairs = [("minsoc", "maxsoc"), ("akkusteuerung_min_ladestaerke", "akkusteuerung_max_ladestaerke"),
              ("akkusteuerung_min_entladestaerke", "akkusteuerung_max_entladestaerke"),
              ("akkusteuerung_ueberschuss_veto_aus_grenze", "akkusteuerung_ueberschuss_veto_grenze")]
     if key == "input_number.opti_zellspannung_reserve_v" and number != 0 and not 2.9 <= number <= 3.1:
-        raise HomeAssistantError("Die Zellspannungs-Reserve muss 0 (aus) oder 2,90 bis 3,10 V betragen")
+        raise translated(ServiceValidationError, "cell_voltage_reserve_invalid")
     for lower, upper in pairs:
         if float(updated[f"input_number.{lower}"]) > float(updated[f"input_number.{upper}"]):
-            raise HomeAssistantError("Die Untergrenze darf nicht über der Obergrenze liegen")
+            raise translated(ServiceValidationError, "limits_order_invalid")
     return number
 
 
@@ -612,14 +613,14 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         serial = identity.get("serial_number")
         expected = self.entry.data.get("serial_number")
         if expected and serial != expected:
-            raise HomeAssistantError("Geräteidentität hat sich geändert; Verbindung neu konfigurieren")
+            raise translated(HomeAssistantError, "device_identity_changed")
         if self.shadow_mode:
             return
         if not serial:
             return
         owners = self.hass.data.setdefault(f"{DOMAIN}_serial_owners", {})
         if serial in owners and owners[serial] != self.entry.entry_id:
-            raise HomeAssistantError("Dieser Wechselrichter hat bereits eine Opti-Steuerung")
+            raise translated(HomeAssistantError, "inverter_already_controlled")
         owners[serial] = self.entry.entry_id
         self._serial_owner = serial
 
@@ -2431,14 +2432,14 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from .demand_history import read_recorder
         cfg = self.entry.options.get("demand_forecast", {})
         if self._history_import_running or self._stopping or cfg.get("enabled") is not True:
-            raise HomeAssistantError("Enable observation; wait for any existing import")
+            raise translated(ServiceValidationError, "history_import_unavailable")
         if cfg.get("sources", {}).get("heat_power"):
-            raise HomeAssistantError("Historical import currently requires a whole-house profile")
+            raise translated(ServiceValidationError, "history_import_whole_house")
         house = cfg.get("history_house")
         if not house and self.entry.options.get("plant_mode", "legacy") == "legacy":
             house = self.entry.options.get("sources", {}).get("house_consumption")
         if not house:
-            raise HomeAssistantError("Select the historical sensor with identical house-load scope")
+            raise translated(ServiceValidationError, "history_import_sensor_scope")
         now = dt_util.utcnow()
         timezone = dt_util.DEFAULT_TIME_ZONE
         today = now.astimezone(timezone).date()
@@ -2447,13 +2448,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         start = datetime.combine(today - timedelta(days=42), datetime.min.time(), timezone).astimezone(dt_util.UTC)
         end = datetime.combine(end_day, datetime.min.time(), timezone).astimezone(dt_util.UTC)
         if start >= end:
-            raise HomeAssistantError("No historical interval before online observations")
+            raise translated(ServiceValidationError, "history_import_no_interval")
         binding = self._demand_forecast.history_binding(self._load_source_fingerprint, self.entry.options, timezone)
         sources = {**cfg.get("sources", {}), "house": house}
         if cfg.get("house_includes_ev") is True:
             ev_sources = ev_profile_sources(self.entry.options)
             if not ev_sources or house in ev_sources or cfg.get("sources", {}).get("heat_power") in ev_sources:
-                raise HomeAssistantError("Select distinct EV power sources for the house profile")
+                raise translated(ServiceValidationError, "history_import_ev_sources")
             sources.update({f"ev{index}": entity for index, entity in enumerate(ev_sources, 1)})
         self._history_import_running = True
         commit = None
@@ -2468,7 +2469,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except HomeAssistantError:
             raise
         except Exception as err:
-            raise HomeAssistantError("Historical import failed; no controller settings changed") from err
+            raise translated(HomeAssistantError, "history_import_failed") from err
         finally:
             if commit is None:
                 self._history_import_running = False
@@ -2482,7 +2483,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Entry unload/options changes while Recorder runs invalidate the result.
                 if self._stopping or binding != self._demand_forecast.history_binding(
                         self._load_source_fingerprint, self.entry.options, dt_util.DEFAULT_TIME_ZONE):
-                    raise HomeAssistantError("Configuration changed during import")
+                    raise translated(HomeAssistantError, "history_import_config_changed")
                 candidate = HistoricalPrior()
                 candidate.replace(rows, binding, now)
                 self._pending_history = candidate
@@ -2492,7 +2493,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             async with self._update_lock:
                 if self._stopping or binding != self._demand_forecast.history_binding(
                         self._load_source_fingerprint, self.entry.options, dt_util.DEFAULT_TIME_ZONE):
-                    raise HomeAssistantError("Configuration changed during import")
+                    raise translated(HomeAssistantError, "history_import_config_changed")
                 self._demand_forecast.history = candidate
         finally:
             if self._pending_history is not None:
@@ -2509,12 +2510,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_start_shadow(self) -> None:
         if not self.shadow_mode or not self._online or self._stopping:
-            raise HomeAssistantError("Shadow-Aufzeichnung benötigt eine aktive lesende Verbindung")
+            raise translated(HomeAssistantError, "shadow_requires_connection")
         await self._async_start_journal(refresh=True)
 
     async def async_start_comparison(self) -> None:
         if self.shadow_mode or not self._online or self._stopping:
-            raise HomeAssistantError("24-Stunden-Vergleich benötigt eine aktive Standard-Integration")
+            raise translated(HomeAssistantError, "comparison_requires_standard")
         await self._async_start_journal(refresh=False)
 
     async def _async_run_journal_lifecycle(
@@ -2526,14 +2527,14 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         caller leaves the owned job to finish (or be rejected) on its own.
         """
         if self._stopping:
-            raise HomeAssistantError(f"{label}: Integration wird beendet")
+            raise translated(HomeAssistantError, f"{label}_stopping")
         if self._journal_lifecycle is not None and not self._journal_lifecycle.done():
-            raise HomeAssistantError(f"{label}: vorherige Aktion läuft noch; bitte erneut versuchen")
+            raise translated(HomeAssistantError, f"{label}_busy")
         accepted = self._journal_lifecycle = self._start_journal_job(job(label), name)
         await asyncio.shield(accepted)
 
     async def _async_start_journal(self, *, refresh: bool) -> None:
-        label = "Shadow-Aufzeichnung" if self.shadow_mode else "24-Stunden-Vergleich"
+        label = "shadow_start" if self.shadow_mode else "comparison_start"
         await self._async_run_journal_lifecycle(
             self._async_journal_start_job, label, "Opti journal start")
         if refresh:
@@ -2542,7 +2543,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_journal_start_job(self, label: str) -> None:
         async with self._journal_lock:
             if self._stopping:  # Also rejects requests queued before the unload.
-                raise HomeAssistantError(f"{label}: Integration wird beendet")
+                raise translated(HomeAssistantError, f"{label}_stopping")
             now = dt_util.utcnow()
             settings = dict(self.settings)
             reference = self.entry.options.get("shadow_reference_mode", "")
@@ -2552,23 +2553,22 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 self._shadow_snapshot = await self.hass.async_add_executor_job(start)
             except (ValueError, OSError) as err:
-                raise HomeAssistantError(
-                    label + " läuft bereits oder kann nicht angelegt werden") from err
+                raise translated(HomeAssistantError, f"{label}_failed") from err
             await self._store.async_save(self._stored_data())
         self._publish_journal_status()
 
     async def async_stop_shadow(self) -> None:
         if not self.shadow_mode or self._stopping:
-            raise HomeAssistantError("Keine aktive Shadow-Integration")
+            raise translated(ServiceValidationError, "no_shadow_entry")
         await self._async_stop_journal(refresh=True)
 
     async def async_stop_comparison(self) -> None:
         if self.shadow_mode or self._stopping:
-            raise HomeAssistantError("Keine aktive Standard-Integration")
+            raise translated(ServiceValidationError, "no_standard_entry")
         await self._async_stop_journal(refresh=False)
 
     async def _async_stop_journal(self, *, refresh: bool) -> None:
-        label = "Shadow-Protokoll" if self.shadow_mode else "Vergleichsprotokoll"
+        label = "shadow_stop" if self.shadow_mode else "comparison_stop"
         await self._async_run_journal_lifecycle(
             self._async_journal_stop_job, label, "Opti journal stop")
         if refresh:
@@ -2577,12 +2577,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_journal_stop_job(self, label: str) -> None:
         async with self._journal_lock:
             if self._stopping:  # Also rejects requests queued before the unload.
-                raise HomeAssistantError(f"{label}: Integration wird beendet")
+                raise translated(HomeAssistantError, f"{label}_stopping")
             try:
                 self._shadow_snapshot = await self.hass.async_add_executor_job(
                     self._shadow.stop, dt_util.utcnow())
             except OSError as err:
-                raise HomeAssistantError(label + " kann nicht abgeschlossen werden") from err
+                raise translated(HomeAssistantError, f"{label}_failed") from err
             await self._store.async_save(self._stored_data())
         self._publish_journal_status()
 
@@ -2603,7 +2603,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         sources = self.entry.options.get("sources", {})
         if not any(sources.get(f"ev{n}_mode") and sources.get(f"ev{n}_charging") for n in (1, 2)):
-            raise HomeAssistantError("Bitte zuerst einen evcc-Ladepunkt mit Modus und Ladestatus konfigurieren")
+            raise translated(ServiceValidationError, "ev_charger_required")
 
     async def async_set_setting(self, key: str, value: Any) -> None:
         async with self._update_lock:
@@ -2650,9 +2650,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_refresh()
             return
         if mode == "Strategie" and not self.strategy_enabled:
-            raise HomeAssistantError("Strategie zuerst in den Optionen aktivieren")
+            raise translated(ServiceValidationError, "strategy_disabled")
         if mode != "Strategie" and mode not in self.supported_modes:
-            raise HomeAssistantError("Unbekannter Akkumodus")
+            raise translated(ServiceValidationError, "mode_unknown")
         new_manual = None if mode == "Strategie" else mode
         # A different selection starts a new manual session. Repeating the
         # same selection keeps the running hysteresis.
@@ -2664,19 +2664,19 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_set_write_enabled(self, enabled: bool) -> None:
         if enabled and self._pause_pending and self._pause_binding != self._writer_binding:
-            raise HomeAssistantError("Unbestätigte Pause gehört zu einer anderen Bindung. Vor neuer Steuerung alten Gerätepfad wiederherstellen und Pause nachholen.")
+            raise translated(HomeAssistantError, "pause_other_binding")
         if enabled and not self.strategy_enabled and self.manual_mode is None:
-            raise HomeAssistantError("Ohne Strategie zuerst einen manuellen Gerätemodus auswählen")
+            raise translated(ServiceValidationError, "manual_mode_required")
         if enabled and not self.supported_modes:
-            raise HomeAssistantError("Dieses Gerätebackend unterstützt noch keine geprüften Schreibaktionen")
+            raise translated(ServiceValidationError, "backend_read_only")
         if enabled and self.shadow_mode:
-            raise HomeAssistantError("Shadow-Modus erlaubt grundsätzlich keine Schreibzugriffe")
+            raise translated(ServiceValidationError, "shadow_write_forbidden")
         if enabled and not self.entry.options.get("single_writer_confirmed", False):
-            raise HomeAssistantError("Bitte zuerst in den Optionen bestätigen, dass andere Akkusteuerungen deaktiviert sind")
+            raise translated(ServiceValidationError, "single_writer_unconfirmed")
         if enabled and (not self._online or self._stopping):
-            raise HomeAssistantError("Wechselrichter ist nicht erreichbar")
+            raise translated(HomeAssistantError, "inverter_unreachable")
         if enabled and not self._identity.get("serial_number"):
-            raise HomeAssistantError("Ohne bestätigte Geräteidentität bleibt die Schreibfreigabe gesperrt")
+            raise translated(HomeAssistantError, "identity_unconfirmed")
         self._revision += 1
         self._write_restore_blocked = None
         if not enabled:

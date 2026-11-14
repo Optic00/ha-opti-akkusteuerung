@@ -322,7 +322,8 @@ class HealthAlerts:
         await self._deliver(message)
         if self.delivery_error:
             from homeassistant.exceptions import HomeAssistantError
-            raise HomeAssistantError(self.delivery_error)
+            from .errors import translated
+            raise translated(HomeAssistantError, self.delivery_error)
 
     async def async_stop(self):
         self._stopped = True

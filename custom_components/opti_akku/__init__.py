@@ -14,6 +14,7 @@ from modbus_connection import ModbusTcpParams
 from .const import DOMAIN, NO_RELOAD_OPTION_KEYS, PLATFORMS
 from .coordinator import OptiCoordinator
 from .engine import StrategyEngine
+from .errors import translated
 from .sunny_island import READ_ONLY_SMA_PROFILES
 from .sma import SmaDevice
 from .source_quality import measurement_max_age
@@ -33,7 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if backend == "huawei_solar":
         from .huawei import HuaweiDevice
         if not entry.data.get("shadow_mode", True) and not entry.data.get("huawei_controls"):
-            raise ConfigEntryError("An active Huawei entry requires verified actuator bindings")
+            raise translated(ConfigEntryError, "huawei_bindings_required")
         from .device import DeviceError
         try:
             device = HuaweiDevice(hass, entry_id=entry.data["huawei_entry_id"],
@@ -42,12 +43,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 controls=entry.data.get("huawei_controls"), read_only=entry.data.get("shadow_mode", True),
                 grid_charge_for_surplus=entry.data.get("huawei_grid_surplus", False))
         except (ValueError, TypeError, KeyError, DeviceError) as err:
-            raise ConfigEntryError(f"Invalid Huawei configuration: {type(err).__name__}") from err
+            raise translated(ConfigEntryError, "huawei_config_invalid", error=type(err).__name__) from err
     elif backend not in ("sma", "sma_modbus"):
-        raise ConfigEntryError("Unsupported device backend")
+        raise translated(ConfigEntryError, "backend_unsupported")
     read_only_device = READ_ONLY_SMA_PROFILES.get(entry.data.get("profile")) if backend in ("sma", "sma_modbus") else None
     if read_only_device and entry.data.get("shadow_mode") is not True:
-        raise ConfigEntryError("This SMA test profile is read-only and requires shadow mode")
+        raise translated(ConfigEntryError, "profile_read_only")
     endpoint = (entry.data.get(CONF_HOST, "huawei").strip().lower(), entry.data.get(CONF_PORT, 0), entry.data.get("unit_id", 0))
     if backend == "huawei_solar":
         endpoint = (backend, entry.data["huawei_entry_id"], entry.data["huawei_device_id"])
@@ -55,7 +56,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     owners = hass.data.setdefault(f"{DOMAIN}_writers", {})
     shadow = entry.data.get("shadow_mode", backend == "huawei_solar") is True
     if not shadow and endpoint in owners and owners[endpoint] != entry.entry_id:
-        raise ConfigEntryError("This inverter already has an Opti Akku controller")
+        raise translated(ConfigEntryError, "inverter_already_controlled")
     if not shadow:
         owners[endpoint] = entry.entry_id
     @callback

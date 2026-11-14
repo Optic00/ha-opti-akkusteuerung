@@ -12,6 +12,7 @@ import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from tests.translated import raises_translated
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from modbus_connection import ModbusError
@@ -2558,7 +2559,7 @@ async def test_owed_pause_is_not_redirected_to_a_new_binding(hass, entry):
     await c.async_restore()
     assert c._pause_pending
     assert c._stored_data()["pause_binding"] == ["other"]
-    with pytest.raises(HomeAssistantError, match="anderen Bindung"):
+    with raises_translated(HomeAssistantError, "pause_other_binding"):
         await c.async_set_write_enabled(True)
     await c._async_finish_huawei_pause()
     dev.async_shutdown_control.assert_not_awaited()
@@ -3260,7 +3261,7 @@ async def test_sbs_profile_sets_up_only_as_read_only_shadow(hass, entry, profile
     from homeassistant.exceptions import ConfigEntryError
 
     hass.config_entries.async_update_entry(entry, data={**entry.data, "profile": profile, "shadow_mode": False})
-    with pytest.raises(ConfigEntryError, match="read-only"):
+    with raises_translated(ConfigEntryError, "profile_read_only"):
         await async_setup_entry(hass, entry)
     assert not hass.data.get("opti_akku_writers")
     hass.config_entries.async_update_entry(entry, data={**entry.data, "shadow_mode": True})
@@ -3290,7 +3291,7 @@ async def test_explicit_existing_grid_charging_preference_is_preserved(hass, ent
 
 
 async def test_switch_setting_requires_a_boolean(coordinator):
-    with pytest.raises(HomeAssistantError, match="Wahrheitswert"):
+    with raises_translated(HomeAssistantError, "switch_value_invalid"):
         validate_setting(
             "input_boolean.akku_opti_automatik",
             "on",
@@ -3377,9 +3378,9 @@ async def test_standard_comparison_start_stop_publish_without_refresh_or_device_
 
 async def test_shadow_methods_keep_standard_guard(coordinator):
     coordinator._online = True
-    with pytest.raises(HomeAssistantError, match="Shadow"):
+    with raises_translated(HomeAssistantError, "shadow_requires_connection"):
         await coordinator.async_start_shadow()
-    with pytest.raises(HomeAssistantError, match="Shadow"):
+    with raises_translated(HomeAssistantError, "no_shadow_entry"):
         await coordinator.async_stop_shadow()
 
 
@@ -3655,7 +3656,7 @@ async def test_cancelled_journal_callers_never_mix_session_files(coordinator, ha
             with pytest.raises(asyncio.CancelledError):
                 await stop
             # The accepted stop still owns the next turn; a duplicate is rejected, not queued.
-            with pytest.raises(HomeAssistantError, match="vorherige Aktion"):
+            with raises_translated(HomeAssistantError, "comparison_stop_busy"):
                 await coordinator.async_stop_comparison()
             assert coordinator._shadow_snapshot["status"] == "running"
             release.set()
@@ -3690,7 +3691,7 @@ async def test_cancelled_journal_start_completes_once_without_blocking_control(c
             reads = coordinator.device.async_read.await_count
             await asyncio.wait_for(coordinator.async_refresh(), 5)
             assert coordinator.device.async_read.await_count == reads + 1
-            with pytest.raises(HomeAssistantError, match="vorherige Aktion"):
+            with raises_translated(HomeAssistantError, "comparison_start_busy"):
                 await coordinator.async_start_comparison()
             release.set()
             await asyncio.wait_for(coordinator._async_journal_idle(), 5)
@@ -3727,7 +3728,7 @@ async def test_unload_pauses_first_and_rejects_queued_journal_requests(coordinat
             assert not unload.done()
             coordinator._store.async_save.assert_not_awaited()
             release.set()
-            with pytest.raises(HomeAssistantError, match="beendet"):
+            with raises_translated(HomeAssistantError, "comparison_stop_stopping"):
                 await asyncio.wait_for(user_stop, 5)
             await asyncio.wait_for(unload, 5)
     finally:
@@ -3762,16 +3763,16 @@ async def test_stopping_does_not_record_stale_or_empty_data(coordinator, stale_d
 @pytest.mark.parametrize(
     ("method", "shadow", "online", "stopping", "message"),
     [
-        ("async_start_shadow", False, True, False, "Shadow"),
-        ("async_start_shadow", True, False, False, "Shadow"),
-        ("async_start_shadow", True, True, True, "Shadow"),
-        ("async_start_comparison", True, True, False, "24-Stunden"),
-        ("async_start_comparison", False, False, False, "24-Stunden"),
-        ("async_start_comparison", False, True, True, "24-Stunden"),
-        ("async_stop_shadow", False, True, False, "Shadow"),
-        ("async_stop_shadow", True, True, True, "Shadow"),
-        ("async_stop_comparison", True, True, False, "Standard"),
-        ("async_stop_comparison", False, True, True, "Standard"),
+        ("async_start_shadow", False, True, False, "shadow_requires_connection"),
+        ("async_start_shadow", True, False, False, "shadow_requires_connection"),
+        ("async_start_shadow", True, True, True, "shadow_requires_connection"),
+        ("async_start_comparison", True, True, False, "comparison_requires_standard"),
+        ("async_start_comparison", False, False, False, "comparison_requires_standard"),
+        ("async_start_comparison", False, True, True, "comparison_requires_standard"),
+        ("async_stop_shadow", False, True, False, "no_shadow_entry"),
+        ("async_stop_shadow", True, True, True, "no_shadow_entry"),
+        ("async_stop_comparison", True, True, False, "no_standard_entry"),
+        ("async_stop_comparison", False, True, True, "no_standard_entry"),
     ],
 )
 async def test_journal_method_guards(
@@ -3780,7 +3781,7 @@ async def test_journal_method_guards(
     coordinator.shadow_mode = shadow
     coordinator._online = online
     coordinator._stopping = stopping
-    with pytest.raises(HomeAssistantError, match=message):
+    with raises_translated(HomeAssistantError, message):
         await getattr(coordinator, method)()
 
 
@@ -3788,7 +3789,7 @@ async def test_journal_method_guards(
 async def test_journal_start_io_errors_are_user_visible(coordinator, error):
     coordinator._store.async_save = AsyncMock()
     with patch.object(coordinator._shadow, "start", side_effect=error):
-        with pytest.raises(HomeAssistantError, match="kann nicht angelegt"):
+        with raises_translated(HomeAssistantError, "comparison_start_failed"):
             await coordinator._async_start_journal(refresh=False)
     coordinator._store.async_save.assert_not_awaited()
 
@@ -3796,7 +3797,7 @@ async def test_journal_start_io_errors_are_user_visible(coordinator, error):
 async def test_journal_stop_io_error_is_user_visible(coordinator):
     coordinator._store.async_save = AsyncMock()
     with patch.object(coordinator._shadow, "stop", side_effect=OSError("disk")):
-        with pytest.raises(HomeAssistantError, match="nicht abgeschlossen"):
+        with raises_translated(HomeAssistantError, "comparison_stop_failed"):
             await coordinator._async_stop_journal(refresh=False)
     coordinator._store.async_save.assert_not_awaited()
 

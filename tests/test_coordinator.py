@@ -6580,3 +6580,69 @@ async def test_price_guard_accepts_the_unchanged_price_of_the_real_engine(coordi
     coordinator.device.async_apply.side_effect = None
     coordinator.device.async_apply.assert_awaited_once()
     assert observed == [True, False]
+
+
+def standby_evaluation(mode="Akku Dynamisch", soc=3):
+    from custom_components.opti_akku.engine import Evaluation
+
+    return Evaluation(
+        {**active_hold_evaluation().states, "sensor.opti_soc": soc, "input_number.minsoc": 0,
+         "sun.sun": "below_horizon"},
+        {}, mode, "ueber Ziel-SoC", {}, decision_id="above_target",
+    )
+
+
+STANDBY_PLAN = {"status": "planned", "at": "2026-11-15T01:00:00+00:00", "kind": "grid_precharge"}
+
+
+async def run_standby_cycle(coordinator, evaluation, plan=STANDBY_PLAN):
+    coordinator.device.async_apply.reset_mock()
+    coordinator._last_apply = None
+    with (
+        patch.object(coordinator.engine, "evaluate", return_value=evaluation),
+        patch("custom_components.opti_akku.coordinator.next_grid_charge", return_value=dict(plan)),
+    ):
+        return await coordinator._async_update_data()
+
+
+async def test_standby_reserve_holds_the_battery_until_planned_grid_charge(coordinator, hass):
+    """#222: an STP SE must not run empty and fall asleep before a planned grid charge."""
+    set_peak_rank_control(coordinator, hass, enabled=False)
+    coordinator.settings["input_number.minsoc"] = 0
+    assert coordinator.settings["input_number.opti_standby_reserve_soc"] == 3
+    data = await run_standby_cycle(coordinator, standby_evaluation())
+    command, params = coordinator.device.async_apply.await_args.args[:2]
+    assert command == data["mode"] == "Akku nur Laden"
+    # A discharge lock, never a grid import.
+    assert params["min_charge_w"] == 0 and params["min_discharge_w"] == 0
+    assert data["decision_id"] == "standby_reserve"
+    assert data["reason"].startswith("Standby-Reserve (3 %, Netzladen ab ")
+    assert data["engine_base_mode"] == "Akku Dynamisch"
+    assert data["standby_reserve"]["status"] == "holding"
+    assert data["standby_reserve"]["controls_battery"] is True
+
+
+async def test_standby_reserve_without_plan_or_with_zero_setting_keeps_strategy(coordinator, hass):
+    set_peak_rank_control(coordinator, hass, enabled=False)
+    coordinator.settings["input_number.minsoc"] = 0
+    data = await run_standby_cycle(coordinator, standby_evaluation(), {"status": "none"})
+    assert coordinator.device.async_apply.await_args.args[0] == data["mode"] == "Akku Dynamisch"
+    assert data["standby_reserve"]["status"] == "no_grid_charge_planned"
+    coordinator.settings["input_number.opti_standby_reserve_soc"] = 0
+    data = await run_standby_cycle(coordinator, standby_evaluation())
+    assert data["mode"] == "Akku Dynamisch"
+    assert data["standby_reserve"]["status"] == "disabled"
+
+
+async def test_standby_reserve_failure_keeps_the_strategy_decision(coordinator, hass):
+    set_peak_rank_control(coordinator, hass, enabled=False)
+    coordinator.settings["input_number.minsoc"] = 0
+    coordinator.device.async_apply.reset_mock()
+    coordinator._last_apply = None
+    with (
+        patch.object(coordinator.engine, "evaluate", return_value=standby_evaluation()),
+        patch("custom_components.opti_akku.coordinator.next_grid_charge", side_effect=RuntimeError),
+    ):
+        data = await coordinator._async_update_data()
+    assert data["mode"] == "Akku Dynamisch"
+    assert data["standby_reserve"] == {"status": "error", "controls_battery": False}

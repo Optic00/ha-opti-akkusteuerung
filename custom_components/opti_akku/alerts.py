@@ -8,9 +8,12 @@ from datetime import timedelta
 
 from homeassistant.components import persistent_notification
 from homeassistant.core import callback
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 
+from .const import DOMAIN
 from .sources import finite
+from .standby_reserve import grid_charge_blocked
 
 _LOGGER = logging.getLogger(__name__)
 PRICE_STARTUP_GRACE_SECONDS = 360
@@ -19,6 +22,10 @@ PRICE_SOURCE_KEYS = {"price_current", "price_series"}
 CONTROL_INACTIVE_SECONDS = 900
 STALE_SOURCE_ALERT_SECONDS = 180
 MAX_SOURCE_DETAILS = 5
+# A grid charge request must meet the standby this long before the repair
+# issue opens; the readiness gate may need a cycle after the device woke.
+GRID_CHARGE_STANDBY_SECONDS = 120
+GRID_CHARGE_STANDBY_ISSUE = "grid_charge_standby"
 MESSAGES = {
     "pause": ("Huawei-Pause nicht bestätigt. Geräteeinstellungen können weiterwirken; automatische Nachholung nur bei unveränderter Bindung und Freigabe.", "Huawei pause is unconfirmed. Device settings may remain active; automatic retry requires unchanged binding and permission."),
     "connection": ("Wechselrichter nicht erreichbar oder noch nicht betriebsbereit. Gerätebereitschaft und Verbindung prüfen: bei SMA die Modbus-Einstellungen, bei Huawei die Huawei-Solar-Integration.", "Inverter offline or not yet ready. Check device readiness and connection: Modbus settings for SMA, or the Huawei Solar integration for Huawei."),
@@ -99,6 +106,49 @@ class HealthAlerts:
         self._active_source_details = ""
         self._source_details_updated_at = None
         self._source_nonstale_since = None
+        self._grid_blocked_since = None
+        # A persistent issue from before a restart or reload stays open until
+        # grid charging is confirmed again, the user dismisses it, or the
+        # entry is removed.
+        self._grid_issue_open = ir.async_get(hass).async_get_issue(DOMAIN, self._grid_issue_id) is not None
+
+    @property
+    def _grid_issue_id(self):
+        return f"{GRID_CHARGE_STANDBY_ISSUE}_{self.entry.entry_id}"
+
+    def _update_grid_charge_issue(self, data, now):
+        """Repair issue when planned grid charging meets the night standby (#222).
+
+        The connection alert stays generic and clears in the morning; this
+        issue names the lost grid charge and the setting that prevents it, and
+        stays until grid charging is confirmed again or the user dismisses it.
+        """
+        if data.get("write_enabled") and grid_charge_blocked(data, SMA_STANDBY_STATUS_CODES):
+            if self._grid_blocked_since is None:
+                self._grid_blocked_since = now
+            if (not self._grid_issue_open
+                    and (now - self._grid_blocked_since).total_seconds() >= GRID_CHARGE_STANDBY_SECONDS):
+                report = data.get("standby_reserve")
+                reserve = finite(report.get("reserve_soc")) if isinstance(report, Mapping) else None
+                ir.async_create_issue(
+                    self.hass, DOMAIN, self._grid_issue_id, is_fixable=False, is_persistent=True,
+                    severity=ir.IssueSeverity.WARNING, translation_key=GRID_CHARGE_STANDBY_ISSUE,
+                    learn_more_url="https://github.com/Optic00/ha-opti-akkusteuerung/issues/222",
+                    translation_placeholders={
+                        "entry": self.entry.title,
+                        "time": dt_util.as_local(self._grid_blocked_since).strftime("%H:%M"),
+                        "reserve": f"{reserve:g}" if reserve is not None else "?",
+                    })
+                self._grid_issue_open = True
+            return
+        self._grid_blocked_since = None
+        connection = data.get("connection_status")
+        # Only a grid charge command the device confirmed proves it works again.
+        if (self._grid_issue_open and data.get("mode") == "Akku Netzladen"
+                and isinstance(connection, Mapping) and connection.get("status") == "ready"
+                and data.get("command_result_this_update") == "confirmed"):
+            ir.async_delete_issue(self.hass, DOMAIN, self._grid_issue_id)
+            self._grid_issue_open = False
 
     def _text(self, key):
         return MESSAGES[key][0 if self.hass.config.language == "de" else 1]
@@ -158,6 +208,7 @@ class HealthAlerts:
             data["price_status"] = "not_used"
         if self.entry.data.get("shadow_mode"):
             return
+        self._update_grid_charge_issue(data, now)
         states = data.get("states", {})
         writing = data.get("write_enabled", False)
         recovering = data.get("connection_status", {}).get("status") in ("offline", "recovering", "not_ready")
@@ -165,6 +216,8 @@ class HealthAlerts:
         if standby:
             # Informational only: the raw inverter_status stays beside it for the history.
             data["connection_status"] = {**data["connection_status"], "standby": "night_empty"}
+        elif grid_charge_blocked(data, SMA_STANDBY_STATUS_CODES):
+            data["connection_status"] = {**data["connection_status"], "standby": "grid_charge_blocked"}
         night_pv_only = (
             set(source_errors) == {"pv_generation"}
             and states.get("sun.sun") == "below_horizon"

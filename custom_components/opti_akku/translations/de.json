@@ -79,6 +79,7 @@
         "data": {
           "minsoc": "Minimaler Ladestand",
           "maxsoc": "Maximaler Ladestand",
+          "opti_standby_reserve_soc": "Standby-Reserve vor Netzladen",
           "akkusteuerung_max_ladestaerke": "Max. Ladeleistung",
           "akkusteuerung_max_entladestaerke": "Max. Entladeleistung",
           "opti_pv_ueberschuss_ladung": "PV-Überschussladen erlauben",
@@ -87,6 +88,7 @@
           "charge_curve": "Ladekurve (optional)"
         },
         "data_description": {
+          "opti_standby_reserve_soc": "Nur SMA STP SE. Nachts mit leerem Akku geht der Wechselrichter in Standby und nimmt bis zum Morgen keine Befehle an. Ist vor Sonnenaufgang Netzladen geplant, beendet Opti Akku das Entladen bei diesem Ladestand, damit der Wechselrichter wach bleibt; in allen anderen Nächten darf der Akku weiter bis zum minimalen Ladestand entladen. Ohne Wirkung, wenn der minimale Ladestand gleich hoch oder höher ist. 0 schaltet die Reserve aus.",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 schaltet die Funktion aus. Sinnvoll, wenn die PV-Leistung die AC-Leistung des Wechselrichters übersteigt und mittags abgeregelt wird. Dann lädt der Akku oberhalb der Grenze aus dem Überschuss, sofern PV-Überschussladen erlaubt ist. Vorschlag für das erkannte Modell: {ac_limit_suggestion}. Der Wert wird nicht automatisch übernommen.",
           "charge_curve": "Bis zu fünf Punkte aus Ladestand und maximaler Ladeleistung. Ab dem Ladestand eines Punkts gilt seine Leistung als Obergrenze; fällt der Ladestand, hält ein Punkt seine Leistung, bis der Ladestand 2 Prozentpunkte darunter liegt. Unterhalb dieses Bands des ersten Punkts begrenzt die Kurve nicht. Beispiel: ab 85 % 4000 W, ab 93 % 3000 W, ab 99 % 250 W, bei 100 % 70 W. Sie gilt in jedem Modus, auch in manuellen Modi und beim Netzladen, und senkt nur ab: Temperatur, Balancing und maximale Ladeleistung bleiben wirksam, und eine PV-Spitze hebt sie nicht auf. Die Leistung darf mit steigendem Ladestand nicht steigen. 0 W sperrt das Laden ab diesem Punkt. Leer lassen für unverändertes Verhalten."
         }
@@ -489,6 +491,7 @@
         "data": {
           "minsoc": "Minimaler Ladestand",
           "maxsoc": "Maximaler Ladestand",
+          "opti_standby_reserve_soc": "Standby-Reserve vor Netzladen",
           "akkusteuerung_max_ladestaerke": "Max. Ladeleistung",
           "akkusteuerung_max_entladestaerke": "Max. Entladeleistung",
           "opti_pv_ueberschuss_ladung": "PV-Überschussladen erlauben",
@@ -497,6 +500,7 @@
           "charge_curve": "Ladekurve (optional)"
         },
         "data_description": {
+          "opti_standby_reserve_soc": "Nur SMA STP SE. Nachts mit leerem Akku geht der Wechselrichter in Standby und nimmt bis zum Morgen keine Befehle an. Ist vor Sonnenaufgang Netzladen geplant, beendet Opti Akku das Entladen bei diesem Ladestand, damit der Wechselrichter wach bleibt; in allen anderen Nächten darf der Akku weiter bis zum minimalen Ladestand entladen. Ohne Wirkung, wenn der minimale Ladestand gleich hoch oder höher ist. 0 schaltet die Reserve aus.",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 schaltet die Funktion aus. Sinnvoll, wenn die PV-Leistung die AC-Leistung des Wechselrichters übersteigt und mittags abgeregelt wird. Dann lädt der Akku oberhalb der Grenze aus dem Überschuss, sofern PV-Überschussladen erlaubt ist. Vorschlag für das erkannte Modell: {ac_limit_suggestion}. Der Wert wird nicht automatisch übernommen.",
           "charge_curve": "Bis zu fünf Punkte aus Ladestand und maximaler Ladeleistung. Ab dem Ladestand eines Punkts gilt seine Leistung als Obergrenze; fällt der Ladestand, hält ein Punkt seine Leistung, bis der Ladestand 2 Prozentpunkte darunter liegt. Unterhalb dieses Bands des ersten Punkts begrenzt die Kurve nicht. Beispiel: ab 85 % 4000 W, ab 93 % 3000 W, ab 99 % 250 W, bei 100 % 70 W. Sie gilt in jedem Modus, auch in manuellen Modi und beim Netzladen, und senkt nur ab: Temperatur, Balancing und maximale Ladeleistung bleiben wirksam, und eine PV-Spitze hebt sie nicht auf. Die Leistung darf mit steigendem Ladestand nicht steigen. 0 W sperrt das Laden ab diesem Punkt. Leer lassen für unverändertes Verhalten."
         }
@@ -1410,6 +1414,9 @@
       "maxsoc": {
         "name": "Maximaler Ladestand"
       },
+      "opti_standby_reserve_soc": {
+        "name": "Standby-Reserve vor Netzladen"
+      },
       "ladepreis": {
         "name": "Referenz-Ladepreis"
       },
@@ -1517,6 +1524,12 @@
           "name": "Maximale Ladeleistung"
         }
       }
+    }
+  },
+  "issues": {
+    "grid_charge_standby": {
+      "title": "Netzladen blockiert: Wechselrichter im Standby",
+      "description": "Um {time} wollte Opti Akku für **{entry}** aus dem Netz laden, aber der Wechselrichter war im Nacht-Standby (Akku leer, keine PV) und hat keinen Befehl angenommen. Die Netzladung ist ausgefallen.\n\nDie *Standby-Reserve vor Netzladen* (derzeit {reserve} %) hält den Wechselrichter in Nächten mit geplantem Netzladen wach. Steht sie auf 0, stelle einige Prozent ein; meist reichen 2 bis 3 %. Geht der Wechselrichter trotz Reserve in Standby, erhöhe sie und melde das in Issue #222.\n\nDiese Meldung schließt sich, sobald Netzladen nachts wieder funktioniert, oder wenn du sie verwirfst."
     }
   }
 }

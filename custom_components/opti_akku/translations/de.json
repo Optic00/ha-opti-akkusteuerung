@@ -1033,6 +1033,15 @@
           "required_battery_kwh": {
             "name": "Berechneter Energiebedarf (kWh)"
           },
+          "precharge_target_soc": {
+            "name": "Vorladeziel (%)"
+          },
+          "pv_before_peak_kwh": {
+            "name": "PV bis zur Spitze (kWh, P10)"
+          },
+          "pv_before_peak_forecast": {
+            "name": "PV-Prognose fürs Vorladen"
+          },
           "current_soc": {
             "name": "Aktueller Ladestand (%)"
           },

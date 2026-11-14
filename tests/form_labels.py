@@ -1,4 +1,4 @@
-"""Every form field the flows actually render has a label and a description.
+"""Every form field and menu option the flows render has its texts.
 
 The check wraps FlowHandler.async_show_form for Opti Akku flows, so it
 covers the runtime schemas of every step the flow tests reach, including
@@ -37,6 +37,19 @@ def check_rendered_form_fields(monkeypatch):
                 missing.update(missing_texts(flow, kwargs.get("step_id", ""), fields))
         return original(self, *args, **kwargs)
 
+    original_menu = FlowHandler.async_show_menu
+
+    def show_menu(self, *args, **kwargs):
+        if type(self).__module__.startswith("custom_components.opti_akku"):
+            flow = "options" if isinstance(self, config_entries.OptionsFlow) else "config"
+            step_id = kwargs.get("step_id", "")
+            labels = _STRINGS[flow]["step"].get(step_id, {}).get("menu_options", {})
+            options = kwargs.get("menu_options", [])
+            keys = options.keys() if isinstance(options, dict) else options
+            missing.update(f"{flow}/{step_id}/menu/{key}" for key in keys if not labels.get(key))
+        return original_menu(self, *args, **kwargs)
+
     monkeypatch.setattr(FlowHandler, "async_show_form", show_form)
+    monkeypatch.setattr(FlowHandler, "async_show_menu", show_menu)
     yield
     assert not missing, sorted(missing)

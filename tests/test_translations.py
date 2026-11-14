@@ -79,6 +79,44 @@ def test_every_form_field_has_a_description(name):
     ]
     assert not missing, missing
 
+
+def _schema_field_names() -> set[str]:
+    """Field names config_flow.py can put into a form, found without running it.
+
+    Literal vol.Required/vol.Optional keys plus the field lists the flow
+    builds schemas from in loops. Complements the runtime check in
+    tests/form_labels.py for steps no flow test reaches.
+    """
+    import ast
+
+    from custom_components.opti_akku import config_flow as cf
+
+    names = set()
+    for node in ast.walk(ast.parse((COMPONENT / "config_flow.py").read_text(encoding="utf-8"))):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ("Required", "Optional")
+                and getattr(node.func.value, "id", None) == "vol"
+                and node.args and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)):
+            names.add(node.args[0].value)
+    names.update(cf.HUAWEI_REQUIRED_ROLES, cf.HUAWEI_OPTIONAL_ROLES, cf.EV_SOURCE_KEYS, cf.SOURCE_DEFINITIONS)
+    for groups in (cf.OPTION_GROUPS, cf.SETTING_GROUPS, cf.SOURCE_GROUPS):
+        for fields in groups.values():
+            names.update(field.split(".")[-1] for field in fields)
+    return names
+
+
+def test_every_schema_field_is_labeled_and_described_somewhere():
+    data = _load("strings")
+    described = {
+        field
+        for flow in ("config", "options")
+        for step in data[flow]["step"].values()
+        for field, label in step.get("data", {}).items()
+        if label and step.get("data_description", {}).get(field, "").strip()
+    }
+    assert not _schema_field_names() - described, sorted(_schema_field_names() - described)
+
 def test_every_translated_exception_key_exists():
     used = set()
     for path in COMPONENT.glob("*.py"):

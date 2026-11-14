@@ -229,7 +229,8 @@ def test_every_described_state_entity_has_a_translated_name():
 
 # Every f-string that builds a state key, and where the test finds its values.
 # A new dynamic key fails test_every_state_key_in_the_code_has_a_translated_name
-# until it is listed here, so it cannot slip through with a generic name.
+# until it is listed here. Known limit: keys built by concatenation, .format()
+# or single-quoted f-strings are not detected; the code uses none of these.
 DYNAMIC_STATE_KEYS = {
     'f"binary_sensor.opti_ev_lp{index}_schnell"': {"binary_sensor.opti_ev_lp1_schnell", "binary_sensor.opti_ev_lp2_schnell"},
     'f"binary_sensor.opti_ev_lp{i}_schnell"': {"binary_sensor.opti_ev_lp1_schnell", "binary_sensor.opti_ev_lp2_schnell"},
@@ -256,9 +257,11 @@ def test_every_state_key_in_the_code_has_a_translated_name():
         source = path.read_text(encoding="utf-8")
         keys.update(re.findall(r'"((?:sensor|binary_sensor|counter|input_datetime)\.[a-z0-9_]*[a-z0-9])"', source))
         dynamic.update(re.findall(r'f"(?:sensor|binary_sensor|counter|input_datetime)\.[^"]*\{[^"]*"', source))
-        if path.name in ("sma.py", "sbs.py"):
-            # Register specs ("name", <register>, ...) and derived readings ("name", (sources), ...).
-            keys.update(f"sensor.opti_{name}" for name in re.findall(r'\("([a-z0-9_]+)",\s*(?:\d{5}|\()', source))
+        if "async_read" in source:  # device backends
+            # Register specs ("name", <register>, ...) and derived readings ("name", (sources), ...);
+            # the lookbehind skips calls such as options.get("name", ()).
+            spec = r'(?<![\w.])\("([a-z0-9_]+)",\s*(?:\d{5}|\()'
+            keys.update(f"sensor.opti_{name}" for name in re.findall(spec, source))
     unreviewed = dynamic - set(DYNAMIC_STATE_KEYS)
     assert not unreviewed, f"list new dynamic state keys in DYNAMIC_STATE_KEYS: {sorted(unreviewed)}"
     for values in DYNAMIC_STATE_KEYS.values():

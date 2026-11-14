@@ -97,7 +97,7 @@ rules:
   entity-disabled-by-default: done
   entity-translations:
     status: done
-    comment: Alle Entitäten haben einen translation_key; Tests prüfen jeden Zustandsschlüssel aus Code und strategy.json.
+    comment: Alle Entitäten haben einen translation_key; ein Test prüft alle ausgeschriebenen Zustandsschlüssel, Register-Specs, registrierten f-String-Vorlagen und strategy.json.
   exception-translations:
     status: done
     comment: Alle Ausnahmen über errors.translated; ein Test meldet fest eingebaute Texte.

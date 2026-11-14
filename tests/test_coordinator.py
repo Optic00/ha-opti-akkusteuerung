@@ -1094,6 +1094,44 @@ async def test_history_save_cannot_recreate_store_of_entry_removed_after_failed_
     await hass.async_block_till_done()
     assert key not in hass_storage
 
+async def test_unload_after_failed_setup_waits_for_history_write_in_progress(hass, entry, coordinator):
+    started, release, done = asyncio.Event(), asyncio.Event(), []
+
+    async def slow_save(data):
+        started.set()
+        await release.wait()
+        done.append(data)
+
+    with patch.object(coordinator._history_store, "async_save", side_effect=slow_save):
+        coordinator._async_history_save_due(None)
+        await asyncio.wait_for(started.wait(), 1)
+        # Setup failed: HA processes on_unload without async_stop and must
+        # wait for the running write before async_remove_entry can run.
+        unload = hass.async_create_task(entry._async_process_on_unload(hass))
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(unload), 0.5)
+        release.set()
+        await asyncio.wait_for(unload, 5)
+    assert done
+    assert coordinator._history_save_task is None
+
+
+async def test_stop_does_not_wait_forever_for_hanging_history_write(hass, coordinator):
+    started = asyncio.Event()
+
+    async def hanging_save(data):
+        started.set()
+        await asyncio.Event().wait()
+
+    with patch.object(coordinator._history_store, "async_save", side_effect=hanging_save), \
+            patch("custom_components.opti_akku.coordinator.HISTORY_SAVE_STOP_TIMEOUT", 0.05):
+        coordinator._async_history_save_due(None)
+        await asyncio.wait_for(started.wait(), 1)
+        await asyncio.wait_for(coordinator.async_stop(), 5)
+        coordinator._history_save_task.cancel()
+        await hass.async_block_till_done()
+
+
 async def test_reload_handover_not_left_for_retry_after_failed_setup(hass, entry):
     hass.data["opti_akku_reload_handover"] = {entry.entry_id: {"at": time.monotonic(), "manual_mode": "Akku schnell Entladen"}}
     with patch("custom_components.opti_akku.StrategyEngine", side_effect=RuntimeError("boom")):

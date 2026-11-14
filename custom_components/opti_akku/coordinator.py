@@ -552,6 +552,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ("no_supported_modes", not self.supported_modes),
         ) if blocked]
         self.write_enabled = bool(stored.get("write_enabled", False)) and not restore_blockers
+        # Keeps the repair issue for a rejected options patch across reload and restart.
+        self.settings_rejected = stored.get("settings_rejected") is True
         if handover is not None and handover.get("write_enabled") is not True:
             # The live state at unload wins over a store that may lag behind,
             # e.g. a write disable whose save did not complete.
@@ -660,6 +662,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "load_source_fingerprint": self._load_source_fingerprint,
                 "score_load_fingerprint": self._score_load_fingerprint,
                 "write_enabled": self.write_enabled,
+                "settings_rejected": self.settings_rejected,
                 "writer_binding": self._writer_binding,
                 "pause_pending": self._pause_pending,
                 "pause_binding": self._pause_binding,
@@ -2629,6 +2632,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._revision += 1
         await self._store.async_save(self._stored_data())
         await self.async_refresh()
+
+    async def async_mark_settings_rejected(self) -> None:
+        """Remember a rejected options patch and show its repair issue now."""
+        self.settings_rejected = True
+        await self._store.async_save(self._stored_data())
+        self.repairs.sync({**(self.data or {}), "settings_rejected": True})
 
     async def async_apply_settings(self, settings: dict, revision: str) -> None:
         """Apply one validated wizard transaction without reloading the device."""

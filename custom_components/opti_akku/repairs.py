@@ -72,7 +72,9 @@ class RepairIssues:
                         translation_placeholders={"entry": self.entry.title},
                     )
                     self._open.add(key)
-            elif key in self._open:
+            else:
+                # Also after a restart, when HA restored the issue inactive and
+                # _open is still empty; deleting a missing issue is a no-op.
                 ir.async_delete_issue(self.hass, DOMAIN, issue_id(key, self.entry.entry_id))
                 self._open.discard(key)
 

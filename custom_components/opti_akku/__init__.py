@@ -139,7 +139,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
             try:
                 await coordinator.async_apply_settings(entry.options.get("settings", {}), revision)
             except HomeAssistantError:
-                coordinator.settings_rejected = True
+                await coordinator.async_mark_settings_rejected()
                 coordinator._last_error = "Einstellungen nicht übernommen: Grenzwerte oder benötigte Quellen sind nicht mehr gültig. Bitte erneut konfigurieren."
                 # Discard the rejected patch so a restart cannot apply it later.
                 hass.config_entries.async_update_entry(entry, options={**entry.options,

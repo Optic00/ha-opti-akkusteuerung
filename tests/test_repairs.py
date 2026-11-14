@@ -93,6 +93,32 @@ async def test_rejected_options_patch_marks_settings_rejected(hass, entry, coord
         "settings_revision": "bad"})
     await _async_options_updated(hass, entry)
     assert coordinator.settings_rejected is True
+    # Visible right away, not only after the next control cycle.
+    assert _issue(hass, "settings_rejected", entry) is not None
+
+
+async def test_rejected_settings_survive_reload(hass, entry, coordinator):
+    await coordinator.async_mark_settings_rejected()
+    async_clear_issues(hass, entry.entry_id)  # as on unload
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    reloaded = OptiCoordinator(hass, entry, device(), engine)
+    await reloaded.async_restore()
+    try:
+        assert reloaded.settings_rejected is True
+        await reloaded._async_update_data()
+        assert _issue(hass, "settings_rejected", entry) is not None
+    finally:
+        await reloaded.async_stop()
+
+
+async def test_issue_restored_inactive_after_restart_is_deleted_when_resolved(hass, entry, coordinator):
+    ir.async_create_issue(hass, "opti_akku", issue_id("tibber_config", entry.entry_id),
+                          is_fixable=False, is_persistent=False, severity=ir.IssueSeverity.ERROR,
+                          translation_key="tibber_config")
+    # A fresh RepairIssues knows nothing about it, as after an HA restart.
+    assert not coordinator.repairs._open
+    await coordinator._async_update_data()
+    assert _issue(hass, "tibber_config", entry) is None
 
 
 async def test_clear_removes_every_issue_of_the_entry(hass, entry, coordinator):

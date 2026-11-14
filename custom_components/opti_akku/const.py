@@ -49,3 +49,13 @@ EV_SOURCE_KEYS = (
     "ev2_mode", "ev2_charging", "ev2_smart_cost", "ev2_power",
 )
 DEFAULT_OPTIONS = {"sources": {}, "settings": {}, "price_unit": "EUR/kWh", "source_max_age": 900, "forecast_max_age": DEFAULT_FORECAST_MAX_AGE, "price_max_age": 7200, "single_writer_confirmed": False, "single_inverter": False}
+
+
+def entry_store_key(entry_id: str) -> str:
+    """Private store with settings and control state of one entry."""
+    return f"{DOMAIN}.{entry_id}"
+
+
+def entry_store_keys(entry_id: str) -> tuple[str, ...]:
+    """All private stores one entry owns; removed together with the entry."""
+    return (entry_store_key(entry_id), f"{entry_store_key(entry_id)}.planner_history")

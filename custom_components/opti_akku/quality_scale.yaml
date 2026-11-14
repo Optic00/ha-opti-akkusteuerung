@@ -1,0 +1,124 @@
+# Stand der Integration Quality Scale von Home Assistant.
+# https://developers.home-assistant.io/docs/core/integration-quality-scale/rules
+#
+# Hassfest prüft diese Datei nur für Core-Integrationen. Für Opti Akku prüft
+# tests/test_quality_scale.py Schema, Vollständigkeit und einige Aussagen
+# (z. B. PARALLEL_UPDATES). Die Datei dient als Prüfliste, nicht als offizielle
+# Einstufung. Fachliche Abnahmen stehen in Issue #85, Lücken in
+# docs/RELEASE_PLAN.md.
+rules:
+  # Bronze
+  action-setup:
+    status: exempt
+    comment: Keine eigenen Service-Aktionen; nur Entitätsaktionen der Plattformen.
+  appropriate-polling:
+    status: done
+    comment: Ein DataUpdateCoordinator liest alle 15 Sekunden; Entitäten pollen nicht selbst.
+  brands: done
+  common-modules:
+    status: done
+    comment: Coordinator in coordinator.py, gemeinsame Entitätsbasis in entity.py.
+  config-flow:
+    status: todo
+    comment: Geführter Config- und Options-Flow vorhanden; data_description fehlt für viele Felder.
+  config-flow-test-coverage: done
+  dependency-transparency:
+    status: done
+    comment: Keine eigenen requirements; Modbus kommt über die HA-Integration modbus.
+  docs-actions:
+    status: exempt
+    comment: Keine eigenen Service-Aktionen.
+  docs-conditions:
+    status: exempt
+    comment: Keine eigenen Bedingungen.
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions: done
+  docs-triggers:
+    status: exempt
+    comment: Keine eigenen Auslöser.
+  entity-event-setup:
+    status: done
+    comment: Entitäten hängen am Coordinator; Quellen-Listener registriert der Coordinator mit async_on_unload.
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data: done
+  test-before-configure: done
+  test-before-setup:
+    status: done
+    comment: async_config_entry_first_refresh vor dem Laden der Plattformen.
+  unique-config-entry:
+    status: done
+    comment: Geräteidentität als unique_id, zusätzlich Schreibersperre je Endpunkt.
+
+  # Silber
+  action-exceptions: done
+  config-entry-unloading:
+    status: done
+    comment: Entladen pausiert zuerst den letzten Befehl und gibt dann die Modbus-Einheit frei.
+  docs-configuration-parameters: done
+  docs-installation-parameters: done
+  entity-unavailable: done
+  integration-owner: done
+  log-when-unavailable:
+    status: todo
+    comment: Lesefehler des Wechselrichters landen nur im Debug-Log; einmaliges Info-Log bei Verlust und Rückkehr fehlt.
+  parallel-updates: done
+  reauthentication-flow:
+    status: exempt
+    comment: Modbus TCP und Huawei-Entitäten brauchen keine Anmeldung.
+  test-coverage:
+    status: done
+    comment: Coverage-Gate je Modul in der CI, neue Module mindestens 95 Prozent.
+
+  # Gold
+  devices: done
+  diagnostics: done
+  discovery:
+    status: exempt
+    comment: SMA meldet sich über Modbus TCP nicht per Discovery an; Huawei nutzt eine bestehende Integration.
+  discovery-update-info:
+    status: exempt
+    comment: Keine Discovery.
+  docs-data-update: done
+  docs-examples:
+    status: todo
+    comment: Keine Automationsbeispiele mit Opti-Entitäten in der Doku.
+  docs-known-limitations: done
+  docs-supported-devices: done
+  docs-supported-functions: done
+  docs-troubleshooting: done
+  docs-use-cases: done
+  dynamic-devices:
+    status: exempt
+    comment: Ein Eintrag steuert genau ein Gerät; es kommen keine Geräte dazu.
+  entity-category: done
+  entity-device-class: done
+  entity-disabled-by-default: done
+  entity-translations: done
+  exception-translations:
+    status: todo
+    comment: Fehlertexte stehen noch fest im Code, gemischt Deutsch und Englisch.
+  icon-translations:
+    status: todo
+    comment: Icons sind im Code gesetzt; icons.json fehlt.
+  reconfiguration-flow:
+    status: todo
+    comment: Verbindungswechsel liegt noch im Options-Flow unter Wartung.
+  repair-issues:
+    status: todo
+    comment: Handlungsbedürftige Zustände laufen über persistent_notification.
+  stale-devices:
+    status: exempt
+    comment: Ein festes Gerät je Eintrag; es veralten keine Geräte.
+
+  # Platin
+  async-dependency:
+    status: done
+    comment: Modbus über die asynchrone Verbindung der HA-Integration modbus.
+  inject-websession:
+    status: done
+    comment: Der evcc-Abruf nutzt async_get_clientsession.
+  strict-typing:
+    status: todo
+    comment: Mypy strict nur für ausgewählte Module.

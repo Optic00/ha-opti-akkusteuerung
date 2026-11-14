@@ -9,6 +9,10 @@ from homeassistant.helpers.entity import EntityCategory
 from .definitions import SWITCH_DEFINITIONS
 from .entity import OptiAkkuEntity
 
+# Settings and write-release changes run one at a time. Device writes are
+# serialized separately by the coordinator and the backend device locks.
+PARALLEL_UPDATES = 1
+
 WRITE_ENABLE_KEY = "write_enabled"
 
 

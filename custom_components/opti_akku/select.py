@@ -7,6 +7,10 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .entity import OptiAkkuEntity
 
+# Mode changes run one at a time. Device writes are serialized
+# separately by the coordinator and the backend device locks.
+PARALLEL_UPDATES = 1
+
 STRATEGY = "Strategie"
 OBSERVATION = "observation"
 

@@ -1020,6 +1020,21 @@ async def test_removed_entry_drops_reload_handover(hass, entry):
     assert entry.entry_id not in hass.data["opti_akku_reload_handover"]
 
 
+async def test_removed_entry_deletes_its_private_stores(hass, hass_storage, entry, coordinator):
+    from custom_components.opti_akku import async_remove_entry
+    from custom_components.opti_akku.const import entry_store_keys
+
+    # The removal list must match what the coordinator really writes.
+    assert {coordinator._store.key, coordinator._history_store.key} == set(entry_store_keys(entry.entry_id))
+    other = "opti_akku.other_entry"
+    for key in (*entry_store_keys(entry.entry_id), other):
+        hass_storage[key] = {"version": 1, "minor_version": 1, "key": key, "data": {"settings": {}}}
+    await async_remove_entry(hass, entry)
+    await hass.async_block_till_done()
+    assert not set(entry_store_keys(entry.entry_id)) & hass_storage.keys()
+    assert other in hass_storage
+
+
 async def test_reload_handover_not_left_for_retry_after_failed_setup(hass, entry):
     hass.data["opti_akku_reload_handover"] = {entry.entry_id: {"at": time.monotonic(), "manual_mode": "Akku schnell Entladen"}}
     with patch("custom_components.opti_akku.StrategyEngine", side_effect=RuntimeError("boom")):

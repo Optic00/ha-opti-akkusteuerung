@@ -28,6 +28,7 @@ files = [
   "custom_components/opti_akku/load_profile.py",
   "custom_components/opti_akku/plant.py",
   "custom_components/opti_akku/source_quality.py",
+  "custom_components/opti_akku/standby_reserve.py",
   "custom_components/opti_akku/recovery.py",
   "custom_components/opti_akku/tibber_prices.py",
 ]

@@ -115,12 +115,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Drop the reload handover and the private stores of a removed entry.
+    """Drop the reload handover, repair issues and private stores of a removed entry.
 
     Shadow and comparison recordings under opti_akku_shadow/ stay: they are
     user evidence, not entry state, and the README tells how to delete them.
     """
     hass.data.get(RELOAD_HANDOVER_KEY, {}).pop(entry.entry_id, None)
+    from homeassistant.helpers import issue_registry as ir
+
+    from .alerts import GRID_CHARGE_STANDBY_ISSUE
+
+    ir.async_delete_issue(hass, DOMAIN, f"{GRID_CHARGE_STANDBY_ISSUE}_{entry.entry_id}")
     for key in entry_store_keys(entry.entry_id):
         await Store(hass, 1, key, private=True).async_remove()
 

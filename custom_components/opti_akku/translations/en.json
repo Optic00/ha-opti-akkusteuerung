@@ -79,6 +79,7 @@
         "data": {
           "minsoc": "Minimum charge level",
           "maxsoc": "Maximum charge level",
+          "opti_standby_reserve_soc": "Standby reserve before grid charging",
           "akkusteuerung_max_ladestaerke": "Maximum charge power",
           "akkusteuerung_max_entladestaerke": "Maximum discharge power",
           "opti_pv_ueberschuss_ladung": "Allow PV surplus charging",
@@ -87,6 +88,7 @@
           "charge_curve": "Charge curve (optional)"
         },
         "data_description": {
+          "opti_standby_reserve_soc": "SMA STP SE only. At night with an empty battery the inverter goes into standby and accepts no commands until morning. When grid charging is planned before sunrise, Opti Akku stops discharging at this charge level so the inverter stays awake; in all other nights the battery may still discharge down to the minimum charge level. Has no effect when the minimum charge level is at or above this value. 0 turns the reserve off.",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 turns this off. Useful when PV power exceeds the inverter's AC power and output is clipped around midday. The battery then charges from surplus above the limit if PV surplus charging is allowed. Suggestion for the detected model: {ac_limit_suggestion}. The value is not applied automatically.",
           "charge_curve": "Up to five points of charge level and maximum charge power. From a point's charge level upwards its power is the upper limit; when the charge level falls, a point holds until it is 2 percentage points below it. Below that band of the first point the curve does not limit. Example: from 85 % 4000 W, from 93 % 3000 W, from 99 % 250 W, at 100 % 70 W. It applies in every mode, including manual modes and grid charging, and only lowers: temperature, balancing and maximum charge power stay active, and a PV peak does not lift it. Power must not rise with the charge level. 0 W blocks charging from that point. Leave empty for unchanged behaviour."
         }
@@ -489,6 +491,7 @@
         "data": {
           "minsoc": "Minimum charge level",
           "maxsoc": "Maximum charge level",
+          "opti_standby_reserve_soc": "Standby reserve before grid charging",
           "akkusteuerung_max_ladestaerke": "Maximum charge power",
           "akkusteuerung_max_entladestaerke": "Maximum discharge power",
           "opti_pv_ueberschuss_ladung": "Allow PV surplus charging",
@@ -497,6 +500,7 @@
           "charge_curve": "Charge curve (optional)"
         },
         "data_description": {
+          "opti_standby_reserve_soc": "SMA STP SE only. At night with an empty battery the inverter goes into standby and accepts no commands until morning. When grid charging is planned before sunrise, Opti Akku stops discharging at this charge level so the inverter stays awake; in all other nights the battery may still discharge down to the minimum charge level. Has no effect when the minimum charge level is at or above this value. 0 turns the reserve off.",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 turns this off. Useful when PV power exceeds the inverter's AC power and output is clipped around midday. The battery then charges from surplus above the limit if PV surplus charging is allowed. Suggestion for the detected model: {ac_limit_suggestion}. The value is not applied automatically.",
           "charge_curve": "Up to five points of charge level and maximum charge power. From a point's charge level upwards its power is the upper limit; when the charge level falls, a point holds until it is 2 percentage points below it. Below that band of the first point the curve does not limit. Example: from 85 % 4000 W, from 93 % 3000 W, from 99 % 250 W, at 100 % 70 W. It applies in every mode, including manual modes and grid charging, and only lowers: temperature, balancing and maximum charge power stay active, and a PV peak does not lift it. Power must not rise with the charge level. 0 W blocks charging from that point. Leave empty for unchanged behaviour."
         }
@@ -1410,6 +1414,9 @@
       "maxsoc": {
         "name": "Maximum charge level"
       },
+      "opti_standby_reserve_soc": {
+        "name": "Standby reserve before grid charging"
+      },
       "ladepreis": {
         "name": "Reference charging price"
       },
@@ -1517,6 +1524,12 @@
           "name": "Maximum charge power"
         }
       }
+    }
+  },
+  "issues": {
+    "grid_charge_standby": {
+      "title": "Grid charging blocked: inverter in standby",
+      "description": "At {time} Opti Akku wanted to charge the battery from the grid for **{entry}**, but the inverter was in night standby (empty battery, no PV) and accepted no command. The grid charge was lost.\n\nThe *Standby reserve before grid charging* (currently {reserve} %) keeps the inverter awake in nights with planned grid charging. If it is 0, set it to a few percent; 2 to 3 % are usually enough. If the inverter goes into standby despite the reserve, raise it and report this in issue #222.\n\nThis message closes itself once grid charging works again at night, or when you dismiss it."
     }
   }
 }

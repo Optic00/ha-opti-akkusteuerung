@@ -8,6 +8,15 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Geändert
+
+- **Reparaturen statt Benachrichtigungen für Fälle mit klarer Nutzeraktion.**
+  Eine geänderte Geräteidentität, eine unpassende Tibber-Auswahl und
+  abgelehnte Einstellungen erscheinen jetzt unter *Einstellungen → System →
+  Reparaturen*, mit Link zur passenden Doku. Die Meldung verschwindet von
+  selbst, sobald der Zustand behoben ist, und beim Entfernen des Eintrags.
+  Betriebsmeldungen bleiben Benachrichtigungen.
+
 ## [2026.11-beta8] - 2026-11-14
 
 ### Geändert

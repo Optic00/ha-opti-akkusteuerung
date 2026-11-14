@@ -28,6 +28,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
 from .alerts import HealthAlerts, night_standby
+from .repairs import RepairIssues
 from .arbitrage import (
     PrechargeComparison,
     apply_discharge_hold,
@@ -410,8 +411,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._evcc_fetch_error: str | None = None
         self._price_next_fetch: datetime | None = None
         self._price_provider_error: str | None = None
+        # Raised as repair issues (repairs.py); both need a user action.
+        self._identity_mismatch = False
+        self.settings_rejected = False
         self._price_last_success: datetime | None = None
         self.alerts = HealthAlerts(hass, entry)
+        self.repairs = RepairIssues(hass, entry)
         entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, self._async_ha_stopping))
         entry.async_on_unload(self._release_device)
 
@@ -612,7 +617,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         serial = identity.get("serial_number")
         expected = self.entry.data.get("serial_number")
         if expected and serial != expected:
+            self._identity_mismatch = True
             raise HomeAssistantError("Geräteidentität hat sich geändert; Verbindung neu konfigurieren")
+        self._identity_mismatch = False
         if self.shadow_mode:
             return
         if not serial:
@@ -943,6 +950,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Alerting and the journal must never fail the control cycle.
         with self._auxiliary_guard("alerts"):
             self.alerts.update(data)
+        with self._auxiliary_guard("repairs"):
+            self.repairs.sync(data)
         data["notification_error"] = self.alerts.delivery_error
         # Never await journal I/O here: HA serializes this whole method.
         with self._auxiliary_guard("journal"):
@@ -1585,6 +1594,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "score_load_error": score_load_error,
                 "device_errors": dict(read_errors) if isinstance(read_errors, dict) else {}, "load_profile": self._load_profile_status,
                 "price_provider_error": self._price_provider_error,
+                "identity_mismatch": self._identity_mismatch,
+                "settings_rejected": self.settings_rejected,
                 "price_last_success": self._price_last_success,
                 "notification_error": self.alerts.delivery_error,
                 "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled,
@@ -1830,6 +1841,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "last_error": self._last_error,
                 "device_errors": dict(read_errors) if isinstance(read_errors, dict) else {},
                 "price_provider_error": self._price_provider_error,
+                "identity_mismatch": self._identity_mismatch,
+                "settings_rejected": self.settings_rejected,
                 "price_last_success": self._price_last_success,
                 "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled,
                 "control_inactive": bool(self.strategy_enabled and not self.shadow_mode and not self.write_enabled
@@ -2629,6 +2642,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._reset_manual_soc_blocks()
             self.settings = validated
             self._settings_revision = revision
+            self.settings_rejected = False
             self._revision += 1
         await self._store.async_save(self._stored_data())
         await self.async_refresh()

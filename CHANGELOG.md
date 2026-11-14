@@ -10,6 +10,21 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Geändert
 
+- **Fehlermeldungen sind übersetzt.** Rund 45 Fehlermeldungen aus Aktionen,
+  Einstellungen und der Einrichtung standen fest im Code, teils Deutsch, teils
+  Englisch. Sie kommen jetzt aus den Übersetzungen und erscheinen in der
+  Oberfläche in der Sprache von Home Assistant. Im Log stehen sie wie bei
+  Home Assistant üblich auf Englisch. Falsche Eingaben (etwa ein Wert außerhalb
+  des Bereichs oder eine fehlende Bestätigung) melden sich als
+  Eingabefehler ohne Stacktrace im Log.
+- **Jedes Feld im Einrichtungsdialog hat eine Beschreibung.** Alle Felder der
+  Einrichtung und der Optionen erklären sich jetzt direkt unter dem
+  Eingabefeld, auf Deutsch und Englisch. Ein Test meldet künftig neue Felder
+  ohne Beschreibung.
+- **Laufzeitfehler und Eingabefehler getrennt.** „Import läuft bereits“ und
+  „Integration wird beendet“ melden sich als eigene Laufzeitfehler. Ein als
+  Benachrichtigungsdienst gewählter Nicht-notify-Dienst gilt als Eingabefehler
+  mit passendem Hinweis.
 - **Reparaturen statt Benachrichtigungen für Fälle mit klarer Nutzeraktion.**
   Eine geänderte Geräteidentität, eine unpassende Tibber-Auswahl und
   abgelehnte Einstellungen erscheinen jetzt unter *Einstellungen → System →

@@ -116,7 +116,8 @@ async def test_valid_settings_applied_by_reload_clear_rejection(hass, entry, coo
     await coordinator.async_mark_settings_rejected()
     await coordinator._async_update_data()
     assert _issue(hass, "settings_rejected", entry) is not None
-    # Valid settings together with an option that reloads the entry.
+    # Valid settings arrive while the entry reloads (e.g. together with a
+    # source change); the new coordinator applies them in async_restore.
     hass.config_entries.async_update_entry(entry, options={
         **entry.options, "settings": {"input_number.minsoc": 15}, "settings_revision": "rev-ok"})
     await coordinator.async_stop()
@@ -128,6 +129,23 @@ async def test_valid_settings_applied_by_reload_clear_rejection(hass, entry, coo
         assert reloaded.settings_rejected is False
         await reloaded._async_update_data()
         assert _issue(hass, "settings_rejected", entry) is None
+    finally:
+        await reloaded.async_stop()
+
+
+async def test_restore_rejects_what_apply_rejects(hass, entry, coordinator):
+    await coordinator.async_mark_settings_rejected()
+    # In range for the number entity, but refused by the apply path.
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "settings": {"input_number.opti_zellspannung_reserve_v": 1.0},
+        "settings_revision": "rev-bad"})
+    await coordinator.async_stop()
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    reloaded = OptiCoordinator(hass, entry, device(), engine)
+    await reloaded.async_restore()
+    try:
+        assert reloaded.settings_rejected is True
+        assert reloaded.settings["input_number.opti_zellspannung_reserve_v"] != 1.0
     finally:
         await reloaded.async_stop()
 

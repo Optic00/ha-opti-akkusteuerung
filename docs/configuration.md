@@ -56,6 +56,23 @@ Mindestladeleistung und Netzladefreigaben passen. **Strategie berechnen** aus
 bleibt eine Pause, auch bei manueller Moduswahl. Die Option ist kein Ersatz für
 Schreibfreigabe oder Hauptschalter.
 
+### Standby-Reserve vor Netzladen (nur SMA)
+
+Ein Sunny Tripower Smart Energy geht nachts mit leerem Akku in Standby und nimmt
+bis zum Morgen keinen Befehl an (#103). Unter **Akku und Leistungsgrenzen** legt
+„Standby-Reserve vor Netzladen“ (Standard 3 %, 0 = aus) fest, bei welchem
+Ladestand Opti Akku das Entladen beendet, wenn vor Sonnenaufgang ein
+Netzladefenster möglich ist. Geprüft werden dieselben Bedingungen wie beim
+Peak-Vorladen und beim Laden unter der Einspeisevergütung; künftiger Ladestand
+und Prognosewert gelten dabei als erfüllt. In Nächten ohne mögliches Netzladen
+entlädt der Akku weiter bis zum minimalen Ladestand. Liegt dieser gleich hoch
+oder höher, wirkt die Reserve nicht. Der Modus wird „Akku nur Laden“ ohne
+Mindestladen; aus dem Netz lädt erst der Netzlade-Zweig selbst. Die
+Mindestgrenze, ab der ein Gerät wach bleibt, ist nicht für jede Anlage belegt:
+Ein Melder kam mit 2 % aus. Bleibt angefordertes Netzladen trotzdem am Standby
+hängen, meldet *Einstellungen → Reparaturen* „Netzladen blockiert:
+Wechselrichter im Standby“ (#222).
+
 ### Ladekurve am Ladeende
 
 Unter **Akku und Leistungsgrenzen** lässt sich optional eine **Ladekurve** mit

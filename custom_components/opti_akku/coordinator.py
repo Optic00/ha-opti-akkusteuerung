@@ -68,6 +68,7 @@ from .source_quality import DEFAULT_FORECAST_MAX_AGE
 from .negative_price_hold import NegativePriceHoldShadow, negative_price_hold_check
 from .peak_rank import HOLD_DECISION as PEAK_RANK_HOLD_DECISION
 from .peak_rank import PeakRankShadow, apply_peak_rank_hold, peak_rank_check
+from .standby_reserve import STANDBY_RESERVE_DECISION, apply_standby_reserve, next_grid_charge
 from .peak_rank import model_assumptions as peak_rank_model_assumptions
 from .planner_shadow import ForecastHistory, PlannerInputs, PlannerShadow, price_periods, pv_forecast_hourly
 from .demand import EV_SCOPE_VERSION, DemandForecast, pv_intervals, ev_profile_sources, ev_profile_scope, profile_house_value
@@ -223,8 +224,8 @@ def _rebind_load_prefix(value: str | None, old: str, new: str, length: int) -> s
     return value
 
 
-def validate_setting(key: str, value: Any, current: dict) -> float | bool:
-    """Validate individual values AND limits that must remain ordered."""
+def validate_single_setting(key: str, value: Any) -> float | bool:
+    """Validate one value on its own; shared by the apply and restore paths."""
     if key in SWITCH_DEFINITIONS:
         if not isinstance(value, bool):
             raise HomeAssistantError("Schalter benötigen einen Wahrheitswert")
@@ -233,12 +234,21 @@ def validate_setting(key: str, value: Any, current: dict) -> float | bool:
     number = finite(value)
     if definition is None or number is None or not definition["min"] <= number <= definition["max"]:
         raise HomeAssistantError("Ungültiger Einstellwert")
+    if key == "input_number.opti_zellspannung_reserve_v" and number != 0 and not 2.9 <= number <= 3.1:
+        raise HomeAssistantError("Die Zellspannungs-Reserve muss 0 (aus) oder 2,90 bis 3,10 V betragen")
+    return number
+
+
+def validate_setting(key: str, value: Any, current: dict) -> float | bool:
+    """Validate individual values AND limits that must remain ordered."""
+    result = validate_single_setting(key, value)
+    if key in SWITCH_DEFINITIONS:
+        return result
+    number = result
     updated = dict(current, **{key: number})
     pairs = [("minsoc", "maxsoc"), ("akkusteuerung_min_ladestaerke", "akkusteuerung_max_ladestaerke"),
              ("akkusteuerung_min_entladestaerke", "akkusteuerung_max_entladestaerke"),
              ("akkusteuerung_ueberschuss_veto_aus_grenze", "akkusteuerung_ueberschuss_veto_grenze")]
-    if key == "input_number.opti_zellspannung_reserve_v" and number != 0 and not 2.9 <= number <= 3.1:
-        raise HomeAssistantError("Die Zellspannungs-Reserve muss 0 (aus) oder 2,90 bis 3,10 V betragen")
     for lower, upper in pairs:
         if float(updated[f"input_number.{lower}"]) > float(updated[f"input_number.{upper}"]):
             raise HomeAssistantError("Die Untergrenze darf nicht über der Obergrenze liegen")
@@ -319,6 +329,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # ((decision_id, price slot start), reason) of a set peak rank hold.
         # Memory only: after a restart the fresh check decides.
         self._peak_rank_latch: tuple[tuple[str, Any], str] | None = None
+        self._standby_reserve_latched = False
         self._planner = PlannerShadow()
         self._battery_model = BatteryModel.default()
         self._planner_history = ForecastHistory()
@@ -481,13 +492,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for key, value in candidates.items():
             if key not in self.settings:
                 continue
-            definition = NUMBER_DEFINITIONS.get(key)
-            number = finite(value)
-            valid = (isinstance(value, bool) if key in SWITCH_DEFINITIONS else
-                     number is not None and definition["min"] <= number <= definition["max"])
-            if valid:
-                self.settings[key] = value if key in SWITCH_DEFINITIONS else number
-            else:
+            # Same single-value rules as the apply path, so restore cannot
+            # accept (and clear a rejection for) what apply would refuse.
+            try:
+                self.settings[key] = validate_single_setting(key, value)
+            except HomeAssistantError:
                 invalid.append(key)
         for lower, upper in [("minsoc", "maxsoc"), ("akkusteuerung_min_ladestaerke", "akkusteuerung_max_ladestaerke"),
                              ("akkusteuerung_min_entladestaerke", "akkusteuerung_max_entladestaerke"),
@@ -1366,6 +1375,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result, peak_rank_early = self._apply_peak_rank_hold(result, now)
         else:
             self._peak_rank_latch = None
+        result, standby_reserve = self._apply_standby_reserve(result, now)
         for key, value in result.helper_updates.items():
             if (key in self.settings and revision == self._revision
                     and soft_revision == self._soft_revision):
@@ -1391,7 +1401,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             charge_power_limits.append("Akkutemperatur ab 45 °C: Ladeleistung im manuellen Modus begrenzt")
         if (curve := self._charge_curve_limit(result.states)) is not None:
             charge_power_limits.append(curve[1])
-        if arbitrage_hold.get("hold_controls_battery") or result.decision_id == PEAK_RANK_HOLD_DECISION:
+        if (arbitrage_hold.get("hold_controls_battery")
+                or result.decision_id in (PEAK_RANK_HOLD_DECISION, STANDBY_RESERVE_DECISION)):
             params["min_charge_w"] = 0
             params["min_discharge_w"] = 0
         if pv_peak_release_applies(result, mode, self.manual_mode, self.strategy_enabled):
@@ -1612,6 +1623,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "write_restore_blocked": self._write_restore_blocked,
                 "internal_error": self._internal_error_report(self._failsafe_pause_state(command_result))}
         self._update_operating_report(data, now, ev_report, safety_reason, write_failed)
+        data["standby_reserve"] = {
+            **standby_reserve,
+            # Only a hold that reached the device keeps the reserve.
+            "controls_battery": bool(standby_reserve.get("controls_battery")
+                                     and data["mode"] == result.mode and safety_reason is None
+                                     and self.write_enabled and not self.shadow_mode),
+        }
         data["demand_forecast"] = demand_report
         if demand_comparison_enabled:
             try:
@@ -2012,6 +2030,37 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             discharge_efficiency=self._battery_model.discharge_efficiency,
             battery_model=self._battery_model,
         )
+
+    def _apply_standby_reserve(self, result, now):
+        """Keep an SMA STP SE awake until a grid charge planned tonight (#222)."""
+        try:
+            peak = result.attributes.get("sensor.opti_peak_reserve_soc") or {}
+            sun_attributes = result.attributes.get("sun.sun") or {}
+            settings = self.settings
+            window = next_grid_charge(
+                now=now, timezone=dt_util.DEFAULT_TIME_ZONE,
+                price_series=result.attributes.get("sensor.opti_price_series"),
+                horizon_end=peak.get("horizont_ende"), sunrise=sun_attributes.get("next_rising"),
+                grid_charging=settings.get("input_boolean.opti_prognose_netzladen") is True,
+                peak_reserve_active=result.states.get("binary_sensor.opti_peak_reserve_aktiv") == "on",
+                surcharge_ct=settings.get("input_number.opti_peak_min_aufschlag_ct"),
+                spread_ct=settings.get("input_number.opti_netzlade_spread_ct"),
+                feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
+                maxsoc=settings.get("input_number.maxsoc"),
+                battery_model=self._battery_model,
+            )
+            held, report, self._standby_reserve_latched = apply_standby_reserve(
+                result, reserve_soc=settings.get("input_number.opti_standby_reserve_soc"),
+                backend=self.entry.data.get("backend", "sma"), window=window,
+                latched=self._standby_reserve_latched,
+                eligible=self.strategy_enabled and self.manual_mode is None,
+                timezone=dt_util.DEFAULT_TIME_ZONE,
+            )
+        except Exception as err:  # Fail-open: the reserve only ever withholds energy.
+            _LOGGER.debug("Standby reserve unavailable: %s", type(err).__name__)
+            self._standby_reserve_latched = False
+            return result, {"status": "error", "controls_battery": False}
+        return held, report
 
     def _apply_peak_rank_hold(self, result, now):
         """Optional hold before the write; any failure keeps the strategy decision."""

@@ -255,6 +255,9 @@ def test_export_noise_at_night_does_not_lock():
     t0 = dt.datetime(2026, 1, 14, 2, 0, tzinfo=TZ)
     _surplus(engine, t0, 1, 0, 0, sun="below_horizon")
     assert _surplus(engine, t0 + dt.timedelta(minutes=10), 1, 0, 0, sun="below_horizon") == "off"
+    # Codex round 6: a meter offset above 50 W while grid charging at night.
+    assert _surplus(engine, t0 + dt.timedelta(minutes=20), 1, 2940, 3000, sun="below_horizon") == "off"
+    assert _surplus(engine, t0 + dt.timedelta(minutes=30), 1, 2940, 3000, sun="below_horizon") == "off"
 
 
 @pytest.mark.parametrize("sun", ["unavailable", "unknown", None])

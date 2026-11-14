@@ -78,7 +78,7 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Netzladen entlädt der Akku weiter bis zum minimalen Ladestand. Ist der
   minimale Ladestand gleich hoch oder höher, wirkt die Reserve nicht; 0
   schaltet sie aus. Trifft angefordertes Netzladen trotzdem auf den
-  Nacht-Standby, erscheint unter *Einstellungen → Reparaturen* die Meldung
+  Nacht-Standby, erscheint unter *Einstellungen → System → Reparaturen* die Meldung
   „Netzladen blockiert: Wechselrichter im Standby“, bis Netzladen wieder
   bestätigt ist oder sie verworfen wird. `connection_status.standby` meldet
   dann `grid_charge_blocked`, die Diagnose den Status `standby_reserve`.

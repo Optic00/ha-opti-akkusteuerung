@@ -138,8 +138,9 @@ template_blocks:
     # unbekannter Sonnenstand zaehlt als Tag (Codex-Review zu #155).
     # Zusaetzlich sperrt tagsueber jeder gemessene Netzexport (> 0 W)
     # unabhaengig von der Totzone: Netzladen bei gleichzeitiger Einspeisung ist
-    # nie sinnvoll. Nachts (sun.sun below_horizon) sperrt der Sensor nie: ohne
-    # PV kann Bilanz oder Export nur Messversatz bzw. Zaehlerrauschen sein.
+    # nie sinnvoll. Nachts (sun.sun below_horizon) zaehlt nur deutlicher Export
+    # ueber 100 W (Restlicht nach Sonnenuntergang); Bilanz-Messversatz und
+    # Zaehlerrauschen sperren dort nicht.
     # Bewusst in Kauf genommen: ein Messversatz > 50 W zwischen Netz- und
     # Akkumessung kann das Vorladen tagsueber sperren (Entscheidung Ben).
     delay_on:
@@ -151,7 +152,7 @@ template_blocks:
                        and has_value('sensor.opti_grid_import_w')
                        and has_value('sensor.opti_battery_power_w') %}
       {% if is_state('sun.sun', 'below_horizon') %}
-        {{ false }}
+        {{ states('sensor.opti_grid_export_w')|float(0) > 100 }}
       {% elif netz_ok %}
         {% set netto = states('sensor.opti_grid_export_w')|float(0)
                        - states('sensor.opti_grid_import_w')|float(0)

@@ -188,7 +188,9 @@ oder überhaupt Strom ins Netz eingespeist wird
 Die 50-W-Totzone fängt Messversatz zwischen Netz- und Akkumessung ab; ist dieser
 Versatz größer als 50 W, kann das Vorladen tagsüber gesperrt bleiben.
 Fehlen Netz- oder Akkumesswerte, ist Peak-Vorladen tagsüber ebenfalls gesperrt.
-Nachts (`sun.sun` unter dem Horizont) sperrt der Sensor nie. Die PV-Prognose wird bis 37 Stunden im Voraus gelesen.
+Nachts (`sun.sun` unter dem Horizont) sperrt der Sensor nur bei mehr als 100 W
+Einspeisung; Messversatz und Zählerrauschen bleiben dort ohne Wirkung. Die
+Ausverzögerung von 5 Minuten gilt auch beim Übergang zur Nacht. Die PV-Prognose wird bis 37 Stunden im Voraus gelesen.
 
 In teuren und sehr teuren Preisphasen entlädt der Akku bei Hausbedarf. Tagsüber
 setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, solange

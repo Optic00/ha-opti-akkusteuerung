@@ -260,6 +260,16 @@ def test_export_noise_at_night_does_not_lock():
     assert _surplus(engine, t0 + dt.timedelta(minutes=30), 1, 2940, 3000, sun="below_horizon") == "off"
 
 
+def test_clear_export_after_sunset_still_locks():
+    """Codex review round 7: real export after sunset keeps the lock."""
+    engine = _surplus_engine()
+    t0 = dt.datetime(2026, 1, 14, 16, 30, tzinfo=TZ)
+    _surplus(engine, t0, 200, 0, 0, sun="below_horizon")
+    assert _surplus(engine, t0 + dt.timedelta(seconds=61), 200, 0, 0, sun="below_horizon") == "on"
+    assert _surplus(engine, t0 + dt.timedelta(minutes=2), 100, 0, 0, sun="below_horizon") == "on"
+    assert _surplus(engine, t0 + dt.timedelta(minutes=7, seconds=1), 100, 0, 0, sun="below_horizon") == "off"
+
+
 @pytest.mark.parametrize("sun", ["unavailable", "unknown", None])
 def test_missing_measurements_with_unknown_sun_lock(sun):
     """Codex review round 3: an unavailable sun state counts as day."""

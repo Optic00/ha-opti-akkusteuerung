@@ -20,7 +20,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Vorladeziel; die Leiter hält weiter die volle Reserve. Solange tagsüber die PV
   gerade mehr als 50 W über dem Hausverbrauch liefert oder eingespeist wird, lädt
   Peak-Vorladen nicht aus dem Netz; fehlen dafür Messwerte, gilt das
-  vorsichtshalber ebenso. Nachts sperrt nur Einspeisung über 100 W.
+  vorsichtshalber ebenso. Nachts sperrt nur Einspeisung über 100 W; beim
+  Übergang zur Nacht hält die Ausverzögerung von 5 Minuten die Sperre noch.
   Ohne Solcast-Intervalle bleibt das Verhalten wie bisher. Neue
   Attribute an `sensor.opti_peak_reserve_soc`: `vorlade_ziel_soc`,
   `pv_vor_peak_kwh`, `pv_vor_peak_soc`, `pv_prognose`; im Reserveplan

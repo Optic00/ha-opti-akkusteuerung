@@ -1146,6 +1146,19 @@ async def test_reload_handover_not_left_for_retry_after_failed_setup(hass, entry
     assert entry.entry_id not in hass.data["opti_akku_reload_handover"]
 
 
+async def test_every_entity_of_a_default_setup_has_a_translated_name(hass, entry):
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        untranslated = [
+            item.entity_id for item in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+            if not item.translation_key
+        ]
+        assert not untranslated, untranslated
+        assert await hass.config_entries.async_unload(entry.entry_id)
+
+
 async def test_plain_reload_without_strategy_still_drops_manual_mode(hass, entry):
     hass.config_entries.async_update_entry(entry, options={**entry.options, "strategy_enabled": False})
     inverter = device()

@@ -1987,6 +1987,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             grid_charging=settings.get("input_boolean.opti_prognose_netzladen") is True,
             spread_ct=settings.get("input_number.opti_netzlade_spread_ct"),
             feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
+            hold_spread_ct=settings.get("input_number.opti_halte_spread_ct"),
             score=states.get("sensor.opti_forecast_score"),
             discharge_efficiency=self._battery_model.discharge_efficiency,
             battery_model=self._battery_model,

@@ -311,7 +311,7 @@ strategy:
         # der Ladedeckel seinen L3-Haltefall erreicht (Flattern Pause/nur Entladen).
         value_template: |-
           {% set soc = states('sensor.opti_soc') | float(none) %} {% set ve = state_attr('sensor.opti_peak_reserve_soc',
-            'reserve_ve_soc') | float(none) %} {% set maximum = states('input_number.maxsoc') | float(95) %} {% set deckel = is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
+            'reserve_schutz_soc') | float(none) %} {% set maximum = states('input_number.maxsoc') | float(95) %} {% set deckel = is_state('binary_sensor.opti_ladedeckel_aktiv', 'on')
             and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc') | float(-1) == maximum %} {% set band = 2 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden')
             or (is_state('input_select.akkusteuerung_modus', 'Akku Pause') and deckel) else 0 %} {{ soc is not none and ve is not none and soc > ve + band }}
       - alias: EV-Sperre inaktiv (Schnellladung sperrt Entladung)
@@ -412,9 +412,9 @@ strategy:
                 and state_attr('binary_sensor.opti_ladedeckel_aktiv', 'maxsoc') | float(-1) == maximum %}
             {% set band = 2 if is_state('input_select.akkusteuerung_modus', 'Akku nur Laden')
                 or (is_state('input_select.akkusteuerung_modus', 'Akku Pause') and deckel) else 0 %}
-            {% set ve = state_attr('sensor.opti_peak_reserve_soc', 'reserve_ve_soc') | float(none) %}
+            {% set ve = state_attr('sensor.opti_peak_reserve_soc', 'reserve_schutz_soc') | float(none) %}
             {% set ges = states('sensor.opti_peak_reserve_soc') | float(none) %}
-            {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_ve_avg_ct') | float(none) %}
+            {% set ve_avg = state_attr('sensor.opti_peak_reserve_soc', 'peak_preis_schutz_avg_ct') | float(none) %}
             {% set cur = states('sensor.opti_price_current_ct_kwh') | float(none) %}
             {% set halte_spread = states('input_number.opti_halte_spread_ct') | float(3) %}
             {% set l3 = aktiv and is_state('sensor.opti_price_level', 'EXPENSIVE')
@@ -629,10 +629,10 @@ strategy:
         state: EXPENSIVE
       - condition: template
         value_template: '{% set soc = states(''sensor.opti_soc'') | float(none) %} {% set ve = state_attr(''sensor.opti_peak_reserve_soc'',
-          ''reserve_ve_soc'') | float(none) %} {% set band = 2 if is_state(''input_select.akkusteuerung_modus'',
+          ''reserve_schutz_soc'') | float(none) %} {% set band = 2 if is_state(''input_select.akkusteuerung_modus'',
           ''Akku nur Laden'') else 0 %} {{ soc is not none and ve is not none and soc <= ve + band }}'
       - condition: template
-        value_template: '{% set ve_avg = state_attr(''sensor.opti_peak_reserve_soc'', ''peak_preis_ve_avg_ct'')
+        value_template: '{% set ve_avg = state_attr(''sensor.opti_peak_reserve_soc'', ''peak_preis_schutz_avg_ct'')
           | float(none) %} {% set cur = states(''sensor.opti_price_current_ct_kwh'') | float(none) %}
           {% set halte_spread = states(''input_number.opti_halte_spread_ct'') | float(3) %} {{ ve_avg
           is not none and cur is not none and (ve_avg - cur) >= halte_spread }}'

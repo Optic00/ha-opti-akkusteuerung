@@ -44,8 +44,8 @@ def run(engine, mode="Akku Dynamisch", ve=30.0, ve_avg=60.0, **changes):
         MODE: mode,
         **changes,
     }
-    attrs = {RESERVE: {"reserve_ve_soc": ve, "min_preis_vor_peak_ct": 30.0,
-                       "peak_preis_avg_ct": 60.0, "peak_preis_ve_avg_ct": ve_avg},
+    attrs = {RESERVE: {"reserve_ve_soc": ve, "reserve_schutz_soc": ve, "min_preis_vor_peak_ct": 30.0,
+                       "peak_preis_avg_ct": 60.0, "peak_preis_ve_avg_ct": ve_avg, "peak_preis_schutz_avg_ct": ve_avg},
              "binary_sensor.opti_ladedeckel_aktiv": {"maxsoc": 95.0}}
     result = engine.evaluate(states, attrs, NOW)
     assert result.states["sensor.opti_engine_diagnostics"] == "ok"
@@ -130,7 +130,7 @@ def test_cap_band_does_not_leak_into_the_real_l4_branch(engine):
               "sensor.opti_soc": "41", "input_number.maxsoc": "95",
               "binary_sensor.opti_peak_reserve_aktiv": "on", RESERVE: "40",
               MODE: "Akku Pause"}
-    attrs = {RESERVE: {"reserve_ve_soc": 30.0, "peak_preis_ve_avg_ct": 60.0,
+    attrs = {RESERVE: {"reserve_ve_soc": 30.0, "reserve_schutz_soc": 30.0, "peak_preis_ve_avg_ct": 60.0, "peak_preis_schutz_avg_ct": 60.0,
                        "peak_preis_avg_ct": 60.0, "min_preis_vor_peak_ct": 30.0}}
     result = engine.evaluate(states, attrs, NOW)
     assert result.decision_id != "peak_l4"
@@ -156,8 +156,8 @@ def run_expensive(engine, mode, soc, deckel="on", deckel_maxsoc=95.0):
         DECKEL: deckel,
         MODE: mode,
     }
-    attrs = {RESERVE: {"reserve_ve_soc": 95.0, "min_preis_vor_peak_ct": 30.0,
-                       "peak_preis_avg_ct": 60.0, "peak_preis_ve_avg_ct": 60.0},
+    attrs = {RESERVE: {"reserve_ve_soc": 95.0, "reserve_schutz_soc": 95.0, "min_preis_vor_peak_ct": 30.0,
+                       "peak_preis_avg_ct": 60.0, "peak_preis_ve_avg_ct": 60.0, "peak_preis_schutz_avg_ct": 60.0},
              DECKEL: {"maxsoc": deckel_maxsoc}}
     result = engine.evaluate(states, attrs, NOW)
     assert result.states["sensor.opti_engine_diagnostics"] == "ok"

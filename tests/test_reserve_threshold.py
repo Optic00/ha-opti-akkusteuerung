@@ -50,10 +50,10 @@ BASE = {
 }
 ATTRS = {
     "sensor.opti_peak_reserve_soc": {
-        "reserve_ve_soc": 29.3,
+        "reserve_ve_soc": 29.3, "reserve_schutz_soc": 29.3,
         "min_preis_vor_peak_ct": 20.0,
         "peak_preis_avg_ct": 50.0,
-        "peak_preis_ve_avg_ct": 50.0,
+        "peak_preis_ve_avg_ct": 50.0, "peak_preis_schutz_avg_ct": 50.0,
     }
 }
 

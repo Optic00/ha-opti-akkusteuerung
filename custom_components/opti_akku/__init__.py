@@ -15,6 +15,7 @@ from modbus_connection import ModbusTcpParams
 from .const import DOMAIN, NO_RELOAD_OPTION_KEYS, PLATFORMS, entry_store_keys
 from .coordinator import OptiCoordinator
 from .engine import StrategyEngine
+from .repairs import async_clear_issues
 from .sunny_island import READ_ONLY_SMA_PROFILES
 from .sma import SmaDevice
 from .source_quality import measurement_max_age
@@ -104,6 +105,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     after_enable = coordinator.entity_enable_noted
     await coordinator.async_stop()
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    async_clear_issues(hass, entry.entry_id)
     # The control state is read only now, after the entities are gone, so no
     # later mode or write change is lost. Recheck the entry and HA as well.
     # Without a confirmed pause, no forced mode resumes.
@@ -121,6 +123,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     user evidence, not entry state, and the README tells how to delete them.
     """
     hass.data.get(RELOAD_HANDOVER_KEY, {}).pop(entry.entry_id, None)
+    async_clear_issues(hass, entry.entry_id)
     from homeassistant.helpers import issue_registry as ir
 
     from .alerts import GRID_CHARGE_STANDBY_ISSUE
@@ -148,6 +151,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
             try:
                 await coordinator.async_apply_settings(entry.options.get("settings", {}), revision)
             except HomeAssistantError:
+                await coordinator.async_mark_settings_rejected()
                 coordinator._last_error = "Einstellungen nicht übernommen: Grenzwerte oder benötigte Quellen sind nicht mehr gültig. Bitte erneut konfigurieren."
                 # Discard the rejected patch so a restart cannot apply it later.
                 hass.config_entries.async_update_entry(entry, options={**entry.options,

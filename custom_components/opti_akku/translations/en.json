@@ -65,7 +65,7 @@
           "battery_power_w": "Battery power",
           "pv_power_w": "PV output power",
           "grid_power_w": "Grid power",
-          "battery_temp": "Battery temperature (optional)",
+          "battery_temp": "Battery temperature",
           "pv_generation_w": "PV input power (optional)",
           "grid_positive": "Positive grid power means"
         },
@@ -75,7 +75,7 @@
           "battery_power_w": "Charge and discharge power of the battery.",
           "pv_power_w": "AC output power of the inverter.",
           "grid_power_w": "Power at the grid connection point. Set the sign direction in the field below.",
-          "battery_temp": "Optional. Enables temperature derating and cut-off while charging.",
+          "battery_temp": "For temperature derating and cut-off while charging. Required for a standard entry and with the strategy enabled; only a shadow entry without strategy works without it.",
           "pv_generation_w": "Optional. DC power of the PV strings, for display only.",
           "grid_positive": "Whether a positive grid power value means import or export. A wrong direction distorts the house consumption."
         }
@@ -111,7 +111,7 @@
           "plant_meter_confirmed": "Required for the native plant balance: the grid meter must cover all selected generators and loads.",
           "forecast_min_load_w": "Lower limit of consumption used by the forecast. Applies only to the forecast, not to the measurement.",
           "strategy_enabled": "Calculates operating mode and power automatically. Does not enable writes on its own; when off, the battery stays paused.",
-          "huawei_battery_temp": "Optional. Battery temperature from Huawei Solar for temperature derating and cut-off.",
+          "huawei_battery_temp": "For temperature derating and cut-off while charging. Required for a standard entry and with the strategy enabled; only a shadow entry without strategy works without it.",
           "source_max_age": "Default: 900 seconds. Applies to external power values, heat-pump power in the demand profile and resting cell spread. 0 trusts HA availability even for unchanged values. Sources and templates must report failures as unavailable; frozen values still marked available cannot be detected. An old high resting cell spread may bring balancing forward. Native battery, temperature, price and forecast checks keep their limits. Changing this restarts the consumption profile.",
           "house_consumption_max_age": "Optional. For a smoothed house consumption source in legacy mode, for example a 60-minute average template: it may stay unchanged and then reports nothing new in HA. Suggestion for a 60-minute average: 3600. Empty uses the general age limit, 0 trusts HA availability. A frozen source still marked available is detected only after this limit. Setting or changing this restarts the consumption profile."
         }
@@ -166,7 +166,7 @@
           "opti_netzlade_spread_ct": "Minimum gap between the charge price and the average of the coming price peaks before the battery is precharged from the grid. Applies in addition to the economics of the battery model. Default 10 ct/kWh.",
           "opti_peak_min_aufschlag_ct": "A time slot only counts as a price peak if it is at least this much above the lowest price in the planning horizon. Default 5 ct/kWh.",
           "opti_halte_spread_ct": "In expensive hours the battery is only held back for even more expensive peaks if their average price is at least this much above the current price. Default 5 ct/kWh.",
-          "hausakku_aus_netz_laden": "Sets the charge target to the maximum state of charge instead of the target derived from the PV forecast. Turns itself off again from 99 % state of charge.",
+          "hausakku_aus_netz_laden": "Sets the charge target to the maximum state of charge instead of the target derived from the PV forecast. Turns itself off again above 99 % state of charge.",
           "price_provider": "Where prices come from: your own price entities, the existing Tibber integration or the fixed time windows of your tariff."
         }
       },
@@ -279,9 +279,9 @@
         },
         "data_description": {
           "akkusteuerung_ladestaerke_soll": "Fixed charge power for \"fast charge\". At most the maximum charge power.",
-          "akkusteuerung_min_ladestaerke": "SMA only: lower bound of the charge window. If the calculated charge power is below it, charging stays blocked; otherwise the inverter charges with at least this value. 0 = no lower bound.",
+          "akkusteuerung_min_ladestaerke": "SMA only, only in modes with a charge window: lower bound of the charge window. If the calculated charge power is below it, charging stays blocked for that cycle. 0 = no lower bound.",
           "akkusteuerung_entladestaerke_soll": "Fixed discharge power for \"fast discharge\". At most the maximum discharge power.",
-          "akkusteuerung_min_entladestaerke": "SMA only: lower bound of the discharge window. If the discharge limit is below it, discharging stays blocked; otherwise the inverter discharges with at least this value. 0 = no lower bound.",
+          "akkusteuerung_min_entladestaerke": "SMA only, only in modes with a discharge window: lower bound of the discharge window. If the discharge limit is below it, discharging stays blocked for that cycle. 0 = no lower bound.",
           "akkusteuerung_wr_70proz_ueberschuss_grenze": "0 turns this off. If the feed-in without battery charging exceeds this value during the day, the battery charges from the surplus, for example with a 70 % feed-in limit. Releases again 1000 W below. Requires PV surplus charging.",
           "akkusteuerung_ueberschuss_veto_grenze": "If the feed-in without battery charging exceeds this value during the day, the battery charges beyond the target state of charge up to the maximum state of charge. Requires PV surplus charging.",
           "akkusteuerung_ueberschuss_veto_aus_grenze": "Hysteresis: a running release stays active while the feed-in without battery charging reaches at least this value. Must not be above the release limit.",
@@ -688,13 +688,31 @@
           "host": "Host",
           "port": "Port",
           "unit_id": "Unit ID",
-          "profile": "Device profile"
+          "profile": "Device profile",
+          "huawei_device_id": "Huawei inverter device",
+          "soc": "Battery state of charge",
+          "battery_capacity_kwh": "Battery capacity",
+          "battery_power_w": "Battery power",
+          "pv_power_w": "PV output power",
+          "grid_power_w": "Grid power",
+          "battery_temp": "Battery temperature",
+          "pv_generation_w": "PV input power (optional)",
+          "grid_positive": "Positive grid power means"
         },
         "data_description": {
           "host": "IP address or host name of the inverter in your local network. Modbus TCP must be enabled on the device.",
           "port": "Modbus TCP port of the inverter, usually 502 for SMA.",
           "unit_id": "Modbus unit ID of the inverter. SMA inverters usually answer on 3.",
-          "profile": "Inverter model. Sunny Boy Storage and Sunny Island are only released as a read-only test."
+          "profile": "Inverter model. Sunny Boy Storage and Sunny Island are only released as a read-only test.",
+          "huawei_device_id": "Battery inverter of a loaded Huawei Solar entry.",
+          "soc": "Battery state of charge in percent from Huawei Solar.",
+          "battery_capacity_kwh": "Rated battery capacity in Wh or kWh.",
+          "battery_power_w": "Charge and discharge power of the battery.",
+          "pv_power_w": "AC output power of the inverter.",
+          "grid_power_w": "Power at the grid connection point. Set the sign direction in the field below.",
+          "battery_temp": "For temperature derating and cut-off while charging. Required for a standard entry and with the strategy enabled; only a shadow entry without strategy works without it.",
+          "pv_generation_w": "Optional. DC power of the PV strings, for display only.",
+          "grid_positive": "Whether a positive grid power value means import or export. A wrong direction distorts the house consumption."
         }
       },
       "sources": {
@@ -728,7 +746,7 @@
           "plant_meter_confirmed": "Required for the native plant balance: the grid meter must cover all selected generators and loads.",
           "forecast_min_load_w": "Lower limit of consumption used by the forecast. Applies only to the forecast, not to the measurement.",
           "strategy_enabled": "Calculates operating mode and power automatically. Does not enable writes on its own; when off, the battery stays paused.",
-          "huawei_battery_temp": "Optional. Battery temperature from Huawei Solar for temperature derating and cut-off.",
+          "huawei_battery_temp": "For temperature derating and cut-off while charging. Required for a standard entry and with the strategy enabled; only a shadow entry without strategy works without it.",
           "source_max_age": "Default: 900 seconds. Applies to external power values, heat-pump power in the demand profile and resting cell spread. 0 trusts HA availability even for unchanged values. Sources and templates must report failures as unavailable; frozen values still marked available cannot be detected. An old high resting cell spread may bring balancing forward. Native battery, temperature, price and forecast checks keep their limits. Changing this restarts the consumption profile.",
           "house_consumption_max_age": "Optional. For a smoothed house consumption source in legacy mode, for example a 60-minute average template: it may stay unchanged and then reports nothing new in HA. Suggestion for a 60-minute average: 3600. Empty uses the general age limit, 0 trusts HA availability. A frozen source still marked available is detected only after this limit. Setting or changing this restarts the consumption profile."
         }
@@ -783,7 +801,7 @@
           "opti_netzlade_spread_ct": "Minimum gap between the charge price and the average of the coming price peaks before the battery is precharged from the grid. Applies in addition to the economics of the battery model. Default 10 ct/kWh.",
           "opti_peak_min_aufschlag_ct": "A time slot only counts as a price peak if it is at least this much above the lowest price in the planning horizon. Default 5 ct/kWh.",
           "opti_halte_spread_ct": "In expensive hours the battery is only held back for even more expensive peaks if their average price is at least this much above the current price. Default 5 ct/kWh.",
-          "hausakku_aus_netz_laden": "Sets the charge target to the maximum state of charge instead of the target derived from the PV forecast. Turns itself off again from 99 % state of charge.",
+          "hausakku_aus_netz_laden": "Sets the charge target to the maximum state of charge instead of the target derived from the PV forecast. Turns itself off again above 99 % state of charge.",
           "price_provider": "Where prices come from: your own price entities, the existing Tibber integration or the fixed time windows of your tariff."
         }
       },
@@ -896,9 +914,9 @@
         },
         "data_description": {
           "akkusteuerung_ladestaerke_soll": "Fixed charge power for \"fast charge\". At most the maximum charge power.",
-          "akkusteuerung_min_ladestaerke": "SMA only: lower bound of the charge window. If the calculated charge power is below it, charging stays blocked; otherwise the inverter charges with at least this value. 0 = no lower bound.",
+          "akkusteuerung_min_ladestaerke": "SMA only, only in modes with a charge window: lower bound of the charge window. If the calculated charge power is below it, charging stays blocked for that cycle. 0 = no lower bound.",
           "akkusteuerung_entladestaerke_soll": "Fixed discharge power for \"fast discharge\". At most the maximum discharge power.",
-          "akkusteuerung_min_entladestaerke": "SMA only: lower bound of the discharge window. If the discharge limit is below it, discharging stays blocked; otherwise the inverter discharges with at least this value. 0 = no lower bound.",
+          "akkusteuerung_min_entladestaerke": "SMA only, only in modes with a discharge window: lower bound of the discharge window. If the discharge limit is below it, discharging stays blocked for that cycle. 0 = no lower bound.",
           "akkusteuerung_wr_70proz_ueberschuss_grenze": "0 turns this off. If the feed-in without battery charging exceeds this value during the day, the battery charges from the surplus, for example with a 70 % feed-in limit. Releases again 1000 W below. Requires PV surplus charging.",
           "akkusteuerung_ueberschuss_veto_grenze": "If the feed-in without battery charging exceeds this value during the day, the battery charges beyond the target state of charge up to the maximum state of charge. Requires PV surplus charging.",
           "akkusteuerung_ueberschuss_veto_aus_grenze": "Hysteresis: a running release stays active while the feed-in without battery charging reaches at least this value. Must not be above the release limit.",

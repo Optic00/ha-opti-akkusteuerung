@@ -65,7 +65,7 @@
           "battery_power_w": "Akkuleistung",
           "pv_power_w": "PV-Ausgangsleistung",
           "grid_power_w": "Netzleistung",
-          "battery_temp": "Akkutemperatur (optional)",
+          "battery_temp": "Akkutemperatur",
           "pv_generation_w": "PV-Eingangsleistung (optional)",
           "grid_positive": "Positive Netzleistung bedeutet"
         },
@@ -75,7 +75,7 @@
           "battery_power_w": "Lade- und Entladeleistung des Akkus.",
           "pv_power_w": "AC-Ausgangsleistung des Wechselrichters.",
           "grid_power_w": "Leistung am Netzanschlusspunkt. Die Vorzeichenrichtung legst du im Feld darunter fest.",
-          "battery_temp": "Optional. Ermöglicht Temperaturdrosselung und -abschaltung beim Laden.",
+          "battery_temp": "Für Temperaturdrosselung und -abschaltung beim Laden. Pflicht für einen Standard-Eintrag und bei aktivierter Strategie; nur ein Shadow-Eintrag ohne Strategie kommt ohne aus.",
           "pv_generation_w": "Optional. DC-Leistung der PV-Strings, nur zur Anzeige.",
           "grid_positive": "Ob ein positiver Wert der Netzleistung Bezug oder Einspeisung bedeutet. Eine falsche Richtung verfälscht den Hausverbrauch."
         }
@@ -111,7 +111,7 @@
           "plant_meter_confirmed": "Pflicht für die native Anlagenbilanz: Der Netzzähler muss alle gewählten Erzeuger und Verbraucher erfassen.",
           "forecast_min_load_w": "Untergrenze des Verbrauchs, mit der die Prognose rechnet. Gilt nur für die Prognose, nicht für die Messung.",
           "strategy_enabled": "Berechnet Betriebsart und Leistungen automatisch. Schaltet allein keine Schreibzugriffe frei; ausgeschaltet bleibt der Akku in Pause.",
-          "huawei_battery_temp": "Optional. Akkutemperatur aus Huawei Solar für Temperaturdrosselung und -abschaltung.",
+          "huawei_battery_temp": "Für Temperaturdrosselung und -abschaltung beim Laden. Pflicht für einen Standard-Eintrag und bei aktivierter Strategie; nur ein Shadow-Eintrag ohne Strategie kommt ohne aus.",
           "source_max_age": "Standard: 900 Sekunden. Gilt für externe Leistungen, Wärmepumpen-Leistung im Bedarfsprofil und Ruhe-Zellspreizung. 0 vertraut auch bei unveränderten Werten der HA-Verfügbarkeit. Quellen und Templates müssen Ausfälle als unavailable melden; eingefrorene verfügbare Werte werden nicht erkannt. Eine alte hohe Ruhe-Zellspreizung kann Balancing vorziehen. Native Batterie-, Temperatur-, Preis- und Prognoseprüfungen behalten ihre Grenzen. Eine Änderung startet das Verbrauchsprofil neu.",
           "house_consumption_max_age": "Optional. Für eine geglättete Hausverbrauchs-Quelle im Modus Legacy, etwa ein 60-Minuten-Mittelwert-Template: Sie kann unverändert bleiben und meldet dann in HA nichts Neues. Vorschlag für einen 60-Minuten-Mittelwert: 3600. Leer nutzt die allgemeine Altersgrenze, 0 vertraut der HA-Verfügbarkeit. Eine eingefrorene, weiter verfügbare Quelle fällt erst nach dieser Grenze auf. Setzen oder Ändern startet das Verbrauchsprofil neu."
         }
@@ -166,7 +166,7 @@
           "opti_netzlade_spread_ct": "Mindestabstand zwischen Ladepreis und Durchschnitt der kommenden Preisspitzen, damit vor einer Spitze aus dem Netz vorgeladen wird. Gilt zusätzlich zur Wirtschaftlichkeit aus dem Akkumodell. Standard 10 ct/kWh.",
           "opti_peak_min_aufschlag_ct": "Ein Zeitfenster zählt nur als Preisspitze, wenn es mindestens so viel über dem Tiefstpreis im Planungshorizont liegt. Standard 5 ct/kWh.",
           "opti_halte_spread_ct": "In teuren Stunden hält die Strategie den Akku nur für noch teurere Spitzen zurück, wenn deren Durchschnittspreis mindestens so viel über dem aktuellen Preis liegt. Standard 5 ct/kWh.",
-          "hausakku_aus_netz_laden": "Setzt das Ladeziel auf den maximalen Ladestand statt auf das aus der PV-Prognose berechnete Ziel. Schaltet sich ab 99 % Ladestand selbst wieder aus.",
+          "hausakku_aus_netz_laden": "Setzt das Ladeziel auf den maximalen Ladestand statt auf das aus der PV-Prognose berechnete Ziel. Schaltet sich oberhalb von 99 % Ladestand selbst wieder aus.",
           "price_provider": "Woher die Preise kommen: eigene Preisentitäten, die vorhandene Tibber-Integration oder feste Zeitfenster deines Tarifs."
         }
       },
@@ -279,9 +279,9 @@
         },
         "data_description": {
           "akkusteuerung_ladestaerke_soll": "Feste Ladeleistung für „Akku schnell Laden“. Höchstens die maximale Ladeleistung.",
-          "akkusteuerung_min_ladestaerke": "Nur SMA: untere Grenze des Ladefensters. Liegt die berechnete Ladeleistung darunter, bleibt das Laden gesperrt; sonst lädt der Wechselrichter mit mindestens diesem Wert. 0 = keine Untergrenze.",
+          "akkusteuerung_min_ladestaerke": "Nur SMA, nur in Modi mit Ladefenster: untere Grenze des Ladefensters. Liegt die berechnete Ladeleistung darunter, bleibt das Laden in diesem Zyklus gesperrt. 0 = keine Untergrenze.",
           "akkusteuerung_entladestaerke_soll": "Feste Entladeleistung für „Akku schnell Entladen“. Höchstens die maximale Entladeleistung.",
-          "akkusteuerung_min_entladestaerke": "Nur SMA: untere Grenze des Entladefensters. Liegt die Entladegrenze darunter, bleibt das Entladen gesperrt; sonst entlädt der Wechselrichter mit mindestens diesem Wert. 0 = keine Untergrenze.",
+          "akkusteuerung_min_entladestaerke": "Nur SMA, nur in Modi mit Entladefenster: untere Grenze des Entladefensters. Liegt die Entladegrenze darunter, bleibt das Entladen in diesem Zyklus gesperrt. 0 = keine Untergrenze.",
           "akkusteuerung_wr_70proz_ueberschuss_grenze": "0 schaltet die Funktion aus. Übersteigt die Einspeisung ohne Akkuladung tagsüber diesen Wert, lädt der Akku aus dem Überschuss, etwa bei einer Einspeisebegrenzung auf 70 %. Endet 1000 W darunter. Erfordert PV-Überschussladen.",
           "akkusteuerung_ueberschuss_veto_grenze": "Übersteigt die Einspeisung ohne Akkuladung tagsüber diesen Wert, lädt der Akku über den Ziel-Ladestand hinaus bis zum maximalen Ladestand. Erfordert PV-Überschussladen.",
           "akkusteuerung_ueberschuss_veto_aus_grenze": "Hysterese: Eine laufende Freigabe bleibt aktiv, solange die Einspeisung ohne Akkuladung mindestens diesen Wert erreicht. Darf nicht über der Freigabegrenze liegen.",
@@ -688,13 +688,31 @@
           "host": "Host",
           "port": "Port",
           "unit_id": "Unit-ID",
-          "profile": "Geräteprofil"
+          "profile": "Geräteprofil",
+          "huawei_device_id": "Huawei-Wechselrichter",
+          "soc": "Akkuladestand",
+          "battery_capacity_kwh": "Akkukapazität",
+          "battery_power_w": "Akkuleistung",
+          "pv_power_w": "PV-Ausgangsleistung",
+          "grid_power_w": "Netzleistung",
+          "battery_temp": "Akkutemperatur",
+          "pv_generation_w": "PV-Eingangsleistung (optional)",
+          "grid_positive": "Positive Netzleistung bedeutet"
         },
         "data_description": {
           "host": "IP-Adresse oder Hostname des Wechselrichters im lokalen Netz. Modbus TCP muss am Gerät aktiviert sein.",
           "port": "Modbus-TCP-Port des Wechselrichters, bei SMA meist 502.",
           "unit_id": "Modbus-Unit-ID des Wechselrichters. SMA-Wechselrichter antworten in der Regel unter 3.",
-          "profile": "Modell des Wechselrichters. Sunny Boy Storage und Sunny Island sind nur als lesender Test freigegeben."
+          "profile": "Modell des Wechselrichters. Sunny Boy Storage und Sunny Island sind nur als lesender Test freigegeben.",
+          "huawei_device_id": "Batterie-Wechselrichter eines geladenen Huawei-Solar-Eintrags.",
+          "soc": "Ladestand des Akkus in Prozent aus Huawei Solar.",
+          "battery_capacity_kwh": "Nennkapazität des Akkus in Wh oder kWh.",
+          "battery_power_w": "Lade- und Entladeleistung des Akkus.",
+          "pv_power_w": "AC-Ausgangsleistung des Wechselrichters.",
+          "grid_power_w": "Leistung am Netzanschlusspunkt. Die Vorzeichenrichtung legst du im Feld darunter fest.",
+          "battery_temp": "Für Temperaturdrosselung und -abschaltung beim Laden. Pflicht für einen Standard-Eintrag und bei aktivierter Strategie; nur ein Shadow-Eintrag ohne Strategie kommt ohne aus.",
+          "pv_generation_w": "Optional. DC-Leistung der PV-Strings, nur zur Anzeige.",
+          "grid_positive": "Ob ein positiver Wert der Netzleistung Bezug oder Einspeisung bedeutet. Eine falsche Richtung verfälscht den Hausverbrauch."
         }
       },
       "sources": {
@@ -728,7 +746,7 @@
           "plant_meter_confirmed": "Pflicht für die native Anlagenbilanz: Der Netzzähler muss alle gewählten Erzeuger und Verbraucher erfassen.",
           "forecast_min_load_w": "Untergrenze des Verbrauchs, mit der die Prognose rechnet. Gilt nur für die Prognose, nicht für die Messung.",
           "strategy_enabled": "Berechnet Betriebsart und Leistungen automatisch. Schaltet allein keine Schreibzugriffe frei; ausgeschaltet bleibt der Akku in Pause.",
-          "huawei_battery_temp": "Optional. Akkutemperatur aus Huawei Solar für Temperaturdrosselung und -abschaltung.",
+          "huawei_battery_temp": "Für Temperaturdrosselung und -abschaltung beim Laden. Pflicht für einen Standard-Eintrag und bei aktivierter Strategie; nur ein Shadow-Eintrag ohne Strategie kommt ohne aus.",
           "source_max_age": "Standard: 900 Sekunden. Gilt für externe Leistungen, Wärmepumpen-Leistung im Bedarfsprofil und Ruhe-Zellspreizung. 0 vertraut auch bei unveränderten Werten der HA-Verfügbarkeit. Quellen und Templates müssen Ausfälle als unavailable melden; eingefrorene verfügbare Werte werden nicht erkannt. Eine alte hohe Ruhe-Zellspreizung kann Balancing vorziehen. Native Batterie-, Temperatur-, Preis- und Prognoseprüfungen behalten ihre Grenzen. Eine Änderung startet das Verbrauchsprofil neu.",
           "house_consumption_max_age": "Optional. Für eine geglättete Hausverbrauchs-Quelle im Modus Legacy, etwa ein 60-Minuten-Mittelwert-Template: Sie kann unverändert bleiben und meldet dann in HA nichts Neues. Vorschlag für einen 60-Minuten-Mittelwert: 3600. Leer nutzt die allgemeine Altersgrenze, 0 vertraut der HA-Verfügbarkeit. Eine eingefrorene, weiter verfügbare Quelle fällt erst nach dieser Grenze auf. Setzen oder Ändern startet das Verbrauchsprofil neu."
         }
@@ -783,7 +801,7 @@
           "opti_netzlade_spread_ct": "Mindestabstand zwischen Ladepreis und Durchschnitt der kommenden Preisspitzen, damit vor einer Spitze aus dem Netz vorgeladen wird. Gilt zusätzlich zur Wirtschaftlichkeit aus dem Akkumodell. Standard 10 ct/kWh.",
           "opti_peak_min_aufschlag_ct": "Ein Zeitfenster zählt nur als Preisspitze, wenn es mindestens so viel über dem Tiefstpreis im Planungshorizont liegt. Standard 5 ct/kWh.",
           "opti_halte_spread_ct": "In teuren Stunden hält die Strategie den Akku nur für noch teurere Spitzen zurück, wenn deren Durchschnittspreis mindestens so viel über dem aktuellen Preis liegt. Standard 5 ct/kWh.",
-          "hausakku_aus_netz_laden": "Setzt das Ladeziel auf den maximalen Ladestand statt auf das aus der PV-Prognose berechnete Ziel. Schaltet sich ab 99 % Ladestand selbst wieder aus.",
+          "hausakku_aus_netz_laden": "Setzt das Ladeziel auf den maximalen Ladestand statt auf das aus der PV-Prognose berechnete Ziel. Schaltet sich oberhalb von 99 % Ladestand selbst wieder aus.",
           "price_provider": "Woher die Preise kommen: eigene Preisentitäten, die vorhandene Tibber-Integration oder feste Zeitfenster deines Tarifs."
         }
       },
@@ -896,9 +914,9 @@
         },
         "data_description": {
           "akkusteuerung_ladestaerke_soll": "Feste Ladeleistung für „Akku schnell Laden“. Höchstens die maximale Ladeleistung.",
-          "akkusteuerung_min_ladestaerke": "Nur SMA: untere Grenze des Ladefensters. Liegt die berechnete Ladeleistung darunter, bleibt das Laden gesperrt; sonst lädt der Wechselrichter mit mindestens diesem Wert. 0 = keine Untergrenze.",
+          "akkusteuerung_min_ladestaerke": "Nur SMA, nur in Modi mit Ladefenster: untere Grenze des Ladefensters. Liegt die berechnete Ladeleistung darunter, bleibt das Laden in diesem Zyklus gesperrt. 0 = keine Untergrenze.",
           "akkusteuerung_entladestaerke_soll": "Feste Entladeleistung für „Akku schnell Entladen“. Höchstens die maximale Entladeleistung.",
-          "akkusteuerung_min_entladestaerke": "Nur SMA: untere Grenze des Entladefensters. Liegt die Entladegrenze darunter, bleibt das Entladen gesperrt; sonst entlädt der Wechselrichter mit mindestens diesem Wert. 0 = keine Untergrenze.",
+          "akkusteuerung_min_entladestaerke": "Nur SMA, nur in Modi mit Entladefenster: untere Grenze des Entladefensters. Liegt die Entladegrenze darunter, bleibt das Entladen in diesem Zyklus gesperrt. 0 = keine Untergrenze.",
           "akkusteuerung_wr_70proz_ueberschuss_grenze": "0 schaltet die Funktion aus. Übersteigt die Einspeisung ohne Akkuladung tagsüber diesen Wert, lädt der Akku aus dem Überschuss, etwa bei einer Einspeisebegrenzung auf 70 %. Endet 1000 W darunter. Erfordert PV-Überschussladen.",
           "akkusteuerung_ueberschuss_veto_grenze": "Übersteigt die Einspeisung ohne Akkuladung tagsüber diesen Wert, lädt der Akku über den Ziel-Ladestand hinaus bis zum maximalen Ladestand. Erfordert PV-Überschussladen.",
           "akkusteuerung_ueberschuss_veto_aus_grenze": "Hysterese: Eine laufende Freigabe bleibt aktiv, solange die Einspeisung ohne Akkuladung mindestens diesen Wert erreicht. Darf nicht über der Freigabegrenze liegen.",

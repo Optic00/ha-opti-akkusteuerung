@@ -19,7 +19,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers import entity_registry as er
@@ -260,6 +260,7 @@ def validate_setting(key: str, value: Any, current: dict) -> float | bool:
 PV_PEAK_DOWNSTREAM_DECISIONS = frozenset({"arbitrage_hold", "ev_preparation"})
 # Forecast snapshots are coalesced; a crash loses at most this much history.
 HISTORY_SAVE_DELAY = 900
+HISTORY_SAVE_STOP_TIMEOUT = 10  # same bound HA uses for entry tasks on unload
 # Routine state (latches, counters, reports) is written once per interval on
 # the coordinator's own clock. HA's Store postpones a pending delayed write
 # whenever async_delay_save is called again with a later deadline, so the
@@ -383,6 +384,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}", private=True)
         # Forecast snapshots grow to a few hundred kB; keep them out of the settings store.
         self._history_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.planner_history", private=True)
+        # Own timer instead of Store.async_delay_save: it is cancelled through
+        # entry.async_on_unload, which also runs after a failed setup, so no
+        # late write can recreate the file of a removed entry.
+        self._history_save_unsub = None
+        self._history_save_task: asyncio.Task | None = None
+        entry.async_on_unload(self._cancel_history_save)
         self._measurements: dict = {}
         self._violation_since: float | None = None
         self._violation_mode: str | None = None
@@ -2305,7 +2312,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 periods = price_periods(inputs.price_series, now, dt_util.DEFAULT_TIME_ZONE)
                 if self._planner_history.record(now, pv_hourly, periods):
-                    self._history_store.async_delay_save(self._planner_history.snapshot, HISTORY_SAVE_DELAY)
+                    self._schedule_history_save()
             except Exception as err:  # noqa: BLE001 - history is diagnosis only
                 _LOGGER.debug("Planner history not recorded: %s", type(err).__name__)
                 self._planner_history.error = type(err).__name__
@@ -2827,6 +2834,40 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # outside the device lock.
         self._store.async_delay_save(self._stored_data, 0)
 
+    @callback
+    def _schedule_history_save(self) -> None:
+        if self._history_save_unsub is None and not self._stopping:
+            self._history_save_unsub = async_call_later(
+                self.hass, HISTORY_SAVE_DELAY, self._async_history_save_due)
+
+    @callback
+    def _cancel_history_save(self) -> None:
+        if self._history_save_unsub is not None:
+            self._history_save_unsub()
+            self._history_save_unsub = None
+
+    @callback
+    def _async_history_save_due(self, _now) -> None:
+        self._history_save_unsub = None
+        # An entry task: HA waits for it on unload (also after a failed
+        # setup), and async_stop waits for it before removal.
+        task = self.entry.async_create_task(
+            self.hass, self._async_save_history(), "Opti planner history save")
+        if not task.done():
+            self._history_save_task = task
+            task.add_done_callback(self._history_save_finished)
+
+    @callback
+    def _history_save_finished(self, task: asyncio.Task) -> None:
+        if self._history_save_task is task:
+            self._history_save_task = None
+
+    async def _async_save_history(self) -> None:
+        try:
+            await self._history_store.async_save(self._planner_history.snapshot())
+        except Exception as err:  # noqa: BLE001 - history is diagnosis only
+            _LOGGER.debug("Planner history not saved: %s", type(err).__name__)
+
     async def async_stop(self) -> None:
         async with self._stop_lock:
             if not self._stopped:
@@ -2863,6 +2904,17 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 except Exception as err:
                     self._last_error = f"Pause beim Entladen der Integration nicht bestätigt: {type(err).__name__}"
             self._release_device()
+        # Write a scheduled history save now instead of losing it, and let a
+        # write already in progress finish before removal can delete the file.
+        if self._history_save_unsub is not None:
+            self._cancel_history_save()
+            self._async_history_save_due(None)
+        if (task := self._history_save_task) is not None and not task.done():
+            try:
+                async with asyncio.timeout(HISTORY_SAVE_STOP_TIMEOUT):
+                    await asyncio.shield(task)
+            except TimeoutError:
+                _LOGGER.warning("Planner history write still running after %s s", HISTORY_SAVE_STOP_TIMEOUT)
         # Only now wait for journal writes: a slow disk never delays the pause above.
         await asyncio.shield(self._start_journal_job(
             self._async_journal_final_save_job(), "Opti final save"))

@@ -1021,6 +1021,123 @@ async def test_removed_entry_drops_reload_handover(hass, entry):
     assert entry.entry_id not in hass.data["opti_akku_reload_handover"]
 
 
+async def test_removed_entry_deletes_its_private_stores(hass, hass_storage, entry, coordinator):
+    from custom_components.opti_akku import async_remove_entry
+    from custom_components.opti_akku.const import entry_store_keys
+
+    # The removal list must match what the coordinator really writes.
+    assert {coordinator._store.key, coordinator._history_store.key} == set(entry_store_keys(entry.entry_id))
+    other = "opti_akku.other_entry"
+    for key in (*entry_store_keys(entry.entry_id), other):
+        hass_storage[key] = {"version": 1, "minor_version": 1, "key": key, "data": {"settings": {}}}
+    await async_remove_entry(hass, entry)
+    await hass.async_block_till_done()
+    assert not set(entry_store_keys(entry.entry_id)) & hass_storage.keys()
+    assert other in hass_storage
+
+
+
+async def test_scheduled_history_save_writes_after_delay(hass, hass_storage, coordinator):
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.opti_akku.coordinator import HISTORY_SAVE_DELAY
+
+    coordinator._schedule_history_save()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=HISTORY_SAVE_DELAY + 1))
+    await hass.async_block_till_done()
+    assert coordinator._history_store.key in hass_storage
+    assert coordinator._history_save_unsub is None
+
+
+async def test_stop_flushes_scheduled_history_save(hass, hass_storage, coordinator):
+    coordinator._schedule_history_save()
+    await coordinator.async_stop()
+    await hass.async_block_till_done()
+    assert coordinator._history_store.key in hass_storage  # nothing lost on reload
+    assert coordinator._history_save_unsub is None
+
+
+
+async def test_stop_waits_for_history_write_in_progress(hass, coordinator):
+    started, release, done = asyncio.Event(), asyncio.Event(), []
+
+    async def slow_save(data):
+        started.set()
+        await release.wait()
+        done.append(data)
+
+    with patch.object(coordinator._history_store, "async_save", side_effect=slow_save):
+        coordinator._async_history_save_due(None)  # as when the timer fires
+        await asyncio.wait_for(started.wait(), 1)
+        stop = hass.async_create_task(coordinator.async_stop())
+        with pytest.raises(TimeoutError):  # removal cannot start while the write runs
+            await asyncio.wait_for(asyncio.shield(stop), 0.5)
+        release.set()
+        await asyncio.wait_for(stop, 5)
+    assert done
+
+async def test_history_save_cannot_recreate_store_of_entry_removed_after_failed_setup(
+    hass, hass_storage, entry, coordinator
+):
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.opti_akku import async_remove_entry
+    from custom_components.opti_akku.coordinator import HISTORY_SAVE_DELAY
+
+    key = coordinator._history_store.key
+    # First refresh scheduled a save, then setup failed: HA runs the
+    # on_unload callbacks but never calls async_stop.
+    coordinator._schedule_history_save()
+    await entry._async_process_on_unload(hass)
+    await async_remove_entry(hass, entry)
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=HISTORY_SAVE_DELAY + 1))
+    await hass.async_block_till_done()
+    assert key not in hass_storage
+
+async def test_unload_after_failed_setup_waits_for_history_write_in_progress(hass, entry, coordinator):
+    started, release, done = asyncio.Event(), asyncio.Event(), []
+
+    async def slow_save(data):
+        started.set()
+        await release.wait()
+        done.append(data)
+
+    with patch.object(coordinator._history_store, "async_save", side_effect=slow_save):
+        coordinator._async_history_save_due(None)
+        await asyncio.wait_for(started.wait(), 1)
+        # Setup failed: HA processes on_unload without async_stop and must
+        # wait for the running write before async_remove_entry can run.
+        unload = hass.async_create_task(entry._async_process_on_unload(hass))
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(unload), 0.5)
+        release.set()
+        await asyncio.wait_for(unload, 5)
+    assert done
+    assert coordinator._history_save_task is None
+
+
+@pytest.mark.parametrize("pending_timer", [False, True])
+async def test_stop_does_not_wait_forever_for_hanging_history_write(hass, coordinator, pending_timer):
+    started = asyncio.Event()
+
+    async def hanging_save(data):
+        started.set()
+        await asyncio.Event().wait()
+
+    with patch.object(coordinator._history_store, "async_save", side_effect=hanging_save), \
+            patch("custom_components.opti_akku.coordinator.HISTORY_SAVE_STOP_TIMEOUT", 0.05):
+        if pending_timer:  # async_stop starts the write itself
+            coordinator._schedule_history_save()
+        else:
+            coordinator._async_history_save_due(None)
+            await asyncio.wait_for(started.wait(), 1)
+        await asyncio.wait_for(coordinator.async_stop(), 5)
+        assert started.is_set()
+        coordinator._history_save_task.cancel()
+        await hass.async_block_till_done()
+
+
 async def test_reload_handover_not_left_for_retry_after_failed_setup(hass, entry):
     hass.data["opti_akku_reload_handover"] = {entry.entry_id: {"at": time.monotonic(), "manual_mode": "Akku schnell Entladen"}}
     with patch("custom_components.opti_akku.StrategyEngine", side_effect=RuntimeError("boom")):
@@ -4859,11 +4976,11 @@ async def test_plan_shadow_records_hourly_forecast_history_in_its_own_store(coor
     hass.states.async_set("sensor.solcast_demand", "40", {"detailedForecast": detail})
     hass.config_entries.async_update_entry(entry, options={
         **entry.options, "demand_forecast": {"enabled": True, "sources": {"pv_today": "sensor.solcast_demand"}}})
-    with patch.object(coordinator._history_store, "async_delay_save") as delay_save:
+    with patch.object(coordinator, "_schedule_history_save") as schedule:
         data = await coordinator._async_update_data()
-        assert delay_save.call_count == 1
+        assert schedule.call_count == 1
         await coordinator._async_update_data()
-        assert delay_save.call_count == 1  # one snapshot per hour
+        assert schedule.call_count == 1  # one snapshot per hour
     history = data["attributes"]["sensor.opti_plan_shadow"]["forecast_history"]
     assert history["entries"] == 1
     saved = coordinator._planner_history.snapshot()

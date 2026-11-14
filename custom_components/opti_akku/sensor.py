@@ -15,6 +15,9 @@ from homeassistant.helpers.entity import EntityCategory
 from .entity import OptiAkkuEntity, coordinator_data, readable_name
 from .evcc_comparison import VERDICTS as EVCC_VERDICTS
 
+# Read-only entities follow the coordinator; no per-entity polling.
+PARALLEL_UPDATES = 0
+
 SENSOR_PREFIXES = ("sensor.", "counter.", "input_datetime.")
 PLAN_SHADOW_KEY = "sensor.opti_plan_shadow"
 # ENUM states need slug keys for translations; the coordinator keeps the ladder wording.

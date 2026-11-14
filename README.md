@@ -32,6 +32,21 @@ Die Software wird unter der [MIT-Lizenz](https://github.com/Optic00/ha-opti-akku
 
 Dies ist ein benutzerdefiniertes HACS-Repository, keine behauptete Aufnahme in die HACS-Standardliste. Wurde das Repository unter einer anderen Kategorie hinzugefügt, in HACS entfernen und als Integration neu hinzufügen. Eine bereits manuell installierte Opti-Akku-Integration nicht löschen oder neu anlegen: [Übernahme durch HACS](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md#manuell-installierte-integration).
 
+## Entfernen
+
+1. **Schreibzugriffe freigeben** ausschalten. Opti sendet dabei einen
+   Pausenbefehl. Danach den tatsächlichen Gerätezustand prüfen; eine bestätigte
+   Pause ist keine dauerhafte Hardware-Einstellung. Wie bei jedem Wechsel gilt
+   der vorbereitete [Rückweg](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md#rückweg).
+2. Unter **Einstellungen → Geräte & Dienste → Opti Akku** den Eintrag über
+   **⋮ → Löschen** entfernen. Die gespeicherten Einstellungen und die
+   Lernhistorie dieses Eintrags werden dabei mit gelöscht.
+3. In HACS **Opti Akku → Entfernen** wählen und Home Assistant neu starten.
+
+Shadow- und Vergleichsaufzeichnungen im Ordner `opti_akku_shadow/` des
+HA-Konfigurationsverzeichnisses bleiben erhalten und können bei Bedarf von Hand
+gelöscht werden.
+
 ## Funktionen
 
 - SMA-Telemetrie und Steuerung über die Modbus-Schnittstelle von HA; wahlweise Beobachtung, Strategie oder manuelle Betriebsarten.

@@ -10,6 +10,15 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Geändert
 
+- **Entfernen räumt die privaten Speicher des Eintrags auf.** Einstellungen und
+  Prognoseverlauf eines gelöschten Eintrags bleiben nicht mehr unter `.storage`
+  liegen. Ein noch ausstehendes Speichern des Verlaufs wird beim Entladen
+  vorgezogen, damit die Datei danach nicht neu entsteht. Shadow- und
+  Vergleichsaufzeichnungen bleiben erhalten; das README beschreibt unter
+  „Entfernen“, wie man sie löscht.
+- **Parallele Entitätsaktionen begrenzt.** Schreibende Plattformen (Number,
+  Select, Switch) führen Aktionen nacheinander aus (`PARALLEL_UPDATES = 1`).
+- **`quality_scale.yaml`** dokumentiert den Stand der Home-Assistant-Qualitätsregeln.
 - **Fehlermeldungen sind übersetzt.** Rund 45 Fehlermeldungen aus Aktionen,
   Einstellungen und der Einrichtung standen fest im Code, teils Deutsch, teils
   Englisch. Sie kommen jetzt aus den Übersetzungen und erscheinen in der

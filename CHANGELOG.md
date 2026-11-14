@@ -8,6 +8,24 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Behoben
+
+- **STP SE schläft vor geplantem Netzladen nicht mehr ein (#222).** Ein SMA
+  Sunny Tripower Smart Energy geht nachts mit leerem Akku in Standby und nimmt
+  bis zum Morgen keinen Befehl an. Plante die Strategie für später in der Nacht
+  Netzladen, fiel es aus. Neue Einstellung *Standby-Reserve vor Netzladen*
+  (Standard 3 %, nur SMA): Ist vor Sonnenaufgang ein Netzladefenster möglich
+  (gleiche Bedingungen wie Peak-Vorladen und Negativpreis-Laden), wird ein
+  entladender Modus an dieser Grenze zu „Akku nur Laden“ (Entscheidung
+  `standby_reserve`, kein Mindestladen aus dem Netz). In Nächten ohne geplantes
+  Netzladen entlädt der Akku weiter bis zum minimalen Ladestand. Ist der
+  minimale Ladestand gleich hoch oder höher, wirkt die Reserve nicht; 0
+  schaltet sie aus. Trifft angefordertes Netzladen trotzdem auf den
+  Nacht-Standby, erscheint unter *Einstellungen → Reparaturen* die Meldung
+  „Netzladen blockiert: Wechselrichter im Standby“, bis Netzladen wieder
+  bestätigt ist oder sie verworfen wird. `connection_status.standby` meldet
+  dann `grid_charge_blocked`, die Diagnose den Status `standby_reserve`.
+
 ## [2026.11-beta8] - 2026-11-14
 
 ### Geändert

@@ -472,7 +472,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stored = await self._store.async_load() or {}
         candidates = stored.get("settings", {})
         self._settings_revision = self.entry.options.get("settings_revision")
-        if self._settings_revision and self._settings_revision != stored.get("settings_revision"):
+        new_revision = bool(self._settings_revision and self._settings_revision != stored.get("settings_revision"))
+        if new_revision:
             candidates = {**candidates, **self.entry.options.get("settings", {})}
         # Validate against the complete saved set so restoring ordered limits
         # doesn't depend on the order in which the settings were serialized.
@@ -552,8 +553,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ("no_supported_modes", not self.supported_modes),
         ) if blocked]
         self.write_enabled = bool(stored.get("write_enabled", False)) and not restore_blockers
-        # Keeps the repair issue for a rejected options patch across reload and restart.
-        self.settings_rejected = stored.get("settings_rejected") is True
+        # Keeps the repair issue for a rejected options patch across reload and
+        # restart. A new revision applied here (options change with reload)
+        # decides afresh: clean settings clear it, reset values set it.
+        self.settings_rejected = (bool(invalid) if new_revision
+                                  else stored.get("settings_rejected") is True)
         if handover is not None and handover.get("write_enabled") is not True:
             # The live state at unload wins over a store that may lag behind,
             # e.g. a write disable whose save did not complete.

@@ -111,6 +111,26 @@ async def test_rejected_settings_survive_reload(hass, entry, coordinator):
         await reloaded.async_stop()
 
 
+
+async def test_valid_settings_applied_by_reload_clear_rejection(hass, entry, coordinator):
+    await coordinator.async_mark_settings_rejected()
+    await coordinator._async_update_data()
+    assert _issue(hass, "settings_rejected", entry) is not None
+    # Valid settings together with an option that reloads the entry.
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "settings": {"input_number.minsoc": 15}, "settings_revision": "rev-ok"})
+    await coordinator.async_stop()
+    async_clear_issues(hass, entry.entry_id)
+    engine = await hass.async_add_executor_job(StrategyEngine)
+    reloaded = OptiCoordinator(hass, entry, device(), engine)
+    await reloaded.async_restore()
+    try:
+        assert reloaded.settings_rejected is False
+        await reloaded._async_update_data()
+        assert _issue(hass, "settings_rejected", entry) is None
+    finally:
+        await reloaded.async_stop()
+
 async def test_issue_restored_inactive_after_restart_is_deleted_when_resolved(hass, entry, coordinator):
     ir.async_create_issue(hass, "opti_akku", issue_id("tibber_config", entry.entry_id),
                           is_fixable=False, is_persistent=False, severity=ir.IssueSeverity.ERROR,

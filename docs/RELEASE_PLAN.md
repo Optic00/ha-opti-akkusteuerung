@@ -15,7 +15,7 @@ Die technische Basis ist für eine Custom-Integration ungewöhnlich weit. CI mit
 Hassfest, HACS-Validierung, Ruff, Mypy, Pytest gegen zwei HA-Versionen,
 Coverage-Gate und reproduzierbarem Paketbau läuft und ist als Pflicht-Check
 für `main` geschützt. Diagnoseexport, Übersetzungen (de/en vollständig
-synchron), Options-Flow, Unique-ID-Prüfung und `runtime_data` sind vorhanden.
+synchron; das heißt nicht, dass alle Entitäten übersetzt sind, siehe 1.6), Options-Flow, Unique-ID-Prüfung und `runtime_data` sind vorhanden.
 
 Was eine stabile Version noch aufhält, sind vor allem drei Dinge:
 
@@ -35,20 +35,20 @@ erledigen, **P2** bald danach, **P3** Pflege und Komfort.
 
 | # | Lücke | Nachweis | Vorschlag |
 |---|---|---|---|
-| 0.1 | Offene Abnahmen aus #85 | #151 (SMA-Hardware und Ausfallverhalten), #155 (Schattenplaner gegen echten Verlauf), Mehrtagesbetrieb, getrennter Huawei-Nachweis, Restore | Bleiben in #85; stabile Version erst nach Haken dort. Huawei ggf. ausdrücklich als „experimentell“ aus dem Stabilitätsversprechen ausnehmen (README nennt es schon so). |
+| 0.1 | Offene Abnahmen aus #85 | #85 ist die maßgebliche Checkliste. Stand 11.11.: #151 (SMA-Hardware und Ausfallverhalten), #155 (Schattenplaner gegen echten Verlauf), Mehrtagesbetrieb, getrennter Huawei-Nachweis, Restore. Dazu der offene Fehlerbericht #222 (Min-SoC bei geplanter Ladung) | Bleiben in #85; stabile Version erst nach allen Haken dort. Offene Fehlerberichte wie #222 vor dem Freeze einstufen (Blocker oder bekannte Grenze). Huawei ggf. ausdrücklich als „experimentell“ aus dem Stabilitätsversprechen ausnehmen (README nennt es schon so). |
 | 0.2 | Kein Feature-Freeze vor Stabil | beta3 bis beta8 in vier Tagen, darin neue Funktionen (#219, #223, #225, #227) und ein Schreibstillstand-Fix (#229) | Release-Candidate-Phase einführen: ab einem festgelegten Beta-Tag nur noch Fehlerkorrekturen, Mindestlaufzeit z. B. 14 Tage auf mindestens einer echten Anlage ohne neuen Critical/Important-Befund. Regel in `docs/development.md` aufnehmen. Der Versionsvertrag in `tools/build_package.py` erlaubt nur `-betaN` und `.N`; entweder die RC-Phase im Beta-Schema führen oder `-rcN` dort, in `test_package.py` und im Release-Workflow (Prerelease-Kennzeichen) ergänzen. |
 | 0.3 | Stabilitätsversprechen ungeklärt | README und CHANGELOG sagen „bleibt Beta“ | Vor `.0` festlegen, was „stabil“ heißt: welche Backends/Profile unterstützt sind (SMA STP SE), was experimentell bleibt (Huawei, SBS, Sunny Island, Peak-Rangfolge steuernd) und wie Breaking Changes angekündigt werden. In README als Abschnitt „Unterstützungsumfang“. |
-| 0.4 | Erste stabile Version in HACS nicht erprobt | Reihenfolge Beta < `.0` ist durch `test_release_version_order` (AwesomeVersion und `packaging`) abgedeckt; ungeprüft ist nur das HACS-Verhalten | Nach dem ersten `.0`-Release in HACS ohne Beta-Schalter prüfen, dass das Update angeboten wird und Nutzer auf einer Beta es sehen. Kein zusätzlicher Test nötig. |
 
 ### P1: Lücken der Qualitätsskala, die Nutzer sehen
 
 | # | Regel (Stufe) | Befund | Vorschlag |
 |---|---|---|---|
-| 1.1 | `exception-translations` (Gold) | Rund 30 `HomeAssistantError` mit fest eingebautem Text, gemischt Deutsch und Englisch (z. B. „Wechselrichter ist nicht erreichbar“ neben „Historical import failed …“) in `coordinator.py`; ebenso `ConfigEntryError` in `__init__.py` | Auf `translation_domain`/`translation_key` umstellen, Texte unter `exceptions` in `strings.json` und gleichzeitig in `translations/en.json` und `translations/de.json`; die drei Dateien sind heute vollständig synchron und sollen es bleiben (ggf. Test, der die Schlüsselmengen vergleicht). Beseitigt nebenbei das Sprachmischmasch. (`action-exceptions` ist erfüllt: Aktionen werfen `HomeAssistantError`.) |
-| 1.2 | `config-flow` (Bronze): `data_description` | Nur 6 `data_description` in einem Flow mit sehr vielen Feldern | Für jedes nicht selbsterklärende Feld eine Beschreibung ergänzen, vor allem Preis-, Reserve- und Spread-Parameter. Spart Support-Anfragen. |
+| 1.1 | `exception-translations` (Gold), `action-exceptions` (Silber) | Rund 30 `HomeAssistantError` mit fest eingebautem Text, gemischt Deutsch und Englisch (z. B. „Wechselrichter ist nicht erreichbar“ neben „Historical import failed …“) in `coordinator.py`; ebenso `ConfigEntryError` in `__init__.py` | Auf `translation_domain`/`translation_key` umstellen, Texte unter `exceptions` in `strings.json` und gleichzeitig in `translations/en.json` und `translations/de.json`; die drei Dateien sind heute vollständig synchron und sollen es bleiben (ggf. Test, der die Schlüsselmengen vergleicht). Beseitigt nebenbei das Sprachmischmasch. Ungültige Nutzereingaben (z. B. `validate_setting` in `coordinator.py`: Wahrheitswert, Einstellwert, Akkumodus) auf `ServiceValidationError` umstellen; `HomeAssistantError` bleibt für Fehler bei der Ausführung (Gerät nicht erreichbar). |
+| 1.2 | `config-flow` (Bronze): `data_description` | 12 beschriebene Felder bei 151 verschiedenen Feldern (333 Vorkommen über alle Config- und Options-Schritte) | Die Regel verlangt eine Beschreibung für jedes Feld. Vorrang haben Preis-, Reserve- und Spread-Parameter; abgeschlossen ist der Punkt erst bei vollständiger Abdeckung (Test, der fehlende `data_description` meldet). |
 | 1.3 | `parallel-updates` (Silber) | Keine Plattform setzt `PARALLEL_UPDATES` | Ausdrücklich setzen, damit die Regel erfüllt und das Verhalten dokumentiert ist: `0` für `sensor`/`binary_sensor` (Coordinator), `1` für schreibende Plattformen. Die eigentliche Serialisierung leisten schon die Gerätesperre in `sma.py`/`sbs.py`/`huawei_control.py` und die `is_current`-Prüfung in `async_apply`; `PARALLEL_UPDATES` gilt nur je Plattform und ersetzt sie nicht. |
-| 1.4 | `repair-issues` (Gold) | Handlungsbedürftige Zustände laufen über `persistent_notification` (`alerts.py`) | Für Fälle mit klarer Nutzeraktion (z. B. Geräteidentität geändert, fehlende Huawei-Bindungen, ungültige Quelle) `issue_registry` mit Repair-Flow nutzen. Laufende Betriebsmeldungen können Benachrichtigungen bleiben. |
+| 1.4 | `repair-issues` (Gold) | Handlungsbedürftige Zustände laufen über `persistent_notification` (`alerts.py`) | Für Fälle mit klarer Nutzeraktion (z. B. Geräteidentität geändert, fehlende Huawei-Bindungen, ungültige Quelle) Repair-Issues über `issue_registry` anlegen. Einen Repair-Flow nur dort, wo die Integration das Problem nach Bestätigung selbst beheben kann. Laufende Betriebsmeldungen können Benachrichtigungen bleiben. |
 | 1.5 | Statusdatei `quality_scale.yaml` | Fehlt | Datei in `custom_components/opti_akku/` anlegen, je Regel `done`/`todo`/`exempt` mit Begründung. So wird der Stand prüfbar statt nur in Issues beschrieben. Ausnahmen: `reauthentication-flow` (keine Anmeldung), `discovery` (Modbus TCP), `inject-websession` (kein HTTP). |
+| 1.6 | `entity-translations` (Gold) | Diagnose-Sensoren und Binärsensoren übernehmen ihren Namen aus den Strategie-Metadaten (`sensor.py`, `binary_sensor.py`: `_attr_name = meta.get("name", …)`), teils deutsch, ohne `translation_key`. Nur Kernsensoren und Steuer-Entitäten sind übersetzt | Allen Entitäten einen `translation_key` geben und Namen in `strings.json`/`en.json`/`de.json` führen; die Metadaten-Namen nur noch als Quelle für die Übersetzungen nutzen. Entity-IDs dürfen sich dabei nicht ändern (bestehende `unique_id` beibehalten). |
 
 ### P2: Gold- und Platinum-Punkte nach der ersten stabilen Version
 
@@ -79,7 +79,7 @@ Diese Punkte gehören in einen eigenen CI-PR.
   HACS-Validierung in CI grün.
 - **Manifest:** `codeowners`, `documentation`, `issue_tracker`, `iot_class`,
   `version`, `config_flow`; Hassfest in CI grün.
-- **Bronze:** Config-Flow mit Verbindungstest, `unique_id` gegen Doppelanlage,
+- **Bronze:** Config-Flow mit Verbindungstest (Feldbeschreibungen fehlen, siehe 1.2), `unique_id` gegen Doppelanlage,
   `runtime_data`, `has_entity_name`, Übersetzungen, Entity-Kategorien,
   `async_config_entry_first_refresh`, Tests für Config-Flow.
 - **Silber:** Entladen der Entry, `available` an allen Plattformen, Codeowner,
@@ -90,6 +90,14 @@ Diese Punkte gehören in einen eigenen CI-PR.
 - **Prozess:** Branch-Schutz mit Pflicht-Checks, Dependabot für Actions und
   Pip, gepinnte Action-SHAs, reproduzierbarer Release-Build, CHANGELOG,
   Issue- und PR-Vorlagen, Sicherheitsrichtlinie, Cross-Model-Review-Pflicht.
+
+## Freigabeprüfung der ersten stabilen Version
+
+Die Reihenfolge Beta < `.0` ist durch `test_release_version_order` (AwesomeVersion
+und `packaging`) abgedeckt, das Update-Verhalten von HACS nicht. Nach dem
+ersten `.0`-Release kontrolliert prüfen: In HACS ohne Beta-Schalter wird das
+Update angeboten, auch auf einer Installation mit der letzten Beta. Falls nicht,
+sofort mit `.1` korrigieren statt das Release zu ersetzen.
 
 ## Distribution
 
@@ -104,8 +112,9 @@ Diese Punkte gehören in einen eigenen CI-PR.
 
 ## Vorgeschlagene Reihenfolge
 
-1. P3 (CI-PR) und 1.3, 1.5 als kleine PRs, weil sie risikoarm sind.
-2. 1.1 und 1.2 (Übersetzungen) in einem PR.
-3. 1.4 Reparaturen, danach Feature-Freeze und `rc1` (0.2).
-4. Abnahmen aus #85 während der RC-Phase abschließen, dann `.0`.
+1. Abnahmen aus #85 laufen parallel zu allem Folgenden; sie sind der längste Pfad und werden von keinem anderen Punkt aufgehalten.
+2. 1.3, 1.5 und die P3-CI-Punkte als kleine, risikoarme PRs.
+3. 1.1, 1.2 und 1.6 (Übersetzungen und Fehlertypen).
+4. 1.4 Reparaturen, danach Feature-Freeze und RC-Phase (0.2).
+5. Wenn #85 abgehakt und die RC-Phase ohne neuen Befund durchlaufen ist: `.0` mit Freigabeprüfung.
 5. P2 und Distribution nach der ersten stabilen Version.

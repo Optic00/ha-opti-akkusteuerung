@@ -5,13 +5,24 @@ on:
     branches: [main, 'codex/**']
   pull_request:
   workflow_dispatch:
+  # Wöchentlich gegen aktuelle Hassfest- und HACS-Regeln prüfen, damit
+  # Änderungen dort auffallen, bevor der nächste PR kommt.
+  schedule:
+    - cron: '17 4 * * 1'
 
 permissions:
   contents: read
 
+# Bei schnellen Pushes auf denselben PR den veralteten Lauf abbrechen.
+# Läufe auf main und geplante Läufe laufen immer vollständig durch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   tests:
     name: Integration tests (HA 2026.9.1)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -25,11 +36,12 @@ jobs:
       - run: ruff check custom_components tests tools
       - run: mypy
       - run: python tools/build_strategy_resources.py --check
-      - run: pytest --timeout=60 --cov=custom_components/opti_akku --cov-report=term-missing --cov-report=json:coverage.json
+      - run: pytest --timeout=60 -n auto --durations=15 --cov=custom_components/opti_akku --cov-report=term-missing --cov-report=json:coverage.json
       - run: python tools/check_coverage.py coverage.json .github/coverage-baseline.json
       - run: python tools/build_package.py
   tests-current-ha:
     name: Integration tests (HA 2026.10.4)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -43,7 +55,7 @@ jobs:
       - run: ruff check custom_components tests tools
       - run: mypy
       - run: python tools/build_strategy_resources.py --check
-      - run: pytest --timeout=60 --cov=custom_components/opti_akku --cov-report=term-missing --cov-report=json:coverage.json
+      - run: pytest --timeout=60 -n auto --durations=15 --cov=custom_components/opti_akku --cov-report=term-missing --cov-report=json:coverage.json
       - run: python tools/check_coverage.py coverage.json .github/coverage-baseline.json
       - run: python tools/build_package.py
   hassfest:

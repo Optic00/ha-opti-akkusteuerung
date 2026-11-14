@@ -11,10 +11,25 @@ pip install -r requirements-test.txt
 ruff check custom_components tests tools
 mypy
 python tools/build_strategy_resources.py --check
-pytest --timeout=60 --cov=custom_components/opti_akku --cov-report=term-missing --cov-report=json:coverage.json
+pytest --timeout=60 -n auto --cov=custom_components/opti_akku --cov-report=term-missing --cov-report=json:coverage.json
 python tools/check_coverage.py coverage.json .github/coverage-baseline.json
 python tools/build_package.py
 ```
+
+`-n auto` verteilt die Tests mit `pytest-xdist` auf alle CPU-Kerne; für einen
+einzelnen Test oder zum Debuggen `-n 0` angeben. Die Abdeckung wird dabei über
+`pytest-cov` zusammengeführt.
+
+Optional prüft [pre-commit](https://pre-commit.com) vor jedem Commit Ruff,
+JSON/YAML/TOML-Syntax und ob das Strategie-JSON zu `strategy/*.yaml` passt:
+
+```sh
+pip install pre-commit
+pre-commit install
+```
+
+Die Ruff-Version in `.pre-commit-config.yaml` mit `requirements-test*.txt`
+synchron halten. Maßgeblich bleibt die CI.
 
 `requirements-test.txt` prüft die unterstützte Mindestversion Home Assistant
 2026.9.1. Die CI prüft zusätzlich Home Assistant 2026.10.4 mit
@@ -35,7 +50,10 @@ Importe werden dabei nicht transitiv typgeprüft. Weitere Module werden erst
 nach ihrer Bereinigung in die verbindliche Liste aufgenommen. Ruff prüft neben Syntax und
 undefinierten Namen auch häufige Python-Fehler über die Bugbear-Regeln.
 
-Hassfest und die HACS-Anforderungen laufen ebenfalls in der CI. Vor folgenreichen
+Hassfest und die HACS-Anforderungen laufen ebenfalls in der CI, zusätzlich
+jeden Montag früh als geplanter Lauf, damit neue Regeln in Home Assistant oder
+HACS auffallen, bevor ein PR kommt. Ein neuer Push auf denselben PR bricht den
+noch laufenden älteren Lauf ab; Läufe auf `main` laufen immer vollständig. Vor folgenreichen
 Änderungen gilt die [Review-Regel](../REVIEW_POLICY.md). Version in Manifest,
 Projektmetadaten und Release-Tag synchron halten. Vorabversionen bleiben ausdrücklich
 Beta; ein grüner Testlauf ist kein Hardware- oder Langzeitnachweis. Der aktuelle

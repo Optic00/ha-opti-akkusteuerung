@@ -227,18 +227,42 @@ def test_every_described_state_entity_has_a_translated_name():
     assert not described - TRANSLATED_STATE_KEYS, sorted(described - TRANSLATED_STATE_KEYS)
 
 
+# Every f-string that builds a state key, and where the test finds its values.
+# A new dynamic key fails test_every_state_key_in_the_code_has_a_translated_name
+# until it is listed here, so it cannot slip through with a generic name.
+DYNAMIC_STATE_KEYS = {
+    'f"binary_sensor.opti_ev_lp{index}_schnell"': {"binary_sensor.opti_ev_lp1_schnell", "binary_sensor.opti_ev_lp2_schnell"},
+    'f"binary_sensor.opti_ev_lp{i}_schnell"': {"binary_sensor.opti_ev_lp1_schnell", "binary_sensor.opti_ev_lp2_schnell"},
+    # Modbus register specs and derived readings in sma.py/sbs.py, collected below.
+    'f"sensor.opti_{spec[0]}"': set(),
+    'f"sensor.opti_{name}"': set(),
+    'f"sensor.opti_{source}"': set(),
+    # Only read existing states (journal sample, shadow measurements, comparisons).
+    'f"sensor.opti_{key}"': set(),
+    'f"sensor.opti_forecast_{prefix}_kwh"': set(),
+    # Statistics from strategy.json, collected below.
+    'f"sensor.{definition[\'unique_id\']}"': set(),
+}
+
+
 def test_every_state_key_in_the_code_has_a_translated_name():
     """Catch optional states (plant, EV, SBS, Huawei) that a default setup never creates."""
     from custom_components.opti_akku.entity import TRANSLATED_STATE_KEYS
     from custom_components.opti_akku.sensor import CORE_UNITS, EVCC_COMPARISON_KEY, PLAN_SHADOW_KEY
 
-    keys = {f"binary_sensor.opti_ev_lp{i}_schnell" for i in (1, 2)}  # built with an f-string
+    keys: set[str] = set()
+    dynamic: set[str] = set()
     for path in COMPONENT.glob("*.py"):
         source = path.read_text(encoding="utf-8")
         keys.update(re.findall(r'"((?:sensor|binary_sensor|counter|input_datetime)\.[a-z0-9_]*[a-z0-9])"', source))
+        dynamic.update(re.findall(r'f"(?:sensor|binary_sensor|counter|input_datetime)\.[^"]*\{[^"]*"', source))
         if path.name in ("sma.py", "sbs.py"):
             # Register specs ("name", <register>, ...) and derived readings ("name", (sources), ...).
-            keys.update(f"sensor.opti_{name}" for name in re.findall(r'\("([a-z0-9_]+)",\s*(?:3\d{4}|\()', source))
+            keys.update(f"sensor.opti_{name}" for name in re.findall(r'\("([a-z0-9_]+)",\s*(?:\d{5}|\()', source))
+    unreviewed = dynamic - set(DYNAMIC_STATE_KEYS)
+    assert not unreviewed, f"list new dynamic state keys in DYNAMIC_STATE_KEYS: {sorted(unreviewed)}"
+    for values in DYNAMIC_STATE_KEYS.values():
+        keys.update(values)
     strategy = json.loads((COMPONENT / "resources" / "strategy.json").read_text(encoding="utf-8"))
     for block in strategy["template_blocks"]:
         for kind in ("sensor", "binary_sensor"):

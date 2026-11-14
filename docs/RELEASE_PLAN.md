@@ -71,7 +71,6 @@ Diese Punkte gehören in einen eigenen CI-PR.
 | 3.3 | Testjobs 25 bis 30 Minuten | `pytest-xdist` (`-n auto`) prüfen. Coverage mit xdist funktioniert über `pytest-cov`. Vorher messen, welche Tests dominieren (`--durations=25`). |
 | 3.4 | `ruff format` wird nicht geprüft, Regelset schmal (E4/E7/E9/F/B) | Erst `ruff format` einmalig anwenden (eigener PR, reine Formatierung), dann `ruff format --check` in CI. Danach Regeln stufenweise ergänzen: `I` (Importe), `UP`, `SIM`, `RUF`, `ASYNC`. |
 | 3.5 | Kein `pre-commit` | `.pre-commit-config.yaml` mit Ruff (lint und format) und `check-json`/`check-yaml`; optional [pre-commit.ci](https://pre-commit.ci). |
-| 3.6 | HACS-Action ohne Checkout | Läuft aktuell gegen den Default-Branch, nicht gegen den PR-Stand. Laut HACS-Doku ist das so gewollt; für PR-Änderungen an `hacs.json` reicht der Hassfest-Lauf nicht. Bei Änderungen an `hacs.json` manuell prüfen. |
 
 ## Bereits erfüllt (nicht erneut umsetzen)
 
@@ -86,7 +85,7 @@ Diese Punkte gehören in einen eigenen CI-PR.
 - **Silber:** Entladen der Entry, `available` an allen Plattformen, Codeowner,
   Coverage-Gate (Baseline in `.github/coverage-baseline.json`).
 - **Gold:** Diagnoseexport mit Allowlist statt Redaction, Geräte, deaktivierte
-  Standard-Entitäten, Gerätenklassen, umfangreiche Doku (Betrieb, Migration,
+  Standard-Entitäten, Geräteklassen, umfangreiche Doku (Betrieb, Migration,
   Fehlersuche, Lesetests).
 - **Prozess:** Branch-Schutz mit Pflicht-Checks, Dependabot für Actions und
   Pip, gepinnte Action-SHAs, reproduzierbarer Release-Build, CHANGELOG,

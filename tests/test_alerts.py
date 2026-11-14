@@ -8,7 +8,7 @@ from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 import pytest
 
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
 from custom_components.opti_akku.alerts import HealthAlerts
 from tests.translated import raises_translated
@@ -788,7 +788,16 @@ async def test_fixed_price_windows_never_raise_a_price_source_alert(hass, alerts
         assert not alerts._active
 
 
-async def test_explicit_test_reports_failed_delivery_as_translated_error(hass, alerts):
+async def test_explicit_test_rejects_non_notify_service_as_user_error(hass, alerts):
     hass.config_entries.async_update_entry(alerts.entry, options={"notification_service": "switch.turn_on"})
-    with raises_translated(HomeAssistantError, "invalid_notification_service"):
+    with raises_translated(ServiceValidationError, "invalid_notification_service"):
         await alerts.async_test()
+
+
+async def test_explicit_test_reports_failed_delivery_as_runtime_error(hass, alerts):
+    async def fail(call):
+        raise RuntimeError("down")
+    hass.services.async_register("notify", "test_phone", fail)
+    with raises_translated(HomeAssistantError, "notification_delivery_failed") as info:
+        await alerts.async_test()
+    assert not isinstance(info.value, ServiceValidationError)

@@ -108,7 +108,7 @@
           "akkusteuerung_max_entladestaerke": "Highest discharge power Opti requests. This is a strategy limit; the limits of inverter and BMS still apply.",
           "opti_pv_ueberschuss_ladung": "Lets the strategy charge daytime PV surplus into the battery, including the 70 % limit, the AC surplus limit and the feed-in release.",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 turns this off. Useful when PV power exceeds the inverter's AC power and output is clipped around midday. The battery then charges from surplus above the limit if PV surplus charging is allowed. Suggestion for the detected model: {ac_limit_suggestion}. The value is not applied automatically.",
-          "opti_manuelle_ladegrenze": "Temporarily uses the maximum charge power instead of the forecast-based steps. Temperature, upper state-of-charge and balancing limits stay in effect. Turns off again after a restart or reload.",
+          "opti_manuelle_ladegrenze": "Temporarily uses the maximum charge power instead of the forecast-based steps. Temperature, upper state-of-charge and balancing limits stay in effect. Turns off again after a restart or reload, except for the reload after enabling an Opti entity.",
           "charge_curve": "Up to five points of charge level and maximum charge power. From a point's charge level upwards its power is the upper limit; when the charge level falls, a point holds until it is 2 percentage points below it. Below that band of the first point the curve does not limit. Example: from 85 % 4000 W, from 93 % 3000 W, from 99 % 250 W, at 100 % 70 W. It applies in every mode, including manual modes and grid charging, and only lowers: temperature, balancing and maximum charge power stay active, and a PV peak does not lift it. Power must not rise with the charge level. 0 W blocks charging from that point. Leave empty for unchanged behaviour."
         }
       },
@@ -566,7 +566,7 @@
           "akkusteuerung_max_entladestaerke": "Highest discharge power Opti requests. This is a strategy limit; the limits of inverter and BMS still apply.",
           "opti_pv_ueberschuss_ladung": "Lets the strategy charge daytime PV surplus into the battery, including the 70 % limit, the AC surplus limit and the feed-in release.",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 turns this off. Useful when PV power exceeds the inverter's AC power and output is clipped around midday. The battery then charges from surplus above the limit if PV surplus charging is allowed. Suggestion for the detected model: {ac_limit_suggestion}. The value is not applied automatically.",
-          "opti_manuelle_ladegrenze": "Temporarily uses the maximum charge power instead of the forecast-based steps. Temperature, upper state-of-charge and balancing limits stay in effect. Turns off again after a restart or reload.",
+          "opti_manuelle_ladegrenze": "Temporarily uses the maximum charge power instead of the forecast-based steps. Temperature, upper state-of-charge and balancing limits stay in effect. Turns off again after a restart or reload, except for the reload after enabling an Opti entity.",
           "charge_curve": "Up to five points of charge level and maximum charge power. From a point's charge level upwards its power is the upper limit; when the charge level falls, a point holds until it is 2 percentage points below it. Below that band of the first point the curve does not limit. Example: from 85 % 4000 W, from 93 % 3000 W, from 99 % 250 W, at 100 % 70 W. It applies in every mode, including manual modes and grid charging, and only lowers: temperature, balancing and maximum charge power stay active, and a PV peak does not lift it. Power must not rise with the charge level. 0 W blocks charging from that point. Leave empty for unchanged behaviour."
         }
       },
@@ -1674,11 +1674,14 @@
     "history_import_no_interval": {
       "message": "There is no historical period before the first online observations."
     },
+    "history_import_running": {
+      "message": "A history import is already running. Wait until it has finished."
+    },
     "history_import_sensor_scope": {
       "message": "Select the historical sensor that measures the same house load."
     },
     "history_import_unavailable": {
-      "message": "Enable the observation first and wait until any running import has finished."
+      "message": "Enable the observation first."
     },
     "history_import_whole_house": {
       "message": "The historical import currently requires a whole-house profile without a separate heat pump."
@@ -1692,8 +1695,11 @@
     "identity_unconfirmed": {
       "message": "Write access stays locked until the device identity is confirmed."
     },
+    "integration_stopping": {
+      "message": "The integration is being stopped. Try again after it has started."
+    },
     "invalid_notification_service": {
-      "message": "The configured notification service does not exist."
+      "message": "Only notify actions can be selected as the notification service, for example notify.mobile_app_phone."
     },
     "inverter_already_controlled": {
       "message": "This inverter already has an Opti Akku controller."

@@ -108,7 +108,7 @@
           "akkusteuerung_max_entladestaerke": "Höchste Entladeleistung, die Opti anfordert. Das ist eine Strategiegrenze; die Grenzen von Wechselrichter und BMS gelten weiter.",
           "opti_pv_ueberschuss_ladung": "Erlaubt der Strategie, tagsüber PV-Überschuss in den Akku zu laden, einschließlich 70-%-Grenze, AC-Überschussgrenze und Einspeise-Freigabe.",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 schaltet die Funktion aus. Sinnvoll, wenn die PV-Leistung die AC-Leistung des Wechselrichters übersteigt und mittags abgeregelt wird. Dann lädt der Akku oberhalb der Grenze aus dem Überschuss, sofern PV-Überschussladen erlaubt ist. Vorschlag für das erkannte Modell: {ac_limit_suggestion}. Der Wert wird nicht automatisch übernommen.",
-          "opti_manuelle_ladegrenze": "Nutzt vorübergehend die maximale Ladeleistung statt der prognoseabhängigen Staffelung. Temperatur-, SoC- und Balancing-Grenzen bleiben wirksam. Nach einem Neustart oder Neuladen wieder aus.",
+          "opti_manuelle_ladegrenze": "Nutzt vorübergehend die maximale Ladeleistung statt der prognoseabhängigen Staffelung. Temperatur-, SoC- und Balancing-Grenzen bleiben wirksam. Nach einem Neustart oder Neuladen wieder aus, außer beim Neuladen nach dem Aktivieren einer Opti-Entität.",
           "charge_curve": "Bis zu fünf Punkte aus Ladestand und maximaler Ladeleistung. Ab dem Ladestand eines Punkts gilt seine Leistung als Obergrenze; fällt der Ladestand, hält ein Punkt seine Leistung, bis der Ladestand 2 Prozentpunkte darunter liegt. Unterhalb dieses Bands des ersten Punkts begrenzt die Kurve nicht. Beispiel: ab 85 % 4000 W, ab 93 % 3000 W, ab 99 % 250 W, bei 100 % 70 W. Sie gilt in jedem Modus, auch in manuellen Modi und beim Netzladen, und senkt nur ab: Temperatur, Balancing und maximale Ladeleistung bleiben wirksam, und eine PV-Spitze hebt sie nicht auf. Die Leistung darf mit steigendem Ladestand nicht steigen. 0 W sperrt das Laden ab diesem Punkt. Leer lassen für unverändertes Verhalten."
         }
       },
@@ -566,7 +566,7 @@
           "akkusteuerung_max_entladestaerke": "Höchste Entladeleistung, die Opti anfordert. Das ist eine Strategiegrenze; die Grenzen von Wechselrichter und BMS gelten weiter.",
           "opti_pv_ueberschuss_ladung": "Erlaubt der Strategie, tagsüber PV-Überschuss in den Akku zu laden, einschließlich 70-%-Grenze, AC-Überschussgrenze und Einspeise-Freigabe.",
           "akkusteuerung_wr_ac_ueberschuss_grenze": "0 schaltet die Funktion aus. Sinnvoll, wenn die PV-Leistung die AC-Leistung des Wechselrichters übersteigt und mittags abgeregelt wird. Dann lädt der Akku oberhalb der Grenze aus dem Überschuss, sofern PV-Überschussladen erlaubt ist. Vorschlag für das erkannte Modell: {ac_limit_suggestion}. Der Wert wird nicht automatisch übernommen.",
-          "opti_manuelle_ladegrenze": "Nutzt vorübergehend die maximale Ladeleistung statt der prognoseabhängigen Staffelung. Temperatur-, SoC- und Balancing-Grenzen bleiben wirksam. Nach einem Neustart oder Neuladen wieder aus.",
+          "opti_manuelle_ladegrenze": "Nutzt vorübergehend die maximale Ladeleistung statt der prognoseabhängigen Staffelung. Temperatur-, SoC- und Balancing-Grenzen bleiben wirksam. Nach einem Neustart oder Neuladen wieder aus, außer beim Neuladen nach dem Aktivieren einer Opti-Entität.",
           "charge_curve": "Bis zu fünf Punkte aus Ladestand und maximaler Ladeleistung. Ab dem Ladestand eines Punkts gilt seine Leistung als Obergrenze; fällt der Ladestand, hält ein Punkt seine Leistung, bis der Ladestand 2 Prozentpunkte darunter liegt. Unterhalb dieses Bands des ersten Punkts begrenzt die Kurve nicht. Beispiel: ab 85 % 4000 W, ab 93 % 3000 W, ab 99 % 250 W, bei 100 % 70 W. Sie gilt in jedem Modus, auch in manuellen Modi und beim Netzladen, und senkt nur ab: Temperatur, Balancing und maximale Ladeleistung bleiben wirksam, und eine PV-Spitze hebt sie nicht auf. Die Leistung darf mit steigendem Ladestand nicht steigen. 0 W sperrt das Laden ab diesem Punkt. Leer lassen für unverändertes Verhalten."
         }
       },
@@ -1674,11 +1674,14 @@
     "history_import_no_interval": {
       "message": "Vor den ersten Online-Beobachtungen gibt es keinen historischen Zeitraum."
     },
+    "history_import_running": {
+      "message": "Ein Verlaufsimport läuft bereits. Bitte warten, bis er beendet ist."
+    },
     "history_import_sensor_scope": {
       "message": "Den historischen Sensor auswählen, der dieselbe Hauslast misst."
     },
     "history_import_unavailable": {
-      "message": "Zuerst die Beobachtung aktivieren und warten, bis ein laufender Import beendet ist."
+      "message": "Zuerst die Beobachtung aktivieren."
     },
     "history_import_whole_house": {
       "message": "Der historische Import erfordert derzeit ein Profil für das ganze Haus ohne separate Wärmepumpe."
@@ -1692,8 +1695,11 @@
     "identity_unconfirmed": {
       "message": "Ohne bestätigte Geräteidentität bleibt die Schreibfreigabe gesperrt."
     },
+    "integration_stopping": {
+      "message": "Die Integration wird gerade beendet. Nach dem Start erneut versuchen."
+    },
     "invalid_notification_service": {
-      "message": "Der eingestellte Benachrichtigungsdienst existiert nicht."
+      "message": "Als Benachrichtigungsdienst sind nur notify-Aktionen wählbar, zum Beispiel notify.mobile_app_handy."
     },
     "inverter_already_controlled": {
       "message": "Dieser Wechselrichter hat bereits eine Opti-Akku-Steuerung."

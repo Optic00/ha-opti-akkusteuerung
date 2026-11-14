@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from tests.translated import raises_translated
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from modbus_connection import ModbusError
 from homeassistant.util import dt as dt_util
@@ -3770,9 +3770,9 @@ async def test_stopping_does_not_record_stale_or_empty_data(coordinator, stale_d
         ("async_start_comparison", False, False, False, "comparison_requires_standard"),
         ("async_start_comparison", False, True, True, "comparison_requires_standard"),
         ("async_stop_shadow", False, True, False, "no_shadow_entry"),
-        ("async_stop_shadow", True, True, True, "no_shadow_entry"),
+        ("async_stop_shadow", True, True, True, "integration_stopping"),
         ("async_stop_comparison", True, True, False, "no_standard_entry"),
-        ("async_stop_comparison", False, True, True, "no_standard_entry"),
+        ("async_stop_comparison", False, True, True, "integration_stopping"),
     ],
 )
 async def test_journal_method_guards(
@@ -3784,6 +3784,23 @@ async def test_journal_method_guards(
     with raises_translated(HomeAssistantError, message):
         await getattr(coordinator, method)()
 
+
+
+@pytest.mark.parametrize(("enabled", "running", "stopping", "key", "user_error"), [
+    (False, False, False, "history_import_unavailable", True),
+    (True, True, False, "history_import_running", False),
+    (True, False, True, "integration_stopping", False),
+])
+async def test_history_import_guards_separate_user_and_runtime_errors(
+    hass, entry, coordinator, enabled, running, stopping, key, user_error
+):
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "demand_forecast": {"enabled": enabled}})
+    coordinator._history_import_running = running
+    coordinator._stopping = stopping
+    with raises_translated(HomeAssistantError, key) as info:
+        await coordinator.async_import_demand_history()
+    assert isinstance(info.value, ServiceValidationError) is user_error
 
 @pytest.mark.parametrize("error", [ValueError("running"), OSError("disk")])
 async def test_journal_start_io_errors_are_user_visible(coordinator, error):

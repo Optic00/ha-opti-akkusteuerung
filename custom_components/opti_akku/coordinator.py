@@ -2431,8 +2431,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from homeassistant.components.recorder import get_instance
         from .demand_history import read_recorder
         cfg = self.entry.options.get("demand_forecast", {})
-        if self._history_import_running or self._stopping or cfg.get("enabled") is not True:
+        if self._stopping:
+            raise translated(HomeAssistantError, "integration_stopping")
+        if cfg.get("enabled") is not True:
             raise translated(ServiceValidationError, "history_import_unavailable")
+        if self._history_import_running:
+            raise translated(HomeAssistantError, "history_import_running")
         if cfg.get("sources", {}).get("heat_power"):
             raise translated(ServiceValidationError, "history_import_whole_house")
         house = cfg.get("history_house")
@@ -2558,12 +2562,16 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._publish_journal_status()
 
     async def async_stop_shadow(self) -> None:
-        if not self.shadow_mode or self._stopping:
+        if self._stopping:
+            raise translated(HomeAssistantError, "integration_stopping")
+        if not self.shadow_mode:
             raise translated(ServiceValidationError, "no_shadow_entry")
         await self._async_stop_journal(refresh=True)
 
     async def async_stop_comparison(self) -> None:
-        if self.shadow_mode or self._stopping:
+        if self._stopping:
+            raise translated(HomeAssistantError, "integration_stopping")
+        if self.shadow_mode:
             raise translated(ServiceValidationError, "no_standard_entry")
         await self._async_stop_journal(refresh=False)
 

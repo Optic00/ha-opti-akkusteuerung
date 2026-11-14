@@ -8,6 +8,9 @@ from homeassistant.helpers.entity import EntityCategory
 
 from .entity import OptiAkkuEntity, coordinator_data, readable_name
 
+# Read-only entities follow the coordinator; no per-entity polling.
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback

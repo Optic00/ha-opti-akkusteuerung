@@ -369,6 +369,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}", private=True)
         # Forecast snapshots grow to a few hundred kB; keep them out of the settings store.
         self._history_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.planner_history", private=True)
+        self._history_save_pending = False
         self._measurements: dict = {}
         self._violation_since: float | None = None
         self._violation_mode: str | None = None
@@ -2221,6 +2222,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 periods = price_periods(inputs.price_series, now, dt_util.DEFAULT_TIME_ZONE)
                 if self._planner_history.record(now, pv_hourly, periods):
                     self._history_store.async_delay_save(self._planner_history.snapshot, HISTORY_SAVE_DELAY)
+                    self._history_save_pending = True
             except Exception as err:  # noqa: BLE001 - history is diagnosis only
                 _LOGGER.debug("Planner history not recorded: %s", type(err).__name__)
                 self._planner_history.error = type(err).__name__
@@ -2764,6 +2766,14 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 except Exception as err:
                     self._last_error = f"Pause beim Entladen der Integration nicht bestätigt: {type(err).__name__}"
             self._release_device()
+        # Write a delayed history save now. Its timer belongs to this Store
+        # instance; left pending, it would recreate the file after removal.
+        if self._history_save_pending:
+            self._history_save_pending = False
+            try:
+                await self._history_store.async_save(self._planner_history.snapshot())
+            except Exception as err:  # noqa: BLE001 - history is diagnosis only
+                _LOGGER.debug("Planner history not saved on stop: %s", type(err).__name__)
         # Only now wait for journal writes: a slow disk never delays the pause above.
         await asyncio.shield(self._start_journal_job(
             self._async_journal_final_save_job(), "Opti final save"))

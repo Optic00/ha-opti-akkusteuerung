@@ -81,28 +81,70 @@ def test_every_form_field_has_a_description(name):
 
 
 def _schema_field_names() -> set[str]:
-    """Field names config_flow.py can put into a form, found without running it.
+    """Every field name config_flow.py can put into a form, found without running it.
 
-    Literal vol.Required/vol.Optional keys plus the field lists the flow
-    builds schemas from in loops. Complements the runtime check in
-    tests/form_labels.py for steps no flow test reaches.
+    Resolves each vol.Required/vol.Optional key: string literals, module
+    constants, and loop variables over the field lists the flow builds
+    schemas from (including names derived from the loop variable). A key it
+    cannot resolve fails the test, so new dynamic fields stay covered.
+    Complements the runtime check in tests/form_labels.py, which also checks
+    the step, for forms that flow tests render.
     """
     import ast
+    import importlib
 
     from custom_components.opti_akku import config_flow as cf
 
-    names = set()
-    for node in ast.walk(ast.parse((COMPONENT / "config_flow.py").read_text(encoding="utf-8"))):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    tree = ast.parse((COMPONENT / "config_flow.py").read_text(encoding="utf-8"))
+    namespace = dict(vars(cf))
+    for node in ast.walk(tree):  # function-level imports such as CONTROL_DOMAINS
+        if isinstance(node, ast.ImportFrom) and node.level == 1:
+            module = importlib.import_module(f"custom_components.opti_akku.{node.module}")
+            namespace.update({a.asname or a.name: getattr(module, a.name) for a in node.names})
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+
+    def evaluate(expr, bound):
+        if (isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute)
+                and expr.func.attr == "get" and isinstance(expr.func.value, ast.Name)):
+            # GROUPS.get(section, []) for any section: all groups.
+            return [v for group in namespace[expr.func.value.id].values() for v in group]
+        return eval(compile(ast.Expression(expr), "config_flow", "eval"), namespace, bound)
+
+    def resolve(node, var):
+        if isinstance(namespace.get(var), str):
+            return {namespace[var]}
+        scope = parents.get(node)
+        while scope is not None:
+            if isinstance(scope, (ast.For, ast.comprehension)):
+                target = scope.target
+                targets = target.elts if isinstance(target, ast.Tuple) else [target]
+                loop_vars = [t.id for t in targets]
+                values = [v if len(loop_vars) > 1 else (v,) for v in evaluate(scope.iter, {})]
+                if var in loop_vars:
+                    return {v[loop_vars.index(var)] for v in values}
+                derived = [  # name = key.split(".", 1)[1] inside the loop
+                    stmt.value for stmt in getattr(scope, "body", [])
+                    if isinstance(stmt, ast.Assign) and [getattr(t, "id", None) for t in stmt.targets] == [var]
+                ]
+                if derived:
+                    return {evaluate(derived[0], dict(zip(loop_vars, v, strict=True))) for v in values}
+            scope = parents.get(scope)
+        return None
+
+    names, unresolved = set(), []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                 and node.func.attr in ("Required", "Optional")
-                and getattr(node.func.value, "id", None) == "vol"
-                and node.args and isinstance(node.args[0], ast.Constant)
-                and isinstance(node.args[0].value, str)):
-            names.add(node.args[0].value)
-    names.update(cf.HUAWEI_REQUIRED_ROLES, cf.HUAWEI_OPTIONAL_ROLES, cf.EV_SOURCE_KEYS, cf.SOURCE_DEFINITIONS)
-    for groups in (cf.OPTION_GROUPS, cf.SETTING_GROUPS, cf.SOURCE_GROUPS):
-        for fields in groups.values():
-            names.update(field.split(".")[-1] for field in fields)
+                and getattr(node.func.value, "id", None) == "vol" and node.args):
+            continue
+        key = node.args[0]
+        found = ({key.value} if isinstance(key, ast.Constant)
+                 else resolve(node, key.id) if isinstance(key, ast.Name) else None)
+        if found is None:
+            unresolved.append(f"config_flow.py:{node.lineno} {ast.unparse(key)}")
+        else:
+            names |= found
+    assert not unresolved, unresolved
     return names
 
 

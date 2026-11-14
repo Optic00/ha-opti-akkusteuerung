@@ -45,8 +45,9 @@ def check_rendered_form_fields(monkeypatch):
             step_id = kwargs.get("step_id", "")
             labels = _STRINGS[flow]["step"].get(step_id, {}).get("menu_options", {})
             options = kwargs.get("menu_options", [])
-            keys = options.keys() if isinstance(options, dict) else options
-            missing.update(f"{flow}/{step_id}/menu/{key}" for key in keys if not labels.get(key))
+            # A dict menu brings its own labels; a list menu takes them from strings.json.
+            given = options if isinstance(options, dict) else {key: labels.get(key) for key in options}
+            missing.update(f"{flow}/{step_id}/menu/{key}" for key, label in given.items() if not label)
         return original_menu(self, *args, **kwargs)
 
     monkeypatch.setattr(FlowHandler, "async_show_form", show_form)

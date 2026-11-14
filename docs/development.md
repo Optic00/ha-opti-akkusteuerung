@@ -53,8 +53,9 @@ undefinierten Namen auch häufige Python-Fehler über die Bugbear-Regeln.
 Hassfest und die HACS-Anforderungen laufen ebenfalls in der CI, zusätzlich
 jeden Montag früh als geplanter Lauf, damit neue Regeln in Home Assistant oder
 HACS auffallen, bevor ein PR kommt. Ein neuer Push auf denselben PR oder
-Arbeitsbranch bricht den noch laufenden älteren Lauf ab; Läufe auf `main` und
-der Wochenlauf laufen immer vollständig. Vor folgenreichen
+Arbeitsbranch bricht den noch laufenden älteren Lauf ab. Läufe auf `main`, der
+Wochenlauf und manuell gestartete Läufe haben je eine eigene Gruppe und laufen
+immer vollständig. Vor folgenreichen
 Änderungen gilt die [Review-Regel](../REVIEW_POLICY.md). Version in Manifest,
 Projektmetadaten und Release-Tag synchron halten. Vorabversionen bleiben ausdrücklich
 Beta; ein grüner Testlauf ist kein Hardware- oder Langzeitnachweis. Der aktuelle

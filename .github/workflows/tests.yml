@@ -14,12 +14,12 @@ permissions:
   contents: read
 
 # Bei schnellen Pushes auf einen PR- oder codex/**-Branch den veralteten Lauf
-# abbrechen. Läufe auf main und geplante Läufe laufen immer vollständig durch.
-# Das Ereignis gehört zur Gruppe, damit ein neuer main-Push keinen wartenden
-# Wochenlauf ersetzt.
+# abbrechen. Nur diese Läufe teilen sich eine Gruppe je Ref. Läufe auf main,
+# geplante und manuell gestartete Läufe bekommen über die run_id eine eigene
+# Gruppe; sie werden so weder abgebrochen noch als wartender Lauf ersetzt.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.event_name != 'schedule' }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main')) && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   tests:

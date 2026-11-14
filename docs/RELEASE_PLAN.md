@@ -35,7 +35,7 @@ erledigen, **P2** bald danach, **P3** Pflege und Komfort.
 
 | # | Lücke | Nachweis | Vorschlag |
 |---|---|---|---|
-| 0.1 | Offene Abnahmen aus #85 | #85 ist die maßgebliche Checkliste. Stand 11.11.: #151 (SMA-Hardware und Ausfallverhalten), #155 (Schattenplaner gegen echten Verlauf), Mehrtagesbetrieb, getrennter Huawei-Nachweis, Restore. Dazu der offene Fehlerbericht #222 (Min-SoC bei geplanter Ladung) | Bleiben in #85; stabile Version erst nach allen Haken dort. Offene Fehlerberichte wie #222 vor dem Freeze einstufen (Blocker oder bekannte Grenze). Huawei ggf. ausdrücklich als „experimentell“ aus dem Stabilitätsversprechen ausnehmen (README nennt es schon so). |
+| 0.1 | Offene Abnahmen aus #85 | #85 ist die maßgebliche Checkliste. Stand 11.11.: #151 (SMA-Hardware und Ausfallverhalten), #155 (Schattenplaner gegen echten Verlauf), Mehrtagesbetrieb, getrennter Huawei-Nachweis, Restore. Dazu #222 (geplantes Netzladen darf nicht am Standby des STP SE bei 0 % scheitern), in #85 als Freigabeprüfung geführt | Bleiben in #85; stabile Version erst nach allen Haken dort, #222 eingeschlossen. Soll ein Punkt stattdessen als bekannte Grenze gelten, wird das zuerst in #85 mit geänderter Abnahme und eingeschränktem Unterstützungsumfang (0.3) festgehalten. Huawei ggf. ausdrücklich als „experimentell“ aus dem Stabilitätsversprechen ausnehmen (README nennt es schon so). |
 | 0.2 | Kein Feature-Freeze vor Stabil | beta3 bis beta8 in vier Tagen, darin neue Funktionen (#219, #223, #225, #227) und ein Schreibstillstand-Fix (#229) | Release-Candidate-Phase einführen: ab einem festgelegten Beta-Tag nur noch Fehlerkorrekturen, Mindestlaufzeit z. B. 14 Tage auf mindestens einer echten Anlage ohne neuen Critical/Important-Befund. Regel in `docs/development.md` aufnehmen. Der Versionsvertrag in `tools/build_package.py` erlaubt nur `-betaN` und `.N`; entweder die RC-Phase im Beta-Schema führen oder `-rcN` dort, in `test_package.py` und im Release-Workflow (Prerelease-Kennzeichen) ergänzen. |
 | 0.3 | Stabilitätsversprechen ungeklärt | README und CHANGELOG sagen „bleibt Beta“ | Vor `.0` festlegen, was „stabil“ heißt: welche Backends/Profile unterstützt sind (SMA STP SE), was experimentell bleibt (Huawei, SBS, Sunny Island, Peak-Rangfolge steuernd) und wie Breaking Changes angekündigt werden. In README als Abschnitt „Unterstützungsumfang“. |
 
@@ -117,4 +117,4 @@ sofort mit `.1` korrigieren statt das Release zu ersetzen.
 3. 1.1, 1.2 und 1.6 (Übersetzungen und Fehlertypen).
 4. 1.4 Reparaturen, danach Feature-Freeze und RC-Phase (0.2).
 5. Wenn #85 abgehakt und die RC-Phase ohne neuen Befund durchlaufen ist: `.0` mit Freigabeprüfung.
-5. P2 und Distribution nach der ersten stabilen Version.
+6. P2 und Distribution nach der ersten stabilen Version.

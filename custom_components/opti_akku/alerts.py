@@ -107,7 +107,10 @@ class HealthAlerts:
         self._source_details_updated_at = None
         self._source_nonstale_since = None
         self._grid_blocked_since = None
-        self._grid_issue_open = False
+        # A persistent issue from before a restart or reload stays open until
+        # grid charging is confirmed again, the user dismisses it, or the
+        # entry is removed.
+        self._grid_issue_open = ir.async_get(hass).async_get_issue(DOMAIN, self._grid_issue_id) is not None
 
     @property
     def _grid_issue_id(self):
@@ -128,7 +131,7 @@ class HealthAlerts:
                 report = data.get("standby_reserve")
                 reserve = finite(report.get("reserve_soc")) if isinstance(report, Mapping) else None
                 ir.async_create_issue(
-                    self.hass, DOMAIN, self._grid_issue_id, is_fixable=False, is_persistent=False,
+                    self.hass, DOMAIN, self._grid_issue_id, is_fixable=False, is_persistent=True,
                     severity=ir.IssueSeverity.WARNING, translation_key=GRID_CHARGE_STANDBY_ISSUE,
                     learn_more_url="https://github.com/Optic00/ha-opti-akkusteuerung/issues/222",
                     translation_placeholders={
@@ -140,9 +143,10 @@ class HealthAlerts:
             return
         self._grid_blocked_since = None
         connection = data.get("connection_status")
+        # Only a grid charge command the device confirmed proves it works again.
         if (self._grid_issue_open and data.get("mode") == "Akku Netzladen"
                 and isinstance(connection, Mapping) and connection.get("status") == "ready"
-                and data.get("command_confirmation") == "idle_or_confirmed"):
+                and data.get("command_result_this_update") == "confirmed"):
             ir.async_delete_issue(self.hass, DOMAIN, self._grid_issue_id)
             self._grid_issue_open = False
 
@@ -375,9 +379,6 @@ class HealthAlerts:
 
     async def async_stop(self):
         self._stopped = True
-        if self._grid_issue_open:
-            ir.async_delete_issue(self.hass, DOMAIN, self._grid_issue_id)
-            self._grid_issue_open = False
         persistent_notification.async_dismiss(self.hass, f"opti_akku_health_{self.entry.entry_id}")
         persistent_notification.async_dismiss(self.hass, f"opti_akku_test_{self.entry.entry_id}")
         self._pending = None

@@ -114,8 +114,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Drop a reload handover of a removed entry."""
+    """Drop a reload handover and the repair issues of a removed entry."""
     hass.data.get(RELOAD_HANDOVER_KEY, {}).pop(entry.entry_id, None)
+    from homeassistant.helpers import issue_registry as ir
+
+    from .alerts import GRID_CHARGE_STANDBY_ISSUE
+
+    ir.async_delete_issue(hass, DOMAIN, f"{GRID_CHARGE_STANDBY_ISSUE}_{entry.entry_id}")
 
 
 @callback

@@ -81,7 +81,7 @@ def test_uneconomic_window_with_default_model_is_not_planned():
 
 @pytest.mark.parametrize("overrides,status", [
     ({"grid_charging": False}, "grid_charging_off"),
-    ({"peak_reserve_active": False}, "no_peak_reserve"),
+    ({"peak_reserve_active": False}, "none"),
     ({"sunrise": None}, "data_missing"),
     ({"horizon_end": "kaputt"}, "data_missing"),
     ({"price_series": {}}, "data_missing"),
@@ -89,6 +89,18 @@ def test_uneconomic_window_with_default_model_is_not_planned():
 ])
 def test_missing_preconditions_plan_nothing(overrides, status):
     assert window(**overrides)["status"] == status
+
+
+@pytest.mark.parametrize("peak_reserve_active", [True, False])
+def test_price_below_feed_in_before_sunrise_needs_no_peak(peak_reserve_active):
+    """First grid branch of decisions.yaml: independent of peaks, also after the last one."""
+    prices = {"today": day_prices(32.0), "tomorrow": day_prices(32.0, ((5, 0), (5, 30), 6.0))}
+    result = window(price_series=prices, peak_reserve_active=peak_reserve_active, surcharge_ct=None)
+    assert (result["status"], result["kind"]) == ("planned", "grid_below_feed_in")
+    assert result["at"] == local(15, 5, 0).isoformat()
+    # The same slot after sunrise: PV wakes the inverter first.
+    assert window(price_series=prices, peak_reserve_active=peak_reserve_active,
+                  sunrise=local(15, 4, 50).isoformat())["status"] == "none"
 
 
 PLANNED = {"status": "planned", "at": local(15, 2, 0).isoformat(), "kind": "grid_precharge"}
@@ -153,21 +165,33 @@ def test_reserve_releases_without_all_preconditions(kwargs, source, status):
 
 
 def blocked_data(**overrides):
-    data = {"online": True, "engine_requested_mode": "Akku Netzladen",
+    data = {"online": True, "mode": "Akku Netzladen",
             "connection_status": {"status": "not_ready", "inverter_status": 16777213},
-            "states": {"sun.sun": "below_horizon"}}
+            "states": {"sun.sun": "below_horizon", "sensor.opti_pv_generation_w": 0,
+                       "sensor.opti_battery_power_w": 0, "sensor.opti_soc": 0,
+                       "input_number.minsoc": 0},
+            "standby_reserve": {"reserve_soc": 3.0}}
     data.update(overrides)
     return data
 
 
 def test_grid_charge_blocked_needs_standby_code_night_and_grid_request():
     assert grid_charge_blocked(blocked_data(), SMA_STANDBY_STATUS_CODES)
+    night = blocked_data()["states"]
+    # Up to the reserve plus its release band counts as empty.
+    assert grid_charge_blocked(blocked_data(states={**night, "sensor.opti_soc": 5}), SMA_STANDBY_STATUS_CODES)
     for overrides in (
-        {"engine_requested_mode": "Akku nur Laden"},
+        # A safety rule replaced the grid charge wish (e.g. Pause): not this incident.
+        {"mode": "Akku Pause"},
+        {"states": {**night, "sensor.opti_soc": 6}},
+        {"states": {**night, "sensor.opti_pv_generation_w": 120}},
+        {"states": {**night, "sensor.opti_battery_power_w": -300}},
+        {"states": {**night, "sensor.opti_battery_power_w": "unavailable"}},
+        {"states": {**night, "input_number.minsoc": None}},
         {"online": False},
         {"connection_status": {"status": "ready", "inverter_status": 235}},
         {"connection_status": {"status": "not_ready", "inverter_status": 4242}},
-        {"states": {"sun.sun": "above_horizon"}},
+        {"states": {**night, "sun.sun": "above_horizon"}},
         {"states": None},
         {"connection_status": None},
     ):
@@ -222,18 +246,31 @@ async def test_blocked_grid_charge_opens_a_repair_issue_until_it_works_again(has
     assert issue is not None
     assert issue.translation_key == "grid_charge_standby"
     assert issue.severity == ir.IssueSeverity.WARNING
-    assert issue.is_persistent is False
+    assert issue.is_persistent is True
     assert issue.translation_placeholders == {"entry": "Opti Test", "time": "02:00", "reserve": "0"}
     # Morning: the standby ended without grid charging; the issue stays visible.
     with at(6 * 3600):
-        alerts.update(health(engine_requested_mode="Akku Dynamisch", mode="Akku Dynamisch",
+        alerts.update(health(mode="Akku Dynamisch",
                              connection_status={"status": "ready", "inverter_status": 235},
                              states={"sun.sun": "above_horizon"}))
     assert registry.async_get_issue("opti_akku", issue_id) is not None
+    # A ready device alone, or a failed grid charge command, proves nothing.
+    for result in ("not_attempted", "failed", "superseded"):
+        with at(20 * 3600):
+            alerts.update(health(connection_status={"status": "ready", "inverter_status": 235},
+                                 command_result_this_update=result,
+                                 command_confirmation="idle_or_confirmed"))
+        assert registry.async_get_issue("opti_akku", issue_id) is not None
+    # A restart or reload keeps the issue and its lifecycle.
+    from custom_components.opti_akku.alerts import HealthAlerts
+
+    await alerts.async_stop()
+    assert registry.async_get_issue("opti_akku", issue_id) is not None
+    alerts = HealthAlerts(hass, alerts.entry)
     # A confirmed grid charge closes it.
     with at(24 * 3600):
         alerts.update(health(connection_status={"status": "ready", "inverter_status": 235},
-                             command_confirmation="idle_or_confirmed"))
+                             command_result_this_update="confirmed"))
     assert registry.async_get_issue("opti_akku", issue_id) is None
 
 
@@ -255,7 +292,7 @@ async def test_no_repair_issue_without_write_permission_or_for_short_blips(hass,
     assert registry.async_get_issue("opti_akku", issue_id) is None
 
 
-async def test_stopping_the_alerts_removes_the_repair_issue(hass, alerts):
+async def test_removing_the_entry_removes_the_repair_issue(hass, alerts):
     from homeassistant.helpers import issue_registry as ir
 
     for seconds in (0, 120):
@@ -265,4 +302,8 @@ async def test_stopping_the_alerts_removes_the_repair_issue(hass, alerts):
     registry = ir.async_get(hass)
     assert registry.async_get_issue("opti_akku", issue_id).translation_placeholders["reserve"] == "3"
     await alerts.async_stop()
+    assert registry.async_get_issue("opti_akku", issue_id) is not None
+    from custom_components.opti_akku import async_remove_entry
+
+    await async_remove_entry(hass, alerts.entry)
     assert registry.async_get_issue("opti_akku", issue_id) is None

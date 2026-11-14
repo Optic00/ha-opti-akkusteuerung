@@ -10,9 +10,9 @@ This module therefore holds a small reserve only while it matters:
 
 - the backend is SMA (the standby is documented for the STP SE only),
 - the sun is down,
-- grid charging is allowed and the strategy's own grid-charge conditions
-  (``peak_rank._refill``, mirroring decisions.yaml) open a window before the
-  next sunrise,
+- grid charging is allowed and a grid charge window opens before the next
+  sunrise: a price below the feed-in tariff (independent of peaks) or the
+  peak precharge conditions (``peak_rank._refill``, mirroring decisions.yaml),
 - the SoC has reached the reserve.
 
 Then a discharging mode becomes "Akku nur Laden" (a discharge lock; at night
@@ -46,6 +46,9 @@ SMA_BACKENDS = frozenset({"sma", "sma_modbus"})
 # SoC holds of the strategy (MinSOC, L3/L4) do; SoC readings of an idle
 # battery may step by one percent.
 RELEASE_BAND = 2.0
+# Largest PV or battery power (W) still consistent with an idle inverter, as
+# alerts.STANDBY_IDLE_W.
+IDLE_W = 50.0
 
 
 def next_grid_charge(
@@ -72,18 +75,29 @@ def next_grid_charge(
     """
     if not grid_charging:
         return {"status": "grid_charging_off"}
-    if not peak_reserve_active:
-        # Without a peak reserve the precharge branch cannot fire.
-        return {"status": "no_peak_reserve"}
     rising = _instant(sunrise)
     end = _instant(horizon_end)
     if rising is None or end is None:
         return {"status": "data_missing", "detail": "sunrise" if rising is None else "horizon"}
     periods = _price_periods(price_series, now, timezone)
     current = next((i for i, slot in enumerate(periods) if slot[0] <= now < slot[1]), None)
+    if current is None:
+        return {"status": "data_missing", "detail": "price_series"}
+    feed_in = value if (value := _number(feed_in_ct)) is not None else 0
+    # Grid charging below the feed-in tariff does not depend on a peak (first
+    # branch of decisions.yaml); its window band only narrows the slot, so any
+    # such slot before sunrise counts.
+    below_feed_in = next((i for i in range(current, len(periods))
+                          if periods[i][0] < rising and periods[i][2] < feed_in), None)
+    if below_feed_in is not None:
+        return {"status": "planned", "at": periods[below_feed_in][0].isoformat(),
+                "kind": "grid_below_feed_in", "sunrise": rising.isoformat()}
+    if not peak_reserve_active:
+        # Without a peak reserve the precharge branch cannot fire.
+        return {"status": "none", "sunrise": rising.isoformat()}
     surcharge = _number(surcharge_ct)
-    if current is None or surcharge is None:
-        return {"status": "data_missing", "detail": "price_series" if current is None else "surcharge"}
+    if surcharge is None:
+        return {"status": "data_missing", "detail": "surcharge"}
     spread = value if (value := _number(spread_ct)) is not None else 10
     window_start = _hour_start(now, timezone)
     window = [i for i, slot in enumerate(periods) if window_start <= slot[0] < end]
@@ -93,7 +107,7 @@ def next_grid_charge(
         surcharge=surcharge, model=battery_model, spread=spread)
     refill = _refill(
         periods, peaks, current, end, timezone, grid=True, percentile=percentile, spread=spread,
-        feed_in=value if (value := _number(feed_in_ct)) is not None else 0,
+        feed_in=feed_in,
         maxsoc=value if (value := _number(maxsoc)) is not None else 95,
         surcharge=surcharge, charging=False, model=battery_model,
     )
@@ -159,18 +173,31 @@ def apply_standby_reserve(
 
 
 def grid_charge_blocked(data: Mapping[str, Any], standby_codes: frozenset[int]) -> bool:
-    """The strategy wants grid charging, but the inverter sleeps (#222).
+    """Grid charging is the effective mode, but the inverter sleeps (#222).
 
-    Same device evidence as ``alerts.night_standby`` (reachable, documented
-    standby code, sun down), but with "Akku Netzladen" requested. Activity
-    on the battery means the device is not asleep.
+    Same device evidence as ``alerts.night_standby``: reachable, documented
+    standby code (which only means "no information"), sun down, an idle
+    device (no PV, no battery flow) and an empty battery (SoC at MinSOC or the
+    standby reserve, plus the release band). Missing telemetry fails closed.
+    Only the mode actually commanded counts, not a strategy wish that a safety
+    rule replaced.
     """
     connection = data.get("connection_status")
     if not isinstance(connection, Mapping) or connection.get("status") != "not_ready":
         return False
     if connection.get("inverter_status") not in standby_codes or not data.get("online", False):
         return False
-    if data.get("engine_requested_mode") != GRID_CHARGE_MODE:
+    if data.get("mode") != GRID_CHARGE_MODE:
         return False
     states = data.get("states")
-    return isinstance(states, Mapping) and states.get("sun.sun") == "below_horizon"
+    if not isinstance(states, Mapping) or states.get("sun.sun") != "below_horizon":
+        return False
+    pv, battery = _number(states.get("sensor.opti_pv_generation_w")), _number(states.get("sensor.opti_battery_power_w"))
+    if pv is None or battery is None or pv > IDLE_W or abs(battery) > IDLE_W:
+        return False
+    soc, minsoc = _number(states.get("sensor.opti_soc")), _number(states.get("input_number.minsoc"))
+    report = data.get("standby_reserve")
+    reserve = _number(report.get("reserve_soc")) if isinstance(report, Mapping) else None
+    if soc is None or minsoc is None:
+        return False
+    return bool(soc <= max(minsoc, reserve or 0.0) + RELEASE_BAND)

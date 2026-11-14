@@ -28,15 +28,23 @@ def hour_key(local_hour, day=14):
     return str(int(dt.datetime(2026, 1, day, local_hour, tzinfo=TZ).timestamp()))
 
 
-def pv(kwh_by_local_hour):
-    return {ENTITY: {"status": "ready", "quantile": "p10",
-                     "hours": {hour_key(h): kwh for h, kwh in kwh_by_local_hour.items()}}}
+def pv(kw_by_local_hour, halfhours=None):
+    """Mean P10 power per local hour, spread over both half hours; ``halfhours`` adds
+    ((hour, minute), kW) entries."""
+    rows = {}
+    for h, kw in kw_by_local_hour.items():
+        rows[hour_key(h)] = kw
+        rows[str(int(hour_key(h)) + 1800)] = kw
+    for (h, minute), kw in (halfhours or {}).items():
+        rows[str(int(hour_key(h)) + minute * 60)] = kw
+    return {ENTITY: {"status": "ready", "quantile": "p10", "halfhours": rows}}
 
 
-def run(pv_hours=None, *, overrides=None, model=MODEL, mode="Akku Dynamisch"):
+def run(pv_hours=None, *, overrides=None, model=MODEL, mode="Akku Dynamisch", halfhours=None,
+        minute=5):
     values = {"input_select.akkusteuerung_modus": mode, **(overrides or {})}
-    return evaluate(W1, current=27, model=model, overrides=values,
-                    attributes=pv(pv_hours) if pv_hours is not None else None)
+    return evaluate(W1, current=27, model=model, overrides=values, minute=minute,
+                    attributes=pv(pv_hours, halfhours) if pv_hours is not None else None)
 
 
 def reserve(result):
@@ -106,6 +114,21 @@ def test_pv_after_the_peak_start_does_not_count():
     assert precharges(result)
 
 
+def test_half_hours_are_credited_only_for_their_remaining_part():
+    """Codex review: a sunny first half hour must not be credited after it has passed."""
+    # 13:00-13:30 at 5 kW, then no PV. At 13:05: 25 min of 4.2 kW surplus, capped at
+    # the default 3 kW charge power = 1.25 kWh.
+    early = run({}, halfhours={(13, 0): 5.0, (13, 30): 0.0, (14, 0): 0.0, (14, 30): 0.0,
+                               (15, 0): 0.0, (15, 30): 0.0, (16, 0): 0.0, (16, 30): 0.0})
+    assert reserve(early)["pv_vor_peak_kwh"] == pytest.approx(1.25, abs=0.01)
+    # At 13:35 the sunny half hour is over: nothing left to credit.
+    late = run({}, minute=35, halfhours={(13, 0): 5.0, (13, 30): 0.0, (14, 0): 0.0, (14, 30): 0.0,
+                                         (15, 0): 0.0, (15, 30): 0.0, (16, 0): 0.0, (16, 30): 0.0})
+    assert reserve(late)["pv_vor_peak_kwh"] == 0
+    assert reserve(late)["vorlade_ziel_soc"] == RESERVE
+    assert precharges(late)
+
+
 def test_hour_without_forecast_counts_as_zero():
     # Only 13 h is known: 0.5 kW * 55 min = 0.46 kWh. The rest counts as 0.
     result = run({13: 1.3})
@@ -138,7 +161,7 @@ def test_without_valid_charge_efficiency_no_pv_is_credited(model_attrs):
 @pytest.mark.parametrize("hours", [None, "x", []])
 def test_malformed_forecast_hours_fall_back_to_the_full_reserve(hours):
     result = evaluate(W1, current=27, model=MODEL,
-                      attributes={ENTITY: {"status": "ready", "hours": hours}})
+                      attributes={ENTITY: {"status": "ready", "halfhours": hours}})
     assert reserve(result)["pv_prognose"] == "fehlt"
     assert reserve(result)["vorlade_ziel_soc"] == RESERVE
     assert precharges(result)
@@ -196,62 +219,73 @@ def test_surplus_sensor_is_off_without_measurements():
     assert _surplus(engine, t0 + dt.timedelta(seconds=120), 3000, None, 0) == "off"
 
 
-# -- forecast hours from Solcast ------------------------------------------------
+def test_missing_measurements_keep_the_previous_precharge_behaviour():
+    """Deliberate fail direction (Codex review): without grid measurements the
+    surplus lock is off and the precharge decides as before #155, like the other
+    surplus sensors. A missing house balance stops control in the coordinator."""
+    engine = _surplus_engine()
+    t0 = dt.datetime(2026, 1, 14, 12, 0, tzinfo=TZ)
+    state = _surplus(engine, t0 + dt.timedelta(seconds=120), 3000, None, 0)
+    assert precharges(run(overrides={"binary_sensor.opti_vorladen_pv_ueberschuss": state}))
+
+
+# -- forecast half hours from Solcast -------------------------------------------
 
 NOW = dt.datetime(2026, 1, 14, 13, 5, tzinfo=TZ)
-HOUR = NOW.astimezone(UTC).replace(minute=0)
+HALF = NOW.astimezone(UTC).replace(minute=0)
 
 
 def solcast(start, rows, updated=NOW):
     detail = [{"period_start": (start + dt.timedelta(minutes=30 * i)).isoformat(),
-               **({"pv_estimate10": p10} if p10 is not None else {}), "pv_estimate": 2.0}
+               "pv_estimate10": p10, "pv_estimate": 2.0}
               for i, p10 in enumerate(rows)]
     return SimpleNamespace(state="1", attributes={"detailedForecast": detail},
                            last_reported=updated, last_updated=updated)
 
 
-def states(**entities):
-    return entities.get
+def key(offset_halfhours):
+    return str(int((HALF + dt.timedelta(minutes=30 * offset_halfhours)).timestamp()))
 
 
-def test_forecast_hours_are_contiguous_p10_from_the_current_hour():
-    # 12:00 UTC (past), then 13, 14 local; 15 local half covered -> gap.
-    entity = solcast(HOUR - dt.timedelta(hours=1), [1, 1, 0.5, 0.5, 0.25, 0.75, 2.0])
-    status, attrs = pv_forecast_hours(states(today=entity), [("today", None)], NOW, max_age=3600)
+def test_forecast_half_hours_are_contiguous_p10_from_now():
+    # Past half hour dropped; 13:00 and 13:30 local kept; a gap ends the rows.
+    entity = solcast(HALF - dt.timedelta(minutes=30), [1, 0.5, 0.25])
+    gap = solcast(HALF + dt.timedelta(hours=2), [3.0])
+    status, attrs = pv_forecast_hours({"today": entity, "tomorrow": gap},
+                                      [("today", "tomorrow")], NOW, max_age=3600)
     assert status == "ready"
     assert attrs == {"status": "ready", "quantile": "p10", "source": "today",
-                     "hours": {str(int(HOUR.timestamp())): 0.5,
-                               str(int((HOUR + dt.timedelta(hours=1)).timestamp())): 0.5}}
+                     "halfhours": {key(0): 0.5, key(1): 0.25}}
 
 
-def test_forecast_hours_use_tomorrow_and_stop_at_a_missing_p10():
-    today = solcast(HOUR, [1, 1])
-    tomorrow = solcast(HOUR + dt.timedelta(hours=1), [0.2, 0.2, None, 1])
-    status, attrs = pv_forecast_hours(states(t=today, m=tomorrow), [("t", "m")], NOW, max_age=3600)
-    assert status == "ready"
-    assert list(attrs["hours"].values()) == [1.0, 0.2]
+def test_forecast_half_hours_join_today_and_tomorrow():
+    today = solcast(HALF, [1, 1])
+    tomorrow = solcast(HALF + dt.timedelta(hours=1), [0.2, 0.3])
+    _, attrs = pv_forecast_hours({"t": today, "m": tomorrow}, [("t", "m")], NOW, max_age=3600)
+    assert list(attrs["halfhours"].values()) == [1.0, 1.0, 0.2, 0.3]
 
 
-def test_forecast_hours_fall_back_to_the_next_source_pair():
-    stale = solcast(HOUR, [1, 1], updated=NOW - dt.timedelta(hours=5))
-    fresh = solcast(HOUR, [0.4, 0.4])
-    status, attrs = pv_forecast_hours(states(a=stale, b=fresh), [(None, None), ("a", None), ("b", None)],
-                                      NOW, max_age=3600)
-    assert (status, attrs["source"], list(attrs["hours"].values())) == ("ready", "b", [0.4])
-    status, attrs = pv_forecast_hours(states(a=stale), [("a", None)], NOW, max_age=3600)
-    assert (status, attrs["hours"]) == ("stale", {})
+def test_the_source_reaching_furthest_wins():
+    """Codex review: a source covering only the current hour must not shadow a longer one."""
+    short = solcast(HALF, [5.0, 5.0])
+    long = solcast(HALF, [0.4] * 10)
+    stale = solcast(HALF, [9.0] * 20, updated=NOW - dt.timedelta(hours=5))
+    states = {"short": short, "long": long, "stale": stale}
+    status, attrs = pv_forecast_hours(states, [(None, None), ("stale", None), ("short", None),
+                                               ("long", None)], NOW, max_age=3600)
+    assert (status, attrs["source"], len(attrs["halfhours"])) == ("ready", "long", 10)
+    # On a tie the first pair wins.
+    _, attrs = pv_forecast_hours({"a": short, "b": solcast(HALF, [1, 1])}, [("a", None), ("b", None)],
+                                 NOW, max_age=3600)
+    assert attrs["source"] == "a"
 
 
-def test_forecast_hours_cap_the_horizon_and_handle_no_source():
-    long = solcast(HOUR, [0.1] * 96)
-    _, attrs = pv_forecast_hours(states(a=long), [("a", None)], NOW, max_age=3600)
-    # From the current hour up to now + 37 h.
-    assert len(attrs["hours"]) == 38
-    assert pv_forecast_hours(states(), [(None, None)], NOW, max_age=3600) == (
-        "no_forecast", {"status": "no_forecast", "quantile": "p10", "source": None, "hours": {}})
-
-
-def test_forecast_hours_without_p10_in_the_current_hour_are_no_forecast():
-    entity = solcast(HOUR, [None, None, 1, 1])
-    status, attrs = pv_forecast_hours(states(a=entity), [("a", None)], NOW, max_age=3600)
-    assert (status, attrs["hours"]) == ("no_forecast", {})
+def test_no_usable_forecast_is_no_forecast():
+    stale = solcast(HALF, [1, 1], updated=NOW - dt.timedelta(hours=5))
+    later = solcast(HALF + dt.timedelta(hours=1), [1, 1])
+    broken = solcast(HALF, [1, 1])
+    broken.attributes["detailedForecast"][0]["pv_estimate10"] = "x"
+    for entity in (stale, later, broken):
+        assert pv_forecast_hours({"a": entity}, [("a", None)], NOW, max_age=3600) == (
+            "no_forecast", {"status": "no_forecast", "quantile": "p10", "source": None, "halfhours": {}})
+    assert pv_forecast_hours({}, [(None, None)], NOW, max_age=3600)[0] == "no_forecast"

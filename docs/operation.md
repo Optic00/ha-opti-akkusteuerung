@@ -174,14 +174,14 @@ warum Vorladen wirtschaftlich zulässig ist, zeigt der Reserveplan unter `precha
 
 Peak-Vorladen lädt nur, was die PV bis zur Spitze nicht selbst liefert. Die
 Peak-Reserve rechnet dafür den erwarteten PV-Überschuss bis zum Beginn der ersten
-Spitze: Solcast-P10 je Stunde abzüglich der Stundenlast, begrenzt auf die maximale
+Spitze: Solcast-P10 je Halbstunde abzüglich der Stundenlast, begrenzt auf die maximale
 Ladeleistung und mit dem Ladewirkungsgrad des Akkumodells. P10 statt Median, weil
 der Median an trüben Tagen deutlich zu hoch liegen kann. Aus dem Netz geladen wird
 nur bis zum **Vorladeziel** (`vorlade_ziel_soc` an der Peak-Reserve, im Reserveplan
 `precharge_target_soc`): Reserve minus diese PV. Die Peak-Leiter hält weiter die
 volle Reserve; die PV lädt sie bis zur Spitze auf. Fehlt eine Solcast-Prognose mit
 Intervallen, zählt keine PV und es wird wie bisher bis zur Reserve vorgeladen.
-Stunden ohne Prognose zählen mit 0. Zusätzlich lädt Peak-Vorladen nicht aus dem
+Halbstunden ohne Prognose zählen mit 0; bei mehreren Prognosequellen gilt die, die am weitesten reicht. Zusätzlich lädt Peak-Vorladen nicht aus dem
 Netz, solange die PV gerade mehr als 200 W über dem Hausverbrauch liefert
 (`binary_sensor.opti_vorladen_pv_ueberschuss`, Ein nach 60 s, Aus nach 5 min).
 

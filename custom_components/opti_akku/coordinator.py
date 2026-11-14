@@ -1244,13 +1244,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             sources = captured_options.get("sources", {})
             pv_state, pv_attributes = pv_forecast_hours(
-                self.hass.states.get,
+                self.hass.states,
                 ((sources.get("forecast_today"), sources.get("forecast_tomorrow")),
                  (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow"))),
                 now, max_age=captured_options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE))
         except Exception as err:  # A missing PV credit is the old, safe behaviour.
             _LOGGER.debug("PV forecast hours unavailable: %s", type(err).__name__)
-            pv_state, pv_attributes = "error", {"status": "error", "hours": {}}
+            pv_state, pv_attributes = "error", {"status": "error", "halfhours": {}}
         states[PV_FORECAST_HOURS] = pv_state
         attributes[PV_FORECAST_HOURS] = pv_attributes
         # Observation only: the strategy never reads this estimate. A daily-total

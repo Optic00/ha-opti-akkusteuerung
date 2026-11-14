@@ -1,34 +1,53 @@
-"""PV forecast hours for the peak precharge in the strategy (#155).
+"""PV forecast half-hours for the peak precharge in the strategy (#155).
 
 The strategy charges the battery from the grid ahead of a price peak
 (``peak_precharge``). Without this input it ignored the PV that reaches the
 battery before the peak anyway, so grid energy displaced PV that was then
-exported. This module turns the Solcast interval forecast into hourly P10
-energy that ``sensor.opti_peak_reserve_soc`` nets against the load profile up
-to the start of the first peak. P10 deliberately, not the median: on cloudy
-days the median overshot by a factor of three (#155, 16.10.).
+exported. This module turns the Solcast ``detailedForecast`` into half-hourly
+P10 power that ``sensor.opti_peak_reserve_soc`` nets against the load profile
+up to the start of the first peak. P10 deliberately, not the median: on cloudy
+days the median overshot by a factor of three (#155, 16.10.). Half hours, not
+hours: an hourly mean would credit a sunny first half hour to the rest of the
+hour after it has passed.
 
-A missing, stale or invalid forecast yields no hours. The strategy then
+A missing, stale or invalid forecast yields no half hours. The strategy then
 credits no PV and precharges exactly as before; this input can only lower the
 precharge target, never raise it.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from .planner_shadow import pv_forecast_hourly
+from .demand import pv_intervals
 
 ENTITY = "sensor.opti_pv_forecast_hours"
 QUANTILE = "p10"
-# The peak reserve horizon spans at most 36 hours from now.
-MAX_HOURS = 37
+STEP = timedelta(minutes=30)
+
+
+def _contiguous(rows: Sequence[tuple[datetime, float]], now: datetime) -> dict[str, float]:
+    """P10 kW per half hour, from the one covering ``now`` until the first gap."""
+    halfhours: dict[str, float] = {}
+    expected: datetime | None = None
+    for start, watts in rows:
+        start = start.astimezone(UTC)
+        if expected is None:
+            if start > now:
+                return {}
+        elif start != expected:
+            break
+        if start.minute % 30 or start.second or start.microsecond:
+            break
+        halfhours[str(int(start.timestamp()))] = round(watts / 1000, 4)
+        expected = start + STEP
+    return halfhours
 
 
 def pv_forecast_hours(
-    get_state: Callable[[str], Any],
+    states: Any,
     source_pairs: Iterable[tuple[str | None, str | None]],
     now: datetime,
     *,
@@ -36,33 +55,22 @@ def pv_forecast_hours(
 ) -> tuple[str, dict[str, Any]]:
     """State and attributes of :data:`ENTITY`.
 
-    ``source_pairs`` are (today, tomorrow) forecast entities in order of
-    preference, like the shadow planner: the configured forecast first, then
-    the demand forecast's Solcast source. The first pair that yields a ready
-    forecast wins. ``hours`` maps the UTC hour start in epoch seconds, as text
-    like ``sensor.opti_peak_load_profile``, to the P10 energy of that hour in
-    kWh. It starts with the current hour and ends before the first gap.
+    ``source_pairs`` are (today, tomorrow) forecast entities: the configured
+    forecast and the demand forecast's Solcast source. The pair whose
+    contiguous P10 half hours reach furthest wins, the first on a tie, so a
+    source covering only the current hour cannot shadow one that reaches the
+    peak. ``halfhours`` maps the UTC half-hour start in epoch seconds, as
+    text, to the mean P10 power of that half hour in kW.
     """
-    status, source = "no_forecast", None
-    hourly: dict[datetime, tuple[float | None, float | None]] = {}
+    best: dict[str, float] = {}
+    source = None
     for today, tomorrow in source_pairs:
-        entities = [entity for entity in (today, tomorrow) if entity]
-        if not entities:
+        if not today and not tomorrow:
             continue
-        status, hourly = pv_forecast_hourly([get_state(entity) for entity in entities], now,
-                                            max_age=max_age)
-        source = entities[0]
-        if status == "ready":
-            break
-    hours: dict[str, float] = {}
-    if status == "ready":
-        hour = now.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
-        end = now + timedelta(hours=MAX_HOURS)
-        # Contiguous from the current hour. A gap or a missing P10 (kept as
-        # None by pv_forecast_hourly) ends the hours instead of reading as zero.
-        while hour < end and (pair := hourly.get(hour)) is not None and pair[0] is not None:
-            hours[str(int(hour.timestamp()))] = pair[0]
-            hour += timedelta(hours=1)
-        if not hours:
-            status = "no_forecast"
-    return status, {"status": status, "quantile": QUANTILE, "source": source, "hours": hours}
+        rows = pv_intervals(states, {"pv_today": today or "", "pv_tomorrow": tomorrow or ""}, now,
+                            max_age=max_age)
+        halfhours = _contiguous(rows, now)
+        if len(halfhours) > len(best):
+            best, source = halfhours, today or tomorrow
+    status = "ready" if best else "no_forecast"
+    return status, {"status": status, "quantile": QUANTILE, "source": source, "halfhours": best}

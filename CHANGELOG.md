@@ -15,7 +15,7 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   zum Peak-Beginn ohnehin gefüllt hätte; der Netzstrom verdrängte dann PV, die
   zur Einspeisevergütung ins Netz ging. Jetzt zieht die Peak-Reserve den
   erwarteten PV-Überschuss bis zum Beginn der ersten Spitze ab (Solcast-P10 je
-  Stunde minus Stundenlast, begrenzt auf die maximale Ladeleistung, mit dem
+  Halbstunde minus Stundenlast, begrenzt auf die maximale Ladeleistung, mit dem
   Ladewirkungsgrad des Akkumodells). Vorgeladen wird nur bis zu diesem
   Vorladeziel; die Leiter hält weiter die volle Reserve. Solange die PV gerade
   mehr als 200 W über dem Hausverbrauch liefert, lädt Peak-Vorladen gar nicht aus

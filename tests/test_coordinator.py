@@ -4101,7 +4101,7 @@ async def test_negative_price_hold_falls_back_to_demand_solcast_intervals(coordi
 
 
 async def test_pv_forecast_hours_feed_the_strategy_from_the_demand_solcast_source(coordinator, hass, entry):
-    """#155: the peak precharge reads P10 hours; a daily total has none, the demand source is next."""
+    """#155: the peak precharge reads P10 half hours; a daily total has none, the demand source wins."""
     now = dt_util.utcnow()
     start = now.replace(minute=0, second=0, microsecond=0)
     detail = [{"period_start": (start + timedelta(minutes=30 * i)).isoformat(),
@@ -4123,8 +4123,9 @@ async def test_pv_forecast_hours_feed_the_strategy_from_the_demand_solcast_sourc
         await coordinator._async_update_data()
     assert seen["state"] == "ready"
     assert seen["attributes"]["source"] == "sensor.solcast_demand"
-    assert seen["attributes"]["hours"] == {str(int(start.timestamp())): 4.0,
-                                           str(int((start + timedelta(hours=1)).timestamp())): 4.0}
+    halves = [start + timedelta(minutes=30 * i) for i in range(4)]
+    assert seen["attributes"]["halfhours"] == {
+        str(int(half.timestamp())): 4.0 for half in halves if half + timedelta(minutes=30) > now}
 
 
 async def test_pv_forecast_hours_error_credits_no_pv(coordinator):
@@ -4132,7 +4133,7 @@ async def test_pv_forecast_hours_error_credits_no_pv(coordinator):
                side_effect=RuntimeError("boom")):
         data = await coordinator._async_update_data()
     assert data["states"]["sensor.opti_pv_forecast_hours"] == "error"
-    assert data["attributes"]["sensor.opti_pv_forecast_hours"] == {"status": "error", "hours": {}}
+    assert data["attributes"]["sensor.opti_pv_forecast_hours"] == {"status": "error", "halfhours": {}}
 
 
 async def test_peak_rank_is_published_as_observation(coordinator):

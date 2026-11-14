@@ -1938,6 +1938,33 @@
       },
       "state_strategie_vorschau": {
         "name": "Strategy preview"
+      },
+      "state_base_load_raw_w": {
+        "name": "Raw base load"
+      },
+      "state_battery_charge_w": {
+        "name": "Battery charge power"
+      },
+      "state_battery_discharge_w": {
+        "name": "Battery discharge power"
+      },
+      "state_forecast_house_instant_w": {
+        "name": "Current home consumption forecast"
+      },
+      "state_forecast_house_min_load_w": {
+        "name": "Forecast minimum home load"
+      },
+      "state_house_raw_w": {
+        "name": "Raw home consumption"
+      },
+      "state_load_profile_mean_w": {
+        "name": "Load profile mean"
+      },
+      "state_pv_dc_a_w": {
+        "name": "PV power string A"
+      },
+      "state_pv_dc_b_w": {
+        "name": "PV power string B"
       }
     },
     "button": {

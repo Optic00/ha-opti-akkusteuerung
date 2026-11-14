@@ -1938,6 +1938,33 @@
       },
       "state_strategie_vorschau": {
         "name": "Strategievorschau"
+      },
+      "state_base_load_raw_w": {
+        "name": "Grundlast roh"
+      },
+      "state_battery_charge_w": {
+        "name": "Akku-Ladeleistung"
+      },
+      "state_battery_discharge_w": {
+        "name": "Akku-Entladeleistung"
+      },
+      "state_forecast_house_instant_w": {
+        "name": "Hausverbrauch-Prognose aktuell"
+      },
+      "state_forecast_house_min_load_w": {
+        "name": "Prognose Mindestlast Haus"
+      },
+      "state_house_raw_w": {
+        "name": "Hausverbrauch roh"
+      },
+      "state_load_profile_mean_w": {
+        "name": "Lastprofil-Mittelwert"
+      },
+      "state_pv_dc_a_w": {
+        "name": "PV-Leistung String A"
+      },
+      "state_pv_dc_b_w": {
+        "name": "PV-Leistung String B"
       }
     },
     "button": {

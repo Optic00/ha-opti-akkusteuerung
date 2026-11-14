@@ -17,6 +17,9 @@ Coverage-Gate und reproduzierbarem Paketbau läuft und ist als Pflicht-Check
 für `main` geschützt. Diagnoseexport, Übersetzungen (de/en vollständig
 synchron; das heißt nicht, dass alle Entitäten übersetzt sind, siehe 1.6), Options-Flow, Unique-ID-Prüfung und `runtime_data` sind vorhanden.
 
+Das Kurzfazit beschreibt den Befund vom 14.11. vor der Umsetzung; was davon
+inzwischen erledigt ist, steht unter „Umsetzungsstand“.
+
 Was eine stabile Version noch aufhält, sind vor allem drei Dinge:
 
 1. die offenen Abnahmen aus #85 (SMA-Hardware, Planer, Mehrtagesbetrieb),
@@ -28,12 +31,13 @@ Was eine stabile Version noch aufhält, sind vor allem drei Dinge:
 
 ## Umsetzungsstand
 
-Stand 14.11.2026 nach den PRs #239 bis #243 und dem Folge-PR zu 1.6:
+Stand 14.11.2026 nach den PRs #239 bis #244:
 
 - **P1 vollständig erledigt:** 1.1 übersetzte Ausnahmen und 1.2 Feldbeschreibungen (#242),
   1.3 `PARALLEL_UPDATES` und 1.5 `quality_scale.yaml` (#240), 1.4 Reparaturen (#243),
-  1.6 Entitätsnamen übersetzt (Folge-PR). Bestehende Installationen behalten ihre
-  Entity-IDs; neu eingerichtete bekommen IDs aus den englischen Namen, wie in HA üblich.
+  1.6 Entitätsnamen übersetzt (#244). Bestehende Installationen behalten ihre
+  Entity-IDs; bei neuen bildet HA sie aus dem übersetzten Namen in der Sprache der
+  Instanz (Deutsch bei deutscher Instanz, sonst Englisch).
 - **P3 erledigt bis auf 3.4:** Wochenlauf, `concurrency`, `pytest-xdist` und
   `pre-commit` (#239). Offen bleibt 3.4 (`ruff format` und erweitertes Regelset).
 - **Offen:** P0 (Abnahmen in #85, Feature-Freeze, Unterstützungsumfang) und P2.

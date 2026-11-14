@@ -225,3 +225,31 @@ def test_every_described_state_entity_has_a_translated_name():
         if key not in own_translation and key.removeprefix("sensor.opti_") not in CORE_UNITS
     }
     assert not described - TRANSLATED_STATE_KEYS, sorted(described - TRANSLATED_STATE_KEYS)
+
+
+def test_every_state_key_in_the_code_has_a_translated_name():
+    """Catch optional states (plant, EV, SBS, Huawei) that a default setup never creates."""
+    from custom_components.opti_akku.entity import TRANSLATED_STATE_KEYS
+    from custom_components.opti_akku.sensor import CORE_UNITS, EVCC_COMPARISON_KEY, PLAN_SHADOW_KEY
+
+    keys = {f"binary_sensor.opti_ev_lp{i}_schnell" for i in (1, 2)}  # built with an f-string
+    for path in COMPONENT.glob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        keys.update(re.findall(r'"((?:sensor|binary_sensor|counter|input_datetime)\.[a-z0-9_]*[a-z0-9])"', source))
+        if path.name in ("sma.py", "sbs.py"):
+            # Register specs ("name", <register>, ...) and derived readings ("name", (sources), ...).
+            keys.update(f"sensor.opti_{name}" for name in re.findall(r'\("([a-z0-9_]+)",\s*(?:3\d{4}|\()', source))
+    strategy = json.loads((COMPONENT / "resources" / "strategy.json").read_text(encoding="utf-8"))
+    for block in strategy["template_blocks"]:
+        for kind in ("sensor", "binary_sensor"):
+            keys.update(f"{kind}.{entity['unique_id']}" for entity in block.get(kind, []))
+    keys.update(f"sensor.{entity['unique_id']}" for entity in strategy.get("statistics", []))
+    keys.update(key for key in strategy.get("helper_defaults", {}) if key.startswith(("counter.", "input_datetime.")))
+
+    not_entities = {"counter.increment", "counter.reset", "input_datetime.set_datetime"}
+    own_translation = {"binary_sensor.opti_connection", PLAN_SHADOW_KEY, EVCC_COMPARISON_KEY}
+    missing = {
+        key for key in keys - not_entities - own_translation - TRANSLATED_STATE_KEYS
+        if key.removeprefix("sensor.opti_") not in CORE_UNITS
+    }
+    assert not missing, sorted(missing)

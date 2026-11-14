@@ -2885,7 +2885,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # write already in progress finish before removal can delete the file.
         if self._history_save_unsub is not None:
             self._cancel_history_save()
-            await self._async_save_history()
+            self._async_history_save_due(None)
         if (task := self._history_save_task) is not None and not task.done():
             try:
                 async with asyncio.timeout(HISTORY_SAVE_STOP_TIMEOUT):

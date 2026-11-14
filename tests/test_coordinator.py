@@ -1116,7 +1116,8 @@ async def test_unload_after_failed_setup_waits_for_history_write_in_progress(has
     assert coordinator._history_save_task is None
 
 
-async def test_stop_does_not_wait_forever_for_hanging_history_write(hass, coordinator):
+@pytest.mark.parametrize("pending_timer", [False, True])
+async def test_stop_does_not_wait_forever_for_hanging_history_write(hass, coordinator, pending_timer):
     started = asyncio.Event()
 
     async def hanging_save(data):
@@ -1125,9 +1126,13 @@ async def test_stop_does_not_wait_forever_for_hanging_history_write(hass, coordi
 
     with patch.object(coordinator._history_store, "async_save", side_effect=hanging_save), \
             patch("custom_components.opti_akku.coordinator.HISTORY_SAVE_STOP_TIMEOUT", 0.05):
-        coordinator._async_history_save_due(None)
-        await asyncio.wait_for(started.wait(), 1)
+        if pending_timer:  # async_stop starts the write itself
+            coordinator._schedule_history_save()
+        else:
+            coordinator._async_history_save_due(None)
+            await asyncio.wait_for(started.wait(), 1)
         await asyncio.wait_for(coordinator.async_stop(), 5)
+        assert started.is_set()
         coordinator._history_save_task.cancel()
         await hass.async_block_till_done()
 

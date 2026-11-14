@@ -5,7 +5,7 @@
 # tests/test_quality_scale.py Schema, Vollständigkeit und einige Aussagen
 # (z. B. PARALLEL_UPDATES). Die Datei dient als Prüfliste, nicht als offizielle
 # Einstufung. Fachliche Abnahmen stehen in Issue #85, offene Lücken im
-# Release-Plan (PR #237, docs/RELEASE_PLAN.md).
+# Release-Plan (PR #237).
 rules:
   # Bronze
   action-setup:

@@ -1036,19 +1036,39 @@ async def test_removed_entry_deletes_its_private_stores(hass, hass_storage, entr
 
 
 
-async def test_pending_history_save_cannot_recreate_removed_store(hass, hass_storage, entry, coordinator):
+async def test_scheduled_history_save_writes_after_delay(hass, hass_storage, coordinator):
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.opti_akku.coordinator import HISTORY_SAVE_DELAY
+
+    coordinator._schedule_history_save()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=HISTORY_SAVE_DELAY + 1))
+    await hass.async_block_till_done()
+    assert coordinator._history_store.key in hass_storage
+    assert coordinator._history_save_unsub is None
+
+
+async def test_stop_flushes_scheduled_history_save(hass, hass_storage, coordinator):
+    coordinator._schedule_history_save()
+    await coordinator.async_stop()
+    await hass.async_block_till_done()
+    assert coordinator._history_store.key in hass_storage  # nothing lost on reload
+    assert coordinator._history_save_unsub is None
+
+
+async def test_history_save_cannot_recreate_store_of_entry_removed_after_failed_setup(
+    hass, hass_storage, entry, coordinator
+):
     from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
     from custom_components.opti_akku import async_remove_entry
     from custom_components.opti_akku.coordinator import HISTORY_SAVE_DELAY
 
     key = coordinator._history_store.key
-    # As the control cycle does after recording a new history hour.
-    coordinator._history_store.async_delay_save(coordinator._planner_history.snapshot, HISTORY_SAVE_DELAY)
-    coordinator._history_save_pending = True
-    await coordinator.async_stop()
-    await hass.async_block_till_done()
-    assert key in hass_storage  # flushed on stop, nothing lost on reload
+    # First refresh scheduled a save, then setup failed: HA runs the
+    # on_unload callbacks but never calls async_stop.
+    coordinator._schedule_history_save()
+    await entry._async_process_on_unload(hass)
     await async_remove_entry(hass, entry)
     await hass.async_block_till_done()
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=HISTORY_SAVE_DELAY + 1))

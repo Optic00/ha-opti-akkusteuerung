@@ -17,10 +17,14 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Home Assistant üblich auf Englisch. Falsche Eingaben (etwa ein Wert außerhalb
   des Bereichs oder eine fehlende Bestätigung) melden sich als
   Eingabefehler ohne Stacktrace im Log.
-- **Mehr Feldbeschreibungen im Einrichtungsdialog.** Verbindung, Ladegrenzen,
-  Preis- und Spread-Parameter, Prognose, Einspeise-Freigabe, Altersgrenzen und
-  Balancing erklären ihre Felder jetzt direkt unter dem Eingabefeld, auf Deutsch
-  und Englisch.
+- **Jedes Feld im Einrichtungsdialog hat eine Beschreibung.** Alle Felder der
+  Einrichtung und der Optionen erklären sich jetzt direkt unter dem
+  Eingabefeld, auf Deutsch und Englisch. Ein Test meldet künftig neue Felder
+  ohne Beschreibung.
+- **Laufzeitfehler und Eingabefehler getrennt.** „Import läuft bereits“ und
+  „Integration wird beendet“ melden sich als eigene Laufzeitfehler. Ein als
+  Benachrichtigungsdienst gewählter Nicht-notify-Dienst gilt als Eingabefehler
+  mit passendem Hinweis.
 
 ## [2026.11-beta8] - 2026-11-14
 

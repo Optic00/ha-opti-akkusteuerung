@@ -15,10 +15,13 @@
           "migrate_legacy": "Import legacy Opti automation (always shadow)"
         },
         "data_description": {
+          "backend": "How Opti Akku reaches the battery: directly via Modbus TCP on the SMA inverter, or through an existing Huawei Solar integration.",
           "host": "IP address or host name of the inverter in your local network. Modbus TCP must be enabled on the device.",
           "port": "Modbus TCP port of the inverter, usually 502 for SMA.",
           "unit_id": "Modbus unit ID of the inverter. SMA inverters usually answer on 3.",
-          "shadow_mode": "Reads only and never writes to the device. A shadow entry stays read-only for good; active control later uses a separate standard entry."
+          "profile": "Inverter model. Sunny Boy Storage and Sunny Island are only released as a read-only test.",
+          "shadow_mode": "Reads only and never writes to the device. A shadow entry stays read-only for good; active control later uses a separate standard entry.",
+          "migrate_legacy": "Reads the values of the previous YAML automation as a draft. The new entry stays in shadow mode, strictly read-only; the old control keeps running unchanged."
         }
       },
       "sma_connection": {
@@ -36,7 +39,9 @@
           "host": "IP address or host name of the inverter in your local network. Modbus TCP must be enabled on the device.",
           "port": "Modbus TCP port of the inverter, usually 502 for SMA.",
           "unit_id": "Modbus unit ID of the inverter. SMA inverters usually answer on 3.",
-          "shadow_mode": "Reads only and never writes to the device. A shadow entry stays read-only for good; active control later uses a separate standard entry."
+          "profile": "Inverter model. Sunny Boy Storage and Sunny Island are only released as a read-only test.",
+          "shadow_mode": "Reads only and never writes to the device. A shadow entry stays read-only for good; active control later uses a separate standard entry.",
+          "migrate_legacy": "Reads the values of the previous YAML automation as a draft. The new entry stays in shadow mode, strictly read-only; the old control keeps running unchanged."
         }
       },
       "huawei_device": {
@@ -47,6 +52,7 @@
           "shadow_mode": "Shadow mode (permanently read-only)"
         },
         "data_description": {
+          "huawei_device_id": "Battery inverter of a loaded Huawei Solar entry.",
           "shadow_mode": "Reads only and never writes to the device. A shadow entry stays read-only for good; active control later uses a separate standard entry."
         }
       },
@@ -62,6 +68,16 @@
           "battery_temp": "Battery temperature (optional)",
           "pv_generation_w": "PV input power (optional)",
           "grid_positive": "Positive grid power means"
+        },
+        "data_description": {
+          "soc": "Battery state of charge in percent from Huawei Solar.",
+          "battery_capacity_kwh": "Rated battery capacity in Wh or kWh.",
+          "battery_power_w": "Charge and discharge power of the battery.",
+          "pv_power_w": "AC output power of the inverter.",
+          "grid_power_w": "Power at the grid connection point. Set the sign direction in the field below.",
+          "battery_temp": "Optional. Enables temperature derating and cut-off while charging.",
+          "pv_generation_w": "Optional. DC power of the PV strings, for display only.",
+          "grid_positive": "Whether a positive grid power value means import or export. A wrong direction distorts the house consumption."
         }
       },
       "sources": {
@@ -84,6 +100,18 @@
           "house_consumption_max_age": "House consumption reporting age (seconds, empty = as above)"
         },
         "data_description": {
+          "house_consumption": "Unsmoothed house consumption of the whole plant in W or kW. Leave empty to let Opti Akku calculate it from grid, PV and battery power.",
+          "pv_generation": "Optional. DC power of the PV strings, for display only. Overrides the value read from SMA.",
+          "pv_power": "Optional. AC power of the hybrid inverter including the battery. Overrides the value read from SMA; not allowed in balance mode.",
+          "single_inverter": "Calculates the house consumption from this inverter's balance instead of a separate sensor. Only suitable if no other generator is connected at the grid connection point.",
+          "plant_mode": "The native plant balance is recommended for new SMA plants. Legacy keeps the previous calculation for imports and existing entries.",
+          "additional_ac_sources": "AC output power of further inverters, not DC strings. Included in the house consumption balance.",
+          "excluded_load_sources": "Loads such as a wallbox that are removed from the learned load profile. They only affect the load profile.",
+          "event_based_excluded_sources": "Only loads already excluded above whose integration does not regularly report an unchanged 0 W and reliably marks outages as unavailable. For them exactly 0 W stays valid without an age limit.",
+          "plant_meter_confirmed": "Required for the native plant balance: the grid meter must cover all selected generators and loads.",
+          "forecast_min_load_w": "Lower limit of consumption used by the forecast. Applies only to the forecast, not to the measurement.",
+          "strategy_enabled": "Calculates operating mode and power automatically. Does not enable writes on its own; when off, the battery stays paused.",
+          "huawei_battery_temp": "Optional. Battery temperature from Huawei Solar for temperature derating and cut-off.",
           "source_max_age": "Default: 900 seconds. Applies to external power values, heat-pump power in the demand profile and resting cell spread. 0 trusts HA availability even for unchanged values. Sources and templates must report failures as unavailable; frozen values still marked available cannot be detected. An old high resting cell spread may bring balancing forward. Native battery, temperature, price and forecast checks keep their limits. Changing this restarts the consumption profile.",
           "house_consumption_max_age": "Optional. For a smoothed house consumption source in legacy mode, for example a 60-minute average template: it may stay unchanged and then reports nothing new in HA. Suggestion for a 60-minute average: 3600. Empty uses the general age limit, 0 trusts HA availability. A frozen source still marked available is detected only after this limit. Setting or changing this restarts the consumption profile."
         }
@@ -129,12 +157,17 @@
           "price_provider": "Price source"
         },
         "data_description": {
+          "price_current": "Current electricity price. Leave empty if no price optimisation is wanted.",
+          "price_series": "Entity with dated prices for today and tomorrow: complete intervals with start, end and time zone.",
+          "price_unit": "Unit of both price entities. Contradictory euro and cent values are rejected.",
           "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades. The strategy writes this value after grid charging; it is informational and has no control effect.",
           "mindestpreisdifferenz_lade_entladepreis": "Display only, no control effect: feeds the sensor Opti Mindestentladepreis (reference charging price plus margin). No strategy branch reads it.",
           "opti_einspeiseverguetung_ct": "Your feed-in tariff. With a poor forecast and grid charging allowed for the reserve, the strategy may charge from the grid while the price is below it. At 0 this only applies to negative prices.",
           "opti_netzlade_spread_ct": "Minimum gap between the charge price and the average of the coming price peaks before the battery is precharged from the grid. Applies in addition to the economics of the battery model. Default 10 ct/kWh.",
           "opti_peak_min_aufschlag_ct": "A time slot only counts as a price peak if it is at least this much above the lowest price in the planning horizon. Default 5 ct/kWh.",
-          "opti_halte_spread_ct": "In expensive hours the battery is only held back for even more expensive peaks if their average price is at least this much above the current price. Default 5 ct/kWh."
+          "opti_halte_spread_ct": "In expensive hours the battery is only held back for even more expensive peaks if their average price is at least this much above the current price. Default 5 ct/kWh.",
+          "hausakku_aus_netz_laden": "Sets the charge target to the maximum state of charge instead of the target derived from the PV forecast. Turns itself off again from 99 % state of charge.",
+          "price_provider": "Where prices come from: your own price entities, the existing Tibber integration or the fixed time windows of your tariff."
         }
       },
       "forecast": {
@@ -170,6 +203,17 @@
           "ev2_smart_cost": "EV 2 Smart Cost active",
           "ev2_power": "EV 2 charging power",
           "opti_ev_akku_pause": "Block discharge during car charging"
+        },
+        "data_description": {
+          "ev1_mode": "evcc charge point 1: entity with the charge mode. Select only together with the charging state.",
+          "ev1_charging": "evcc charge point 1: entity showing whether it is charging.",
+          "ev1_smart_cost": "Optional. Shows whether smart cost is active. Discharging can then also be blocked in pv/smart.",
+          "ev1_power": "Optional. Charge power of charge point 1, for example to subtract it from the house consumption in the demand profile.",
+          "ev2_mode": "evcc charge point 2: entity with the charge mode. Select only together with the charging state.",
+          "ev2_charging": "evcc charge point 2: entity showing whether it is charging.",
+          "ev2_smart_cost": "Optional. Shows whether smart cost is active. Discharging can then also be blocked in pv/smart.",
+          "ev2_power": "Optional. Charge power of charge point 2, for example to subtract it from the house consumption in the demand profile.",
+          "opti_ev_akku_pause": "Blocks discharging of the house battery while a car charges in now or minpv, or with smart cost active. Normal PV charging does not block; charging the house battery stays possible."
         }
       },
       "balancing": {
@@ -190,6 +234,7 @@
           "opti_zellspannung_reserve_v": "Cell voltage reserve (V)"
         },
         "data_description": {
+          "cell_spread": "Optional. Cell spread of the BYD battery at rest. A large spread can trigger additional balancing need.",
           "cell_voltage_min": "Fast updating sensor of the lowest cell voltage (V or mV), for example from a BYD BMU. Values older than 180 s count as stale. Needed for the cell voltage reserve.",
           "opti_balancing_intervall_tage": "Balancing is due after this many days since the last full charge to 100 %. 0 turns balancing planning off.",
           "opti_balancing_karenz_tage": "Extra days after the interval before balancing may charge from the grid at night at a cheap price below the balancing price limit. Requires grid charging for balancing.",
@@ -212,6 +257,7 @@
           "akku_opti_automatik": "Calculate strategy"
         },
         "data_description": {
+          "shadow_reference_mode": "Optional. Mode entity of your previous control. The shadow entry compares its decisions with it.",
           "single_writer_confirmed": "Confirm only when no other automation, integration or manufacturer app controls the battery. Without this confirmation write access stays locked.",
           "akku_opti_automatik": "Calculates the strategy. Off means pause, even when a manual mode is selected. This does not replace the write release."
         }
@@ -232,6 +278,10 @@
           "price_max_age": "Maximum electricity price age (seconds)"
         },
         "data_description": {
+          "akkusteuerung_ladestaerke_soll": "Fixed charge power for \"fast charge\". At most the maximum charge power.",
+          "akkusteuerung_min_ladestaerke": "SMA only: lower bound of the charge window. If the calculated charge power is below it, charging stays blocked; otherwise the inverter charges with at least this value. 0 = no lower bound.",
+          "akkusteuerung_entladestaerke_soll": "Fixed discharge power for \"fast discharge\". At most the maximum discharge power.",
+          "akkusteuerung_min_entladestaerke": "SMA only: lower bound of the discharge window. If the discharge limit is below it, discharging stays blocked; otherwise the inverter discharges with at least this value. 0 = no lower bound.",
           "akkusteuerung_wr_70proz_ueberschuss_grenze": "0 turns this off. If the feed-in without battery charging exceeds this value during the day, the battery charges from the surplus, for example with a 70 % feed-in limit. Releases again 1000 W below. Requires PV surplus charging.",
           "akkusteuerung_ueberschuss_veto_grenze": "If the feed-in without battery charging exceeds this value during the day, the battery charges beyond the target state of charge up to the maximum state of charge. Requires PV surplus charging.",
           "akkusteuerung_ueberschuss_veto_aus_grenze": "Hysteresis: a running release stays active while the feed-in without battery charging reaches at least this value. Must not be above the release limit.",
@@ -246,6 +296,10 @@
         "data": {
           "configure_ev": "Configure EV charging",
           "configure_balancing": "Configure balancing"
+        },
+        "data_description": {
+          "configure_ev": "Sets up evcc charge points and the discharge block while a car charges.",
+          "configure_balancing": "Sets up balancing planning for full cycles."
         }
       },
       "migration_review": {
@@ -254,6 +308,10 @@
         "data": {
           "accept": "Accept displayed valid values into the draft",
           "adjust_mapping": "Map renamed helpers / change selection"
+        },
+        "data_description": {
+          "accept": "Takes over exactly the draft shown, not helper values changed later.",
+          "adjust_mapping": "Maps helpers with different names and then creates a new capture."
         }
       },
       "migration_mapping": {
@@ -292,6 +350,40 @@
           "opti_prognose_netzladen": "input_boolean.opti_prognose_netzladen",
           "opti_pv_ueberschuss_ladung": "input_boolean.opti_pv_ueberschuss_ladung",
           "opti_balancing_netzladen": "input_boolean.opti_balancing_netzladen"
+        },
+        "data_description": {
+          "akkusteuerung_ladestaerke_soll": "Previous helper for \"Manual charge power\". Leave empty to not take it over. Units are not converted.",
+          "akkusteuerung_min_ladestaerke": "Previous helper for \"Minimum charge power\". Leave empty to not take it over. Units are not converted.",
+          "akkusteuerung_max_ladestaerke": "Previous helper for \"Maximum charge power\". Leave empty to not take it over. Units are not converted.",
+          "akkusteuerung_entladestaerke_soll": "Previous helper for \"Manual discharge power\". Leave empty to not take it over. Units are not converted.",
+          "akkusteuerung_min_entladestaerke": "Previous helper for \"Minimum discharge power\". Leave empty to not take it over. Units are not converted.",
+          "akkusteuerung_max_entladestaerke": "Previous helper for \"Maximum discharge power\". Leave empty to not take it over. Units are not converted.",
+          "akkusteuerung_wr_ac_ueberschuss_grenze": "Previous helper for \"AC surplus threshold\". Leave empty to not take it over. Units are not converted.",
+          "akkusteuerung_wr_70proz_ueberschuss_grenze": "Previous helper for \"70% PV threshold\". Leave empty to not take it over. Units are not converted.",
+          "akkusteuerung_ueberschuss_veto_grenze": "Previous helper for \"Export: enable above\". Leave empty to not take it over. Units are not converted.",
+          "akkusteuerung_ueberschuss_veto_aus_grenze": "Previous helper for \"Export: disable below\". Leave empty to not take it over. Units are not converted.",
+          "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Previous helper for \"Scarcity multiplier\". Leave empty to not take it over. Units are not converted.",
+          "minsoc": "Previous helper for \"Minimum charge level\". Leave empty to not take it over. Units are not converted.",
+          "maxsoc": "Previous helper for \"Maximum charge level\". Leave empty to not take it over. Units are not converted.",
+          "ladepreis": "Previous helper for \"Reference charging price\". Leave empty to not take it over. Units are not converted.",
+          "mindestpreisdifferenz_lade_entladepreis": "Previous helper for \"Minimum discharge margin\". Leave empty to not take it over. Units are not converted.",
+          "opti_peak_verbrauch_kw": "Previous helper for \"Expected home consumption\". Leave empty to not take it over. Units are not converted.",
+          "opti_einspeiseverguetung_ct": "Previous helper for \"Feed-in tariff\". Leave empty to not take it over. Units are not converted.",
+          "opti_netzlade_spread_ct": "Previous helper for \"Grid charging price spread\". Leave empty to not take it over. Units are not converted.",
+          "opti_peak_min_aufschlag_ct": "Previous helper for \"Minimum peak premium\". Leave empty to not take it over. Units are not converted.",
+          "opti_forecast_optimismus": "Previous helper for \"Forecast optimism\". Leave empty to not take it over. Units are not converted.",
+          "opti_halte_spread_ct": "Previous helper for \"Holding price spread\". Leave empty to not take it over. Units are not converted.",
+          "opti_balancing_intervall_tage": "Previous helper for \"Balancing interval in days\". Leave empty to not take it over. Units are not converted.",
+          "opti_balancing_karenz_tage": "Previous helper for \"Balancing grace period\". Leave empty to not take it over. Units are not converted.",
+          "opti_balancing_max_ct": "Previous helper for \"Balancing price ceiling\". Leave empty to not take it over. Units are not converted.",
+          "opti_balancing_done_soc": "Previous helper for \"Balancing target charge level\". Leave empty to not take it over. Units are not converted.",
+          "opti_balancing_spreizungs_schwelle": "Previous helper for \"Cell spread for balancing\". Leave empty to not take it over. Units are not converted.",
+          "opti_balancing_bedarf_cooldown_tage": "Previous helper for \"Demand balancing cooldown\". Leave empty to not take it over. Units are not converted.",
+          "opti_zellspannung_reserve_v": "Previous helper for \"Cell voltage reserve (V)\". Leave empty to not take it over. Units are not converted.",
+          "hausakku_aus_netz_laden": "Previous helper for \"Allow winter grid charging\". Leave empty to not take it over. Units are not converted.",
+          "opti_prognose_netzladen": "Previous helper for \"Allow reserve planning with grid charging\". Leave empty to not take it over. Units are not converted.",
+          "opti_pv_ueberschuss_ladung": "Previous helper for \"Allow PV surplus charging\". Leave empty to not take it over. Units are not converted.",
+          "opti_balancing_netzladen": "Previous helper for \"Allow grid charging for balancing\". Leave empty to not take it over. Units are not converted."
         }
       },
       "tibber": {
@@ -300,6 +392,10 @@
         "data": {
           "tibber_home": "Tibber home",
           "tibber_eur_confirmed": "My Tibber tariff uses EUR/kWh"
+        },
+        "data_description": {
+          "tibber_home": "Home from the configured Tibber integration. Exactly one account with one home is supported.",
+          "tibber_eur_confirmed": "The Tibber service does not provide a currency. Confirm that your tariff is billed in EUR/kWh."
         }
       },
       "price_windows": {
@@ -307,6 +403,9 @@
         "description": "Enter the tariff's daily windows in local time with price in ct/kWh. Together they must cover the whole day exactly once, without gaps or overlaps; a window may cross midnight (e.g. 05:00 to 00:00). Start and end use 15-minute steps. Opti Akku builds today's and tomorrow's dated prices from them, including days with daylight saving changes. There is no price age check. If the tariff changes, update the windows here.",
         "data": {
           "price_windows": "Price windows"
+        },
+        "data_description": {
+          "price_windows": "Daily windows in local time with a price in ct/kWh, in 15-minute steps. Together they must cover the day without gap or overlap."
         }
       },
       "notifications": {
@@ -314,6 +413,9 @@
         "description": "Problems always appear as Home Assistant notifications. Optionally select an existing push service. Use the device-page test button to check delivery. The integration cannot alert while HA itself is down.",
         "data": {
           "notification_service": "Additional push service"
+        },
+        "data_description": {
+          "notification_service": "Optional. notify action for additional push messages, for example notify.mobile_app_phone. Problems always also appear as a Home Assistant notification."
         }
       },
       "huawei_controls": {
@@ -329,6 +431,17 @@
           "cutoff_soc": "Grid charge cutoff SoC",
           "forced_status": "Forced charge/discharge status",
           "huawei_grid_surplus": "Allow grid charging in self-consumption for additional AC generators"
+        },
+        "data_description": {
+          "mode": "Entity for the battery working mode. Must belong to the same Batteries device.",
+          "excess_pv": "Entity for excess PV energy use. Must belong to the same Batteries device.",
+          "grid_charge": "Entity that allows charging from the grid.",
+          "charge_limit": "Entity for the maximum charge power.",
+          "discharge_limit": "Entity for the maximum discharge power.",
+          "grid_limit": "Entity for the maximum grid charge power.",
+          "cutoff_soc": "Entity for the state of charge up to which the battery charges from the grid.",
+          "forced_status": "Sensor with the status of forced charging or discharging. Must belong to the same Batteries device.",
+          "huawei_grid_surplus": "Depends on the plant, off by default. Allows grid charging in self-consumption so that surplus from further AC generators can reach the battery."
         }
       },
       "shadow_copy": {
@@ -337,6 +450,10 @@
         "data": {
           "shadow_entry": "Existing Shadow entry",
           "confirm_copy": "Copy settings into a new standard entry"
+        },
+        "data_description": {
+          "shadow_entry": "Shadow entry whose settings prefill the new standard entry. It stays unchanged.",
+          "confirm_copy": "Confirms that the previous writing control is switched off. Without confirmation, no standard entry is created."
         }
       },
       "demand": {
@@ -361,6 +478,26 @@
           "house_includes_ev": "House consumption includes EV charging (subtract configured EV power)",
           "temperature_matching": "Prefer similar outdoor temperatures (experimental)",
           "use_for_peak_reserve": "Use hourly profile in the active strategy"
+        },
+        "data_description": {
+          "enabled": "Learns the house consumption by hour and weekday and compares the forecast. Observation only.",
+          "heat_power": "Optional. Electrical power of the heat pump; must be included in the house consumption. It is subtracted and learned separately.",
+          "summer_mode": "Optional. Separates summer and winter history.",
+          "heating_active": "Optional. Reports active heating of the heat pump.",
+          "dhw_active": "Optional. Reports active hot water heating and separates its share from space heating.",
+          "dhw_due": "Optional. Signal that hot water is expected before PV starts. Needs the heat pump meter, the hot water active state and kWh per cycle.",
+          "water_temperature": "Optional. If the actual temperature is below target minus 2 K, hot water counts as expected.",
+          "water_target": "Optional. Target temperature for the comparison with the actual temperature.",
+          "pv_today": "Solcast sensor for today with a dated detailedForecast and pv_estimate10. Daily kWh alone are not enough.",
+          "pv_tomorrow": "Solcast sensor for tomorrow with a dated detailedForecast and pv_estimate10.",
+          "dhw_cycle_kwh": "Measured electrical energy of one hot water cycle. 0 means unknown.",
+          "outdoor_temperature": "Optional. Outdoor temperature to find similar historical hours.",
+          "context_water_temperature": "Optional. Stored as context only and does not trigger hot water recharging.",
+          "context_water_target": "Optional. Stored as context only and does not trigger hot water recharging.",
+          "history_house": "Sensor for the one-time import from the recorder. Must measure the same consumption scope as the current house consumption.",
+          "house_includes_ev": "Only turn on if the house consumption includes the wallbox. The EV power is then subtracted; a change resets the learned profile.",
+          "temperature_matching": "Prefers historical hours within 3 °C of the current outdoor temperature, for the first four forecast hours.",
+          "use_for_peak_reserve": "Uses the hourly profile for peak reserve and remaining-day score. Changes the battery control."
         }
       },
       "ev_preparation": {
@@ -378,6 +515,19 @@
           "vehicle_capacity_kwh": "Usable vehicle capacity",
           "charge_power_kw": "Available charge power",
           "vehicle_charge_efficiency_percent": "Charging efficiency to the vehicle battery"
+        },
+        "data_description": {
+          "enabled": "Pulls existing PV surplus into the house battery earlier when the vehicle state of charge is low. No additional grid charging.",
+          "vehicle_soc": "State of charge of the vehicle in percent. Valid for at most 24 hours.",
+          "charging": "Reliable signal that the car is charging. Active or unknown pauses normal house battery charging and discharging.",
+          "away": "Optional. Switch for longer absence; blocks only the preparation.",
+          "departure": "Optional. input_datetime or timestamp sensor. A time of day alone applies daily.",
+          "vehicle_threshold": "Below this vehicle state of charge, charging is needed.",
+          "house_target": "Up to this state of charge the house battery takes in surplus PV early, at most up to the maximum state of charge.",
+          "vehicle_target_soc": "Vehicle target at departure. Replaces the simple need threshold until departure.",
+          "vehicle_capacity_kwh": "Usable vehicle battery capacity for departure planning.",
+          "charge_power_kw": "Available AC charge power for departure planning.",
+          "vehicle_charge_efficiency_percent": "Share of AC energy that reaches the vehicle battery."
         }
       },
       "arbitrage": {
@@ -393,6 +543,17 @@
           "charge_efficiency_percent": "Charge efficiency",
           "discharge_efficiency_percent": "Discharge efficiency",
           "margin_ct": "Additional margin per kWh battery energy"
+        },
+        "data_description": {
+          "enabled": "Shows price spread and residual value. Efficiencies, cycle costs and margin also apply to peak pre-charging.",
+          "hold_enabled": "Holds energy only with a complete demand, PV and price forecast for a more valuable later residual load. Does not charge from the grid.",
+          "battery_price_eur": "Battery share of the purchase price, basis for the cycle costs.",
+          "degradation_percent": "Loss of battery value over the assumed full cycles.",
+          "cycles": "Number of full cycles the loss of value is spread over.",
+          "usable_capacity_kwh": "Usable capacity of the house battery.",
+          "charge_efficiency_percent": "Share of grid or PV energy that reaches the battery. 90 % if not set.",
+          "discharge_efficiency_percent": "Share of battery energy that reaches the house. 90 % if not set.",
+          "margin_ct": "Additional margin per kWh before charging and later discharging pay off."
         }
       },
       "peak_rank": {
@@ -400,6 +561,9 @@
         "description": "Experimental. Otherwise the peak ladder discharges in every hour classified as very expensive or expensive. With this option it holds the battery in an expensive hour when, according to the peak rank shadow comparison, the usable energy only covers even more expensive hours before the next PV refill. Instead of discharging, the mode is then 'Akku nur Laden' (PV charging stays allowed) or, when the strategy currently blocks charging, 'Akku Pause'. It only affects the peak L1 and L2 decisions and only on a clear 'hold' result; with uncertain or missing data the strategy decides as before. Manual modes and all protection functions take precedence. The load and price assumptions can be wrong; energy may then remain unused or expensive grid power may be drawn.",
         "data": {
           "enabled": "Hold discharge in expensive hours for even more expensive ones"
+        },
+        "data_description": {
+          "enabled": "Experimental. Holds energy in an expensive hour for even more expensive hours if the battery only lasts for those. Changes the battery control."
         }
       },
       "observation": {
@@ -414,6 +578,16 @@
           "additional_ac_sources": "Additional inverter AC power",
           "excluded_load_sources": "Excluded loads (e.g. EV charger)",
           "gross_house": "Whole-house consumption before excluded loads (instantaneous)"
+        },
+        "data_description": {
+          "enabled": "Read-only comparison of measurement sources and balance. Does not change the active house source.",
+          "meter_confirmed": "Confirms that the grid meter covers the whole plant scope being compared.",
+          "legacy_floor_w": "Lower limit the legacy system applied to its average, so the comparison calculates the same way.",
+          "instant_house": "Optional. Instantaneous house consumption after subtracting the excluded loads.",
+          "watch_sources": "Up to eight further sources whose report times are recorded.",
+          "additional_ac_sources": "AC power of further inverters for the balance.",
+          "excluded_load_sources": "Loads such as a wallbox subtracted for the comparison after load deduction.",
+          "gross_house": "Optional. Instantaneous total house consumption before load deduction."
         }
       }
     },
@@ -519,7 +693,8 @@
         "data_description": {
           "host": "IP address or host name of the inverter in your local network. Modbus TCP must be enabled on the device.",
           "port": "Modbus TCP port of the inverter, usually 502 for SMA.",
-          "unit_id": "Modbus unit ID of the inverter. SMA inverters usually answer on 3."
+          "unit_id": "Modbus unit ID of the inverter. SMA inverters usually answer on 3.",
+          "profile": "Inverter model. Sunny Boy Storage and Sunny Island are only released as a read-only test."
         }
       },
       "sources": {
@@ -542,6 +717,18 @@
           "house_consumption_max_age": "House consumption reporting age (seconds, empty = as above)"
         },
         "data_description": {
+          "house_consumption": "Unsmoothed house consumption of the whole plant in W or kW. Leave empty to let Opti Akku calculate it from grid, PV and battery power.",
+          "pv_generation": "Optional. DC power of the PV strings, for display only. Overrides the value read from SMA.",
+          "pv_power": "Optional. AC power of the hybrid inverter including the battery. Overrides the value read from SMA; not allowed in balance mode.",
+          "single_inverter": "Calculates the house consumption from this inverter's balance instead of a separate sensor. Only suitable if no other generator is connected at the grid connection point.",
+          "plant_mode": "The native plant balance is recommended for new SMA plants. Legacy keeps the previous calculation for imports and existing entries.",
+          "additional_ac_sources": "AC output power of further inverters, not DC strings. Included in the house consumption balance.",
+          "excluded_load_sources": "Loads such as a wallbox that are removed from the learned load profile. They only affect the load profile.",
+          "event_based_excluded_sources": "Only loads already excluded above whose integration does not regularly report an unchanged 0 W and reliably marks outages as unavailable. For them exactly 0 W stays valid without an age limit.",
+          "plant_meter_confirmed": "Required for the native plant balance: the grid meter must cover all selected generators and loads.",
+          "forecast_min_load_w": "Lower limit of consumption used by the forecast. Applies only to the forecast, not to the measurement.",
+          "strategy_enabled": "Calculates operating mode and power automatically. Does not enable writes on its own; when off, the battery stays paused.",
+          "huawei_battery_temp": "Optional. Battery temperature from Huawei Solar for temperature derating and cut-off.",
           "source_max_age": "Default: 900 seconds. Applies to external power values, heat-pump power in the demand profile and resting cell spread. 0 trusts HA availability even for unchanged values. Sources and templates must report failures as unavailable; frozen values still marked available cannot be detected. An old high resting cell spread may bring balancing forward. Native battery, temperature, price and forecast checks keep their limits. Changing this restarts the consumption profile.",
           "house_consumption_max_age": "Optional. For a smoothed house consumption source in legacy mode, for example a 60-minute average template: it may stay unchanged and then reports nothing new in HA. Suggestion for a 60-minute average: 3600. Empty uses the general age limit, 0 trusts HA availability. A frozen source still marked available is detected only after this limit. Setting or changing this restarts the consumption profile."
         }
@@ -587,12 +774,17 @@
           "price_provider": "Price source"
         },
         "data_description": {
+          "price_current": "Current electricity price. Leave empty if no price optimisation is wanted.",
+          "price_series": "Entity with dated prices for today and tomorrow: complete intervals with start, end and time zone.",
+          "price_unit": "Unit of both price entities. Contradictory euro and cent values are rejected.",
           "ladepreis": "-1 means no reference charging price is known yet. Existing saved values are retained during upgrades. The strategy writes this value after grid charging; it is informational and has no control effect.",
           "mindestpreisdifferenz_lade_entladepreis": "Display only, no control effect: feeds the sensor Opti Mindestentladepreis (reference charging price plus margin). No strategy branch reads it.",
           "opti_einspeiseverguetung_ct": "Your feed-in tariff. With a poor forecast and grid charging allowed for the reserve, the strategy may charge from the grid while the price is below it. At 0 this only applies to negative prices.",
           "opti_netzlade_spread_ct": "Minimum gap between the charge price and the average of the coming price peaks before the battery is precharged from the grid. Applies in addition to the economics of the battery model. Default 10 ct/kWh.",
           "opti_peak_min_aufschlag_ct": "A time slot only counts as a price peak if it is at least this much above the lowest price in the planning horizon. Default 5 ct/kWh.",
-          "opti_halte_spread_ct": "In expensive hours the battery is only held back for even more expensive peaks if their average price is at least this much above the current price. Default 5 ct/kWh."
+          "opti_halte_spread_ct": "In expensive hours the battery is only held back for even more expensive peaks if their average price is at least this much above the current price. Default 5 ct/kWh.",
+          "hausakku_aus_netz_laden": "Sets the charge target to the maximum state of charge instead of the target derived from the PV forecast. Turns itself off again from 99 % state of charge.",
+          "price_provider": "Where prices come from: your own price entities, the existing Tibber integration or the fixed time windows of your tariff."
         }
       },
       "forecast": {
@@ -628,6 +820,17 @@
           "ev2_smart_cost": "EV 2 Smart Cost active",
           "ev2_power": "EV 2 charging power",
           "opti_ev_akku_pause": "Block discharge during car charging"
+        },
+        "data_description": {
+          "ev1_mode": "evcc charge point 1: entity with the charge mode. Select only together with the charging state.",
+          "ev1_charging": "evcc charge point 1: entity showing whether it is charging.",
+          "ev1_smart_cost": "Optional. Shows whether smart cost is active. Discharging can then also be blocked in pv/smart.",
+          "ev1_power": "Optional. Charge power of charge point 1, for example to subtract it from the house consumption in the demand profile.",
+          "ev2_mode": "evcc charge point 2: entity with the charge mode. Select only together with the charging state.",
+          "ev2_charging": "evcc charge point 2: entity showing whether it is charging.",
+          "ev2_smart_cost": "Optional. Shows whether smart cost is active. Discharging can then also be blocked in pv/smart.",
+          "ev2_power": "Optional. Charge power of charge point 2, for example to subtract it from the house consumption in the demand profile.",
+          "opti_ev_akku_pause": "Blocks discharging of the house battery while a car charges in now or minpv, or with smart cost active. Normal PV charging does not block; charging the house battery stays possible."
         }
       },
       "balancing": {
@@ -648,6 +851,7 @@
           "opti_zellspannung_reserve_v": "Cell voltage reserve (V)"
         },
         "data_description": {
+          "cell_spread": "Optional. Cell spread of the BYD battery at rest. A large spread can trigger additional balancing need.",
           "cell_voltage_min": "Fast updating sensor of the lowest cell voltage (V or mV), for example from a BYD BMU. Values older than 180 s count as stale. Needed for the cell voltage reserve.",
           "opti_balancing_intervall_tage": "Balancing is due after this many days since the last full charge to 100 %. 0 turns balancing planning off.",
           "opti_balancing_karenz_tage": "Extra days after the interval before balancing may charge from the grid at night at a cheap price below the balancing price limit. Requires grid charging for balancing.",
@@ -670,6 +874,7 @@
           "akku_opti_automatik": "Calculate strategy"
         },
         "data_description": {
+          "shadow_reference_mode": "Optional. Mode entity of your previous control. The shadow entry compares its decisions with it.",
           "single_writer_confirmed": "Confirm only when no other automation, integration or manufacturer app controls the battery. Without this confirmation write access stays locked.",
           "akku_opti_automatik": "Calculates the strategy. Off means pause, even when a manual mode is selected. This does not replace the write release."
         }
@@ -690,6 +895,10 @@
           "price_max_age": "Maximum electricity price age (seconds)"
         },
         "data_description": {
+          "akkusteuerung_ladestaerke_soll": "Fixed charge power for \"fast charge\". At most the maximum charge power.",
+          "akkusteuerung_min_ladestaerke": "SMA only: lower bound of the charge window. If the calculated charge power is below it, charging stays blocked; otherwise the inverter charges with at least this value. 0 = no lower bound.",
+          "akkusteuerung_entladestaerke_soll": "Fixed discharge power for \"fast discharge\". At most the maximum discharge power.",
+          "akkusteuerung_min_entladestaerke": "SMA only: lower bound of the discharge window. If the discharge limit is below it, discharging stays blocked; otherwise the inverter discharges with at least this value. 0 = no lower bound.",
           "akkusteuerung_wr_70proz_ueberschuss_grenze": "0 turns this off. If the feed-in without battery charging exceeds this value during the day, the battery charges from the surplus, for example with a 70 % feed-in limit. Releases again 1000 W below. Requires PV surplus charging.",
           "akkusteuerung_ueberschuss_veto_grenze": "If the feed-in without battery charging exceeds this value during the day, the battery charges beyond the target state of charge up to the maximum state of charge. Requires PV surplus charging.",
           "akkusteuerung_ueberschuss_veto_aus_grenze": "Hysteresis: a running release stays active while the feed-in without battery charging reaches at least this value. Must not be above the release limit.",
@@ -718,6 +927,10 @@
         "data": {
           "tibber_home": "Tibber home",
           "tibber_eur_confirmed": "My Tibber tariff uses EUR/kWh"
+        },
+        "data_description": {
+          "tibber_home": "Home from the configured Tibber integration. Exactly one account with one home is supported.",
+          "tibber_eur_confirmed": "The Tibber service does not provide a currency. Confirm that your tariff is billed in EUR/kWh."
         }
       },
       "price_windows": {
@@ -725,6 +938,9 @@
         "description": "Enter the tariff's daily windows in local time with price in ct/kWh. Together they must cover the whole day exactly once, without gaps or overlaps; a window may cross midnight (e.g. 05:00 to 00:00). Start and end use 15-minute steps. Opti Akku builds today's and tomorrow's dated prices from them, including days with daylight saving changes. There is no price age check. If the tariff changes, update the windows here.",
         "data": {
           "price_windows": "Price windows"
+        },
+        "data_description": {
+          "price_windows": "Daily windows in local time with a price in ct/kWh, in 15-minute steps. Together they must cover the day without gap or overlap."
         }
       },
       "notifications": {
@@ -732,6 +948,9 @@
         "description": "Problems always appear as Home Assistant notifications. Optionally select an existing push service. Use the device-page test button to check delivery. The integration cannot alert while HA itself is down.",
         "data": {
           "notification_service": "Additional push service"
+        },
+        "data_description": {
+          "notification_service": "Optional. notify action for additional push messages, for example notify.mobile_app_phone. Problems always also appear as a Home Assistant notification."
         }
       },
       "huawei_controls": {
@@ -747,6 +966,17 @@
           "cutoff_soc": "Grid charge cutoff SoC",
           "forced_status": "Forced charge/discharge status",
           "huawei_grid_surplus": "Allow grid charging in self-consumption for additional AC generators"
+        },
+        "data_description": {
+          "mode": "Entity for the battery working mode. Must belong to the same Batteries device.",
+          "excess_pv": "Entity for excess PV energy use. Must belong to the same Batteries device.",
+          "grid_charge": "Entity that allows charging from the grid.",
+          "charge_limit": "Entity for the maximum charge power.",
+          "discharge_limit": "Entity for the maximum discharge power.",
+          "grid_limit": "Entity for the maximum grid charge power.",
+          "cutoff_soc": "Entity for the state of charge up to which the battery charges from the grid.",
+          "forced_status": "Sensor with the status of forced charging or discharging. Must belong to the same Batteries device.",
+          "huawei_grid_surplus": "Depends on the plant, off by default. Allows grid charging in self-consumption so that surplus from further AC generators can reach the battery."
         }
       },
       "demand": {
@@ -771,6 +1001,26 @@
           "house_includes_ev": "House consumption includes EV charging (subtract configured EV power)",
           "temperature_matching": "Prefer similar outdoor temperatures (experimental)",
           "use_for_peak_reserve": "Use hourly profile in the active strategy"
+        },
+        "data_description": {
+          "enabled": "Learns the house consumption by hour and weekday and compares the forecast. Observation only.",
+          "heat_power": "Optional. Electrical power of the heat pump; must be included in the house consumption. It is subtracted and learned separately.",
+          "summer_mode": "Optional. Separates summer and winter history.",
+          "heating_active": "Optional. Reports active heating of the heat pump.",
+          "dhw_active": "Optional. Reports active hot water heating and separates its share from space heating.",
+          "dhw_due": "Optional. Signal that hot water is expected before PV starts. Needs the heat pump meter, the hot water active state and kWh per cycle.",
+          "water_temperature": "Optional. If the actual temperature is below target minus 2 K, hot water counts as expected.",
+          "water_target": "Optional. Target temperature for the comparison with the actual temperature.",
+          "pv_today": "Solcast sensor for today with a dated detailedForecast and pv_estimate10. Daily kWh alone are not enough.",
+          "pv_tomorrow": "Solcast sensor for tomorrow with a dated detailedForecast and pv_estimate10.",
+          "dhw_cycle_kwh": "Measured electrical energy of one hot water cycle. 0 means unknown.",
+          "outdoor_temperature": "Optional. Outdoor temperature to find similar historical hours.",
+          "context_water_temperature": "Optional. Stored as context only and does not trigger hot water recharging.",
+          "context_water_target": "Optional. Stored as context only and does not trigger hot water recharging.",
+          "history_house": "Sensor for the one-time import from the recorder. Must measure the same consumption scope as the current house consumption.",
+          "house_includes_ev": "Only turn on if the house consumption includes the wallbox. The EV power is then subtracted; a change resets the learned profile.",
+          "temperature_matching": "Prefers historical hours within 3 °C of the current outdoor temperature, for the first four forecast hours.",
+          "use_for_peak_reserve": "Uses the hourly profile for peak reserve and remaining-day score. Changes the battery control."
         }
       },
       "arbitrage": {
@@ -786,6 +1036,17 @@
           "charge_efficiency_percent": "Charge efficiency",
           "discharge_efficiency_percent": "Discharge efficiency",
           "margin_ct": "Additional margin per kWh battery energy"
+        },
+        "data_description": {
+          "enabled": "Shows price spread and residual value. Efficiencies, cycle costs and margin also apply to peak pre-charging.",
+          "hold_enabled": "Holds energy only with a complete demand, PV and price forecast for a more valuable later residual load. Does not charge from the grid.",
+          "battery_price_eur": "Battery share of the purchase price, basis for the cycle costs.",
+          "degradation_percent": "Loss of battery value over the assumed full cycles.",
+          "cycles": "Number of full cycles the loss of value is spread over.",
+          "usable_capacity_kwh": "Usable capacity of the house battery.",
+          "charge_efficiency_percent": "Share of grid or PV energy that reaches the battery. 90 % if not set.",
+          "discharge_efficiency_percent": "Share of battery energy that reaches the house. 90 % if not set.",
+          "margin_ct": "Additional margin per kWh before charging and later discharging pay off."
         }
       },
       "peak_rank": {
@@ -793,6 +1054,9 @@
         "description": "Experimental. Otherwise the peak ladder discharges in every hour classified as very expensive or expensive. With this option it holds the battery in an expensive hour when, according to the peak rank shadow comparison, the usable energy only covers even more expensive hours before the next PV refill. Instead of discharging, the mode is then 'Akku nur Laden' (PV charging stays allowed) or, when the strategy currently blocks charging, 'Akku Pause'. It only affects the peak L1 and L2 decisions and only on a clear 'hold' result; with uncertain or missing data the strategy decides as before. Manual modes and all protection functions take precedence. The load and price assumptions can be wrong; energy may then remain unused or expensive grid power may be drawn.",
         "data": {
           "enabled": "Hold discharge in expensive hours for even more expensive ones"
+        },
+        "data_description": {
+          "enabled": "Experimental. Holds energy in an expensive hour for even more expensive hours if the battery only lasts for those. Changes the battery control."
         }
       },
       "observation": {
@@ -807,6 +1071,16 @@
           "additional_ac_sources": "Additional inverter AC power",
           "excluded_load_sources": "Excluded loads (e.g. EV charger)",
           "gross_house": "Whole-house consumption before excluded loads (instantaneous)"
+        },
+        "data_description": {
+          "enabled": "Read-only comparison of measurement sources and balance. Does not change the active house source.",
+          "meter_confirmed": "Confirms that the grid meter covers the whole plant scope being compared.",
+          "legacy_floor_w": "Lower limit the legacy system applied to its average, so the comparison calculates the same way.",
+          "instant_house": "Optional. Instantaneous house consumption after subtracting the excluded loads.",
+          "watch_sources": "Up to eight further sources whose report times are recorded.",
+          "additional_ac_sources": "AC power of further inverters for the balance.",
+          "excluded_load_sources": "Loads such as a wallbox subtracted for the comparison after load deduction.",
+          "gross_house": "Optional. Instantaneous total house consumption before load deduction."
         }
       },
       "ev_preparation": {
@@ -824,6 +1098,19 @@
           "vehicle_capacity_kwh": "Usable vehicle capacity",
           "charge_power_kw": "Available charge power",
           "vehicle_charge_efficiency_percent": "Charging efficiency to the vehicle battery"
+        },
+        "data_description": {
+          "enabled": "Pulls existing PV surplus into the house battery earlier when the vehicle state of charge is low. No additional grid charging.",
+          "vehicle_soc": "State of charge of the vehicle in percent. Valid for at most 24 hours.",
+          "charging": "Reliable signal that the car is charging. Active or unknown pauses normal house battery charging and discharging.",
+          "away": "Optional. Switch for longer absence; blocks only the preparation.",
+          "departure": "Optional. input_datetime or timestamp sensor. A time of day alone applies daily.",
+          "vehicle_threshold": "Below this vehicle state of charge, charging is needed.",
+          "house_target": "Up to this state of charge the house battery takes in surplus PV early, at most up to the maximum state of charge.",
+          "vehicle_target_soc": "Vehicle target at departure. Replaces the simple need threshold until departure.",
+          "vehicle_capacity_kwh": "Usable vehicle battery capacity for departure planning.",
+          "charge_power_kw": "Available AC charge power for departure planning.",
+          "vehicle_charge_efficiency_percent": "Share of AC energy that reaches the vehicle battery."
         }
       },
       "active_setup": {
@@ -836,6 +1123,10 @@
         "data": {
           "suggestion_entity": "Entity with evcc suggestion",
           "url": "evcc address (e.g. http://192.168.1.10:7070)"
+        },
+        "data_description": {
+          "suggestion_entity": "House battery SoC sensor from ha-evcc with the suggestion attribute.",
+          "url": "Optional. Opti Akku then reads the evopt result from /api/state every 5 minutes."
         }
       }
     },

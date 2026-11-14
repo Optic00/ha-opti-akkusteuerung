@@ -15,10 +15,13 @@
           "migrate_legacy": "Bisherige Opti-Automation übernehmen (immer Shadow)"
         },
         "data_description": {
+          "backend": "Wie Opti Akku den Akku erreicht: direkt per Modbus TCP am SMA-Wechselrichter oder über eine bereits eingerichtete Huawei-Solar-Integration.",
           "host": "IP-Adresse oder Hostname des Wechselrichters im lokalen Netz. Modbus TCP muss am Gerät aktiviert sein.",
           "port": "Modbus-TCP-Port des Wechselrichters, bei SMA meist 502.",
           "unit_id": "Modbus-Unit-ID des Wechselrichters. SMA-Wechselrichter antworten in der Regel unter 3.",
-          "shadow_mode": "Liest nur und schreibt nie auf das Gerät. Ein Shadow-Eintrag bleibt dauerhaft lesend; für eine spätere Steuerung wird ein eigener Standard-Eintrag angelegt."
+          "profile": "Modell des Wechselrichters. Sunny Boy Storage und Sunny Island sind nur als lesender Test freigegeben.",
+          "shadow_mode": "Liest nur und schreibt nie auf das Gerät. Ein Shadow-Eintrag bleibt dauerhaft lesend; für eine spätere Steuerung wird ein eigener Standard-Eintrag angelegt.",
+          "migrate_legacy": "Liest die Werte der bisherigen YAML-Automation als Entwurf ein. Der neue Eintrag bleibt dabei Shadow, also strikt lesend; die alte Steuerung läuft unverändert weiter."
         }
       },
       "sma_connection": {
@@ -36,7 +39,9 @@
           "host": "IP-Adresse oder Hostname des Wechselrichters im lokalen Netz. Modbus TCP muss am Gerät aktiviert sein.",
           "port": "Modbus-TCP-Port des Wechselrichters, bei SMA meist 502.",
           "unit_id": "Modbus-Unit-ID des Wechselrichters. SMA-Wechselrichter antworten in der Regel unter 3.",
-          "shadow_mode": "Liest nur und schreibt nie auf das Gerät. Ein Shadow-Eintrag bleibt dauerhaft lesend; für eine spätere Steuerung wird ein eigener Standard-Eintrag angelegt."
+          "profile": "Modell des Wechselrichters. Sunny Boy Storage und Sunny Island sind nur als lesender Test freigegeben.",
+          "shadow_mode": "Liest nur und schreibt nie auf das Gerät. Ein Shadow-Eintrag bleibt dauerhaft lesend; für eine spätere Steuerung wird ein eigener Standard-Eintrag angelegt.",
+          "migrate_legacy": "Liest die Werte der bisherigen YAML-Automation als Entwurf ein. Der neue Eintrag bleibt dabei Shadow, also strikt lesend; die alte Steuerung läuft unverändert weiter."
         }
       },
       "huawei_device": {
@@ -47,6 +52,7 @@
           "shadow_mode": "Shadow-Modus (dauerhaft nur lesen)"
         },
         "data_description": {
+          "huawei_device_id": "Batterie-Wechselrichter eines geladenen Huawei-Solar-Eintrags.",
           "shadow_mode": "Liest nur und schreibt nie auf das Gerät. Ein Shadow-Eintrag bleibt dauerhaft lesend; für eine spätere Steuerung wird ein eigener Standard-Eintrag angelegt."
         }
       },
@@ -62,6 +68,16 @@
           "battery_temp": "Akkutemperatur (optional)",
           "pv_generation_w": "PV-Eingangsleistung (optional)",
           "grid_positive": "Positive Netzleistung bedeutet"
+        },
+        "data_description": {
+          "soc": "Ladestand des Akkus in Prozent aus Huawei Solar.",
+          "battery_capacity_kwh": "Nennkapazität des Akkus in Wh oder kWh.",
+          "battery_power_w": "Lade- und Entladeleistung des Akkus.",
+          "pv_power_w": "AC-Ausgangsleistung des Wechselrichters.",
+          "grid_power_w": "Leistung am Netzanschlusspunkt. Die Vorzeichenrichtung legst du im Feld darunter fest.",
+          "battery_temp": "Optional. Ermöglicht Temperaturdrosselung und -abschaltung beim Laden.",
+          "pv_generation_w": "Optional. DC-Leistung der PV-Strings, nur zur Anzeige.",
+          "grid_positive": "Ob ein positiver Wert der Netzleistung Bezug oder Einspeisung bedeutet. Eine falsche Richtung verfälscht den Hausverbrauch."
         }
       },
       "sources": {
@@ -84,6 +100,18 @@
           "house_consumption_max_age": "Altersgrenze Hausverbrauch (Sekunden, leer = wie oben)"
         },
         "data_description": {
+          "house_consumption": "Ungeglätteter Hausverbrauch der Gesamtanlage in W oder kW. Leer lassen, wenn Opti Akku ihn aus Netz-, PV- und Akkuleistung berechnen soll.",
+          "pv_generation": "Optional. DC-Leistung der PV-Strings, nur zur Anzeige. Überschreibt den gelesenen SMA-Wert.",
+          "pv_power": "Optional. AC-Leistung des Hybrid-Wechselrichters einschließlich Akku. Überschreibt den gelesenen SMA-Wert; im Bilanzmodus nicht zulässig.",
+          "single_inverter": "Berechnet den Hausverbrauch aus der Bilanz dieses Wechselrichters statt aus einem eigenen Sensor. Nur geeignet, wenn kein weiterer Erzeuger am Netzanschluss hängt.",
+          "plant_mode": "Native Anlagenbilanz ist für neue SMA-Anlagen empfohlen. Legacy behält die bisherige Berechnung für Importe und bestehende Einträge.",
+          "additional_ac_sources": "AC-Ausgangsleistung weiterer Wechselrichter, keine DC-Strings. Fließt in die Bilanz des Hausverbrauchs ein.",
+          "excluded_load_sources": "Verbraucher wie eine Wallbox, die aus dem gelernten Lastprofil herausgerechnet werden. Sie beeinflussen nur das Lastprofil.",
+          "event_based_excluded_sources": "Nur bereits ausgeschlossene Lasten, deren Integration unveränderte 0 W nicht regelmäßig meldet und Ausfälle zuverlässig als nicht verfügbar kennzeichnet. Für sie bleibt exakt 0 W ohne Altersgrenze gültig.",
+          "plant_meter_confirmed": "Pflicht für die native Anlagenbilanz: Der Netzzähler muss alle gewählten Erzeuger und Verbraucher erfassen.",
+          "forecast_min_load_w": "Untergrenze des Verbrauchs, mit der die Prognose rechnet. Gilt nur für die Prognose, nicht für die Messung.",
+          "strategy_enabled": "Berechnet Betriebsart und Leistungen automatisch. Schaltet allein keine Schreibzugriffe frei; ausgeschaltet bleibt der Akku in Pause.",
+          "huawei_battery_temp": "Optional. Akkutemperatur aus Huawei Solar für Temperaturdrosselung und -abschaltung.",
           "source_max_age": "Standard: 900 Sekunden. Gilt für externe Leistungen, Wärmepumpen-Leistung im Bedarfsprofil und Ruhe-Zellspreizung. 0 vertraut auch bei unveränderten Werten der HA-Verfügbarkeit. Quellen und Templates müssen Ausfälle als unavailable melden; eingefrorene verfügbare Werte werden nicht erkannt. Eine alte hohe Ruhe-Zellspreizung kann Balancing vorziehen. Native Batterie-, Temperatur-, Preis- und Prognoseprüfungen behalten ihre Grenzen. Eine Änderung startet das Verbrauchsprofil neu.",
           "house_consumption_max_age": "Optional. Für eine geglättete Hausverbrauchs-Quelle im Modus Legacy, etwa ein 60-Minuten-Mittelwert-Template: Sie kann unverändert bleiben und meldet dann in HA nichts Neues. Vorschlag für einen 60-Minuten-Mittelwert: 3600. Leer nutzt die allgemeine Altersgrenze, 0 vertraut der HA-Verfügbarkeit. Eine eingefrorene, weiter verfügbare Quelle fällt erst nach dieser Grenze auf. Setzen oder Ändern startet das Verbrauchsprofil neu."
         }
@@ -129,12 +157,17 @@
           "price_provider": "Preisquelle"
         },
         "data_description": {
+          "price_current": "Aktueller Strompreis. Leer lassen, wenn keine Preisoptimierung gewünscht ist.",
+          "price_series": "Entität mit datierten Preisen für heute und morgen: vollständige Intervalle mit Start, Ende und Zeitzone.",
+          "price_unit": "Einheit beider Preisentitäten. Widersprüchliche Euro- und Cent-Angaben werden abgelehnt.",
           "ladepreis": "-1 bedeutet: noch kein Referenz-Ladepreis bekannt. Vorhandene gespeicherte Werte bleiben beim Upgrade erhalten. Die Strategie schreibt den Wert nach Netzladen; er ist nur Anzeige und hat keine Steuerwirkung.",
           "mindestpreisdifferenz_lade_entladepreis": "Nur Anzeige, keine Steuerwirkung: speist den Sensor Opti Mindestentladepreis (Referenz-Ladepreis plus Aufschlag). Kein Strategiezweig liest ihn.",
           "opti_einspeiseverguetung_ct": "Deine Einspeisevergütung. Bei schlechter Prognose und erlaubtem Netzladen für die Reserve darf die Strategie aus dem Netz laden, solange der Strompreis darunter liegt. Bei 0 gilt das nur für negative Preise.",
           "opti_netzlade_spread_ct": "Mindestabstand zwischen Ladepreis und Durchschnitt der kommenden Preisspitzen, damit vor einer Spitze aus dem Netz vorgeladen wird. Gilt zusätzlich zur Wirtschaftlichkeit aus dem Akkumodell. Standard 10 ct/kWh.",
           "opti_peak_min_aufschlag_ct": "Ein Zeitfenster zählt nur als Preisspitze, wenn es mindestens so viel über dem Tiefstpreis im Planungshorizont liegt. Standard 5 ct/kWh.",
-          "opti_halte_spread_ct": "In teuren Stunden hält die Strategie den Akku nur für noch teurere Spitzen zurück, wenn deren Durchschnittspreis mindestens so viel über dem aktuellen Preis liegt. Standard 5 ct/kWh."
+          "opti_halte_spread_ct": "In teuren Stunden hält die Strategie den Akku nur für noch teurere Spitzen zurück, wenn deren Durchschnittspreis mindestens so viel über dem aktuellen Preis liegt. Standard 5 ct/kWh.",
+          "hausakku_aus_netz_laden": "Setzt das Ladeziel auf den maximalen Ladestand statt auf das aus der PV-Prognose berechnete Ziel. Schaltet sich ab 99 % Ladestand selbst wieder aus.",
+          "price_provider": "Woher die Preise kommen: eigene Preisentitäten, die vorhandene Tibber-Integration oder feste Zeitfenster deines Tarifs."
         }
       },
       "forecast": {
@@ -170,6 +203,17 @@
           "ev2_smart_cost": "EV 2 Smart Cost aktiv",
           "ev2_power": "EV 2 Ladeleistung",
           "opti_ev_akku_pause": "Entladung bei Autoladung sperren"
+        },
+        "data_description": {
+          "ev1_mode": "evcc-Ladepunkt 1: Entität mit dem Lademodus. Nur zusammen mit dem Ladestatus wählen.",
+          "ev1_charging": "evcc-Ladepunkt 1: Entität, die anzeigt, ob gerade geladen wird.",
+          "ev1_smart_cost": "Optional. Zeigt an, ob Smart Cost aktiv ist. Dann kann auch in pv/smart die Entladung gesperrt werden.",
+          "ev1_power": "Optional. Ladeleistung von Ladepunkt 1, etwa für den Abzug aus dem Hausverbrauch im Bedarfsprofil.",
+          "ev2_mode": "evcc-Ladepunkt 2: Entität mit dem Lademodus. Nur zusammen mit dem Ladestatus wählen.",
+          "ev2_charging": "evcc-Ladepunkt 2: Entität, die anzeigt, ob gerade geladen wird.",
+          "ev2_smart_cost": "Optional. Zeigt an, ob Smart Cost aktiv ist. Dann kann auch in pv/smart die Entladung gesperrt werden.",
+          "ev2_power": "Optional. Ladeleistung von Ladepunkt 2, etwa für den Abzug aus dem Hausverbrauch im Bedarfsprofil.",
+          "opti_ev_akku_pause": "Sperrt die Entladung des Hausakkus, während ein Auto in now oder minpv bzw. mit aktivem Smart Cost lädt. Normales PV-Laden sperrt nicht; Laden des Hausakkus bleibt möglich."
         }
       },
       "balancing": {
@@ -190,6 +234,7 @@
           "opti_zellspannung_reserve_v": "Zellspannungs-Reserve (V)"
         },
         "data_description": {
+          "cell_spread": "Optional. Zellspreizung des BYD-Akkus in Ruhe. Eine große Spreizung kann zusätzlichen Balancing-Bedarf auslösen.",
           "cell_voltage_min": "Schnell aktualisierter Sensor der niedrigsten Zellspannung (V oder mV), etwa von einer BYD-BMU. Werte älter als 180 s gelten als veraltet. Nötig für die Zellspannungs-Reserve.",
           "opti_balancing_intervall_tage": "Balancing wird fällig, wenn seit dem letzten Vollladen auf 100 % so viele Tage vergangen sind. 0 schaltet die Balancing-Planung aus.",
           "opti_balancing_karenz_tage": "Zusätzliche Tage nach dem Intervall, bevor Balancing nachts zu einem günstigen Preis unter der Balancing-Preisgrenze aus dem Netz laden darf. Erfordert Netzladen für Balancing.",
@@ -212,6 +257,7 @@
           "akku_opti_automatik": "Strategie berechnen"
         },
         "data_description": {
+          "shadow_reference_mode": "Optional. Modus-Entität deiner bisherigen Steuerung. Der Shadow-Eintrag vergleicht seine Entscheidungen damit.",
           "single_writer_confirmed": "Erst bestätigen, wenn keine andere Automation, Integration oder Hersteller-App den Akku steuert. Ohne Bestätigung bleibt die Schreibfreigabe gesperrt.",
           "akku_opti_automatik": "Berechnet die Strategie. Aus bedeutet Pause, auch bei manueller Moduswahl. Ersetzt nicht die Schreibfreigabe."
         }
@@ -232,6 +278,10 @@
           "price_max_age": "Maximales Alter von Strompreisen (Sekunden)"
         },
         "data_description": {
+          "akkusteuerung_ladestaerke_soll": "Feste Ladeleistung für „Akku schnell Laden“. Höchstens die maximale Ladeleistung.",
+          "akkusteuerung_min_ladestaerke": "Nur SMA: untere Grenze des Ladefensters. Liegt die berechnete Ladeleistung darunter, bleibt das Laden gesperrt; sonst lädt der Wechselrichter mit mindestens diesem Wert. 0 = keine Untergrenze.",
+          "akkusteuerung_entladestaerke_soll": "Feste Entladeleistung für „Akku schnell Entladen“. Höchstens die maximale Entladeleistung.",
+          "akkusteuerung_min_entladestaerke": "Nur SMA: untere Grenze des Entladefensters. Liegt die Entladegrenze darunter, bleibt das Entladen gesperrt; sonst entlädt der Wechselrichter mit mindestens diesem Wert. 0 = keine Untergrenze.",
           "akkusteuerung_wr_70proz_ueberschuss_grenze": "0 schaltet die Funktion aus. Übersteigt die Einspeisung ohne Akkuladung tagsüber diesen Wert, lädt der Akku aus dem Überschuss, etwa bei einer Einspeisebegrenzung auf 70 %. Endet 1000 W darunter. Erfordert PV-Überschussladen.",
           "akkusteuerung_ueberschuss_veto_grenze": "Übersteigt die Einspeisung ohne Akkuladung tagsüber diesen Wert, lädt der Akku über den Ziel-Ladestand hinaus bis zum maximalen Ladestand. Erfordert PV-Überschussladen.",
           "akkusteuerung_ueberschuss_veto_aus_grenze": "Hysterese: Eine laufende Freigabe bleibt aktiv, solange die Einspeisung ohne Akkuladung mindestens diesen Wert erreicht. Darf nicht über der Freigabegrenze liegen.",
@@ -246,6 +296,10 @@
         "data": {
           "configure_ev": "Wallboxen einrichten",
           "configure_balancing": "Balancing einrichten"
+        },
+        "data_description": {
+          "configure_ev": "Richtet evcc-Ladepunkte und die Entladesperre beim Autoladen ein.",
+          "configure_balancing": "Richtet die Balancing-Planung für Vollzyklen ein."
         }
       },
       "migration_review": {
@@ -254,6 +308,10 @@
         "data": {
           "accept": "Angezeigte gültige Werte in den Entwurf übernehmen",
           "adjust_mapping": "Abweichende Helfer zuordnen / Auswahl ändern"
+        },
+        "data_description": {
+          "accept": "Übernimmt genau den angezeigten Entwurf, nicht später geänderte Helferwerte.",
+          "adjust_mapping": "Ordnet abweichend benannte Helfer zu und erstellt danach eine neue Aufnahme."
         }
       },
       "migration_mapping": {
@@ -292,6 +350,40 @@
           "opti_prognose_netzladen": "input_boolean.opti_prognose_netzladen",
           "opti_pv_ueberschuss_ladung": "input_boolean.opti_pv_ueberschuss_ladung",
           "opti_balancing_netzladen": "input_boolean.opti_balancing_netzladen"
+        },
+        "data_description": {
+          "akkusteuerung_ladestaerke_soll": "Bisheriger Helfer für „Ladeleistung (manuell)“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "akkusteuerung_min_ladestaerke": "Bisheriger Helfer für „Min. Ladeleistung“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "akkusteuerung_max_ladestaerke": "Bisheriger Helfer für „Max. Ladeleistung“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "akkusteuerung_entladestaerke_soll": "Bisheriger Helfer für „Entladeleistung (manuell)“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "akkusteuerung_min_entladestaerke": "Bisheriger Helfer für „Min. Entladeleistung“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "akkusteuerung_max_entladestaerke": "Bisheriger Helfer für „Max. Entladeleistung“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "akkusteuerung_wr_ac_ueberschuss_grenze": "Bisheriger Helfer für „AC-Überschussgrenze“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "akkusteuerung_wr_70proz_ueberschuss_grenze": "Bisheriger Helfer für „70%-PV-Grenze“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "akkusteuerung_ueberschuss_veto_grenze": "Bisheriger Helfer für „Einspeisung: Freigabe ab“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "akkusteuerung_ueberschuss_veto_aus_grenze": "Bisheriger Helfer für „Einspeisung: Sperre unter“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "akkusteuerung_ueberschuss_veto_knappheit_faktor": "Bisheriger Helfer für „Knappheitsfaktor“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "minsoc": "Bisheriger Helfer für „Minimaler Ladestand“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "maxsoc": "Bisheriger Helfer für „Maximaler Ladestand“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "ladepreis": "Bisheriger Helfer für „Referenz-Ladepreis“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "mindestpreisdifferenz_lade_entladepreis": "Bisheriger Helfer für „Mindestgewinn beim Entladen“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_peak_verbrauch_kw": "Bisheriger Helfer für „Erwarteter Hausverbrauch“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_einspeiseverguetung_ct": "Bisheriger Helfer für „Einspeisevergütung“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_netzlade_spread_ct": "Bisheriger Helfer für „Preisabstand für Netzladen“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_peak_min_aufschlag_ct": "Bisheriger Helfer für „Mindestaufschlag in Spitzenzeiten“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_forecast_optimismus": "Bisheriger Helfer für „Prognose-Optimismus“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_halte_spread_ct": "Bisheriger Helfer für „Preisabstand fürs Halten“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_balancing_intervall_tage": "Bisheriger Helfer für „Balancing alle … Tage“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_balancing_karenz_tage": "Bisheriger Helfer für „Balancing-Karenz“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_balancing_max_ct": "Bisheriger Helfer für „Balancing-Preisgrenze“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_balancing_done_soc": "Bisheriger Helfer für „Balancing-Zielladestand“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_balancing_spreizungs_schwelle": "Bisheriger Helfer für „Zellabweichung für Balancing“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_balancing_bedarf_cooldown_tage": "Bisheriger Helfer für „Balancing-Abstand bei Bedarf“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_zellspannung_reserve_v": "Bisheriger Helfer für „Zellspannungs-Reserve (V)“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "hausakku_aus_netz_laden": "Bisheriger Helfer für „Netzladen im Winter erlauben“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_prognose_netzladen": "Bisheriger Helfer für „Reserveplanung mit Netzladen erlauben“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_pv_ueberschuss_ladung": "Bisheriger Helfer für „PV-Überschussladen erlauben“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet.",
+          "opti_balancing_netzladen": "Bisheriger Helfer für „Netzladen für Balancing erlauben“. Leer lassen, um ihn nicht zu übernehmen. Einheiten werden nicht umgerechnet."
         }
       },
       "tibber": {
@@ -300,6 +392,10 @@
         "data": {
           "tibber_home": "Tibber-Zuhause",
           "tibber_eur_confirmed": "Mein Tibber-Tarif verwendet EUR/kWh"
+        },
+        "data_description": {
+          "tibber_home": "Zuhause aus der eingerichteten Tibber-Integration. Unterstützt wird genau ein Konto mit einem Zuhause.",
+          "tibber_eur_confirmed": "Der Tibber-Dienst liefert keine Währung. Bestätige, dass dein Tarif in EUR/kWh abgerechnet wird."
         }
       },
       "price_windows": {
@@ -307,6 +403,9 @@
         "description": "Trage die täglichen Fenster des Tarifs in Ortszeit mit Preis in ct/kWh ein. Zusammen müssen sie den ganzen Tag genau einmal abdecken, ohne Lücke und ohne Überschneidung; ein Fenster darf über Mitternacht gehen (etwa 05:00 bis 00:00). Beginn und Ende liegen auf 15-Minuten-Schritten. Opti Akku erzeugt daraus die datierten Preise für heute und morgen, auch an Tagen mit Zeitumstellung. Eine Altersprüfung gibt es nicht. Ändert sich der Tarif, passe die Fenster hier an.",
         "data": {
           "price_windows": "Preisfenster"
+        },
+        "data_description": {
+          "price_windows": "Tägliche Fenster in Ortszeit mit Preis in ct/kWh, in 15-Minuten-Schritten. Zusammen müssen sie den Tag lückenlos und ohne Überschneidung abdecken."
         }
       },
       "notifications": {
@@ -314,6 +413,9 @@
         "description": "Probleme erscheinen immer als Home-Assistant-Meldung. Optional zusätzlich einen vorhandenen Push-Dienst auswählen. Der Testknopf auf der Geräteseite prüft die Zustellung. Während HA selbst ausfällt, kann die Integration nicht alarmieren.",
         "data": {
           "notification_service": "Zusätzlicher Push-Dienst"
+        },
+        "data_description": {
+          "notification_service": "Optional. notify-Aktion für zusätzliche Push-Meldungen, etwa notify.mobile_app_handy. Probleme erscheinen immer auch als Home-Assistant-Meldung."
         }
       },
       "huawei_controls": {
@@ -329,6 +431,17 @@
           "cutoff_soc": "Netz-Ladeabschaltung (SoC)",
           "forced_status": "Status erzwungenes Laden/Entladen",
           "huawei_grid_surplus": "Netzladen im Eigenverbrauch für zusätzliche AC-Erzeuger zulassen"
+        },
+        "data_description": {
+          "mode": "Entität für den Batterie-Betriebsmodus. Muss zum selben Batteries-Gerät gehören.",
+          "excess_pv": "Entität für die Verwendung überschüssiger PV-Energie. Muss zum selben Batteries-Gerät gehören.",
+          "grid_charge": "Entität, die das Laden aus dem Netz erlaubt.",
+          "charge_limit": "Entität für die maximale Ladeleistung.",
+          "discharge_limit": "Entität für die maximale Entladeleistung.",
+          "grid_limit": "Entität für die maximale Ladeleistung aus dem Netz.",
+          "cutoff_soc": "Entität für den Ladestand, bis zu dem aus dem Netz geladen wird.",
+          "forced_status": "Sensor mit dem Status des erzwungenen Ladens oder Entladens. Muss zum selben Batteries-Gerät gehören.",
+          "huawei_grid_surplus": "Anlagenabhängig, standardmäßig aus. Lässt im Eigenverbrauch Netzladen zu, damit Überschuss weiterer AC-Erzeuger im Akku landen kann."
         }
       },
       "shadow_copy": {
@@ -337,6 +450,10 @@
         "data": {
           "shadow_entry": "Vorhandener Shadow-Eintrag",
           "confirm_copy": "Einstellungen in einen neuen Standard-Eintrag übernehmen"
+        },
+        "data_description": {
+          "shadow_entry": "Shadow-Eintrag, dessen Einstellungen den neuen Standard-Eintrag vorbelegen. Er selbst bleibt unverändert.",
+          "confirm_copy": "Bestätigt, dass die bisherige schreibende Steuerung abgeschaltet ist. Ohne Bestätigung wird kein Standard-Eintrag angelegt."
         }
       },
       "demand": {
@@ -361,6 +478,26 @@
           "house_includes_ev": "Hausverbrauch enthält Wallbox-Ladung (konfigurierte EV-Leistung abziehen)",
           "temperature_matching": "Ähnliche Außentemperaturen bevorzugen (experimentell)",
           "use_for_peak_reserve": "Stundenprofil in der aktiven Strategie verwenden"
+        },
+        "data_description": {
+          "enabled": "Lernt den Hausverbrauch nach Stunde und Wochentag und vergleicht die Prognose. Rein beobachtend.",
+          "heat_power": "Optional. Elektrische Leistung der Wärmepumpe; muss im Hausverbrauch enthalten sein. Wird abgezogen und getrennt gelernt.",
+          "summer_mode": "Optional. Trennt Sommer- und Winterhistorie.",
+          "heating_active": "Optional. Meldet aktiven Heizbetrieb der Wärmepumpe.",
+          "dhw_active": "Optional. Meldet aktive Warmwasserbereitung und trennt deren Anteil von der Raumheizung.",
+          "dhw_due": "Optional. Signal, dass vor dem PV-Beginn Warmwasser erwartet wird. Braucht Wärmepumpenzähler, Warmwasser-Aktivmeldung und kWh je Zyklus.",
+          "water_temperature": "Optional. Liegt die Isttemperatur unter Soll minus 2 K, gilt Warmwasser als erwartet.",
+          "water_target": "Optional. Solltemperatur für den Vergleich mit der Isttemperatur.",
+          "pv_today": "Solcast-Sensor für heute mit datiertem detailedForecast und pv_estimate10. Tages-kWh allein reichen nicht.",
+          "pv_tomorrow": "Solcast-Sensor für morgen mit datiertem detailedForecast und pv_estimate10.",
+          "dhw_cycle_kwh": "Gemessene elektrische Energie eines Warmwasserzyklus. 0 bedeutet unbekannt.",
+          "outdoor_temperature": "Optional. Außentemperatur, um ähnliche historische Stunden zu finden.",
+          "context_water_temperature": "Optional. Wird nur als Kontext gespeichert und löst keine Warmwasser-Nachladung aus.",
+          "context_water_target": "Optional. Wird nur als Kontext gespeichert und löst keine Warmwasser-Nachladung aus.",
+          "history_house": "Sensor für den einmaligen Import aus dem Recorder. Muss denselben Verbrauchsumfang wie der aktuelle Hausverbrauch messen.",
+          "house_includes_ev": "Nur einschalten, wenn der Hausverbrauch die Wallbox enthält. Dann werden die EV-Leistungen abgezogen; eine Änderung setzt das gelernte Profil zurück.",
+          "temperature_matching": "Bevorzugt historische Stunden innerhalb von 3 °C der aktuellen Außentemperatur, für die ersten vier Prognosestunden.",
+          "use_for_peak_reserve": "Verwendet das Stundenprofil für Peak-Reserve und Resttages-Score. Verändert die Akkusteuerung."
         }
       },
       "ev_preparation": {
@@ -378,6 +515,19 @@
           "vehicle_capacity_kwh": "Nutzbare Fahrzeugkapazität",
           "charge_power_kw": "Verfügbare Ladeleistung",
           "vehicle_charge_efficiency_percent": "Ladewirkungsgrad bis zum Fahrzeugakku"
+        },
+        "data_description": {
+          "enabled": "Zieht bei niedrigem Fahrzeug-SoC vorhandenen PV-Überschuss in den Hausakku vor. Kein zusätzliches Netzladen.",
+          "vehicle_soc": "Ladezustand des Fahrzeugs in Prozent. Gilt höchstens 24 Stunden.",
+          "charging": "Verlässliches Signal, dass das Auto lädt. Aktiv oder unbekannt pausiert normale Hausakkuladung und Entladung.",
+          "away": "Optional. Schalter für längere Abwesenheit; sperrt nur die Vorbereitung.",
+          "departure": "Optional. input_datetime oder Zeitstempel-Sensor. Eine reine Uhrzeit gilt täglich.",
+          "vehicle_threshold": "Unter diesem Fahrzeug-SoC gilt Ladebedarf.",
+          "house_target": "Bis zu diesem Ladestand nimmt der Hausakku vorgezogenen PV-Überschuss auf, höchstens bis zum maximalen Ladestand.",
+          "vehicle_target_soc": "Fahrzeugziel zur Abfahrt. Ersetzt bis zur Abfahrt die einfache Bedarfsschwelle.",
+          "vehicle_capacity_kwh": "Nutzbare Kapazität des Fahrzeugakkus für die Abfahrtsplanung.",
+          "charge_power_kw": "Verfügbare AC-Ladeleistung für die Abfahrtsplanung.",
+          "vehicle_charge_efficiency_percent": "Anteil der AC-Energie, der im Fahrzeugakku ankommt."
         }
       },
       "arbitrage": {
@@ -393,6 +543,17 @@
           "charge_efficiency_percent": "Ladewirkungsgrad",
           "discharge_efficiency_percent": "Entladewirkungsgrad",
           "margin_ct": "Zusätzliche Marge je kWh Akkuenergie"
+        },
+        "data_description": {
+          "enabled": "Zeigt Preisabstand und Restwert an. Wirkungsgrade, Zykluskosten und Marge gelten auch für das Peak-Vorladen.",
+          "hold_enabled": "Hält Energie nur bei vollständiger Bedarfs-, PV- und Preisprognose für eine wertvollere spätere Restlast zurück. Lädt nicht aus dem Netz.",
+          "battery_price_eur": "Anteil des Akkus am Anschaffungspreis, Grundlage der Zykluskosten.",
+          "degradation_percent": "Wertverlust des Akkus über die angenommenen Vollzyklen.",
+          "cycles": "Anzahl Vollzyklen, auf die sich der Wertverlust verteilt.",
+          "usable_capacity_kwh": "Nutzbare Kapazität des Hausakkus.",
+          "charge_efficiency_percent": "Anteil der Netz- oder PV-Energie, der im Akku ankommt. Ohne Angabe 90 %.",
+          "discharge_efficiency_percent": "Anteil der Akkuenergie, der im Haus ankommt. Ohne Angabe 90 %.",
+          "margin_ct": "Zusätzlicher Abstand je kWh, bevor sich Laden und späteres Entladen lohnen."
         }
       },
       "peak_rank": {
@@ -400,6 +561,9 @@
         "description": "Experimentell. Die Peak-Leiter entlädt sonst in jeder als sehr teuer oder teuer eingestuften Stunde. Mit dieser Option hält sie den Akku in einer teuren Stunde zurück, wenn der nutzbare Inhalt nach dem Schattenvergleich Peak-Rangfolge nur für noch teurere Stunden bis zum nächsten Nachladen aus PV reicht. Statt zu entladen gilt dann „Akku nur Laden“ (PV-Laden bleibt frei) oder, wenn die Strategie das Laden gerade sperrt, „Akku Pause“. Es wirkt nur auf die Entscheidungen Peak L1 und L2 und nur bei einem eindeutigen Ergebnis „Halten“; bei unsicheren oder fehlenden Daten entscheidet die Strategie wie bisher. Manuelle Modi und alle Schutzfunktionen haben Vorrang. Die Annahmen zu Hauslast und Preisen können falsch sein; dann bleibt Energie ungenutzt oder es wird teurer Netzstrom bezogen.",
         "data": {
           "enabled": "Entladen in teuren Stunden für noch teurere zurückhalten"
+        },
+        "data_description": {
+          "enabled": "Experimentell. Hält in einer teuren Stunde Energie für noch teurere Stunden zurück, wenn der Akku nur für diese reicht. Verändert die Akkusteuerung."
         }
       },
       "observation": {
@@ -414,6 +578,16 @@
           "additional_ac_sources": "Weitere Wechselrichter AC-Leistung",
           "excluded_load_sources": "Abzuziehende Lasten (z. B. Wallbox)",
           "gross_house": "Gesamter Hausverbrauch vor Lastabzug (momentan)"
+        },
+        "data_description": {
+          "enabled": "Rein lesender Vergleich von Messquellen und Bilanz. Ändert die aktive Hausquelle nicht.",
+          "meter_confirmed": "Bestätigt, dass der Netzzähler den gesamten betrachteten Anlagenumfang erfasst.",
+          "legacy_floor_w": "Untergrenze, die das Legacy-System beim Mittelwert verwendet hat, damit der Vergleich gleich rechnet.",
+          "instant_house": "Optional. Momentaner Hausverbrauch nach Abzug der ausgeschlossenen Lasten.",
+          "watch_sources": "Bis zu acht weitere Quellen, deren Meldezeitpunkte mitgeschrieben werden.",
+          "additional_ac_sources": "AC-Leistung weiterer Wechselrichter für die Bilanz.",
+          "excluded_load_sources": "Lasten wie eine Wallbox, die für den Vergleich nach Lastabzug abgezogen werden.",
+          "gross_house": "Optional. Momentaner Gesamt-Hausverbrauch vor Lastabzug."
         }
       }
     },
@@ -519,7 +693,8 @@
         "data_description": {
           "host": "IP-Adresse oder Hostname des Wechselrichters im lokalen Netz. Modbus TCP muss am Gerät aktiviert sein.",
           "port": "Modbus-TCP-Port des Wechselrichters, bei SMA meist 502.",
-          "unit_id": "Modbus-Unit-ID des Wechselrichters. SMA-Wechselrichter antworten in der Regel unter 3."
+          "unit_id": "Modbus-Unit-ID des Wechselrichters. SMA-Wechselrichter antworten in der Regel unter 3.",
+          "profile": "Modell des Wechselrichters. Sunny Boy Storage und Sunny Island sind nur als lesender Test freigegeben."
         }
       },
       "sources": {
@@ -542,6 +717,18 @@
           "house_consumption_max_age": "Altersgrenze Hausverbrauch (Sekunden, leer = wie oben)"
         },
         "data_description": {
+          "house_consumption": "Ungeglätteter Hausverbrauch der Gesamtanlage in W oder kW. Leer lassen, wenn Opti Akku ihn aus Netz-, PV- und Akkuleistung berechnen soll.",
+          "pv_generation": "Optional. DC-Leistung der PV-Strings, nur zur Anzeige. Überschreibt den gelesenen SMA-Wert.",
+          "pv_power": "Optional. AC-Leistung des Hybrid-Wechselrichters einschließlich Akku. Überschreibt den gelesenen SMA-Wert; im Bilanzmodus nicht zulässig.",
+          "single_inverter": "Berechnet den Hausverbrauch aus der Bilanz dieses Wechselrichters statt aus einem eigenen Sensor. Nur geeignet, wenn kein weiterer Erzeuger am Netzanschluss hängt.",
+          "plant_mode": "Native Anlagenbilanz ist für neue SMA-Anlagen empfohlen. Legacy behält die bisherige Berechnung für Importe und bestehende Einträge.",
+          "additional_ac_sources": "AC-Ausgangsleistung weiterer Wechselrichter, keine DC-Strings. Fließt in die Bilanz des Hausverbrauchs ein.",
+          "excluded_load_sources": "Verbraucher wie eine Wallbox, die aus dem gelernten Lastprofil herausgerechnet werden. Sie beeinflussen nur das Lastprofil.",
+          "event_based_excluded_sources": "Nur bereits ausgeschlossene Lasten, deren Integration unveränderte 0 W nicht regelmäßig meldet und Ausfälle zuverlässig als nicht verfügbar kennzeichnet. Für sie bleibt exakt 0 W ohne Altersgrenze gültig.",
+          "plant_meter_confirmed": "Pflicht für die native Anlagenbilanz: Der Netzzähler muss alle gewählten Erzeuger und Verbraucher erfassen.",
+          "forecast_min_load_w": "Untergrenze des Verbrauchs, mit der die Prognose rechnet. Gilt nur für die Prognose, nicht für die Messung.",
+          "strategy_enabled": "Berechnet Betriebsart und Leistungen automatisch. Schaltet allein keine Schreibzugriffe frei; ausgeschaltet bleibt der Akku in Pause.",
+          "huawei_battery_temp": "Optional. Akkutemperatur aus Huawei Solar für Temperaturdrosselung und -abschaltung.",
           "source_max_age": "Standard: 900 Sekunden. Gilt für externe Leistungen, Wärmepumpen-Leistung im Bedarfsprofil und Ruhe-Zellspreizung. 0 vertraut auch bei unveränderten Werten der HA-Verfügbarkeit. Quellen und Templates müssen Ausfälle als unavailable melden; eingefrorene verfügbare Werte werden nicht erkannt. Eine alte hohe Ruhe-Zellspreizung kann Balancing vorziehen. Native Batterie-, Temperatur-, Preis- und Prognoseprüfungen behalten ihre Grenzen. Eine Änderung startet das Verbrauchsprofil neu.",
           "house_consumption_max_age": "Optional. Für eine geglättete Hausverbrauchs-Quelle im Modus Legacy, etwa ein 60-Minuten-Mittelwert-Template: Sie kann unverändert bleiben und meldet dann in HA nichts Neues. Vorschlag für einen 60-Minuten-Mittelwert: 3600. Leer nutzt die allgemeine Altersgrenze, 0 vertraut der HA-Verfügbarkeit. Eine eingefrorene, weiter verfügbare Quelle fällt erst nach dieser Grenze auf. Setzen oder Ändern startet das Verbrauchsprofil neu."
         }
@@ -587,12 +774,17 @@
           "price_provider": "Preisquelle"
         },
         "data_description": {
+          "price_current": "Aktueller Strompreis. Leer lassen, wenn keine Preisoptimierung gewünscht ist.",
+          "price_series": "Entität mit datierten Preisen für heute und morgen: vollständige Intervalle mit Start, Ende und Zeitzone.",
+          "price_unit": "Einheit beider Preisentitäten. Widersprüchliche Euro- und Cent-Angaben werden abgelehnt.",
           "ladepreis": "-1 bedeutet: noch kein Referenz-Ladepreis bekannt. Vorhandene gespeicherte Werte bleiben beim Upgrade erhalten. Die Strategie schreibt den Wert nach Netzladen; er ist nur Anzeige und hat keine Steuerwirkung.",
           "mindestpreisdifferenz_lade_entladepreis": "Nur Anzeige, keine Steuerwirkung: speist den Sensor Opti Mindestentladepreis (Referenz-Ladepreis plus Aufschlag). Kein Strategiezweig liest ihn.",
           "opti_einspeiseverguetung_ct": "Deine Einspeisevergütung. Bei schlechter Prognose und erlaubtem Netzladen für die Reserve darf die Strategie aus dem Netz laden, solange der Strompreis darunter liegt. Bei 0 gilt das nur für negative Preise.",
           "opti_netzlade_spread_ct": "Mindestabstand zwischen Ladepreis und Durchschnitt der kommenden Preisspitzen, damit vor einer Spitze aus dem Netz vorgeladen wird. Gilt zusätzlich zur Wirtschaftlichkeit aus dem Akkumodell. Standard 10 ct/kWh.",
           "opti_peak_min_aufschlag_ct": "Ein Zeitfenster zählt nur als Preisspitze, wenn es mindestens so viel über dem Tiefstpreis im Planungshorizont liegt. Standard 5 ct/kWh.",
-          "opti_halte_spread_ct": "In teuren Stunden hält die Strategie den Akku nur für noch teurere Spitzen zurück, wenn deren Durchschnittspreis mindestens so viel über dem aktuellen Preis liegt. Standard 5 ct/kWh."
+          "opti_halte_spread_ct": "In teuren Stunden hält die Strategie den Akku nur für noch teurere Spitzen zurück, wenn deren Durchschnittspreis mindestens so viel über dem aktuellen Preis liegt. Standard 5 ct/kWh.",
+          "hausakku_aus_netz_laden": "Setzt das Ladeziel auf den maximalen Ladestand statt auf das aus der PV-Prognose berechnete Ziel. Schaltet sich ab 99 % Ladestand selbst wieder aus.",
+          "price_provider": "Woher die Preise kommen: eigene Preisentitäten, die vorhandene Tibber-Integration oder feste Zeitfenster deines Tarifs."
         }
       },
       "forecast": {
@@ -628,6 +820,17 @@
           "ev2_smart_cost": "EV 2 Smart Cost aktiv",
           "ev2_power": "EV 2 Ladeleistung",
           "opti_ev_akku_pause": "Entladung bei Autoladung sperren"
+        },
+        "data_description": {
+          "ev1_mode": "evcc-Ladepunkt 1: Entität mit dem Lademodus. Nur zusammen mit dem Ladestatus wählen.",
+          "ev1_charging": "evcc-Ladepunkt 1: Entität, die anzeigt, ob gerade geladen wird.",
+          "ev1_smart_cost": "Optional. Zeigt an, ob Smart Cost aktiv ist. Dann kann auch in pv/smart die Entladung gesperrt werden.",
+          "ev1_power": "Optional. Ladeleistung von Ladepunkt 1, etwa für den Abzug aus dem Hausverbrauch im Bedarfsprofil.",
+          "ev2_mode": "evcc-Ladepunkt 2: Entität mit dem Lademodus. Nur zusammen mit dem Ladestatus wählen.",
+          "ev2_charging": "evcc-Ladepunkt 2: Entität, die anzeigt, ob gerade geladen wird.",
+          "ev2_smart_cost": "Optional. Zeigt an, ob Smart Cost aktiv ist. Dann kann auch in pv/smart die Entladung gesperrt werden.",
+          "ev2_power": "Optional. Ladeleistung von Ladepunkt 2, etwa für den Abzug aus dem Hausverbrauch im Bedarfsprofil.",
+          "opti_ev_akku_pause": "Sperrt die Entladung des Hausakkus, während ein Auto in now oder minpv bzw. mit aktivem Smart Cost lädt. Normales PV-Laden sperrt nicht; Laden des Hausakkus bleibt möglich."
         }
       },
       "balancing": {
@@ -648,6 +851,7 @@
           "opti_zellspannung_reserve_v": "Zellspannungs-Reserve (V)"
         },
         "data_description": {
+          "cell_spread": "Optional. Zellspreizung des BYD-Akkus in Ruhe. Eine große Spreizung kann zusätzlichen Balancing-Bedarf auslösen.",
           "cell_voltage_min": "Schnell aktualisierter Sensor der niedrigsten Zellspannung (V oder mV), etwa von einer BYD-BMU. Werte älter als 180 s gelten als veraltet. Nötig für die Zellspannungs-Reserve.",
           "opti_balancing_intervall_tage": "Balancing wird fällig, wenn seit dem letzten Vollladen auf 100 % so viele Tage vergangen sind. 0 schaltet die Balancing-Planung aus.",
           "opti_balancing_karenz_tage": "Zusätzliche Tage nach dem Intervall, bevor Balancing nachts zu einem günstigen Preis unter der Balancing-Preisgrenze aus dem Netz laden darf. Erfordert Netzladen für Balancing.",
@@ -670,6 +874,7 @@
           "akku_opti_automatik": "Strategie berechnen"
         },
         "data_description": {
+          "shadow_reference_mode": "Optional. Modus-Entität deiner bisherigen Steuerung. Der Shadow-Eintrag vergleicht seine Entscheidungen damit.",
           "single_writer_confirmed": "Erst bestätigen, wenn keine andere Automation, Integration oder Hersteller-App den Akku steuert. Ohne Bestätigung bleibt die Schreibfreigabe gesperrt.",
           "akku_opti_automatik": "Berechnet die Strategie. Aus bedeutet Pause, auch bei manueller Moduswahl. Ersetzt nicht die Schreibfreigabe."
         }
@@ -690,6 +895,10 @@
           "price_max_age": "Maximales Alter von Strompreisen (Sekunden)"
         },
         "data_description": {
+          "akkusteuerung_ladestaerke_soll": "Feste Ladeleistung für „Akku schnell Laden“. Höchstens die maximale Ladeleistung.",
+          "akkusteuerung_min_ladestaerke": "Nur SMA: untere Grenze des Ladefensters. Liegt die berechnete Ladeleistung darunter, bleibt das Laden gesperrt; sonst lädt der Wechselrichter mit mindestens diesem Wert. 0 = keine Untergrenze.",
+          "akkusteuerung_entladestaerke_soll": "Feste Entladeleistung für „Akku schnell Entladen“. Höchstens die maximale Entladeleistung.",
+          "akkusteuerung_min_entladestaerke": "Nur SMA: untere Grenze des Entladefensters. Liegt die Entladegrenze darunter, bleibt das Entladen gesperrt; sonst entlädt der Wechselrichter mit mindestens diesem Wert. 0 = keine Untergrenze.",
           "akkusteuerung_wr_70proz_ueberschuss_grenze": "0 schaltet die Funktion aus. Übersteigt die Einspeisung ohne Akkuladung tagsüber diesen Wert, lädt der Akku aus dem Überschuss, etwa bei einer Einspeisebegrenzung auf 70 %. Endet 1000 W darunter. Erfordert PV-Überschussladen.",
           "akkusteuerung_ueberschuss_veto_grenze": "Übersteigt die Einspeisung ohne Akkuladung tagsüber diesen Wert, lädt der Akku über den Ziel-Ladestand hinaus bis zum maximalen Ladestand. Erfordert PV-Überschussladen.",
           "akkusteuerung_ueberschuss_veto_aus_grenze": "Hysterese: Eine laufende Freigabe bleibt aktiv, solange die Einspeisung ohne Akkuladung mindestens diesen Wert erreicht. Darf nicht über der Freigabegrenze liegen.",
@@ -718,6 +927,10 @@
         "data": {
           "tibber_home": "Tibber-Zuhause",
           "tibber_eur_confirmed": "Mein Tibber-Tarif verwendet EUR/kWh"
+        },
+        "data_description": {
+          "tibber_home": "Zuhause aus der eingerichteten Tibber-Integration. Unterstützt wird genau ein Konto mit einem Zuhause.",
+          "tibber_eur_confirmed": "Der Tibber-Dienst liefert keine Währung. Bestätige, dass dein Tarif in EUR/kWh abgerechnet wird."
         }
       },
       "price_windows": {
@@ -725,6 +938,9 @@
         "description": "Trage die täglichen Fenster des Tarifs in Ortszeit mit Preis in ct/kWh ein. Zusammen müssen sie den ganzen Tag genau einmal abdecken, ohne Lücke und ohne Überschneidung; ein Fenster darf über Mitternacht gehen (etwa 05:00 bis 00:00). Beginn und Ende liegen auf 15-Minuten-Schritten. Opti Akku erzeugt daraus die datierten Preise für heute und morgen, auch an Tagen mit Zeitumstellung. Eine Altersprüfung gibt es nicht. Ändert sich der Tarif, passe die Fenster hier an.",
         "data": {
           "price_windows": "Preisfenster"
+        },
+        "data_description": {
+          "price_windows": "Tägliche Fenster in Ortszeit mit Preis in ct/kWh, in 15-Minuten-Schritten. Zusammen müssen sie den Tag lückenlos und ohne Überschneidung abdecken."
         }
       },
       "notifications": {
@@ -732,6 +948,9 @@
         "description": "Probleme erscheinen immer als Home-Assistant-Meldung. Optional zusätzlich einen vorhandenen Push-Dienst auswählen. Der Testknopf auf der Geräteseite prüft die Zustellung. Während HA selbst ausfällt, kann die Integration nicht alarmieren.",
         "data": {
           "notification_service": "Zusätzlicher Push-Dienst"
+        },
+        "data_description": {
+          "notification_service": "Optional. notify-Aktion für zusätzliche Push-Meldungen, etwa notify.mobile_app_handy. Probleme erscheinen immer auch als Home-Assistant-Meldung."
         }
       },
       "huawei_controls": {
@@ -747,6 +966,17 @@
           "cutoff_soc": "Netz-Ladeabschaltung (SoC)",
           "forced_status": "Status erzwungenes Laden/Entladen",
           "huawei_grid_surplus": "Netzladen im Eigenverbrauch für zusätzliche AC-Erzeuger zulassen"
+        },
+        "data_description": {
+          "mode": "Entität für den Batterie-Betriebsmodus. Muss zum selben Batteries-Gerät gehören.",
+          "excess_pv": "Entität für die Verwendung überschüssiger PV-Energie. Muss zum selben Batteries-Gerät gehören.",
+          "grid_charge": "Entität, die das Laden aus dem Netz erlaubt.",
+          "charge_limit": "Entität für die maximale Ladeleistung.",
+          "discharge_limit": "Entität für die maximale Entladeleistung.",
+          "grid_limit": "Entität für die maximale Ladeleistung aus dem Netz.",
+          "cutoff_soc": "Entität für den Ladestand, bis zu dem aus dem Netz geladen wird.",
+          "forced_status": "Sensor mit dem Status des erzwungenen Ladens oder Entladens. Muss zum selben Batteries-Gerät gehören.",
+          "huawei_grid_surplus": "Anlagenabhängig, standardmäßig aus. Lässt im Eigenverbrauch Netzladen zu, damit Überschuss weiterer AC-Erzeuger im Akku landen kann."
         }
       },
       "demand": {
@@ -771,6 +1001,26 @@
           "house_includes_ev": "Hausverbrauch enthält Wallbox-Ladung (konfigurierte EV-Leistung abziehen)",
           "temperature_matching": "Ähnliche Außentemperaturen bevorzugen (experimentell)",
           "use_for_peak_reserve": "Stundenprofil in der aktiven Strategie verwenden"
+        },
+        "data_description": {
+          "enabled": "Lernt den Hausverbrauch nach Stunde und Wochentag und vergleicht die Prognose. Rein beobachtend.",
+          "heat_power": "Optional. Elektrische Leistung der Wärmepumpe; muss im Hausverbrauch enthalten sein. Wird abgezogen und getrennt gelernt.",
+          "summer_mode": "Optional. Trennt Sommer- und Winterhistorie.",
+          "heating_active": "Optional. Meldet aktiven Heizbetrieb der Wärmepumpe.",
+          "dhw_active": "Optional. Meldet aktive Warmwasserbereitung und trennt deren Anteil von der Raumheizung.",
+          "dhw_due": "Optional. Signal, dass vor dem PV-Beginn Warmwasser erwartet wird. Braucht Wärmepumpenzähler, Warmwasser-Aktivmeldung und kWh je Zyklus.",
+          "water_temperature": "Optional. Liegt die Isttemperatur unter Soll minus 2 K, gilt Warmwasser als erwartet.",
+          "water_target": "Optional. Solltemperatur für den Vergleich mit der Isttemperatur.",
+          "pv_today": "Solcast-Sensor für heute mit datiertem detailedForecast und pv_estimate10. Tages-kWh allein reichen nicht.",
+          "pv_tomorrow": "Solcast-Sensor für morgen mit datiertem detailedForecast und pv_estimate10.",
+          "dhw_cycle_kwh": "Gemessene elektrische Energie eines Warmwasserzyklus. 0 bedeutet unbekannt.",
+          "outdoor_temperature": "Optional. Außentemperatur, um ähnliche historische Stunden zu finden.",
+          "context_water_temperature": "Optional. Wird nur als Kontext gespeichert und löst keine Warmwasser-Nachladung aus.",
+          "context_water_target": "Optional. Wird nur als Kontext gespeichert und löst keine Warmwasser-Nachladung aus.",
+          "history_house": "Sensor für den einmaligen Import aus dem Recorder. Muss denselben Verbrauchsumfang wie der aktuelle Hausverbrauch messen.",
+          "house_includes_ev": "Nur einschalten, wenn der Hausverbrauch die Wallbox enthält. Dann werden die EV-Leistungen abgezogen; eine Änderung setzt das gelernte Profil zurück.",
+          "temperature_matching": "Bevorzugt historische Stunden innerhalb von 3 °C der aktuellen Außentemperatur, für die ersten vier Prognosestunden.",
+          "use_for_peak_reserve": "Verwendet das Stundenprofil für Peak-Reserve und Resttages-Score. Verändert die Akkusteuerung."
         }
       },
       "arbitrage": {
@@ -786,6 +1036,17 @@
           "charge_efficiency_percent": "Ladewirkungsgrad",
           "discharge_efficiency_percent": "Entladewirkungsgrad",
           "margin_ct": "Zusätzliche Marge je kWh Akkuenergie"
+        },
+        "data_description": {
+          "enabled": "Zeigt Preisabstand und Restwert an. Wirkungsgrade, Zykluskosten und Marge gelten auch für das Peak-Vorladen.",
+          "hold_enabled": "Hält Energie nur bei vollständiger Bedarfs-, PV- und Preisprognose für eine wertvollere spätere Restlast zurück. Lädt nicht aus dem Netz.",
+          "battery_price_eur": "Anteil des Akkus am Anschaffungspreis, Grundlage der Zykluskosten.",
+          "degradation_percent": "Wertverlust des Akkus über die angenommenen Vollzyklen.",
+          "cycles": "Anzahl Vollzyklen, auf die sich der Wertverlust verteilt.",
+          "usable_capacity_kwh": "Nutzbare Kapazität des Hausakkus.",
+          "charge_efficiency_percent": "Anteil der Netz- oder PV-Energie, der im Akku ankommt. Ohne Angabe 90 %.",
+          "discharge_efficiency_percent": "Anteil der Akkuenergie, der im Haus ankommt. Ohne Angabe 90 %.",
+          "margin_ct": "Zusätzlicher Abstand je kWh, bevor sich Laden und späteres Entladen lohnen."
         }
       },
       "peak_rank": {
@@ -793,6 +1054,9 @@
         "description": "Experimentell. Die Peak-Leiter entlädt sonst in jeder als sehr teuer oder teuer eingestuften Stunde. Mit dieser Option hält sie den Akku in einer teuren Stunde zurück, wenn der nutzbare Inhalt nach dem Schattenvergleich Peak-Rangfolge nur für noch teurere Stunden bis zum nächsten Nachladen aus PV reicht. Statt zu entladen gilt dann „Akku nur Laden“ (PV-Laden bleibt frei) oder, wenn die Strategie das Laden gerade sperrt, „Akku Pause“. Es wirkt nur auf die Entscheidungen Peak L1 und L2 und nur bei einem eindeutigen Ergebnis „Halten“; bei unsicheren oder fehlenden Daten entscheidet die Strategie wie bisher. Manuelle Modi und alle Schutzfunktionen haben Vorrang. Die Annahmen zu Hauslast und Preisen können falsch sein; dann bleibt Energie ungenutzt oder es wird teurer Netzstrom bezogen.",
         "data": {
           "enabled": "Entladen in teuren Stunden für noch teurere zurückhalten"
+        },
+        "data_description": {
+          "enabled": "Experimentell. Hält in einer teuren Stunde Energie für noch teurere Stunden zurück, wenn der Akku nur für diese reicht. Verändert die Akkusteuerung."
         }
       },
       "observation": {
@@ -807,6 +1071,16 @@
           "additional_ac_sources": "Weitere Wechselrichter AC-Leistung",
           "excluded_load_sources": "Abzuziehende Lasten (z. B. Wallbox)",
           "gross_house": "Gesamter Hausverbrauch vor Lastabzug (momentan)"
+        },
+        "data_description": {
+          "enabled": "Rein lesender Vergleich von Messquellen und Bilanz. Ändert die aktive Hausquelle nicht.",
+          "meter_confirmed": "Bestätigt, dass der Netzzähler den gesamten betrachteten Anlagenumfang erfasst.",
+          "legacy_floor_w": "Untergrenze, die das Legacy-System beim Mittelwert verwendet hat, damit der Vergleich gleich rechnet.",
+          "instant_house": "Optional. Momentaner Hausverbrauch nach Abzug der ausgeschlossenen Lasten.",
+          "watch_sources": "Bis zu acht weitere Quellen, deren Meldezeitpunkte mitgeschrieben werden.",
+          "additional_ac_sources": "AC-Leistung weiterer Wechselrichter für die Bilanz.",
+          "excluded_load_sources": "Lasten wie eine Wallbox, die für den Vergleich nach Lastabzug abgezogen werden.",
+          "gross_house": "Optional. Momentaner Gesamt-Hausverbrauch vor Lastabzug."
         }
       },
       "ev_preparation": {
@@ -824,6 +1098,19 @@
           "vehicle_capacity_kwh": "Nutzbare Fahrzeugkapazität",
           "charge_power_kw": "Verfügbare Ladeleistung",
           "vehicle_charge_efficiency_percent": "Ladewirkungsgrad bis zum Fahrzeugakku"
+        },
+        "data_description": {
+          "enabled": "Zieht bei niedrigem Fahrzeug-SoC vorhandenen PV-Überschuss in den Hausakku vor. Kein zusätzliches Netzladen.",
+          "vehicle_soc": "Ladezustand des Fahrzeugs in Prozent. Gilt höchstens 24 Stunden.",
+          "charging": "Verlässliches Signal, dass das Auto lädt. Aktiv oder unbekannt pausiert normale Hausakkuladung und Entladung.",
+          "away": "Optional. Schalter für längere Abwesenheit; sperrt nur die Vorbereitung.",
+          "departure": "Optional. input_datetime oder Zeitstempel-Sensor. Eine reine Uhrzeit gilt täglich.",
+          "vehicle_threshold": "Unter diesem Fahrzeug-SoC gilt Ladebedarf.",
+          "house_target": "Bis zu diesem Ladestand nimmt der Hausakku vorgezogenen PV-Überschuss auf, höchstens bis zum maximalen Ladestand.",
+          "vehicle_target_soc": "Fahrzeugziel zur Abfahrt. Ersetzt bis zur Abfahrt die einfache Bedarfsschwelle.",
+          "vehicle_capacity_kwh": "Nutzbare Kapazität des Fahrzeugakkus für die Abfahrtsplanung.",
+          "charge_power_kw": "Verfügbare AC-Ladeleistung für die Abfahrtsplanung.",
+          "vehicle_charge_efficiency_percent": "Anteil der AC-Energie, der im Fahrzeugakku ankommt."
         }
       },
       "active_setup": {
@@ -836,6 +1123,10 @@
         "data": {
           "suggestion_entity": "Entität mit evcc-Suggestion",
           "url": "evcc-Adresse (z. B. http://192.168.1.10:7070)"
+        },
+        "data_description": {
+          "suggestion_entity": "SoC-Sensor des Hausakkus aus ha-evcc mit dem Attribut suggestion.",
+          "url": "Optional. Dann liest Opti Akku alle 5 Minuten das evopt-Ergebnis aus /api/state."
         }
       }
     },

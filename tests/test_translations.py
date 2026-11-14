@@ -65,6 +65,20 @@ def test_data_descriptions_belong_to_fields_of_their_step():
             assert not extra, (flow, name, extra)
 
 
+
+@pytest.mark.parametrize("name", ["strings", "de"])
+def test_every_form_field_has_a_description(name):
+    """Bronze rule config-flow: each field explains itself in the dialog."""
+    data = _load(name)
+    missing = [
+        f"{flow}/{step_id}/{field}"
+        for flow in ("config", "options")
+        for step_id, step in data[flow]["step"].items()
+        for field in step.get("data", {})
+        if not step.get("data_description", {}).get(field, "").strip()
+    ]
+    assert not missing, missing
+
 def test_every_translated_exception_key_exists():
     used = set()
     for path in COMPONENT.glob("*.py"):

@@ -18,8 +18,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Halbstunde minus Stundenlast, begrenzt auf die maximale Ladeleistung, mit dem
   Ladewirkungsgrad des Akkumodells). Vorgeladen wird nur bis zu diesem
   Vorladeziel; die Leiter hält weiter die volle Reserve. Solange die PV gerade
-  mehr als 50 W über dem Hausverbrauch liefert, lädt Peak-Vorladen nicht aus dem
-  Netz; fehlen dafür Messwerte, gilt das vorsichtshalber ebenso, außer nachts.
+  mehr als 50 W über dem Hausverbrauch liefert oder eingespeist wird, lädt
+  Peak-Vorladen nicht aus dem Netz; fehlen dafür Messwerte, gilt das vorsichtshalber ebenso, außer nachts.
   Ohne Solcast-Intervalle bleibt das Verhalten wie bisher. Neue
   Attribute an `sensor.opti_peak_reserve_soc`: `vorlade_ziel_soc`,
   `pv_vor_peak_kwh`, `pv_vor_peak_soc`, `pv_prognose`; im Reserveplan

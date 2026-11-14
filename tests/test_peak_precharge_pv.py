@@ -234,6 +234,20 @@ def test_meter_offset_during_grid_charging_does_not_lock():
     assert _surplus(engine, t0 + dt.timedelta(minutes=12, seconds=1), 0, 2940, 3000) == "on"
 
 
+def test_any_measured_export_locks_below_the_deadband():
+    """Codex review round 4: real export of 50 W or less is still PV that leaves
+    the house; grid charging must not run beside it."""
+    engine = _surplus_engine()
+    t0 = dt.datetime(2026, 1, 14, 12, 0, tzinfo=TZ)
+    assert _surplus(engine, t0, 40, 0, 0) == "off"
+    assert _surplus(engine, t0 + dt.timedelta(seconds=61), 40, 0, 0) == "on"
+    # Export while the battery discharges: net surplus negative, export still locks.
+    assert _surplus(engine, t0 + dt.timedelta(minutes=5), 20, 0, -500) == "on"
+    # No export, offset within the deadband: off after the delay.
+    assert _surplus(engine, t0 + dt.timedelta(minutes=6), 0, 2995, 3000) == "on"
+    assert _surplus(engine, t0 + dt.timedelta(minutes=11, seconds=1), 0, 2995, 3000) == "off"
+
+
 @pytest.mark.parametrize("sun", ["unavailable", "unknown", None])
 def test_missing_measurements_with_unknown_sun_lock(sun):
     """Codex review round 3: an unavailable sun state counts as day."""

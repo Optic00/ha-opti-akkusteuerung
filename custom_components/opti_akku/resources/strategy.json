@@ -565,7 +565,7 @@
           "delay_off": {
             "seconds": 300
           },
-          "state": "{% set netz_ok = has_value('sensor.opti_grid_export_w')\n                 and has_value('sensor.opti_grid_import_w')\n                 and has_value('sensor.opti_battery_power_w') %}\n{% if netz_ok %}\n  {% set netto = states('sensor.opti_grid_export_w')|float(0)\n                 - states('sensor.opti_grid_import_w')|float(0)\n                 + states('sensor.opti_battery_power_w')|float(0) %}\n  {{ netto > 50 }}\n{% else %}\n  {{ not is_state('sun.sun', 'below_horizon') }}\n{% endif %}\n",
+          "state": "{% set netz_ok = has_value('sensor.opti_grid_export_w')\n                 and has_value('sensor.opti_grid_import_w')\n                 and has_value('sensor.opti_battery_power_w') %}\n{% if netz_ok %}\n  {% set netto = states('sensor.opti_grid_export_w')|float(0)\n                 - states('sensor.opti_grid_import_w')|float(0)\n                 + states('sensor.opti_battery_power_w')|float(0) %}\n  {{ netto > 50 or states('sensor.opti_grid_export_w')|float(0) > 0 }}\n{% else %}\n  {{ not is_state('sun.sun', 'below_horizon') }}\n{% endif %}\n",
           "attributes": {
             "quelle": "{% if has_value('sensor.opti_grid_export_w') and has_value('sensor.opti_grid_import_w')\n      and has_value('sensor.opti_battery_power_w') %}netz{% else %}messwerte_fehlen{% endif %}\n",
             "ueberschuss_vor_akku_w": "{{ (states('sensor.opti_grid_export_w')|float(0)\n    - states('sensor.opti_grid_import_w')|float(0)\n    + states('sensor.opti_battery_power_w')|float(0)) | round(0) }}\n"

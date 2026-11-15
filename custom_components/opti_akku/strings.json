@@ -730,6 +730,17 @@
           "battery_temp": "Battery temperature (optional)",
           "pv_generation_w": "PV input power (optional)",
           "grid_positive": "Positive grid power means"
+        },
+        "data_description": {
+          "huawei_device_id": "Battery inverter of a loaded Huawei Solar entry.",
+          "soc": "Battery state of charge in percent from Huawei Solar.",
+          "battery_capacity_kwh": "Rated battery capacity in Wh or kWh.",
+          "battery_power_w": "Charge and discharge power of the battery.",
+          "pv_power_w": "AC output power of the inverter.",
+          "grid_power_w": "Power at the grid connection point. Set the sign direction in the field below.",
+          "battery_temp": "For temperature derating and cut-off while charging. Required for a standard entry and with the strategy enabled; only a shadow entry without strategy works without it.",
+          "pv_generation_w": "Optional. DC power of the PV strings, for display only.",
+          "grid_positive": "Whether a positive grid power value means import or export. A wrong direction distorts the house consumption."
         }
       },
       "sources": {

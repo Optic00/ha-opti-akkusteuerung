@@ -730,6 +730,17 @@
           "battery_temp": "Akkutemperatur (optional)",
           "pv_generation_w": "PV-Eingangsleistung (optional)",
           "grid_positive": "Positive Netzleistung bedeutet"
+        },
+        "data_description": {
+          "huawei_device_id": "Batterie-Wechselrichter eines geladenen Huawei-Solar-Eintrags.",
+          "soc": "Ladestand des Akkus in Prozent aus Huawei Solar.",
+          "battery_capacity_kwh": "Nennkapazität des Akkus in Wh oder kWh.",
+          "battery_power_w": "Lade- und Entladeleistung des Akkus.",
+          "pv_power_w": "AC-Ausgangsleistung des Wechselrichters.",
+          "grid_power_w": "Leistung am Netzanschlusspunkt. Die Vorzeichenrichtung legst du im Feld darunter fest.",
+          "battery_temp": "Für Temperaturdrosselung und -abschaltung beim Laden. Pflicht für einen Standard-Eintrag und bei aktivierter Strategie; nur ein Shadow-Eintrag ohne Strategie kommt ohne aus.",
+          "pv_generation_w": "Optional. DC-Leistung der PV-Strings, nur zur Anzeige.",
+          "grid_positive": "Ob ein positiver Wert der Netzleistung Bezug oder Einspeisung bedeutet. Eine falsche Richtung verfälscht den Hausverbrauch."
         }
       },
       "sources": {

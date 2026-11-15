@@ -1746,12 +1746,16 @@ def test_real_score_after_a_gap_turns_the_origin_into_a_hysteresis_state():
     engine = _restored_engine(now, **{DAILY: _daily_load_buckets(now, 500)})
     gap = _night_horizon_states(500, 2.4)
     gap["sensor.opti_forecast_today_kwh"] = "unavailable"
-    assert evaluate(engine, gap, _OCT_NIGHT_ATTRS, now).attributes[HORIZON]["an_quelle"] == "score_fehlt"
+    missing = evaluate(engine, gap, _OCT_NIGHT_ATTRS, now)
+    assert missing.states[HORIZON] == "on"
+    assert missing.attributes[HORIZON]["an_quelle"] == "score_fehlt"
     low = evaluate(engine, _night_horizon_states(500, 1.0), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=1))
     assert (low.states[SUNNY], low.states[HORIZON]) == ("1", "on")
     assert low.attributes[HORIZON]["an_quelle"] == "score"
     held = evaluate(engine, _night_horizon_states(500, 2.4), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=2))
     assert (held.states[SUNNY], held.states[HORIZON]) == ("2", "on")
+    released = evaluate(engine, _night_horizon_states(500, 3.0), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=3))
+    assert (released.states[SUNNY], released.states[HORIZON]) == ("3", "off")
 
 
 def test_missing_score_on_does_not_hold_during_the_day():

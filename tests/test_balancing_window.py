@@ -260,7 +260,7 @@ def test_higher_priority_still_wins_with_active_window(changes, expected):
     result = StrategyEngine(resources).evaluate({
         **BASE, SOC: 100, HOURS: 4, DONE_VALID: "on", DONE_AT: NOW.isoformat(),
         "input_boolean.akku_opti_automatik": "on", **model_states(), **changes,
-    }, {"sensor.opti_peak_reserve_soc": {"reserve_ve_soc": 30,
+    }, {"sensor.opti_peak_reserve_soc": {"reserve_ve_soc": 30, "reserve_schutz_soc": 30,
                                           "min_preis_vor_peak_ct": 30,
                                           "peak_preis_avg_ct": 100,
                                           "peak_preis_kuenftig_ct": 100},

@@ -8,12 +8,15 @@ from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError, HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.storage import Store
 from homeassistant.components.modbus import async_get_unit
 from modbus_connection import ModbusTcpParams
 
-from .const import DOMAIN, NO_RELOAD_OPTION_KEYS, PLATFORMS
+from .const import DOMAIN, NO_RELOAD_OPTION_KEYS, PLATFORMS, entry_store_keys
 from .coordinator import OptiCoordinator
 from .engine import StrategyEngine
+from .errors import translated
+from .repairs import async_clear_issues
 from .sunny_island import READ_ONLY_SMA_PROFILES
 from .sma import SmaDevice
 from .source_quality import measurement_max_age
@@ -33,7 +36,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if backend == "huawei_solar":
         from .huawei import HuaweiDevice
         if not entry.data.get("shadow_mode", True) and not entry.data.get("huawei_controls"):
-            raise ConfigEntryError("An active Huawei entry requires verified actuator bindings")
+            raise translated(ConfigEntryError, "huawei_bindings_required")
         from .device import DeviceError
         try:
             device = HuaweiDevice(hass, entry_id=entry.data["huawei_entry_id"],
@@ -42,12 +45,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 controls=entry.data.get("huawei_controls"), read_only=entry.data.get("shadow_mode", True),
                 grid_charge_for_surplus=entry.data.get("huawei_grid_surplus", False))
         except (ValueError, TypeError, KeyError, DeviceError) as err:
-            raise ConfigEntryError(f"Invalid Huawei configuration: {type(err).__name__}") from err
+            raise translated(ConfigEntryError, "huawei_config_invalid", error=type(err).__name__) from err
     elif backend not in ("sma", "sma_modbus"):
-        raise ConfigEntryError("Unsupported device backend")
+        raise translated(ConfigEntryError, "backend_unsupported")
     read_only_device = READ_ONLY_SMA_PROFILES.get(entry.data.get("profile")) if backend in ("sma", "sma_modbus") else None
     if read_only_device and entry.data.get("shadow_mode") is not True:
-        raise ConfigEntryError("This SMA test profile is read-only and requires shadow mode")
+        raise translated(ConfigEntryError, "profile_read_only")
     endpoint = (entry.data.get(CONF_HOST, "huawei").strip().lower(), entry.data.get(CONF_PORT, 0), entry.data.get("unit_id", 0))
     if backend == "huawei_solar":
         endpoint = (backend, entry.data["huawei_entry_id"], entry.data["huawei_device_id"])
@@ -55,7 +58,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     owners = hass.data.setdefault(f"{DOMAIN}_writers", {})
     shadow = entry.data.get("shadow_mode", backend == "huawei_solar") is True
     if not shadow and endpoint in owners and owners[endpoint] != entry.entry_id:
-        raise ConfigEntryError("This inverter already has an Opti Akku controller")
+        raise translated(ConfigEntryError, "inverter_already_controlled")
     if not shadow:
         owners[endpoint] = entry.entry_id
     @callback
@@ -103,6 +106,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     after_enable = coordinator.entity_enable_noted
     await coordinator.async_stop()
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    async_clear_issues(hass, entry.entry_id)
     # The control state is read only now, after the entities are gone, so no
     # later mode or write change is lost. Recheck the entry and HA as well.
     # Without a confirmed pause, no forced mode resumes.
@@ -114,8 +118,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Drop a reload handover of a removed entry."""
+    """Drop the reload handover, repair issues and private stores of a removed entry.
+
+    Shadow and comparison recordings under opti_akku_shadow/ stay: they are
+    user evidence, not entry state, and the README tells how to delete them.
+    """
     hass.data.get(RELOAD_HANDOVER_KEY, {}).pop(entry.entry_id, None)
+    async_clear_issues(hass, entry.entry_id)
+    from homeassistant.helpers import issue_registry as ir
+
+    from .alerts import GRID_CHARGE_STANDBY_ISSUE
+
+    ir.async_delete_issue(hass, DOMAIN, f"{GRID_CHARGE_STANDBY_ISSUE}_{entry.entry_id}")
+    for key in entry_store_keys(entry.entry_id):
+        await Store(hass, 1, key, private=True).async_remove()
 
 
 @callback
@@ -136,6 +152,7 @@ async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> Non
             try:
                 await coordinator.async_apply_settings(entry.options.get("settings", {}), revision)
             except HomeAssistantError:
+                await coordinator.async_mark_settings_rejected()
                 coordinator._last_error = "Einstellungen nicht übernommen: Grenzwerte oder benötigte Quellen sind nicht mehr gültig. Bitte erneut konfigurieren."
                 # Discard the rejected patch so a restart cannot apply it later.
                 hass.config_entries.async_update_entry(entry, options={**entry.options,

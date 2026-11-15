@@ -188,6 +188,7 @@ async def async_get_config_entry_diagnostics(
                 "operating_report",
                 "reserve_plan",
                 "source_observation",
+                "standby_reserve",
             )
         },
         "strategy_comparison": _strategy_comparison_summary(

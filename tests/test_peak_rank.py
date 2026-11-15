@@ -661,3 +661,27 @@ def test_uncertain_result_releases_a_set_hold():
     uncertain = check(now=local(18, 17, 10), price_series=series(night=30))
     held, status, latch = apply_peak_rank_hold(evaluation(), uncertain, latch, eligible=True)
     assert (held.decision_id, status, latch) == ("peak_l1", "released", None)
+
+
+def _stored_series():
+    """Today 20 ct 08-12 h, current 34 ct 18 h, 36 ct 19 h; tomorrow 60 ct from 11 h.
+
+    The 36-ct slot is no percentile peak (tomorrow is pricier) and cannot be
+    bought ahead (forward low 34 ct), but beats the 20-ct low before it: a
+    stored economic slot (issue #231).
+    """
+    today = day_prices(30.0, ((0, 0), (8, 0), 40.0), ((8, 0), (12, 0), 20.0),
+                       ((18, 0), (19, 0), 34.0), ((19, 0), (20, 0), 36.0))
+    tomorrow = day_prices(30.0, ((11, 0), (24, 0), 60.0))
+    return {"today": today, "tomorrow": tomorrow}
+
+
+@pytest.mark.parametrize(("hold_spread", "verdict"), [(3, "discharge"), (1, "hold")])
+def test_stored_slots_compete_only_above_the_hold_spread(hold_spread, verdict):
+    # Codex re-review: below the hold spread the reserve template does not hold
+    # stored energy for the 36-ct slot, so the rank check must not either.
+    result = check(now=local(18, 18, 0), price_series=_stored_series(), soc=10,
+                   load_hours=None, battery_model=DEFAULT, hold_spread_ct=hold_spread,
+                   horizon_end=local(19, 11, 0).isoformat())
+    assert result["status"] == "ready"
+    assert result["verdict"] == verdict

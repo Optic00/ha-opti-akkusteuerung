@@ -12,7 +12,8 @@ import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from homeassistant.exceptions import HomeAssistantError
+from tests.translated import raises_translated
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from modbus_connection import ModbusError
 from homeassistant.util import dt as dt_util
@@ -1020,12 +1021,142 @@ async def test_removed_entry_drops_reload_handover(hass, entry):
     assert entry.entry_id not in hass.data["opti_akku_reload_handover"]
 
 
+async def test_removed_entry_deletes_its_private_stores(hass, hass_storage, entry, coordinator):
+    from custom_components.opti_akku import async_remove_entry
+    from custom_components.opti_akku.const import entry_store_keys
+
+    # The removal list must match what the coordinator really writes.
+    assert {coordinator._store.key, coordinator._history_store.key} == set(entry_store_keys(entry.entry_id))
+    other = "opti_akku.other_entry"
+    for key in (*entry_store_keys(entry.entry_id), other):
+        hass_storage[key] = {"version": 1, "minor_version": 1, "key": key, "data": {"settings": {}}}
+    await async_remove_entry(hass, entry)
+    await hass.async_block_till_done()
+    assert not set(entry_store_keys(entry.entry_id)) & hass_storage.keys()
+    assert other in hass_storage
+
+
+
+async def test_scheduled_history_save_writes_after_delay(hass, hass_storage, coordinator):
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.opti_akku.coordinator import HISTORY_SAVE_DELAY
+
+    coordinator._schedule_history_save()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=HISTORY_SAVE_DELAY + 1))
+    await hass.async_block_till_done()
+    assert coordinator._history_store.key in hass_storage
+    assert coordinator._history_save_unsub is None
+
+
+async def test_stop_flushes_scheduled_history_save(hass, hass_storage, coordinator):
+    coordinator._schedule_history_save()
+    await coordinator.async_stop()
+    await hass.async_block_till_done()
+    assert coordinator._history_store.key in hass_storage  # nothing lost on reload
+    assert coordinator._history_save_unsub is None
+
+
+
+async def test_stop_waits_for_history_write_in_progress(hass, coordinator):
+    started, release, done = asyncio.Event(), asyncio.Event(), []
+
+    async def slow_save(data):
+        started.set()
+        await release.wait()
+        done.append(data)
+
+    with patch.object(coordinator._history_store, "async_save", side_effect=slow_save):
+        coordinator._async_history_save_due(None)  # as when the timer fires
+        await asyncio.wait_for(started.wait(), 1)
+        stop = hass.async_create_task(coordinator.async_stop())
+        with pytest.raises(TimeoutError):  # removal cannot start while the write runs
+            await asyncio.wait_for(asyncio.shield(stop), 0.5)
+        release.set()
+        await asyncio.wait_for(stop, 5)
+    assert done
+
+async def test_history_save_cannot_recreate_store_of_entry_removed_after_failed_setup(
+    hass, hass_storage, entry, coordinator
+):
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.opti_akku import async_remove_entry
+    from custom_components.opti_akku.coordinator import HISTORY_SAVE_DELAY
+
+    key = coordinator._history_store.key
+    # First refresh scheduled a save, then setup failed: HA runs the
+    # on_unload callbacks but never calls async_stop.
+    coordinator._schedule_history_save()
+    await entry._async_process_on_unload(hass)
+    await async_remove_entry(hass, entry)
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=HISTORY_SAVE_DELAY + 1))
+    await hass.async_block_till_done()
+    assert key not in hass_storage
+
+async def test_unload_after_failed_setup_waits_for_history_write_in_progress(hass, entry, coordinator):
+    started, release, done = asyncio.Event(), asyncio.Event(), []
+
+    async def slow_save(data):
+        started.set()
+        await release.wait()
+        done.append(data)
+
+    with patch.object(coordinator._history_store, "async_save", side_effect=slow_save):
+        coordinator._async_history_save_due(None)
+        await asyncio.wait_for(started.wait(), 1)
+        # Setup failed: HA processes on_unload without async_stop and must
+        # wait for the running write before async_remove_entry can run.
+        unload = hass.async_create_task(entry._async_process_on_unload(hass))
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(unload), 0.5)
+        release.set()
+        await asyncio.wait_for(unload, 5)
+    assert done
+    assert coordinator._history_save_task is None
+
+
+@pytest.mark.parametrize("pending_timer", [False, True])
+async def test_stop_does_not_wait_forever_for_hanging_history_write(hass, coordinator, pending_timer):
+    started = asyncio.Event()
+
+    async def hanging_save(data):
+        started.set()
+        await asyncio.Event().wait()
+
+    with patch.object(coordinator._history_store, "async_save", side_effect=hanging_save), \
+            patch("custom_components.opti_akku.coordinator.HISTORY_SAVE_STOP_TIMEOUT", 0.05):
+        if pending_timer:  # async_stop starts the write itself
+            coordinator._schedule_history_save()
+        else:
+            coordinator._async_history_save_due(None)
+            await asyncio.wait_for(started.wait(), 1)
+        await asyncio.wait_for(coordinator.async_stop(), 5)
+        assert started.is_set()
+        coordinator._history_save_task.cancel()
+        await hass.async_block_till_done()
+
+
 async def test_reload_handover_not_left_for_retry_after_failed_setup(hass, entry):
     hass.data["opti_akku_reload_handover"] = {entry.entry_id: {"at": time.monotonic(), "manual_mode": "Akku schnell Entladen"}}
     with patch("custom_components.opti_akku.StrategyEngine", side_effect=RuntimeError("boom")):
         assert not await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
     assert entry.entry_id not in hass.data["opti_akku_reload_handover"]
+
+
+async def test_every_entity_of_a_default_setup_has_a_translated_name(hass, entry):
+    inverter = device()
+    with patch("custom_components.opti_akku.async_get_unit"), patch("custom_components.opti_akku.SmaDevice", return_value=inverter):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        untranslated = [
+            item.entity_id for item in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+            if not item.translation_key
+        ]
+        assert not untranslated, untranslated
+        assert await hass.config_entries.async_unload(entry.entry_id)
 
 
 async def test_plain_reload_without_strategy_still_drops_manual_mode(hass, entry):
@@ -2558,7 +2689,7 @@ async def test_owed_pause_is_not_redirected_to_a_new_binding(hass, entry):
     await c.async_restore()
     assert c._pause_pending
     assert c._stored_data()["pause_binding"] == ["other"]
-    with pytest.raises(HomeAssistantError, match="anderen Bindung"):
+    with raises_translated(HomeAssistantError, "pause_other_binding"):
         await c.async_set_write_enabled(True)
     await c._async_finish_huawei_pause()
     dev.async_shutdown_control.assert_not_awaited()
@@ -3260,7 +3391,7 @@ async def test_sbs_profile_sets_up_only_as_read_only_shadow(hass, entry, profile
     from homeassistant.exceptions import ConfigEntryError
 
     hass.config_entries.async_update_entry(entry, data={**entry.data, "profile": profile, "shadow_mode": False})
-    with pytest.raises(ConfigEntryError, match="read-only"):
+    with raises_translated(ConfigEntryError, "profile_read_only"):
         await async_setup_entry(hass, entry)
     assert not hass.data.get("opti_akku_writers")
     hass.config_entries.async_update_entry(entry, data={**entry.data, "shadow_mode": True})
@@ -3290,7 +3421,7 @@ async def test_explicit_existing_grid_charging_preference_is_preserved(hass, ent
 
 
 async def test_switch_setting_requires_a_boolean(coordinator):
-    with pytest.raises(HomeAssistantError, match="Wahrheitswert"):
+    with raises_translated(HomeAssistantError, "switch_value_invalid"):
         validate_setting(
             "input_boolean.akku_opti_automatik",
             "on",
@@ -3377,9 +3508,9 @@ async def test_standard_comparison_start_stop_publish_without_refresh_or_device_
 
 async def test_shadow_methods_keep_standard_guard(coordinator):
     coordinator._online = True
-    with pytest.raises(HomeAssistantError, match="Shadow"):
+    with raises_translated(HomeAssistantError, "shadow_requires_connection"):
         await coordinator.async_start_shadow()
-    with pytest.raises(HomeAssistantError, match="Shadow"):
+    with raises_translated(HomeAssistantError, "no_shadow_entry"):
         await coordinator.async_stop_shadow()
 
 
@@ -3655,7 +3786,7 @@ async def test_cancelled_journal_callers_never_mix_session_files(coordinator, ha
             with pytest.raises(asyncio.CancelledError):
                 await stop
             # The accepted stop still owns the next turn; a duplicate is rejected, not queued.
-            with pytest.raises(HomeAssistantError, match="vorherige Aktion"):
+            with raises_translated(HomeAssistantError, "comparison_stop_busy"):
                 await coordinator.async_stop_comparison()
             assert coordinator._shadow_snapshot["status"] == "running"
             release.set()
@@ -3690,7 +3821,7 @@ async def test_cancelled_journal_start_completes_once_without_blocking_control(c
             reads = coordinator.device.async_read.await_count
             await asyncio.wait_for(coordinator.async_refresh(), 5)
             assert coordinator.device.async_read.await_count == reads + 1
-            with pytest.raises(HomeAssistantError, match="vorherige Aktion"):
+            with raises_translated(HomeAssistantError, "comparison_start_busy"):
                 await coordinator.async_start_comparison()
             release.set()
             await asyncio.wait_for(coordinator._async_journal_idle(), 5)
@@ -3727,7 +3858,7 @@ async def test_unload_pauses_first_and_rejects_queued_journal_requests(coordinat
             assert not unload.done()
             coordinator._store.async_save.assert_not_awaited()
             release.set()
-            with pytest.raises(HomeAssistantError, match="beendet"):
+            with raises_translated(HomeAssistantError, "comparison_stop_stopping"):
                 await asyncio.wait_for(user_stop, 5)
             await asyncio.wait_for(unload, 5)
     finally:
@@ -3762,16 +3893,16 @@ async def test_stopping_does_not_record_stale_or_empty_data(coordinator, stale_d
 @pytest.mark.parametrize(
     ("method", "shadow", "online", "stopping", "message"),
     [
-        ("async_start_shadow", False, True, False, "Shadow"),
-        ("async_start_shadow", True, False, False, "Shadow"),
-        ("async_start_shadow", True, True, True, "Shadow"),
-        ("async_start_comparison", True, True, False, "24-Stunden"),
-        ("async_start_comparison", False, False, False, "24-Stunden"),
-        ("async_start_comparison", False, True, True, "24-Stunden"),
-        ("async_stop_shadow", False, True, False, "Shadow"),
-        ("async_stop_shadow", True, True, True, "Shadow"),
-        ("async_stop_comparison", True, True, False, "Standard"),
-        ("async_stop_comparison", False, True, True, "Standard"),
+        ("async_start_shadow", False, True, False, "shadow_requires_connection"),
+        ("async_start_shadow", True, False, False, "shadow_requires_connection"),
+        ("async_start_shadow", True, True, True, "shadow_requires_connection"),
+        ("async_start_comparison", True, True, False, "comparison_requires_standard"),
+        ("async_start_comparison", False, False, False, "comparison_requires_standard"),
+        ("async_start_comparison", False, True, True, "comparison_requires_standard"),
+        ("async_stop_shadow", False, True, False, "no_shadow_entry"),
+        ("async_stop_shadow", True, True, True, "integration_stopping"),
+        ("async_stop_comparison", True, True, False, "no_standard_entry"),
+        ("async_stop_comparison", False, True, True, "integration_stopping"),
     ],
 )
 async def test_journal_method_guards(
@@ -3780,15 +3911,32 @@ async def test_journal_method_guards(
     coordinator.shadow_mode = shadow
     coordinator._online = online
     coordinator._stopping = stopping
-    with pytest.raises(HomeAssistantError, match=message):
+    with raises_translated(HomeAssistantError, message):
         await getattr(coordinator, method)()
 
+
+
+@pytest.mark.parametrize(("enabled", "running", "stopping", "key", "user_error"), [
+    (False, False, False, "history_import_unavailable", True),
+    (True, True, False, "history_import_running", False),
+    (True, False, True, "integration_stopping", False),
+])
+async def test_history_import_guards_separate_user_and_runtime_errors(
+    hass, entry, coordinator, enabled, running, stopping, key, user_error
+):
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "demand_forecast": {"enabled": enabled}})
+    coordinator._history_import_running = running
+    coordinator._stopping = stopping
+    with raises_translated(HomeAssistantError, key) as info:
+        await coordinator.async_import_demand_history()
+    assert isinstance(info.value, ServiceValidationError) is user_error
 
 @pytest.mark.parametrize("error", [ValueError("running"), OSError("disk")])
 async def test_journal_start_io_errors_are_user_visible(coordinator, error):
     coordinator._store.async_save = AsyncMock()
     with patch.object(coordinator._shadow, "start", side_effect=error):
-        with pytest.raises(HomeAssistantError, match="kann nicht angelegt"):
+        with raises_translated(HomeAssistantError, "comparison_start_failed"):
             await coordinator._async_start_journal(refresh=False)
     coordinator._store.async_save.assert_not_awaited()
 
@@ -3796,7 +3944,7 @@ async def test_journal_start_io_errors_are_user_visible(coordinator, error):
 async def test_journal_stop_io_error_is_user_visible(coordinator):
     coordinator._store.async_save = AsyncMock()
     with patch.object(coordinator._shadow, "stop", side_effect=OSError("disk")):
-        with pytest.raises(HomeAssistantError, match="nicht abgeschlossen"):
+        with raises_translated(HomeAssistantError, "comparison_stop_failed"):
             await coordinator._async_stop_journal(refresh=False)
     coordinator._store.async_save.assert_not_awaited()
 
@@ -4098,6 +4246,42 @@ async def test_negative_price_hold_falls_back_to_demand_solcast_intervals(coordi
     assert data["attributes"]["sensor.opti_negative_price_hold"]["source"] == "sensor.solcast_demand"
     assert [watts for _, watts in captured["pv_slots"]][-1] == 4000
     assert data["states"]["sensor.opti_negative_price_hold"] == "no_window"
+
+
+async def test_pv_forecast_hours_feed_the_strategy_from_the_demand_solcast_source(coordinator, hass, entry):
+    """#155: the peak precharge reads P10 half hours; a daily total has none, the demand source wins."""
+    now = dt_util.utcnow()
+    start = now.replace(minute=0, second=0, microsecond=0)
+    detail = [{"period_start": (start + timedelta(minutes=30 * i)).isoformat(),
+               "pv_estimate": 5.0, "pv_estimate10": 4.0} for i in range(4)]
+    hass.states.async_set("sensor.daily_total", "40", {})
+    hass.states.async_set("sensor.solcast_demand", "40", {"detailedForecast": detail})
+    hass.config_entries.async_update_entry(entry, options={
+        **entry.options, "sources": {"forecast_today": "sensor.daily_total"},
+        "demand_forecast": {"enabled": True, "sources": {"pv_today": "sensor.solcast_demand"}}})
+    seen = {}
+    evaluate = coordinator.engine.evaluate
+
+    def spy(states, attributes, at):
+        seen.update(state=states.get("sensor.opti_pv_forecast_hours"),
+                    attributes=attributes.get("sensor.opti_pv_forecast_hours"))
+        return evaluate(states, attributes, at)
+
+    with patch.object(coordinator.engine, "evaluate", side_effect=spy):
+        await coordinator._async_update_data()
+    assert seen["state"] == "ready"
+    assert seen["attributes"]["source"] == "sensor.solcast_demand"
+    halves = [start + timedelta(minutes=30 * i) for i in range(4)]
+    assert seen["attributes"]["halfhours"] == {
+        str(int(half.timestamp())): 4.0 for half in halves if half + timedelta(minutes=30) > now}
+
+
+async def test_pv_forecast_hours_error_credits_no_pv(coordinator):
+    with patch("custom_components.opti_akku.coordinator.pv_forecast_hours",
+               side_effect=RuntimeError("boom")):
+        data = await coordinator._async_update_data()
+    assert data["states"]["sensor.opti_pv_forecast_hours"] == "error"
+    assert data["attributes"]["sensor.opti_pv_forecast_hours"] == {"status": "error", "halfhours": {}}
 
 
 async def test_peak_rank_is_published_as_observation(coordinator):
@@ -4805,11 +4989,11 @@ async def test_plan_shadow_records_hourly_forecast_history_in_its_own_store(coor
     hass.states.async_set("sensor.solcast_demand", "40", {"detailedForecast": detail})
     hass.config_entries.async_update_entry(entry, options={
         **entry.options, "demand_forecast": {"enabled": True, "sources": {"pv_today": "sensor.solcast_demand"}}})
-    with patch.object(coordinator._history_store, "async_delay_save") as delay_save:
+    with patch.object(coordinator, "_schedule_history_save") as schedule:
         data = await coordinator._async_update_data()
-        assert delay_save.call_count == 1
+        assert schedule.call_count == 1
         await coordinator._async_update_data()
-        assert delay_save.call_count == 1  # one snapshot per hour
+        assert schedule.call_count == 1  # one snapshot per hour
     history = data["attributes"]["sensor.opti_plan_shadow"]["forecast_history"]
     assert history["entries"] == 1
     saved = coordinator._planner_history.snapshot()
@@ -6580,3 +6764,69 @@ async def test_price_guard_accepts_the_unchanged_price_of_the_real_engine(coordi
     coordinator.device.async_apply.side_effect = None
     coordinator.device.async_apply.assert_awaited_once()
     assert observed == [True, False]
+
+
+def standby_evaluation(mode="Akku Dynamisch", soc=3):
+    from custom_components.opti_akku.engine import Evaluation
+
+    return Evaluation(
+        {**active_hold_evaluation().states, "sensor.opti_soc": soc, "input_number.minsoc": 0,
+         "sun.sun": "below_horizon"},
+        {}, mode, "ueber Ziel-SoC", {}, decision_id="above_target",
+    )
+
+
+STANDBY_PLAN = {"status": "planned", "at": "2026-11-15T01:00:00+00:00", "kind": "grid_precharge"}
+
+
+async def run_standby_cycle(coordinator, evaluation, plan=STANDBY_PLAN):
+    coordinator.device.async_apply.reset_mock()
+    coordinator._last_apply = None
+    with (
+        patch.object(coordinator.engine, "evaluate", return_value=evaluation),
+        patch("custom_components.opti_akku.coordinator.next_grid_charge", return_value=dict(plan)),
+    ):
+        return await coordinator._async_update_data()
+
+
+async def test_standby_reserve_holds_the_battery_until_planned_grid_charge(coordinator, hass):
+    """#222: an STP SE must not run empty and fall asleep before a planned grid charge."""
+    set_peak_rank_control(coordinator, hass, enabled=False)
+    coordinator.settings["input_number.minsoc"] = 0
+    assert coordinator.settings["input_number.opti_standby_reserve_soc"] == 3
+    data = await run_standby_cycle(coordinator, standby_evaluation())
+    command, params = coordinator.device.async_apply.await_args.args[:2]
+    assert command == data["mode"] == "Akku nur Laden"
+    # A discharge lock, never a grid import.
+    assert params["min_charge_w"] == 0 and params["min_discharge_w"] == 0
+    assert data["decision_id"] == "standby_reserve"
+    assert data["reason"].startswith("Standby-Reserve (3 %, Netzladen ab ")
+    assert data["engine_base_mode"] == "Akku Dynamisch"
+    assert data["standby_reserve"]["status"] == "holding"
+    assert data["standby_reserve"]["controls_battery"] is True
+
+
+async def test_standby_reserve_without_plan_or_with_zero_setting_keeps_strategy(coordinator, hass):
+    set_peak_rank_control(coordinator, hass, enabled=False)
+    coordinator.settings["input_number.minsoc"] = 0
+    data = await run_standby_cycle(coordinator, standby_evaluation(), {"status": "none"})
+    assert coordinator.device.async_apply.await_args.args[0] == data["mode"] == "Akku Dynamisch"
+    assert data["standby_reserve"]["status"] == "no_grid_charge_planned"
+    coordinator.settings["input_number.opti_standby_reserve_soc"] = 0
+    data = await run_standby_cycle(coordinator, standby_evaluation())
+    assert data["mode"] == "Akku Dynamisch"
+    assert data["standby_reserve"]["status"] == "disabled"
+
+
+async def test_standby_reserve_failure_keeps_the_strategy_decision(coordinator, hass):
+    set_peak_rank_control(coordinator, hass, enabled=False)
+    coordinator.settings["input_number.minsoc"] = 0
+    coordinator.device.async_apply.reset_mock()
+    coordinator._last_apply = None
+    with (
+        patch.object(coordinator.engine, "evaluate", return_value=standby_evaluation()),
+        patch("custom_components.opti_akku.coordinator.next_grid_charge", side_effect=RuntimeError),
+    ):
+        data = await coordinator._async_update_data()
+    assert data["mode"] == "Akku Dynamisch"
+    assert data["standby_reserve"] == {"status": "error", "controls_battery": False}

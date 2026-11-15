@@ -6,7 +6,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
 
-from .entity import OptiAkkuEntity, coordinator_data, readable_name
+from .entity import OptiAkkuEntity, coordinator_data, readable_name, state_translation_key
+
+# Read-only entities follow the coordinator; no per-entity polling.
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -37,7 +40,10 @@ class OptiAkkuStateBinarySensor(OptiAkkuEntity, BinarySensorEntity):
         super().__init__(entry, key)
         meta = (entry.runtime_data.data or {}).get("metadata", {}).get(key, {})
         if key != "binary_sensor.opti_connection":
-            self._attr_name = meta.get("name", readable_name(key))
+            if translation_key := state_translation_key(key):
+                self._attr_translation_key = translation_key
+            else:
+                self._attr_name = meta.get("name", readable_name(key))
         self._attr_icon = meta.get("icon")
         if key != "binary_sensor.opti_connection":
             self._attr_entity_category = EntityCategory.DIAGNOSTIC

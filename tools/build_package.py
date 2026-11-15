@@ -72,7 +72,7 @@ def build(output: Path, tag: str | None = None) -> Path:
         path = ROOT / relative
         if path.is_symlink() or any(parent.is_symlink() for parent in path.parents if parent != ROOT):
             raise ValueError("Component symlinks are not allowed")
-        if "__pycache__" in relative.parts or not (path.suffix in (".py", ".json") or name == "custom_components/opti_akku/LICENSE" or (path.parent == component / "brand" and path.suffix == ".png")):
+        if "__pycache__" in relative.parts or not (path.suffix in (".py", ".json") or name in ("custom_components/opti_akku/LICENSE", "custom_components/opti_akku/quality_scale.yaml") or (path.parent == component / "brand" and path.suffix == ".png")):
             raise ValueError(f"Unexpected tracked component file: {name}")
         data = path.read_bytes()
         if path.suffix == ".py":

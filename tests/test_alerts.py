@@ -8,7 +8,10 @@ from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 import pytest
 
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+
 from custom_components.opti_akku.alerts import HealthAlerts
+from tests.translated import raises_translated
 
 
 @pytest.fixture
@@ -693,7 +696,9 @@ async def test_real_connection_problems_still_alert_at_night(hass, alerts, docum
         data = night_standby(**overrides)
         alerts.update(data)
     assert alerts._active == {"connection"}
-    assert "standby" not in data["connection_status"]
+    # Grid charging that meets the standby is labelled as such (#222), never as a normal standby.
+    expected = "grid_charge_blocked" if overrides.get("mode") == "Akku Netzladen" else None
+    assert data["connection_status"].get("standby") == expected
 
 
 async def test_night_standby_exception_covers_only_the_confirmed_code(hass, alerts):
@@ -783,3 +788,18 @@ async def test_fixed_price_windows_never_raise_a_price_source_alert(hass, alerts
             alerts.update(data)
         assert data['price_status'] == 'ready'
         assert not alerts._active
+
+
+async def test_explicit_test_rejects_non_notify_service_as_user_error(hass, alerts):
+    hass.config_entries.async_update_entry(alerts.entry, options={"notification_service": "switch.turn_on"})
+    with raises_translated(ServiceValidationError, "invalid_notification_service"):
+        await alerts.async_test()
+
+
+async def test_explicit_test_reports_failed_delivery_as_runtime_error(hass, alerts):
+    async def fail(call):
+        raise RuntimeError("down")
+    hass.services.async_register("notify", "test_phone", fail)
+    with raises_translated(HomeAssistantError, "notification_delivery_failed") as info:
+        await alerts.async_test()
+    assert not isinstance(info.value, ServiceValidationError)

@@ -29,7 +29,7 @@ def evaluate(engine, level, attrs=None, **overrides):
               "input_number.minsoc": "5", "sensor.opti_price_level": level,
               "binary_sensor.opti_peak_reserve_aktiv": "on",
               "sensor.opti_peak_reserve_soc": "60", **overrides}
-    attrs = {"sensor.opti_peak_reserve_soc": {"reserve_ve_soc": 27.6}, **(attrs or {})}
+    attrs = {"sensor.opti_peak_reserve_soc": {"reserve_ve_soc": 27.6, "reserve_schutz_soc": 27.6}, **(attrs or {})}
     result = engine.evaluate(states, attrs, NOW)
     assert result.states[PREVIEW] == result.mode
     assert result.states["sensor.opti_engine_diagnostics"] == "ok"

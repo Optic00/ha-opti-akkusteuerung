@@ -172,6 +172,26 @@ Optionale Funktionen → Wirtschaftlichkeitsvergleich** verschieben die Schwelle
 sind sie ungültig, findet kein Peak-Vorladen statt, bis sie korrigiert sind. Ob und
 warum Vorladen wirtschaftlich zulässig ist, zeigt der Reserveplan unter `precharge`.
 
+Peak-Vorladen lädt nur, was die PV bis zur Spitze nicht selbst liefert. Die
+Peak-Reserve rechnet dafür den erwarteten PV-Überschuss bis zum Beginn der ersten
+Spitze: Solcast-P10 je Halbstunde abzüglich der Stundenlast, begrenzt auf die maximale
+Ladeleistung und mit dem Ladewirkungsgrad des Akkumodells. P10 statt Median, weil
+der Median an trüben Tagen deutlich zu hoch liegen kann. Aus dem Netz geladen wird
+nur bis zum **Vorladeziel** (`vorlade_ziel_soc` an der Peak-Reserve, im Reserveplan
+`precharge_target_soc`): Reserve minus diese PV. Die Peak-Leiter hält weiter die
+volle Reserve; die PV lädt sie bis zur Spitze auf. Fehlt eine Solcast-Prognose mit
+Intervallen, zählt keine PV und es wird wie bisher bis zur Reserve vorgeladen.
+Halbstunden ohne Prognose zählen mit 0; bei mehreren Prognosequellen gilt die, die am weitesten reicht. Zusätzlich lädt Peak-Vorladen nicht aus dem
+Netz, solange tagsüber die PV gerade mehr als 50 W über dem Hausverbrauch liefert
+oder überhaupt Strom ins Netz eingespeist wird
+(`binary_sensor.opti_vorladen_pv_ueberschuss`, Ein nach 60 s, Aus nach 5 min).
+Die 50-W-Totzone fängt Messversatz zwischen Netz- und Akkumessung ab; ist dieser
+Versatz größer als 50 W, kann das Vorladen tagsüber gesperrt bleiben.
+Fehlen Netz- oder Akkumesswerte, ist Peak-Vorladen tagsüber ebenfalls gesperrt.
+Nachts (`sun.sun` unter dem Horizont) sperrt der Sensor nur bei mehr als 100 W
+Einspeisung; Messversatz und Zählerrauschen bleiben dort ohne Wirkung. Die
+Ausverzögerung von 5 Minuten gilt auch beim Übergang zur Nacht. Die PV-Prognose wird bis 37 Stunden im Voraus gelesen.
+
 In teuren und sehr teuren Preisphasen entlädt der Akku bei Hausbedarf. Tagsüber
 setzt die Strategie dafür „Akku Dynamisch“ statt „Akku nur Entladen“, solange
 **PV-Überschussladen erlauben** eingeschaltet ist und der Ladedeckel nicht

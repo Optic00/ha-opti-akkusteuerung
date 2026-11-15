@@ -46,7 +46,7 @@ def peak_states(level="VERY_EXPENSIVE", **overrides):
 
 
 def peak_attrs():
-    return {"sensor.opti_peak_reserve_soc": {"reserve_ve_soc": 30,
+    return {"sensor.opti_peak_reserve_soc": {"reserve_ve_soc": 30, "reserve_schutz_soc": 30,
                                              "min_preis_vor_peak_ct": 50,
                                              "peak_preis_avg_ct": 100,
                                              "peak_preis_kuenftig_ct": 100},

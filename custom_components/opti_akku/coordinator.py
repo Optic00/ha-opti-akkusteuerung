@@ -18,8 +18,8 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers import entity_registry as er
@@ -28,6 +28,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
 from .alerts import HealthAlerts, night_standby
+from .repairs import RepairIssues
 from .arbitrage import (
     PrechargeComparison,
     apply_discharge_hold,
@@ -58,6 +59,7 @@ from .const import (
     VIOLATION_RENEW_SECONDS,
     VIOLATION_SETTLE_SECONDS,
 )
+from .errors import translated
 from .definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
 from .sources import build_inputs, finite
 from .plant import plant_entity_ids, plant_semantic_fingerprint
@@ -67,6 +69,7 @@ from .source_quality import DEFAULT_FORECAST_MAX_AGE
 from .negative_price_hold import NegativePriceHoldShadow, negative_price_hold_check
 from .peak_rank import HOLD_DECISION as PEAK_RANK_HOLD_DECISION
 from .peak_rank import PeakRankShadow, apply_peak_rank_hold, peak_rank_check
+from .standby_reserve import STANDBY_RESERVE_DECISION, apply_standby_reserve, next_grid_charge
 from .peak_rank import model_assumptions as peak_rank_model_assumptions
 from .planner_shadow import ForecastHistory, PlannerInputs, PlannerShadow, price_periods, pv_forecast_hourly
 from .demand import EV_SCOPE_VERSION, DemandForecast, pv_intervals, ev_profile_sources, ev_profile_scope, profile_house_value
@@ -74,6 +77,7 @@ from .refill_comparison import RefillReserveComparison, refill_reserve_check
 from .evcc_comparison import FETCH_INTERVAL as EVCC_FETCH_INTERVAL, EvccComparison, derive_plan, evcc_check, fetch_evopt, suggestion_status
 from .demand_comparison import build_strategy_comparison, remaining_day_profile
 from .peak_load import peak_load_profile
+from .precharge_pv import ENTITY as PV_FORECAST_HOURS, pv_forecast_hours
 from .ev_preparation import EVPreparation, apply_preparation, command_signals
 from .observation import SourceObservation
 from .recovery import RecoveryState
@@ -222,31 +226,41 @@ def _rebind_load_prefix(value: str | None, old: str, new: str, length: int) -> s
     return value
 
 
-def validate_setting(key: str, value: Any, current: dict) -> float | bool:
-    """Validate individual values AND limits that must remain ordered."""
+def validate_single_setting(key: str, value: Any) -> float | bool:
+    """Validate one value on its own; shared by the apply and restore paths."""
     if key in SWITCH_DEFINITIONS:
         if not isinstance(value, bool):
-            raise HomeAssistantError("Schalter benötigen einen Wahrheitswert")
+            raise translated(ServiceValidationError, "switch_value_invalid")
         return value
     definition = NUMBER_DEFINITIONS.get(key)
     number = finite(value)
     if definition is None or number is None or not definition["min"] <= number <= definition["max"]:
-        raise HomeAssistantError("Ungültiger Einstellwert")
+        raise translated(ServiceValidationError, "setting_invalid")
+    if key == "input_number.opti_zellspannung_reserve_v" and number != 0 and not 2.9 <= number <= 3.1:
+        raise translated(ServiceValidationError, "cell_voltage_reserve_invalid")
+    return number
+
+
+def validate_setting(key: str, value: Any, current: dict) -> float | bool:
+    """Validate individual values AND limits that must remain ordered."""
+    result = validate_single_setting(key, value)
+    if key in SWITCH_DEFINITIONS:
+        return result
+    number = result
     updated = dict(current, **{key: number})
     pairs = [("minsoc", "maxsoc"), ("akkusteuerung_min_ladestaerke", "akkusteuerung_max_ladestaerke"),
              ("akkusteuerung_min_entladestaerke", "akkusteuerung_max_entladestaerke"),
              ("akkusteuerung_ueberschuss_veto_aus_grenze", "akkusteuerung_ueberschuss_veto_grenze")]
-    if key == "input_number.opti_zellspannung_reserve_v" and number != 0 and not 2.9 <= number <= 3.1:
-        raise HomeAssistantError("Die Zellspannungs-Reserve muss 0 (aus) oder 2,90 bis 3,10 V betragen")
     for lower, upper in pairs:
         if float(updated[f"input_number.{lower}"]) > float(updated[f"input_number.{upper}"]):
-            raise HomeAssistantError("Die Untergrenze darf nicht über der Obergrenze liegen")
+            raise translated(ServiceValidationError, "limits_order_invalid")
     return number
 
 
 PV_PEAK_DOWNSTREAM_DECISIONS = frozenset({"arbitrage_hold", "ev_preparation"})
 # Forecast snapshots are coalesced; a crash loses at most this much history.
 HISTORY_SAVE_DELAY = 900
+HISTORY_SAVE_STOP_TIMEOUT = 10  # same bound HA uses for entry tasks on unload
 # Routine state (latches, counters, reports) is written once per interval on
 # the coordinator's own clock. HA's Store postpones a pending delayed write
 # whenever async_delay_save is called again with a later deadline, so the
@@ -318,6 +332,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # ((decision_id, price slot start), reason) of a set peak rank hold.
         # Memory only: after a restart the fresh check decides.
         self._peak_rank_latch: tuple[tuple[str, Any], str] | None = None
+        self._standby_reserve_latched = False
         self._planner = PlannerShadow()
         self._battery_model = BatteryModel.default()
         self._planner_history = ForecastHistory()
@@ -369,6 +384,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}", private=True)
         # Forecast snapshots grow to a few hundred kB; keep them out of the settings store.
         self._history_store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.planner_history", private=True)
+        # Own timer instead of Store.async_delay_save: it is cancelled through
+        # entry.async_on_unload, which also runs after a failed setup, so no
+        # late write can recreate the file of a removed entry.
+        self._history_save_unsub = None
+        self._history_save_task: asyncio.Task | None = None
+        entry.async_on_unload(self._cancel_history_save)
         self._measurements: dict = {}
         self._violation_since: float | None = None
         self._violation_mode: str | None = None
@@ -410,8 +431,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._evcc_fetch_error: str | None = None
         self._price_next_fetch: datetime | None = None
         self._price_provider_error: str | None = None
+        # Raised as repair issues (repairs.py); both need a user action.
+        self._identity_mismatch = False
+        self.settings_rejected = False
         self._price_last_success: datetime | None = None
         self.alerts = HealthAlerts(hass, entry)
+        self.repairs = RepairIssues(hass, entry)
         entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, self._async_ha_stopping))
         entry.async_on_unload(self._release_device)
 
@@ -467,7 +492,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stored = await self._store.async_load() or {}
         candidates = stored.get("settings", {})
         self._settings_revision = self.entry.options.get("settings_revision")
-        if self._settings_revision and self._settings_revision != stored.get("settings_revision"):
+        new_revision = bool(self._settings_revision and self._settings_revision != stored.get("settings_revision"))
+        if new_revision:
             candidates = {**candidates, **self.entry.options.get("settings", {})}
         # Validate against the complete saved set so restoring ordered limits
         # doesn't depend on the order in which the settings were serialized.
@@ -475,13 +501,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for key, value in candidates.items():
             if key not in self.settings:
                 continue
-            definition = NUMBER_DEFINITIONS.get(key)
-            number = finite(value)
-            valid = (isinstance(value, bool) if key in SWITCH_DEFINITIONS else
-                     number is not None and definition["min"] <= number <= definition["max"])
-            if valid:
-                self.settings[key] = value if key in SWITCH_DEFINITIONS else number
-            else:
+            # Same single-value rules as the apply path, so restore cannot
+            # accept (and clear a rejection for) what apply would refuse.
+            try:
+                self.settings[key] = validate_single_setting(key, value)
+            except HomeAssistantError:
                 invalid.append(key)
         for lower, upper in [("minsoc", "maxsoc"), ("akkusteuerung_min_ladestaerke", "akkusteuerung_max_ladestaerke"),
                              ("akkusteuerung_min_entladestaerke", "akkusteuerung_max_entladestaerke"),
@@ -547,6 +571,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ("no_supported_modes", not self.supported_modes),
         ) if blocked]
         self.write_enabled = bool(stored.get("write_enabled", False)) and not restore_blockers
+        # Keeps the repair issue for a rejected options patch across reload and
+        # restart. A new revision applied here (options change with reload)
+        # decides afresh: clean settings clear it, reset values set it.
+        self.settings_rejected = (bool(invalid) if new_revision
+                                  else stored.get("settings_rejected") is True)
         if handover is not None and handover.get("write_enabled") is not True:
             # The live state at unload wins over a store that may lag behind,
             # e.g. a write disable whose save did not complete.
@@ -612,14 +641,16 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         serial = identity.get("serial_number")
         expected = self.entry.data.get("serial_number")
         if expected and serial != expected:
-            raise HomeAssistantError("Geräteidentität hat sich geändert; Verbindung neu konfigurieren")
+            self._identity_mismatch = True
+            raise translated(HomeAssistantError, "device_identity_changed")
+        self._identity_mismatch = False
         if self.shadow_mode:
             return
         if not serial:
             return
         owners = self.hass.data.setdefault(f"{DOMAIN}_serial_owners", {})
         if serial in owners and owners[serial] != self.entry.entry_id:
-            raise HomeAssistantError("Dieser Wechselrichter hat bereits eine Opti-Steuerung")
+            raise translated(HomeAssistantError, "inverter_already_controlled")
         owners[serial] = self.entry.entry_id
         self._serial_owner = serial
 
@@ -653,6 +684,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "load_source_fingerprint": self._load_source_fingerprint,
                 "score_load_fingerprint": self._score_load_fingerprint,
                 "write_enabled": self.write_enabled,
+                "settings_rejected": self.settings_rejected,
                 "writer_binding": self._writer_binding,
                 "pause_pending": self._pause_pending,
                 "pause_binding": self._pause_binding,
@@ -943,6 +975,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Alerting and the journal must never fail the control cycle.
         with self._auxiliary_guard("alerts"):
             self.alerts.update(data)
+        with self._auxiliary_guard("repairs"):
+            self.repairs.sync(data)
         data["notification_error"] = self.alerts.delivery_error
         # Never await journal I/O here: HA serializes this whole method.
         with self._auxiliary_guard("journal"):
@@ -1238,6 +1272,20 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             peak_profile = {"status": "fallback", "hours": {}, "methods": {}, "reason": "profile_error"}
         states["sensor.opti_peak_load_profile"] = peak_profile["status"]
         attributes["sensor.opti_peak_load_profile"] = peak_profile
+        # Strategy input (#155): PV before the peak lowers the precharge target.
+        # Without a usable forecast the strategy credits no PV, as before.
+        try:
+            sources = captured_options.get("sources", {})
+            pv_state, pv_attributes = pv_forecast_hours(
+                self.hass.states,
+                ((sources.get("forecast_today"), sources.get("forecast_tomorrow")),
+                 (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow"))),
+                now, max_age=captured_options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE))
+        except Exception as err:  # A missing PV credit is the old, safe behaviour.
+            _LOGGER.debug("PV forecast hours unavailable: %s", type(err).__name__)
+            pv_state, pv_attributes = "error", {"status": "error", "halfhours": {}}
+        states[PV_FORECAST_HOURS] = pv_state
+        attributes[PV_FORECAST_HOURS] = pv_attributes
         # Observation only: the strategy never reads this estimate. A daily-total
         # forecast source has no intervals; the demand Solcast source is tried next.
         candidates = [entity for entity in (captured_options.get("sources", {}).get("forecast_today"),
@@ -1350,6 +1398,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result, peak_rank_early = self._apply_peak_rank_hold(result, now)
         else:
             self._peak_rank_latch = None
+        result, standby_reserve = self._apply_standby_reserve(result, now)
         for key, value in result.helper_updates.items():
             if (key in self.settings and revision == self._revision
                     and soft_revision == self._soft_revision):
@@ -1375,7 +1424,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             charge_power_limits.append("Akkutemperatur ab 45 °C: Ladeleistung im manuellen Modus begrenzt")
         if (curve := self._charge_curve_limit(result.states)) is not None:
             charge_power_limits.append(curve[1])
-        if arbitrage_hold.get("hold_controls_battery") or result.decision_id == PEAK_RANK_HOLD_DECISION:
+        if (arbitrage_hold.get("hold_controls_battery")
+                or result.decision_id in (PEAK_RANK_HOLD_DECISION, STANDBY_RESERVE_DECISION)):
             params["min_charge_w"] = 0
             params["min_discharge_w"] = 0
         if pv_peak_release_applies(result, mode, self.manual_mode, self.strategy_enabled):
@@ -1585,6 +1635,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "score_load_error": score_load_error,
                 "device_errors": dict(read_errors) if isinstance(read_errors, dict) else {}, "load_profile": self._load_profile_status,
                 "price_provider_error": self._price_provider_error,
+                "identity_mismatch": self._identity_mismatch,
+                "settings_rejected": self.settings_rejected,
                 "price_last_success": self._price_last_success,
                 "notification_error": self.alerts.delivery_error,
                 "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled,
@@ -1594,6 +1646,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "write_restore_blocked": self._write_restore_blocked,
                 "internal_error": self._internal_error_report(self._failsafe_pause_state(command_result))}
         self._update_operating_report(data, now, ev_report, safety_reason, write_failed)
+        data["standby_reserve"] = {
+            **standby_reserve,
+            # Only a hold that reached the device keeps the reserve.
+            "controls_battery": bool(standby_reserve.get("controls_battery")
+                                     and data["mode"] == result.mode and safety_reason is None
+                                     and self.write_enabled and not self.shadow_mode),
+        }
         data["demand_forecast"] = demand_report
         if demand_comparison_enabled:
             try:
@@ -1830,6 +1889,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "last_error": self._last_error,
                 "device_errors": dict(read_errors) if isinstance(read_errors, dict) else {},
                 "price_provider_error": self._price_provider_error,
+                "identity_mismatch": self._identity_mismatch,
+                "settings_rejected": self.settings_rejected,
                 "price_last_success": self._price_last_success,
                 "identity": self._identity, "manual_mode": self.manual_mode, "strategy_enabled": self.strategy_enabled,
                 "control_inactive": bool(self.strategy_enabled and not self.shadow_mode and not self.write_enabled
@@ -1987,10 +2048,42 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             grid_charging=settings.get("input_boolean.opti_prognose_netzladen") is True,
             spread_ct=settings.get("input_number.opti_netzlade_spread_ct"),
             feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
+            hold_spread_ct=settings.get("input_number.opti_halte_spread_ct"),
             score=states.get("sensor.opti_forecast_score"),
             discharge_efficiency=self._battery_model.discharge_efficiency,
             battery_model=self._battery_model,
         )
+
+    def _apply_standby_reserve(self, result, now):
+        """Keep an SMA STP SE awake until a grid charge planned tonight (#222)."""
+        try:
+            peak = result.attributes.get("sensor.opti_peak_reserve_soc") or {}
+            sun_attributes = result.attributes.get("sun.sun") or {}
+            settings = self.settings
+            window = next_grid_charge(
+                now=now, timezone=dt_util.DEFAULT_TIME_ZONE,
+                price_series=result.attributes.get("sensor.opti_price_series"),
+                horizon_end=peak.get("horizont_ende"), sunrise=sun_attributes.get("next_rising"),
+                grid_charging=settings.get("input_boolean.opti_prognose_netzladen") is True,
+                peak_reserve_active=result.states.get("binary_sensor.opti_peak_reserve_aktiv") == "on",
+                surcharge_ct=settings.get("input_number.opti_peak_min_aufschlag_ct"),
+                spread_ct=settings.get("input_number.opti_netzlade_spread_ct"),
+                feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
+                maxsoc=settings.get("input_number.maxsoc"),
+                battery_model=self._battery_model,
+            )
+            held, report, self._standby_reserve_latched = apply_standby_reserve(
+                result, reserve_soc=settings.get("input_number.opti_standby_reserve_soc"),
+                backend=self.entry.data.get("backend", "sma"), window=window,
+                latched=self._standby_reserve_latched,
+                eligible=self.strategy_enabled and self.manual_mode is None,
+                timezone=dt_util.DEFAULT_TIME_ZONE,
+            )
+        except Exception as err:  # Fail-open: the reserve only ever withholds energy.
+            _LOGGER.debug("Standby reserve unavailable: %s", type(err).__name__)
+            self._standby_reserve_latched = False
+            return result, {"status": "error", "controls_battery": False}
+        return held, report
 
     def _apply_peak_rank_hold(self, result, now):
         """Optional hold before the write; any failure keeps the strategy decision."""
@@ -2219,7 +2312,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 periods = price_periods(inputs.price_series, now, dt_util.DEFAULT_TIME_ZONE)
                 if self._planner_history.record(now, pv_hourly, periods):
-                    self._history_store.async_delay_save(self._planner_history.snapshot, HISTORY_SAVE_DELAY)
+                    self._schedule_history_save()
             except Exception as err:  # noqa: BLE001 - history is diagnosis only
                 _LOGGER.debug("Planner history not recorded: %s", type(err).__name__)
                 self._planner_history.error = type(err).__name__
@@ -2429,15 +2522,19 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from homeassistant.components.recorder import get_instance
         from .demand_history import read_recorder
         cfg = self.entry.options.get("demand_forecast", {})
-        if self._history_import_running or self._stopping or cfg.get("enabled") is not True:
-            raise HomeAssistantError("Enable observation; wait for any existing import")
+        if self._stopping:
+            raise translated(HomeAssistantError, "integration_stopping")
+        if cfg.get("enabled") is not True:
+            raise translated(ServiceValidationError, "history_import_unavailable")
+        if self._history_import_running:
+            raise translated(HomeAssistantError, "history_import_running")
         if cfg.get("sources", {}).get("heat_power"):
-            raise HomeAssistantError("Historical import currently requires a whole-house profile")
+            raise translated(ServiceValidationError, "history_import_whole_house")
         house = cfg.get("history_house")
         if not house and self.entry.options.get("plant_mode", "legacy") == "legacy":
             house = self.entry.options.get("sources", {}).get("house_consumption")
         if not house:
-            raise HomeAssistantError("Select the historical sensor with identical house-load scope")
+            raise translated(ServiceValidationError, "history_import_sensor_scope")
         now = dt_util.utcnow()
         timezone = dt_util.DEFAULT_TIME_ZONE
         today = now.astimezone(timezone).date()
@@ -2446,13 +2543,13 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         start = datetime.combine(today - timedelta(days=42), datetime.min.time(), timezone).astimezone(dt_util.UTC)
         end = datetime.combine(end_day, datetime.min.time(), timezone).astimezone(dt_util.UTC)
         if start >= end:
-            raise HomeAssistantError("No historical interval before online observations")
+            raise translated(ServiceValidationError, "history_import_no_interval")
         binding = self._demand_forecast.history_binding(self._load_source_fingerprint, self.entry.options, timezone)
         sources = {**cfg.get("sources", {}), "house": house}
         if cfg.get("house_includes_ev") is True:
             ev_sources = ev_profile_sources(self.entry.options)
             if not ev_sources or house in ev_sources or cfg.get("sources", {}).get("heat_power") in ev_sources:
-                raise HomeAssistantError("Select distinct EV power sources for the house profile")
+                raise translated(ServiceValidationError, "history_import_ev_sources")
             sources.update({f"ev{index}": entity for index, entity in enumerate(ev_sources, 1)})
         self._history_import_running = True
         commit = None
@@ -2467,7 +2564,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except HomeAssistantError:
             raise
         except Exception as err:
-            raise HomeAssistantError("Historical import failed; no controller settings changed") from err
+            raise translated(HomeAssistantError, "history_import_failed") from err
         finally:
             if commit is None:
                 self._history_import_running = False
@@ -2481,7 +2578,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Entry unload/options changes while Recorder runs invalidate the result.
                 if self._stopping or binding != self._demand_forecast.history_binding(
                         self._load_source_fingerprint, self.entry.options, dt_util.DEFAULT_TIME_ZONE):
-                    raise HomeAssistantError("Configuration changed during import")
+                    raise translated(HomeAssistantError, "history_import_config_changed")
                 candidate = HistoricalPrior()
                 candidate.replace(rows, binding, now)
                 self._pending_history = candidate
@@ -2491,7 +2588,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             async with self._update_lock:
                 if self._stopping or binding != self._demand_forecast.history_binding(
                         self._load_source_fingerprint, self.entry.options, dt_util.DEFAULT_TIME_ZONE):
-                    raise HomeAssistantError("Configuration changed during import")
+                    raise translated(HomeAssistantError, "history_import_config_changed")
                 self._demand_forecast.history = candidate
         finally:
             if self._pending_history is not None:
@@ -2508,12 +2605,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_start_shadow(self) -> None:
         if not self.shadow_mode or not self._online or self._stopping:
-            raise HomeAssistantError("Shadow-Aufzeichnung benötigt eine aktive lesende Verbindung")
+            raise translated(HomeAssistantError, "shadow_requires_connection")
         await self._async_start_journal(refresh=True)
 
     async def async_start_comparison(self) -> None:
         if self.shadow_mode or not self._online or self._stopping:
-            raise HomeAssistantError("24-Stunden-Vergleich benötigt eine aktive Standard-Integration")
+            raise translated(HomeAssistantError, "comparison_requires_standard")
         await self._async_start_journal(refresh=False)
 
     async def _async_run_journal_lifecycle(
@@ -2525,14 +2622,14 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         caller leaves the owned job to finish (or be rejected) on its own.
         """
         if self._stopping:
-            raise HomeAssistantError(f"{label}: Integration wird beendet")
+            raise translated(HomeAssistantError, f"{label}_stopping")
         if self._journal_lifecycle is not None and not self._journal_lifecycle.done():
-            raise HomeAssistantError(f"{label}: vorherige Aktion läuft noch; bitte erneut versuchen")
+            raise translated(HomeAssistantError, f"{label}_busy")
         accepted = self._journal_lifecycle = self._start_journal_job(job(label), name)
         await asyncio.shield(accepted)
 
     async def _async_start_journal(self, *, refresh: bool) -> None:
-        label = "Shadow-Aufzeichnung" if self.shadow_mode else "24-Stunden-Vergleich"
+        label = "shadow_start" if self.shadow_mode else "comparison_start"
         await self._async_run_journal_lifecycle(
             self._async_journal_start_job, label, "Opti journal start")
         if refresh:
@@ -2541,7 +2638,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_journal_start_job(self, label: str) -> None:
         async with self._journal_lock:
             if self._stopping:  # Also rejects requests queued before the unload.
-                raise HomeAssistantError(f"{label}: Integration wird beendet")
+                raise translated(HomeAssistantError, f"{label}_stopping")
             now = dt_util.utcnow()
             settings = dict(self.settings)
             reference = self.entry.options.get("shadow_reference_mode", "")
@@ -2551,23 +2648,26 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 self._shadow_snapshot = await self.hass.async_add_executor_job(start)
             except (ValueError, OSError) as err:
-                raise HomeAssistantError(
-                    label + " läuft bereits oder kann nicht angelegt werden") from err
+                raise translated(HomeAssistantError, f"{label}_failed") from err
             await self._store.async_save(self._stored_data())
         self._publish_journal_status()
 
     async def async_stop_shadow(self) -> None:
-        if not self.shadow_mode or self._stopping:
-            raise HomeAssistantError("Keine aktive Shadow-Integration")
+        if self._stopping:
+            raise translated(HomeAssistantError, "integration_stopping")
+        if not self.shadow_mode:
+            raise translated(ServiceValidationError, "no_shadow_entry")
         await self._async_stop_journal(refresh=True)
 
     async def async_stop_comparison(self) -> None:
-        if self.shadow_mode or self._stopping:
-            raise HomeAssistantError("Keine aktive Standard-Integration")
+        if self._stopping:
+            raise translated(HomeAssistantError, "integration_stopping")
+        if self.shadow_mode:
+            raise translated(ServiceValidationError, "no_standard_entry")
         await self._async_stop_journal(refresh=False)
 
     async def _async_stop_journal(self, *, refresh: bool) -> None:
-        label = "Shadow-Protokoll" if self.shadow_mode else "Vergleichsprotokoll"
+        label = "shadow_stop" if self.shadow_mode else "comparison_stop"
         await self._async_run_journal_lifecycle(
             self._async_journal_stop_job, label, "Opti journal stop")
         if refresh:
@@ -2576,12 +2676,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_journal_stop_job(self, label: str) -> None:
         async with self._journal_lock:
             if self._stopping:  # Also rejects requests queued before the unload.
-                raise HomeAssistantError(f"{label}: Integration wird beendet")
+                raise translated(HomeAssistantError, f"{label}_stopping")
             try:
                 self._shadow_snapshot = await self.hass.async_add_executor_job(
                     self._shadow.stop, dt_util.utcnow())
             except OSError as err:
-                raise HomeAssistantError(label + " kann nicht abgeschlossen werden") from err
+                raise translated(HomeAssistantError, f"{label}_failed") from err
             await self._store.async_save(self._stored_data())
         self._publish_journal_status()
 
@@ -2602,7 +2702,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         sources = self.entry.options.get("sources", {})
         if not any(sources.get(f"ev{n}_mode") and sources.get(f"ev{n}_charging") for n in (1, 2)):
-            raise HomeAssistantError("Bitte zuerst einen evcc-Ladepunkt mit Modus und Ladestatus konfigurieren")
+            raise translated(ServiceValidationError, "ev_charger_required")
 
     async def async_set_setting(self, key: str, value: Any) -> None:
         async with self._update_lock:
@@ -2616,6 +2716,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._store.async_save(self._stored_data())
         await self.async_refresh()
 
+    async def async_mark_settings_rejected(self) -> None:
+        """Remember a rejected options patch and show its repair issue now."""
+        self.settings_rejected = True
+        await self._store.async_save(self._stored_data())
+        self.repairs.sync({**(self.data or {}), "settings_rejected": True})
+
     async def async_apply_settings(self, settings: dict, revision: str) -> None:
         """Apply one validated wizard transaction without reloading the device."""
         async with self._update_lock:
@@ -2628,6 +2734,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._reset_manual_soc_blocks()
             self.settings = validated
             self._settings_revision = revision
+            self.settings_rejected = False
             self._revision += 1
         await self._store.async_save(self._stored_data())
         await self.async_refresh()
@@ -2649,9 +2756,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_refresh()
             return
         if mode == "Strategie" and not self.strategy_enabled:
-            raise HomeAssistantError("Strategie zuerst in den Optionen aktivieren")
+            raise translated(ServiceValidationError, "strategy_disabled")
         if mode != "Strategie" and mode not in self.supported_modes:
-            raise HomeAssistantError("Unbekannter Akkumodus")
+            raise translated(ServiceValidationError, "mode_unknown")
         new_manual = None if mode == "Strategie" else mode
         # A different selection starts a new manual session. Repeating the
         # same selection keeps the running hysteresis.
@@ -2663,19 +2770,19 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_set_write_enabled(self, enabled: bool) -> None:
         if enabled and self._pause_pending and self._pause_binding != self._writer_binding:
-            raise HomeAssistantError("Unbestätigte Pause gehört zu einer anderen Bindung. Vor neuer Steuerung alten Gerätepfad wiederherstellen und Pause nachholen.")
+            raise translated(HomeAssistantError, "pause_other_binding")
         if enabled and not self.strategy_enabled and self.manual_mode is None:
-            raise HomeAssistantError("Ohne Strategie zuerst einen manuellen Gerätemodus auswählen")
+            raise translated(ServiceValidationError, "manual_mode_required")
         if enabled and not self.supported_modes:
-            raise HomeAssistantError("Dieses Gerätebackend unterstützt noch keine geprüften Schreibaktionen")
+            raise translated(ServiceValidationError, "backend_read_only")
         if enabled and self.shadow_mode:
-            raise HomeAssistantError("Shadow-Modus erlaubt grundsätzlich keine Schreibzugriffe")
+            raise translated(ServiceValidationError, "shadow_write_forbidden")
         if enabled and not self.entry.options.get("single_writer_confirmed", False):
-            raise HomeAssistantError("Bitte zuerst in den Optionen bestätigen, dass andere Akkusteuerungen deaktiviert sind")
+            raise translated(ServiceValidationError, "single_writer_unconfirmed")
         if enabled and (not self._online or self._stopping):
-            raise HomeAssistantError("Wechselrichter ist nicht erreichbar")
+            raise translated(HomeAssistantError, "inverter_unreachable")
         if enabled and not self._identity.get("serial_number"):
-            raise HomeAssistantError("Ohne bestätigte Geräteidentität bleibt die Schreibfreigabe gesperrt")
+            raise translated(HomeAssistantError, "identity_unconfirmed")
         self._revision += 1
         self._write_restore_blocked = None
         if not enabled:
@@ -2727,6 +2834,40 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # outside the device lock.
         self._store.async_delay_save(self._stored_data, 0)
 
+    @callback
+    def _schedule_history_save(self) -> None:
+        if self._history_save_unsub is None and not self._stopping:
+            self._history_save_unsub = async_call_later(
+                self.hass, HISTORY_SAVE_DELAY, self._async_history_save_due)
+
+    @callback
+    def _cancel_history_save(self) -> None:
+        if self._history_save_unsub is not None:
+            self._history_save_unsub()
+            self._history_save_unsub = None
+
+    @callback
+    def _async_history_save_due(self, _now) -> None:
+        self._history_save_unsub = None
+        # An entry task: HA waits for it on unload (also after a failed
+        # setup), and async_stop waits for it before removal.
+        task = self.entry.async_create_task(
+            self.hass, self._async_save_history(), "Opti planner history save")
+        if not task.done():
+            self._history_save_task = task
+            task.add_done_callback(self._history_save_finished)
+
+    @callback
+    def _history_save_finished(self, task: asyncio.Task) -> None:
+        if self._history_save_task is task:
+            self._history_save_task = None
+
+    async def _async_save_history(self) -> None:
+        try:
+            await self._history_store.async_save(self._planner_history.snapshot())
+        except Exception as err:  # noqa: BLE001 - history is diagnosis only
+            _LOGGER.debug("Planner history not saved: %s", type(err).__name__)
+
     async def async_stop(self) -> None:
         async with self._stop_lock:
             if not self._stopped:
@@ -2763,6 +2904,17 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 except Exception as err:
                     self._last_error = f"Pause beim Entladen der Integration nicht bestätigt: {type(err).__name__}"
             self._release_device()
+        # Write a scheduled history save now instead of losing it, and let a
+        # write already in progress finish before removal can delete the file.
+        if self._history_save_unsub is not None:
+            self._cancel_history_save()
+            self._async_history_save_due(None)
+        if (task := self._history_save_task) is not None and not task.done():
+            try:
+                async with asyncio.timeout(HISTORY_SAVE_STOP_TIMEOUT):
+                    await asyncio.shield(task)
+            except TimeoutError:
+                _LOGGER.warning("Planner history write still running after %s s", HISTORY_SAVE_STOP_TIMEOUT)
         # Only now wait for journal writes: a slow disk never delays the pause above.
         await asyncio.shield(self._start_journal_job(
             self._async_journal_final_save_job(), "Opti final save"))

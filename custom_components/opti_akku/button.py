@@ -5,6 +5,11 @@ from homeassistant.helpers.entity import EntityCategory
 
 from .entity import OptiAkkuEntity
 
+# Unlimited on purpose: long actions such as the history import guard
+# themselves and reject a second start with a clear error instead of
+# silently queueing behind the semaphore.
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(hass, entry, async_add_entities):
     async_add_entities([OptiDemandHistoryImport(entry)])

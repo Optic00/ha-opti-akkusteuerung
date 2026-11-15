@@ -8,6 +8,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+## [2026.11-beta9] - 2026-11-14
+
 ### Geändert
 
 - **Alle Diagnose-Entitäten haben übersetzte Namen.** Rund 60 Diagnose-Sensoren
@@ -76,7 +78,7 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Netzladen entlädt der Akku weiter bis zum minimalen Ladestand. Ist der
   minimale Ladestand gleich hoch oder höher, wirkt die Reserve nicht; 0
   schaltet sie aus. Trifft angefordertes Netzladen trotzdem auf den
-  Nacht-Standby, erscheint unter *Einstellungen → Reparaturen* die Meldung
+  Nacht-Standby, erscheint unter *Einstellungen → System → Reparaturen* die Meldung
   „Netzladen blockiert: Wechselrichter im Standby“, bis Netzladen wieder
   bestätigt ist oder sie verworfen wird. `connection_status.standby` meldet
   dann `grid_charge_blocked`, die Diagnose den Status `standby_reserve`.
@@ -736,7 +738,8 @@ Alle Korrekturen aus [#196](https://github.com/Optic00/ha-opti-akkusteuerung/pul
 - Frühere YAML-Lösung bleibt im Legacy-Archiv erhalten. Bestehende
   Integrationseinträge bei der Migration beibehalten.
 
-[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta8...HEAD
+[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta9...HEAD
+[2026.11-beta9]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta9
 [2026.11-beta8]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta8
 [2026.11-beta7]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta7
 [2026.11-beta6]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta6

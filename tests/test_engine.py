@@ -1754,7 +1754,8 @@ def test_real_score_after_a_gap_turns_the_origin_into_a_hysteresis_state():
     assert low.attributes[HORIZON]["an_quelle"] == "score"
     held = evaluate(engine, _night_horizon_states(500, 2.4), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=2))
     assert (held.states[SUNNY], held.states[HORIZON]) == ("2", "on")
-    released = evaluate(engine, _night_horizon_states(500, 3.0), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=3))
+    # 3.6 kWh against the restored 12 kWh/day load yields score 3.
+    released = evaluate(engine, _night_horizon_states(500, 3.6), _OCT_NIGHT_ATTRS, now + dt.timedelta(minutes=3))
     assert (released.states[SUNNY], released.states[HORIZON]) == ("3", "off")
 
 

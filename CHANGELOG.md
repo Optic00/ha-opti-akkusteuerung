@@ -8,6 +8,15 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Behoben
+
+- **Huawei-Verbindung im Optionsmenü zeigt verständliche Fehler (#232).**
+  Unter *Konfigurieren → Erweitert und Diagnose → Verbindung* erschien bei
+  einem Huawei-Eintrag der rohe Fehlerschlüssel, wenn das Gerät nicht
+  verfügbar war oder die Messwerte nicht passten. Das Huawei-Formular hat
+  jetzt einen eigenen Schritt mit eigenen Texten und beiden Fehlermeldungen.
+  SMA-Einträge sind nicht betroffen.
+
 ## [2026.11-beta9] - 2026-11-14
 
 ### Geändert

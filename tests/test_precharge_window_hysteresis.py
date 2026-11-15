@@ -35,11 +35,11 @@ PEAK_STATES = {
 }
 PEAK_ATTRS = {
     "sensor.opti_peak_reserve_soc": {
-        "reserve_ve_soc": 20.0,
+        "reserve_ve_soc": 20.0, "reserve_schutz_soc": 20.0,
         "min_preis_vor_peak_ct": MIN_BEFORE_PEAK,
         "peak_preis_avg_ct": 60.0,
         "peak_preis_kuenftig_ct": 60.0,
-        "peak_preis_ve_avg_ct": 60.0,
+        "peak_preis_ve_avg_ct": 60.0, "peak_preis_schutz_avg_ct": 60.0,
     },
     **model_attributes(),
 }

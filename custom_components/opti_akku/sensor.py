@@ -12,8 +12,11 @@ from homeassistant.const import MATCH_ALL
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
 
-from .entity import OptiAkkuEntity, coordinator_data, readable_name
+from .entity import OptiAkkuEntity, coordinator_data, readable_name, state_translation_key
 from .evcc_comparison import VERDICTS as EVCC_VERDICTS
+
+# Read-only entities follow the coordinator; no per-entity polling.
+PARALLEL_UPDATES = 0
 
 SENSOR_PREFIXES = ("sensor.", "counter.", "input_datetime.")
 PLAN_SHADOW_KEY = "sensor.opti_plan_shadow"
@@ -79,7 +82,10 @@ class OptiAkkuStateSensor(OptiAkkuEntity, SensorEntity):
             self._attr_entity_registry_enabled_default = False
         meta = (entry.runtime_data.data or {}).get("metadata", {}).get(key, {})
         if core_key not in CORE_UNITS:
-            self._attr_name = meta.get("name", readable_name(key))
+            if translation_key := state_translation_key(key):
+                self._attr_translation_key = translation_key
+            else:
+                self._attr_name = meta.get("name", readable_name(key))
         self._attr_icon = meta.get("icon")
         self._attr_native_unit_of_measurement = meta.get("unit") or meta.get("unit_of_measurement")
         if core_key in CORE_UNITS:

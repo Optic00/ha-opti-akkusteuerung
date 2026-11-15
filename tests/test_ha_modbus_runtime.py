@@ -3,6 +3,7 @@
 import asyncio
 
 import pytest
+from tests.translated import raises_translated
 from homeassistant.components.modbus import async_get_temporary_unit
 from homeassistant.components.modbus.connection import DATA_MODBUS_CONNECTIONS
 from homeassistant.data_entry_flow import FlowResultType
@@ -51,7 +52,7 @@ async def test_shadow_never_writes_across_real_ha_lifecycle(hass, simulator, fai
     assert not hass.data.get("opti_akku_writers", {})
     registry = er.async_get(hass)
     assert registry.async_get_entity_id("switch", DOMAIN, f"{entry.entry_id}_write_enabled") is None
-    with pytest.raises(HomeAssistantError, match="Shadow"):
+    with raises_translated(HomeAssistantError, "shadow_write_forbidden"):
         await coordinator.async_set_write_enabled(True)
     button = registry.async_get_entity_id("button", DOMAIN, f"{entry.entry_id}_shadow_start")
     assert button
@@ -274,10 +275,10 @@ async def test_settings_entities_opt_in_and_ev_requires_sources(hass, simulator)
         else:
             assert entity.disabled_by == er.RegistryEntryDisabler.INTEGRATION
     coordinator = entry.runtime_data
-    with pytest.raises(HomeAssistantError, match="evcc"):
+    with raises_translated(HomeAssistantError, "ev_charger_required"):
         await coordinator.async_set_setting("input_boolean.opti_ev_akku_pause", True)
     assert coordinator.settings["input_boolean.opti_ev_akku_pause"] is False
-    with pytest.raises(HomeAssistantError, match="evcc"):
+    with raises_translated(HomeAssistantError, "ev_charger_required"):
         await coordinator.async_apply_settings({"input_boolean.opti_ev_akku_pause": True}, "invalid-ev")
     # Explicit user enablement must survive a reload, with the same entity ID.
     number = next(e for e in config_entities if e.unique_id.endswith("_input_number.ladepreis"))

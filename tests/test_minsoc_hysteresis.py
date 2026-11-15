@@ -133,7 +133,7 @@ def test_held_band_does_not_block_authorized_grid_charging(charging):
         overrides = {"sensor.opti_peak_reserve_soc": 35, "sensor.opti_price_current_ct_kwh": 50,
                      "sensor.opti_price_level": "NORMAL", **model_states()}
         attributes = {"sensor.opti_peak_reserve_soc": {
-            "reserve_ve_soc": 25, "min_preis_vor_peak_ct": 50, "peak_preis_avg_ct": 200,
+            "reserve_ve_soc": 25, "reserve_schutz_soc": 25, "min_preis_vor_peak_ct": 50, "peak_preis_avg_ct": 200,
             "peak_preis_kuenftig_ct": 200}, **model_attributes()}
     else:
         overrides = {"sensor.opti_balancing_watchdog": "netz"}
@@ -191,7 +191,7 @@ def test_empty_battery_precharges_before_morning_peak(price, expected, mode):
     # separates the two cases. With 48 ct the economic rule would block
     # (test_issue_154_peak_is_no_longer_economic).
     attributes = {"sensor.opti_peak_reserve_soc": {
-        "reserve_ve_soc": 36.2, "min_preis_vor_peak_ct": 37.31, "peak_preis_avg_ct": 48.0,
+        "reserve_ve_soc": 36.2, "reserve_schutz_soc": 36.2, "min_preis_vor_peak_ct": 37.31, "peak_preis_avg_ct": 48.0,
         "peak_preis_kuenftig_ct": 51.0}, **model_attributes()}
     for soc in (5, 4):
         result = decision_engine().evaluate(inputs(soc, **states), attributes, NOW)
@@ -207,7 +207,7 @@ def test_issue_154_peak_is_no_longer_economic():
               "sensor.opti_peak_reserve_soc": 39.7, "sensor.opti_price_current_ct_kwh": 37.31,
               **model_states()}
     attributes = {"sensor.opti_peak_reserve_soc": {
-        "reserve_ve_soc": 36.2, "min_preis_vor_peak_ct": 37.31, "peak_preis_avg_ct": 48.0,
+        "reserve_ve_soc": 36.2, "reserve_schutz_soc": 36.2, "min_preis_vor_peak_ct": 37.31, "peak_preis_avg_ct": 48.0,
         "peak_preis_kuenftig_ct": 48.0}, **model_attributes()}
     result = decision_engine().evaluate(inputs(5, **states), attributes, NOW)
     assert result.decision_id == "minimum_soc"

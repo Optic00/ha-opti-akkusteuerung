@@ -9,6 +9,10 @@ from homeassistant.helpers.entity import EntityCategory
 from .definitions import NUMBER_DEFINITIONS
 from .entity import OptiAkkuEntity
 
+# Settings changes run one at a time. Device writes are serialized
+# separately by the coordinator and the backend device locks.
+PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback

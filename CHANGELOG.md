@@ -8,6 +8,105 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Geändert
+
+- **Alle Diagnose-Entitäten haben übersetzte Namen.** Rund 60 Diagnose-Sensoren
+  und Binärsensoren der Strategie hießen bisher nach internen Schlüsseln wie
+  „Opti Ueberschuss Veto Aktiv“. Sie haben jetzt deutsche und englische Namen
+  in der Sprache von Home Assistant. Bestehende Entity-IDs bleiben erhalten;
+  bei einer neuen Einrichtung bildet HA die IDs wie üblich aus dem übersetzten
+  Namen (bei deutscher HA-Sprache aus dem deutschen).
+- **Entfernen räumt die privaten Speicher des Eintrags auf.** Einstellungen und
+  Prognoseverlauf eines gelöschten Eintrags bleiben nicht mehr unter `.storage`
+  liegen. Ein noch ausstehendes Speichern des Verlaufs wird beim Entladen
+  vorgezogen, damit die Datei danach nicht neu entsteht. Shadow- und
+  Vergleichsaufzeichnungen bleiben erhalten; das README beschreibt unter
+  „Entfernen“, wie man sie löscht.
+- **Parallele Entitätsaktionen begrenzt.** Schreibende Plattformen (Number,
+  Select, Switch) führen Aktionen nacheinander aus (`PARALLEL_UPDATES = 1`).
+- **`quality_scale.yaml`** dokumentiert den Stand der Home-Assistant-Qualitätsregeln.
+- **Fehlermeldungen sind übersetzt.** Rund 45 Fehlermeldungen aus Aktionen,
+  Einstellungen und der Einrichtung standen fest im Code, teils Deutsch, teils
+  Englisch. Sie kommen jetzt aus den Übersetzungen und erscheinen in der
+  Oberfläche in der Sprache von Home Assistant. Im Log stehen sie wie bei
+  Home Assistant üblich auf Englisch. Falsche Eingaben (etwa ein Wert außerhalb
+  des Bereichs oder eine fehlende Bestätigung) melden sich als
+  Eingabefehler ohne Stacktrace im Log.
+- **Jedes Feld im Einrichtungsdialog hat eine Beschreibung.** Alle Felder der
+  Einrichtung und der Optionen erklären sich jetzt direkt unter dem
+  Eingabefeld, auf Deutsch und Englisch. Ein Test meldet künftig neue Felder
+  ohne Beschreibung.
+- **Laufzeitfehler und Eingabefehler getrennt.** „Import läuft bereits“ und
+  „Integration wird beendet“ melden sich als eigene Laufzeitfehler. Ein als
+  Benachrichtigungsdienst gewählter Nicht-notify-Dienst gilt als Eingabefehler
+  mit passendem Hinweis.
+- **Reparaturen statt Benachrichtigungen für Fälle mit klarer Nutzeraktion.**
+  Eine geänderte Geräteidentität, eine unpassende Tibber-Auswahl und
+  abgelehnte Einstellungen erscheinen jetzt unter *Einstellungen → System →
+  Reparaturen*, mit Link zur passenden Doku. Die Meldung verschwindet von
+  selbst, sobald der Zustand behoben ist, und beim Entfernen des Eintrags.
+  Betriebsmeldungen bleiben Benachrichtigungen.
+
+### Behoben
+
+- **Peak-Vorladen rechnet mit der PV bis zur Spitze (#155).** Bisher lud der
+  Zweig aus dem Netz bis zur vollen Peak-Reserve, auch wenn die PV den Akku bis
+  zum Peak-Beginn ohnehin gefüllt hätte; der Netzstrom verdrängte dann PV, die
+  zur Einspeisevergütung ins Netz ging. Jetzt zieht die Peak-Reserve den
+  erwarteten PV-Überschuss bis zum Beginn der ersten Spitze ab (Solcast-P10 je
+  Halbstunde minus Stundenlast, begrenzt auf die maximale Ladeleistung, mit dem
+  Ladewirkungsgrad des Akkumodells). Vorgeladen wird nur bis zu diesem
+  Vorladeziel; die Leiter hält weiter die volle Reserve. Solange tagsüber die PV
+  gerade mehr als 50 W über dem Hausverbrauch liefert oder eingespeist wird, lädt
+  Peak-Vorladen nicht aus dem Netz; fehlen dafür Messwerte, gilt das
+  vorsichtshalber ebenso. Nachts sperrt nur Einspeisung über 100 W; beim
+  Übergang zur Nacht hält die Ausverzögerung von 5 Minuten die Sperre noch.
+  Ohne Solcast-Intervalle bleibt das Verhalten wie bisher. Neue
+  Attribute an `sensor.opti_peak_reserve_soc`: `vorlade_ziel_soc`,
+  `pv_vor_peak_kwh`, `pv_vor_peak_soc`, `pv_prognose`; im Reserveplan
+  `precharge_target_soc`, `pv_before_peak_kwh`, `pv_before_peak_forecast`.
+- **STP SE schläft vor geplantem Netzladen nicht mehr ein (#222).** Ein SMA
+  Sunny Tripower Smart Energy geht nachts mit leerem Akku in Standby und nimmt
+  bis zum Morgen keinen Befehl an. Plante die Strategie für später in der Nacht
+  Netzladen, fiel es aus. Neue Einstellung *Standby-Reserve vor Netzladen*
+  (Standard 3 %, nur SMA): Ist vor Sonnenaufgang ein Netzladefenster möglich
+  (gleiche Bedingungen wie Peak-Vorladen und Negativpreis-Laden), wird ein
+  entladender Modus an dieser Grenze zu „Akku nur Laden“ (Entscheidung
+  `standby_reserve`, kein Mindestladen aus dem Netz). In Nächten ohne geplantes
+  Netzladen entlädt der Akku weiter bis zum minimalen Ladestand. Ist der
+  minimale Ladestand gleich hoch oder höher, wirkt die Reserve nicht; 0
+  schaltet sie aus. Trifft angefordertes Netzladen trotzdem auf den
+  Nacht-Standby, erscheint unter *Einstellungen → Reparaturen* die Meldung
+  „Netzladen blockiert: Wechselrichter im Standby“, bis Netzladen wieder
+  bestätigt ist oder sie verworfen wird. `connection_status.standby` meldet
+  dann `grid_charge_blocked`, die Diagnose den Status `standby_reserve`.
+
+## [2026.11-beta8] - 2026-11-14
+
+### Geändert
+
+- **Peak-Reserve erkennt wirtschaftliche Peaks (#231).** Bisher zählte ein Slot
+  nur als Peak, wenn sein Preis-Perzentil über heute und morgen mindestens 0,6
+  erreichte. War der Folgetag teurer, fielen klar teure Abend-, Nacht- oder
+  Morgenstunden heraus. Die Reserve blieb dann zu klein, und Peak-Vorladen griff
+  im günstigsten Fenster des Tages nicht. Jetzt zählt ein Slot zusätzlich, wenn
+  er das günstigste noch erreichbare Tief vor ihm samt Lade- und
+  Entladeverlusten und Zykluskosten (Akkumodell) übersteigt, mindestens um den
+  Netzlade-Spread. Die Spread-Prüfung des Peak-Vorladens rechnet weiter mit dem
+  Mittel der Perzentil-Peaks. Energie, die schon günstig geladen ist, hält die
+  Leiter höchstens bis zum aktuellen Ladestand für Slots, die das Tagestief vor
+  ihnen schlagen und mindestens den Halte-Spread über dem jetzigen Preis
+  liegen. Ein so erkannter laufender Slot gilt als „teuer“
+  (`sensor.opti_price_level` EXPENSIVE, Attribut `wirtschaftlich_angehoben`),
+  aber nur, wenn der aktuelle Preis zum Slot der Preisreihe passt und der Akku
+  mehr enthält, als teurere spätere Slots brauchen. Sonst hält L4 die Energie
+  für die teureren Slots. Ohne gültiges Akkumodell bleibt es beim reinen
+  Perzentil. Neue Attribute an `sensor.opti_peak_reserve_soc`:
+  `aktueller_slot_wirtschaftlich`, `aktueller_slot_preis_ct`,
+  `reserve_kern_soc`, `reserve_schutz_soc`, `peak_preis_schutz_avg_ct`. Die
+  Peak-Rangfolge stuft Slots gleich ein. Replay über 14 Monate gegen `main`:
+  −0,5 € bei gleicher Netzladung und Einspeisung.
+
 ## [2026.11-beta7] - 2026-11-11
 
 ### Behoben
@@ -637,7 +736,8 @@ Alle Korrekturen aus [#196](https://github.com/Optic00/ha-opti-akkusteuerung/pul
 - Frühere YAML-Lösung bleibt im Legacy-Archiv erhalten. Bestehende
   Integrationseinträge bei der Migration beibehalten.
 
-[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta7...HEAD
+[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta8...HEAD
+[2026.11-beta8]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta8
 [2026.11-beta7]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta7
 [2026.11-beta6]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta6
 [2026.11-beta5]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta5

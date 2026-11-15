@@ -81,13 +81,15 @@ def evaluate(*, minute=45, slot_count=96, earlier=40.46, current=34.58, prices=N
 def test_expired_morning_peak_keeps_future_cheaper_window(minute):
     result = evaluate(minute=minute)
     attrs = result.attributes["sensor.opti_peak_reserve_soc"]
-    assert attrs["peak_preis_avg_ct"] - 34.58 >= 10
     assert attrs["min_preis_vor_peak_ct"] == 20.95
     assert result.decision_id != "peak_precharge"
     assert result.mode != "Akku Netzladen"
-    # The full morning quarter-hour still contributes to the reserve.
-    assert attrs["peak_stunden_ve"] + attrs["peak_stunden_exp"] == 8.25
-    assert attrs["benoetigt_kwh"] == 7.33
+    # The full morning quarter-hour still contributes to the reserve (8.25 h).
+    # Since issue #231 the 35-ct slots 12:15-16:00 count too: they beat the
+    # 20.95-ct slot before them by the battery model's minimum (29.6 ct),
+    # so precharging at 20.95 for them pays off (+3.75 h).
+    assert attrs["peak_stunden_ve"] + attrs["peak_stunden_exp"] == 12.0
+    assert attrs["benoetigt_kwh"] == 10.67
 
 
 @pytest.mark.parametrize("minute", [0, 10, 14])

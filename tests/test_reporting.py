@@ -322,3 +322,28 @@ def test_plan_reports_the_discharge_efficiency_of_the_reserve_template(model, ex
     if model is not None:
         data['attributes']['sensor.opti_battery_model'] = model
     assert reserve_plan(data, SETTINGS, NOW, shadow=False)['assumed_discharge_efficiency'] == expected
+
+
+@pytest.mark.parametrize(('protection', 'floor'), [(None, 30), (42, 42)])
+def test_l3_hold_floor_reports_the_protection_reserve(protection, floor):
+    # Issue #231: L3 holds at reserve_schutz_soc (above the VE reserve in an
+    # economically raised slot); older attribute sets fall back to the VE reserve.
+    data = sample(reason='Peak-Leiter L3 (halten fuer VE, Reserve 30%)')
+    if protection is not None:
+        data['attributes']['sensor.opti_peak_reserve_soc']['reserve_schutz_soc'] = protection
+    result = reserve_plan(data, SETTINGS, NOW, shadow=False)
+    assert result['hold_threshold_soc'] == floor
+    assert result['release_threshold_soc'] == floor + 2
+    assert result['priority_reserve_soc'] == 30
+
+
+def test_plan_shows_the_precharge_target_and_pv_before_the_peak():
+    """#155: the grid precharge target is the reserve minus the P10 PV before the peak."""
+    data = sample()
+    data['attributes']['sensor.opti_peak_reserve_soc'].update(
+        vorlade_ziel_soc=31.5, pv_vor_peak_kwh=1.6, pv_prognose='p10')
+    result = reserve_plan(data, SETTINGS, NOW, shadow=False)
+    assert (result['precharge_target_soc'], result['pv_before_peak_kwh'],
+            result['pv_before_peak_forecast']) == (31.5, 1.6, 'p10')
+    invalid = reserve_plan(sample(source_errors={'price': 'stale'}), SETTINGS, NOW, shadow=False)
+    assert invalid['precharge_target_soc'] is None and invalid['pv_before_peak_forecast'] is None

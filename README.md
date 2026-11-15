@@ -4,7 +4,7 @@
 
 Opti Akku verbindet lokale Akkusteuerung mit einer optionalen Strategie für PV-Überschuss, Strompreise und Verbrauchsreserve. Die Einrichtung erfolgt über einen geführten Assistenten. Zusätzliche YAML-Automationen oder manuell angelegte Helfer sind für die Integration nicht erforderlich.
 
-**Beta-Reihe 2026.11, aktueller Stand `2026.11-beta7`.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md) umstellen.
+**Beta-Reihe 2026.11, aktueller Stand `2026.11-beta8`.** Die bisherige YAML-Automation bleibt im [Legacy-Branch](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml) und im [Archivtag](https://github.com/Optic00/ha-opti-akkusteuerung/tree/legacy-yaml-2026-09-15) erhalten. Bestehende Anlagen bitte nach der [Migrationsanleitung](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md) umstellen.
 
 > **Aktive Akkusteuerung:** Freigegebene Schreibzugriffe verändern das Lade- und Entladeverhalten. Falsche Einstellungen oder Fehler können zusätzliche Kosten und unerwünschten Betrieb verursachen. Herstellervorgaben beachten und andere schreibende Steuerungen vor der Freigabe deaktivieren. Neue Einträge starten ohne Schreibfreigabe; Shadow-Einträge bleiben dauerhaft lesend.
 
@@ -31,6 +31,21 @@ Die Software wird unter der [MIT-Lizenz](https://github.com/Optic00/ha-opti-akku
 4. Unter **Einstellungen → Geräte & Dienste → Integration hinzufügen → Opti Akku** den Assistenten starten. Für den ersten Vergleich Shadow eingeschaltet lassen.
 
 Dies ist ein benutzerdefiniertes HACS-Repository, keine behauptete Aufnahme in die HACS-Standardliste. Wurde das Repository unter einer anderen Kategorie hinzugefügt, in HACS entfernen und als Integration neu hinzufügen. Eine bereits manuell installierte Opti-Akku-Integration nicht löschen oder neu anlegen: [Übernahme durch HACS](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md#manuell-installierte-integration).
+
+## Entfernen
+
+1. **Schreibzugriffe freigeben** ausschalten. Opti sendet dabei einen
+   Pausenbefehl. Danach den tatsächlichen Gerätezustand prüfen; eine bestätigte
+   Pause ist keine dauerhafte Hardware-Einstellung. Wie bei jedem Wechsel gilt
+   der vorbereitete [Rückweg](https://github.com/Optic00/ha-opti-akkusteuerung/blob/main/docs/migration.md#rückweg).
+2. Unter **Einstellungen → Geräte & Dienste → Opti Akku** den Eintrag über
+   **⋮ → Löschen** entfernen. Die gespeicherten Einstellungen und die
+   Lernhistorie dieses Eintrags werden dabei mit gelöscht.
+3. In HACS **Opti Akku → Entfernen** wählen und Home Assistant neu starten.
+
+Shadow- und Vergleichsaufzeichnungen im Ordner `opti_akku_shadow/` des
+HA-Konfigurationsverzeichnisses bleiben erhalten und können bei Bedarf von Hand
+gelöscht werden.
 
 ## Funktionen
 

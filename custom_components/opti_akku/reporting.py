@@ -61,6 +61,9 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool,
     attrs = data.get("attributes", {}).get("sensor.opti_peak_reserve_soc", {})
     total = number(states.get("sensor.opti_peak_reserve_soc"))
     priority = number(attrs.get("reserve_ve_soc"))
+    # L3 holds at the protection reserve (VE reserve, or more in an economically
+    # raised slot, issue #231); older attribute sets lack it.
+    protection = number(attrs.get("reserve_schutz_soc"))
     extreme = number(attrs.get("extreme_reserve_soc"))
     reason = data.get("reason") or ""
     extreme_hold = "Extrempreis-Reserve" in reason
@@ -94,7 +97,8 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool,
         status = "charge_requested"
     load = number(settings.get("input_number.opti_peak_verbrauch_kw"))
     soc = number(states.get("sensor.opti_soc"))
-    hold_floor = extreme if extreme_hold else priority if "Peak-Leiter L3" in reason else total
+    l3_floor = protection if protection is not None else priority
+    hold_floor = extreme if extreme_hold else l3_floor if "Peak-Leiter L3" in reason else total
     extreme_buffer_kwh = number(attrs.get("extreme_buffer_kwh"))
     extreme_buffer_soc = number(attrs.get("extreme_buffer_soc"))
     sun_day_score = number(states.get("sensor.opti_forecast_score_sonnentag"))
@@ -113,6 +117,10 @@ def reserve_plan(data: dict, settings: dict, now: datetime, *, shadow: bool,
         "assumed_discharge_efficiency": template_discharge_efficiency(
             (data.get("attributes", {}).get(BATTERY_MODEL_ENTITY) or {}).get("discharge_efficiency")),
         "required_battery_kwh": number(attrs.get("benoetigt_kwh")) if valid else None,
+        # #155: grid precharge only up to the reserve minus the P10 PV before the peak.
+        "precharge_target_soc": number(attrs.get("vorlade_ziel_soc")) if valid else None,
+        "pv_before_peak_kwh": number(attrs.get("pv_vor_peak_kwh")) if valid else None,
+        "pv_before_peak_forecast": attrs.get("pv_prognose") if valid else None,
         "extreme_buffer_kwh": round(extreme_buffer_kwh, 4)
         if valid and extreme_buffer_kwh is not None else None,
         "extreme_buffer_soc": round(extreme_buffer_soc, 2)

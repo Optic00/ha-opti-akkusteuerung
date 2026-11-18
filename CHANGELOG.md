@@ -8,6 +8,15 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Geändert
+
+- **Verlust und Rückkehr des Wechselrichters stehen im Log.** Ist der
+  Wechselrichter nicht mehr erreichbar oder liefert keinen gültigen Status,
+  schreibt Opti Akku einmal eine Info-Meldung mit dem Grund ins
+  Home-Assistant-Log, und eine weitere, sobald er wieder antwortet. Bisher
+  standen solche Lesefehler nur im Debug-Log. Der nächtliche Standby des
+  STP SE zählt nicht als Verlust, solange der Status lesbar bleibt.
+
 ### Behoben
 
 - **Huawei-Verbindung im Optionsmenü zeigt verständliche Fehler (#232).**

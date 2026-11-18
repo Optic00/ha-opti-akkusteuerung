@@ -79,6 +79,36 @@ async def test_command_evidence_has_no_timestamp_without_fresh_power(coordinator
     assert data["command_evidence"]["observed_after_execution"] is None
 
 
+def _availability_logs(caplog):
+    return [r.getMessage() for r in caplog.records
+            if r.name == "custom_components.opti_akku.coordinator" and "inverter is" in r.getMessage()]
+
+
+async def test_unavailable_and_recovery_are_logged_once(coordinator, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == []
+
+    coordinator.device.async_read.side_effect = ModbusError("offline")
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+    logs = _availability_logs(caplog)
+    assert logs == ["Opti Test: inverter is unavailable (transport: ModbusError)"]
+    assert all(r.levelname == "INFO" for r in caplog.records if "inverter is" in r.getMessage())
+
+    coordinator.device.async_read.side_effect = None
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog)[1:] == ["Opti Test: inverter is reachable again"]
+
+
+async def test_unavailable_at_first_read_is_logged_without_recovery_noise(coordinator, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.async_read.return_value["sensor.opti_inverter_status"] = None
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (device reports no valid status)"]
+
+
 async def test_huawei_cached_entity_read_does_not_claim_measurement_time(
     coordinator, entry, hass
 ):

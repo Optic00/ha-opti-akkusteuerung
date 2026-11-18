@@ -363,6 +363,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._stopping = False
         self._probed = False
         self._online = False
+        # None until the first read; afterwards the last state logged per
+        # the log-when-unavailable rule (one INFO on loss, one on return).
+        self._logged_online: bool | None = None
         self._identity: dict = {}
         self._last_signature: tuple | None = None
         self._last_apply: float | None = None
@@ -1052,6 +1055,20 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return None
         return snapshot
 
+    def _log_availability(self, read_errors: Any) -> None:
+        """Log once when the inverter becomes unreachable and once when it returns."""
+        previous, self._logged_online = self._logged_online, self._online
+        if self._online:
+            if previous is False:
+                _LOGGER.info("%s: inverter is reachable again", self.entry.title)
+            return
+        if previous is False:
+            return
+        reason = "device reports no valid status"
+        if isinstance(read_errors, dict) and read_errors:
+            reason = ", ".join(f"{key}: {value}" for key, value in sorted(read_errors.items(), key=str))
+        _LOGGER.info("%s: inverter is unavailable (%s)", self.entry.title, reason)
+
     async def _async_update_locked(self) -> dict[str, Any]:
         if self._stopping:
             return self.data or {}
@@ -1090,6 +1107,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_error = f"Lesefehler: {type(err).__name__}"
             self._last_signature = None
             self._applied_mode = None
+        self._log_availability(read_errors)
         if (self._pause_pending and not self.write_enabled and not self.shadow_mode and self._online
                 and not self._stopping and self._pause_binding == self._writer_binding
                 and self.entry.options.get("single_writer_confirmed", False)

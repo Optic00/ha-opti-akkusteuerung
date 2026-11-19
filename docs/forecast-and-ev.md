@@ -31,7 +31,9 @@ allein noch kein Nachweis einer besseren Strategie.
   erwartetes Warmwasser an. Dafür sind Wärmepumpenzähler, Warmwasser-Aktivmeldung
   und **gemessene elektrische kWh je Zyklus** erforderlich. Null heißt unbekannt.
   Bereits prognostizierte Warmwasserenergie wird angerechnet, Raumheizung nicht.
-  Künftige Zeitprogramme und Speicherverluste werden noch nicht automatisch erkannt.
+  Künftige Zeitprogramme und Speicherverluste werden nicht automatisch erkannt;
+  ein geplanter Warmwasserstart lässt sich aber für die Peak-Reserve angeben
+  (siehe „Wärmepumpenzähler und geplanter Warmwasserlauf“).
 - Für eine zeitliche Reserve sind Solcast-Sensoren heute/morgen mit datiertem
   `detailedForecast` und `pv_estimate10` nötig. Tages-kWh allein reichen nicht.
   Verwendet wird P10 als konservatives Szenario; eine Garantie ist das nicht.
@@ -294,9 +296,41 @@ Hausverbrauch beziehungsweise Ersatzverbrauch an, ohne einen zweiten Heizbedarf
 zu addieren. Unbekannte konfigurierte Heizsignale oder ein erkannter, nicht
 quantifizierter Warmwasserbedarf verhindern die Profilabsenkung. Soll-/Isttemperatur
 beschreibt nur den aktuellen Bedarf; zukünftige Zeitprogramme und Sollwertwechsel
-werden nicht vorweggenommen. Ein separater Wärmepumpenzähler und temperaturbasierte
-Vergleichstagsauswahl werden für die aktive Peak-Berechnung noch nicht genutzt.
-Eine vollständige zukünftige Heizbedarfsprognose ist damit noch nicht vorhanden.
+werden nicht vorweggenommen. Die temperaturbasierte Vergleichstagsauswahl wird für
+die aktive Peak-Berechnung noch nicht genutzt. Eine vollständige zukünftige
+Heizbedarfsprognose ist damit noch nicht vorhanden.
+
+#### Wärmepumpenzähler und geplanter Warmwasserlauf (#248)
+
+Mit separatem Wärmepumpenzähler verwendet die aktive Peak-Berechnung ebenfalls das
+gelernte Stundenprofil. Je Stunde zählt der Median über vergleichbare Tage von
+Grundlast plus Wärmepumpe; Grundlast, Raumheizung und Warmwasser werden dabei je
+Tag summiert, nicht als getrennte Mediane verrechnet. Ohne geplanten Lauf bleibt der
+gelernte Warmwasseranteil in der Stunde, in der er bisher lief. Mit Zähler gibt es
+keinen Recorder-Import; bis genug Tage gelernt sind, gilt der Ersatzverbrauch.
+
+Optional liefert eine Entität den **nächsten geplanten Warmwasserstart**: ein
+Zeitstempel-Sensor oder ein `input_datetime` mit Datum und Uhrzeit, den eine eigene
+Automation setzt, etwa auf das günstigste Preisfenster oder den PV-Überschuss.
+Dafür sind Wärmepumpenzähler, Warmwasser-Aktivmeldung und kWh je Zyklus nötig.
+Liegt der Start höchstens 24 Stunden voraus und ist der Lauf nicht schon vorbei,
+verteilt Opti die kWh je Zyklus gleichmäßig über die eingestellte Laufdauer
+(Standard 75 Minuten) und bucht sie anteilig in die betroffenen Stunden. Bis zum
+Ende dieses Laufs entfällt der gelernte Warmwasseranteil; danach gilt er wieder,
+weil der übernächste Lauf unbekannt ist. Die gebuchte Energie erhält denselben
+Prognosepuffer von 20 %. In Stunden ohne Profilwert kommt sie zum Ersatzverbrauch
+hinzu.
+
+Ist der Wert unbekannt, nicht lesbar, ohne Datum, bereits abgelaufen oder mehr als
+24 Stunden entfernt, bleibt der gelernte Warmwasseranteil wie ohne Planung. Das
+Attribut `planned_dhw` von `sensor.opti_peak_load_profile` zeigt Start, Ende, kWh und
+den Status (`booked`, `unknown_source`, `stale`, `too_far`,
+`requires_meter_and_cycle_energy`, `invalid_duration`). Ein gebuchter Lauf beziffert
+auch einen gemeldeten Warmwasserbedarf oder eine Isttemperatur unter Soll; ohne
+gebuchten Lauf bleibt dafür der Ersatzverbrauch. Läuft das Warmwasser gerade,
+setzt der gemessene Hausverbrauch wie bisher nur eine Untergrenze und wird nicht zur
+Buchung addiert. Eine Legionellenschaltung mit abweichender Energie ist noch nicht
+getrennt planbar; sie bleibt im gelernten Profil.
 
 Die Reserveplanung zeigt den tatsächlich für Peakstunden angesetzten Mittelwert,
 Profilstunden, Prognosepuffer, den tatsächlich addierten Extrempreispuffer in kWh

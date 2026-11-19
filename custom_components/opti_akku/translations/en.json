@@ -460,7 +460,7 @@
       },
       "demand": {
         "title": "Demand profile and peak reserve",
-        "description": "Learning and comparison remain observational. Optionally use the hourly profile in the active strategy for the peak reserve and remaining-day score, with a 20% peak-reserve margin and the configured fallback load or previous remaining-day calculation. This changes battery control. Heating and hot water are included in the household profile; future cycles are not scheduled. Unknown heat context or detected unquantified hot-water demand retains the safe fallback. Separate heat-meter mode is not yet supported for the active peak profile.",
+        "description": "Learning and comparison remain observational. Optionally use the hourly profile in the active strategy for the peak reserve and remaining-day score, with a 20% peak-reserve margin and the configured fallback load or previous remaining-day calculation. This changes battery control. Heating and hot water are included in the household profile; future cycles are not scheduled. Unknown heat context or detected unquantified hot-water demand retains the safe fallback. With a separate heat pump meter the active peak profile uses base load plus space heating per hour; a planned hot-water start can book the cycle into the hours it actually runs.",
         "data": {
           "enabled": "Learn demand profile and observe forecast",
           "heat_power": "Heat pump total electrical power, included in house consumption",
@@ -479,7 +479,9 @@
           "history_house": "Historical house consumption (same measurement scope)",
           "house_includes_ev": "House consumption includes EV charging (subtract configured EV power)",
           "temperature_matching": "Prefer similar outdoor temperatures (experimental)",
-          "use_for_peak_reserve": "Use hourly profile in the active strategy"
+          "use_for_peak_reserve": "Use hourly profile in the active strategy",
+          "dhw_planned_start": "Next planned hot water start (optional)",
+          "dhw_run_minutes": "Duration of a planned hot water run"
         },
         "data_description": {
           "enabled": "Learns the house consumption by hour and weekday and compares the forecast. Observation only.",
@@ -499,7 +501,9 @@
           "history_house": "Sensor for the one-time import from the recorder. Must measure the same consumption scope as the current house consumption.",
           "house_includes_ev": "Only turn on if the house consumption includes the wallbox. The EV power is then subtracted; a change resets the learned profile.",
           "temperature_matching": "Prefers historical hours within 3 °C of the current outdoor temperature, for the first four forecast hours.",
-          "use_for_peak_reserve": "Uses the hourly profile for peak reserve and remaining-day score. Changes the battery control."
+          "use_for_peak_reserve": "Uses the hourly profile for peak reserve and remaining-day score. Changes the battery control.",
+          "dhw_planned_start": "Optional. Timestamp sensor or input_datetime with date and time, set by your automation to the next hot water start. The peak reserve then books the kWh per cycle into these hours instead of the learned time. Needs the heat pump meter, the hot water active state and kWh per cycle. If the value is unknown, past or more than 24 h ahead, the learned hot water share is kept.",
+          "dhw_run_minutes": "Running time over which the kWh per cycle are spread."
         }
       },
       "ev_preparation": {
@@ -650,7 +654,8 @@
       "charge_curve_soc": "Each charge level in the curve must be a whole number between 0 and 100 %.",
       "charge_curve_power": "Each power in the curve must be a whole number between 0 and 10000 W.",
       "charge_curve_duplicate": "Each charge level may appear only once in the curve.",
-      "charge_curve_rising": "The power in the curve must not rise with the charge level. Equal values are allowed."
+      "charge_curve_rising": "The power in the curve must not rise with the charge level. Equal values are allowed.",
+      "demand_dhw_plan": "A planned hot water start needs the heat pump meter, the hot water active state and kWh per cycle above 0."
     },
     "abort": {
       "already_configured": "An entry already exists for this device and operating mode.",
@@ -1029,7 +1034,7 @@
       },
       "demand": {
         "title": "Demand profile and peak reserve",
-        "description": "Learning and comparison remain observational. Optionally use the hourly profile in the active strategy for the peak reserve and remaining-day score, with a 20% peak-reserve margin and the configured fallback load or previous remaining-day calculation. This changes battery control. Heating and hot water are included in the household profile; future cycles are not scheduled. Unknown heat context or detected unquantified hot-water demand retains the safe fallback. Separate heat-meter mode is not yet supported for the active peak profile.",
+        "description": "Learning and comparison remain observational. Optionally use the hourly profile in the active strategy for the peak reserve and remaining-day score, with a 20% peak-reserve margin and the configured fallback load or previous remaining-day calculation. This changes battery control. Heating and hot water are included in the household profile; future cycles are not scheduled. Unknown heat context or detected unquantified hot-water demand retains the safe fallback. With a separate heat pump meter the active peak profile uses base load plus space heating per hour; a planned hot-water start can book the cycle into the hours it actually runs.",
         "data": {
           "enabled": "Learn demand profile and observe forecast",
           "heat_power": "Heat pump total electrical power, included in house consumption",
@@ -1048,7 +1053,9 @@
           "history_house": "Historical house consumption (same measurement scope)",
           "house_includes_ev": "House consumption includes EV charging (subtract configured EV power)",
           "temperature_matching": "Prefer similar outdoor temperatures (experimental)",
-          "use_for_peak_reserve": "Use hourly profile in the active strategy"
+          "use_for_peak_reserve": "Use hourly profile in the active strategy",
+          "dhw_planned_start": "Next planned hot water start (optional)",
+          "dhw_run_minutes": "Duration of a planned hot water run"
         },
         "data_description": {
           "enabled": "Learns the house consumption by hour and weekday and compares the forecast. Observation only.",
@@ -1068,7 +1075,9 @@
           "history_house": "Sensor for the one-time import from the recorder. Must measure the same consumption scope as the current house consumption.",
           "house_includes_ev": "Only turn on if the house consumption includes the wallbox. The EV power is then subtracted; a change resets the learned profile.",
           "temperature_matching": "Prefers historical hours within 3 °C of the current outdoor temperature, for the first four forecast hours.",
-          "use_for_peak_reserve": "Uses the hourly profile for peak reserve and remaining-day score. Changes the battery control."
+          "use_for_peak_reserve": "Uses the hourly profile for peak reserve and remaining-day score. Changes the battery control.",
+          "dhw_planned_start": "Optional. Timestamp sensor or input_datetime with date and time, set by your automation to the next hot water start. The peak reserve then books the kWh per cycle into these hours instead of the learned time. Needs the heat pump meter, the hot water active state and kWh per cycle. If the value is unknown, past or more than 24 h ahead, the learned hot water share is kept.",
+          "dhw_run_minutes": "Running time over which the kWh per cycle are spread."
         }
       },
       "arbitrage": {
@@ -1230,7 +1239,8 @@
       "charge_curve_soc": "Each charge level in the curve must be a whole number between 0 and 100 %.",
       "charge_curve_power": "Each power in the curve must be a whole number between 0 and 10000 W.",
       "charge_curve_duplicate": "Each charge level may appear only once in the curve.",
-      "charge_curve_rising": "The power in the curve must not rise with the charge level. Equal values are allowed."
+      "charge_curve_rising": "The power in the curve must not rise with the charge level. Equal values are allowed.",
+      "demand_dhw_plan": "A planned hot water start needs the heat pump meter, the hot water active state and kWh per cycle above 0."
     }
   },
   "entity": {

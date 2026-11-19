@@ -823,6 +823,7 @@ class WizardSections:
     async def async_step_demand(self, user_input=None):
         """Configure demand observation and optional profile-based peak reserve."""
         from .demand import SOURCE_KEYS, EV_POWER_KEYS
+        from .peak_load import DEFAULT_DHW_RUN_MINUTES, DHW_RUN_MINUTES_RANGE
         from homeassistant.helpers import entity_registry as er
         cfg = self._draft.get("demand_forecast", {})
         errors = {}
@@ -852,9 +853,26 @@ class WizardSections:
                     if entity
                 ):
                     errors["base"] = "demand_ev_power"
+            planned_start = user_input.get("dhw_planned_start")
+            if planned_start:
+                registered = er.async_get(self.hass).async_get(planned_start)
+                if registered and registered.platform == DOMAIN:
+                    errors["dhw_planned_start"] = "self_reference"
+                elif self.hass.states.get(planned_start) is None:
+                    errors["dhw_planned_start"] = "missing_or_stale"
+                elif (
+                    not sources.get("heat_power")
+                    or not sources.get("dhw_active")
+                    or not (user_input.get("dhw_cycle_kwh") or 0) > 0
+                ):
+                    # Without a meter the old run cannot be taken out of the profile (#248).
+                    errors["dhw_planned_start"] = "demand_dhw_plan"
             if not errors:
                 self._draft["demand_forecast"] = {"enabled": user_input["enabled"],
                     "sources": sources, "dhw_cycle_kwh": user_input["dhw_cycle_kwh"],
+                    **({"dhw_planned_start": planned_start,
+                        "dhw_run_minutes": user_input.get("dhw_run_minutes", DEFAULT_DHW_RUN_MINUTES)}
+                       if planned_start else {}),
                     **({"house_includes_ev": True} if user_input.get("house_includes_ev") else {}),
                     **({"temperature_matching": True} if user_input.get("temperature_matching") else {}),
                     **({"use_for_peak_reserve": True} if user_input.get("use_for_peak_reserve") else {}),
@@ -874,6 +892,11 @@ class WizardSections:
         schema[marker] = EntitySelector(EntitySelectorConfig(domain=["sensor"]))
         schema[vol.Required("dhw_cycle_kwh", default=cfg.get("dhw_cycle_kwh", 0))] = NumberSelector(
             NumberSelectorConfig(min=0, max=30, step=0.1, unit_of_measurement="kWh", mode=NumberSelectorMode.BOX))
+        marker = vol.Optional("dhw_planned_start", description={"suggested_value": cfg["dhw_planned_start"]}) if cfg.get("dhw_planned_start") else vol.Optional("dhw_planned_start")
+        schema[marker] = EntitySelector(EntitySelectorConfig(domain=["sensor", "input_datetime"]))
+        low, high = DHW_RUN_MINUTES_RANGE
+        schema[vol.Required("dhw_run_minutes", default=cfg.get("dhw_run_minutes", DEFAULT_DHW_RUN_MINUTES))] = NumberSelector(
+            NumberSelectorConfig(min=low, max=high, step=5, unit_of_measurement="min", mode=NumberSelectorMode.BOX))
         return self.async_show_form(step_id="demand", data_schema=vol.Schema(schema), errors=errors)
 
     async def async_step_arbitrage(self, user_input=None):

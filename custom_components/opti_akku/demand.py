@@ -294,6 +294,30 @@ class DemandForecast:
         self.cells = {k: v for k, v in self.cells.items() if cutoff <= k[:10] <= today}
 
     def _expected(self, at, context, timezone, *, before=None):
+        selected = self._selected_cells(at, context, timezone, before=before)
+        if selected is None:
+            return None
+        return (
+            median(v[0] for v in selected),
+            median(v[1] for v in selected),
+            median(v[2] for v in selected),
+        )
+
+    def expected_house(self, at, context, timezone, *, before=None, without_dhw=False):
+        """Median house load per comparable cell (#248).
+
+        Base, heat and hot water are summed per cell before the median, never
+        as a difference of separate medians: hot water on varying days must not
+        lower space heating below zero.
+        """
+        selected = self._selected_cells(at, context, timezone, before=before)
+        if selected is None:
+            return None
+        return median(
+            base + heat - (dhw if without_dhw else 0.0) for base, heat, dhw in selected
+        )
+
+    def _selected_cells(self, at, context, timezone, *, before=None):
         local = at.astimezone(timezone)
         exact, similar = [], []
         for key, (base, heat, dhw, seconds) in self.cells.items():
@@ -312,11 +336,7 @@ class DemandForecast:
         selected = exact if len(exact) >= 2 else similar
         if len(selected) < 3 and len(exact) < 2:
             return None
-        return (
-            median(v[0] for v in selected),
-            median(v[1] for v in selected),
-            median(v[2] for v in selected),
-        )
+        return selected
 
     def update(self, now, data, settings, options, states, timezone, fingerprint, *, model=None):
         """``model`` is the cycle's battery model; without one the defaults apply."""

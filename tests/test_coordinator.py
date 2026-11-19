@@ -118,6 +118,22 @@ async def test_adapter_read_error_logs_role_without_raw_text(coordinator, caplog
     assert "192.0.2.10" not in caplog.text
 
 
+async def test_transport_error_is_named_without_side_errors(coordinator, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.last_read_errors = {"battery_temp": "timeout", "transport": "reset"}
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (read failed: transport)"]
+
+
+async def test_huawei_validation_error_has_its_own_reason(coordinator, caplog):
+    from custom_components.opti_akku.huawei import HuaweiConfigurationError
+
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.async_read.side_effect = HuaweiConfigurationError("entry unloaded")
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (Huawei validation failed)"]
+
+
 async def test_readable_night_standby_is_not_logged_as_unavailable(coordinator, caplog):
     caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
     coordinator.device.last_read_errors = {}

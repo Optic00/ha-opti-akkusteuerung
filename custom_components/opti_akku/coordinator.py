@@ -1074,6 +1074,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _unavailable_reason(read_errors: Any, roles: Any = None) -> str:
         """Name the roles that failed; values may hold raw error text and stay out."""
         if isinstance(read_errors, dict) and read_errors:
+            if "transport" in read_errors:
+                # A lost connection is the cause; register errors from earlier
+                # in the same poll are side effects.
+                return "read failed: transport"
             failed = sorted(str(key) for key in read_errors if roles is None or key in roles)
             if failed:
                 return "read failed: " + ", ".join(failed)
@@ -1119,7 +1123,11 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             read_errors = {"transport": type(err).__name__}
             # Translated errors (e.g. device_identity_changed from _claim_device)
             # carry a fixed key that says more than the exception class.
-            unavailable_reason = str(getattr(err, "translation_key", None) or f"transport: {type(err).__name__}")
+            from .huawei import HuaweiConfigurationError
+            if isinstance(err, HuaweiConfigurationError):
+                unavailable_reason = "Huawei validation failed"
+            else:
+                unavailable_reason = str(getattr(err, "translation_key", None) or f"transport: {type(err).__name__}")
             self._online = False
             self._measurements = {key: "unavailable" for key in self._measurements}
             self._last_error = f"Lesefehler: {type(err).__name__}"

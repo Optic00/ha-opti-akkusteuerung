@@ -151,8 +151,11 @@ möglich.
    V2a, das alle Fenster und 40236=2424 neu schreibt. Scheitert auch V2a oder
    fällt Modbus aus, wird der SBS nach SMA-Anleitung über Webinterface, App
    oder notfalls einen Neustart zurückgeholt.
-   Welcher Weg am SBS wirkt, ist **Annahme**, bis das gezeigt ist. Ohne
-   erprobten Weg finden V1b bis V4b nicht statt.
+   Welcher Weg am SBS wirkt, ist **Annahme**, bis das gezeigt ist. Als
+   gewirkt gilt er, wenn 31393/31395 innerhalb von 2 Minuten wieder dem
+   Hausbedarf folgen und 30955 nicht dauerhaft auf 2291 (Standby) bleibt.
+   V1b ist als Probelauf ausgenommen; V3, V4, V3b und V4b finden erst nach
+   erprobtem Weg statt.
 6. **Ladestand zwischen 30 und 80 %**, damit Laden und Entladen nicht an den
    BMS-Grenzen enden.
 
@@ -238,7 +241,7 @@ stehen und wirkt beim nächsten 802 kurz weiter (#151, V5a).
 | V1 Pause | Laden und Entladen gesperrt, einmal beim Laden (V1b), einmal beim Entladen (V1a, bestanden mit 41259=303; die Pause über 40236=303 ist noch ungetestet) | N, 40793=0, 40795=0, 40797=0, 40799=0, 40801=0, 40236=303 |
 | V2 Automatisch | zurück in den Normalbetrieb (als V2a bestanden) | 40151=803, 40793=0, 40795=Wert aus 40189, 40797=0, 40799=Wert aus 40191, 40801=0, 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40151=803 |
 | V3 nur Laden | Entladen gesperrt, Laden bis 500 W | wie V1, aber 40795=500, 40236=2289 |
-| V3b nur Laden, Betriebsart allein | sperrt 2289 das Entladen ohne Fensteränderung? | Nach V2 im Normalbetrieb mindestens 2 Minuten stabile Entladung von mindestens 500 W messen (Ausgangsleistung). Dann nur 40236=2289, kein N, keine Fenster. Bewertet wird 60 s danach: wirksam, wenn die Entladung unter 50 W liegt **und** der Netzbezug um mindestens 80 % der Ausgangsleistung gestiegen ist (Bedarf besteht fort). Wirkungslos, wenn die Entladung über 50 W bleibt. Unter 50 W ohne diesen Anstieg: nicht auswertbar. In beiden Fällen V2. Fällt in den 60 s eine Lastspitze oder PV-Änderung über 300 W an, gilt der Versuch als nicht auswertbar |
+| V3b nur Laden, Betriebsart allein | sperrt 2289 das Entladen ohne Fensteränderung? | Nach V2 im Normalbetrieb mindestens 2 Minuten stabile Entladung von mindestens 500 W messen (Ausgangsleistung). Dann nur 40236=2289, kein N, keine Fenster. Bewertet wird 60 s danach: wirksam, wenn die Entladung unter 50 W liegt **und** der Netzbezug um mindestens 80 % der Ausgangsleistung gestiegen ist (Bedarf besteht fort). Wirkungslos, wenn die Entladung bei 50 W oder darüber bleibt. Unter 50 W ohne diesen Anstieg: nicht auswertbar. In jedem Fall V2. Fällt in den 60 s eine Lastspitze oder PV-Änderung über 300 W an, gilt der Versuch als nicht auswertbar |
 | V4 nur Entladen | Laden gesperrt, Entladen bis 500 W | wie V1, aber 40799=500, 40236=2290 |
 | V4b nur Entladen, Betriebsart allein | sperrt 2290 das Laden ohne Fensteränderung? | Wie V3b, aber bei stabiler PV-Ladung von mindestens 500 W und mit 40236=2290; wirksam, wenn die Ladung unter 50 W liegt **und** die Einspeisung um mindestens 80 % der Ausgangsleistung gestiegen ist; wirkungslos und nicht auswertbar wie bei V3b |
 | V5 schnell Laden | Ladung mit fester Leistung | V2 bis 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40149=−500; nach 120 s erneuern: 40151=802, nach 2 s 40149=−500; Ende: 40149=0, 40151=803 |

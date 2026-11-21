@@ -16,7 +16,8 @@ Jede Aussage ist markiert:
   [PARAMETER-HTML_SBS3.7-6.0-10_GG10_V14](https://files.sma.de/downloads/PARAMETER-HTML_SBS3.7-6.0-10_GG10_V14.zip)
   (ab Firmware 4.04.03.R). Beide verlinkt von der
   [SMA-Produktseite](https://www.sma.de/produkte/batterie-wechselrichter/sunny-boy-storage-37-50-60).
-- **Gerät**: am SBS 5.0 aus #170 gemessen (Diagnose vom 10.11.2026).
+- **Gerät**: am SBS 5.0 aus #170 gemessen (Diagnose vom 10.11.2026,
+  Stufe A ab 21.11.2026).
 - **STP SE**: Verhalten, das Opti Akku am STP SE nutzt; am SBS ungeprüft.
 - **Annahme**: nicht belegt, im Test zu klären.
 
@@ -59,6 +60,39 @@ nicht bereit. Für den aktiven Betrieb muss 2531 bei leerem Akku nachts wie die
 Nacht-Bereitschaft aus #103 behandelt werden, sonst meldet Opti Akku jede Nacht
 einen Verbindungsfehler.
 
+## Ergebnisse Stufe A
+
+Kalrael, SBS 5.0 mit BYD HVS 7.7, Opti Akku 2026.11-beta9 im Shadow-Modus,
+21.11.2026 ([#170](https://github.com/Optic00/ha-opti-akkusteuerung/issues/170#issuecomment-7064968900)).
+Gemeldete Ausgangsbedingungen: 31061=1129, 33003=235, Ladestand 30 bis 80 %,
+41193=2507, 41195=600 s, 41215=0 W, 44035/44037=±4600 W.
+
+| Schritt | Schreibfolge | Ergebnis (**Gerät**) |
+|---|---|---|
+| N | 40151=802, 40149=0, 40151=803 | bestanden: keine Exception, Entladung lief normal weiter |
+| V1a Pause beim Entladen | N, Fenster 0, 40801=0, 41259=303 | bestanden: Entladung stoppte, Haus aus dem Netz |
+| V2 Automatisch | wie unten, mit 41259=1438 | **nicht bestanden**: keine Exception, aber der SBS blieb gesperrt |
+| V2a Automatisch | wie V2, aber 40236=2424 statt 41259=1438 | bestanden: Entladung sofort wieder aufgenommen, blieb stabil |
+
+Folgerungen:
+
+- Der belegte Rückweg am SBS ist V2a. V2 mit 41259=1438 entfällt.
+- V2a unterscheidet sich von V2 in Adresse **und** Wert. Ob 40236 oder 2424
+  entscheidend war, ist offen. Das
+  [evcc-Template](https://github.com/evcc-io/evcc/blob/master/templates/definition/meter/sma-sbs-modbus.yaml)
+  schreibt am SBS alle Betriebsarten nach 40236 und nutzt 2424 als
+  Normalbetrieb. Ab V1b folgt der Plan deshalb diesem Muster: Die
+  BMS-Betriebsart geht immer nach 40236, 41259 wird am SBS nicht mehr
+  geschrieben.
+- Unter 2424 wirken die Fenster 40793 bis 40799 weiter (evcc sperrt damit das
+  Entladen, ohne die Betriebsart zu ändern). V3 und V4 setzen Fenster und
+  Betriebsart gemeinsam, wie es ein aktiver SBS-Pfad tun würde. Eine Sperre dort
+  belegt die Kombination, nicht die Wirkung von 2289 oder 2290 allein. Das
+  klären V3b und V4b: Sie schalten aus dem Normalbetrieb nur 40236 um und
+  lassen alle Fenster unverändert.
+- Offen: V1b (Pause beim Laden), V3 bis V6. V7 weiterhin nicht, solange
+  44035/44037 mehr als 500 W zulassen.
+
 ## Steuerregister laut SMA
 
 WO heißt nur beschreibbar: Ein Lesezugriff liefert eine Modbus-Exception, eine
@@ -97,7 +131,10 @@ möglich.
 1. **Nur ein Schreiber.** Eigene Skripte und Automationen sind während des Tests
    aus. Offen: Ob der Sunny Home Manager 2.0 oder der Sunny Tripower X als
    Systemmanager den SBS steuert, und ob einer davon dieselben Parameter setzt
-   (**Annahme**, Frage an Kalrael).
+   (**Annahme**, Frage an Kalrael). Kalrael kann das nicht sicher sagen
+   (12.11.2026). Ändert sich während eines Versuchs Leistung oder Betriebszustand
+   ohne eigenen Schreibzugriff, gilt das als Abbruch, und der Fall wird in #170
+   gemeldet, bevor es weitergeht.
 2. **Steuerung über Kommunikation verfügbar.** 31061 stand im Energiesparmodus
    auf 1130 (Nein). Vor V1 muss 31061 im Betrieb 1129 (Ja) zeigen. Was 1130
    auslöst, sagt die SMA-Liste nicht (**Annahme**: Standby oder fehlende Freigabe).
@@ -105,10 +142,25 @@ möglich.
    Protokoll festhalten (44035/44037 sind FIX2, Rohwert ÷ 100 = W). Nicht ändern
    ohne Absprache.
 4. **Betriebsstatus 235** in 33003 zu Testbeginn.
-5. **Unabhängiger Rückweg.** SMA-App oder Webinterface des SBS offen. Vor dem
-   ersten Schreibtest legt Kalrael fest und probiert einmal aus, wie er den SBS
-   ohne Opti Akku in den Normalbetrieb bringt, etwa mit seiner bisherigen Lösung.
-   Welcher Weg am SBS wirkt, ist **Annahme**.
+5. **Unabhängiger Rückweg.** Am SBS aus #170 belegt: 40151=803 beendet eine
+   reine Vorgabe über 40149 (bisherige Lösung von Kalrael). Nach einer
+   BMS-Sperre über die CmpBMS-Register reicht 803 nicht; V2 endete mit 803, und
+   der SBS blieb gesperrt. Über Modbus ist dort nur die vollständige
+   V2a-Folge belegt. Bevor nach V1a weitere Sperren geschrieben werden (V1b, V3,
+   V4, V3b, V4b), legt Kalrael einen Weg **ohne Modbus** fest, der eine
+   BMS-Sperre aufhebt, und probiert ihn einmal nach einer V1-Pause aus, etwa
+   über Webinterface oder SMA-App des SBS. Sein 803-Skript zählt dafür nicht.
+   Der Probelauf ist zugleich V1b und steht direkt nach V2a; als Reserve bleibt
+   V2a, das alle Fenster und 40236=2424 neu schreibt. Scheitert auch V2a oder
+   fällt Modbus aus, wird der SBS nach SMA-Anleitung über Webinterface, App
+   oder notfalls einen Neustart zurückgeholt.
+   Welcher Weg am SBS wirkt, ist **Annahme**, bis das gezeigt ist. Als
+   gewirkt gilt er, wenn 31393/31395 innerhalb von 2 Minuten wieder dem
+   Hausbedarf folgen und 30955 nicht dauerhaft auf 2291 (Standby) bleibt.
+   V1b ist als Probelauf ausgenommen; V3, V4, V3b und V4b finden erst nach
+   erprobtem Weg statt. Weil V1b auch die Fenster auf 0 setzt, belegt der
+   Probelauf den Weg nur für die Pause. Bevor V3b oder V4b laufen, den Weg
+   deshalb einmal nach einem V3 oder V4 wiederholen.
 6. **Ladestand zwischen 30 und 80 %**, damit Laden und Entladen nicht an den
    BMS-Grenzen enden.
 
@@ -129,8 +181,17 @@ Unit ID 3, höheres Wort zuerst, unter den Adressen der SMA-Liste. Ein einzelnes
 
 ## Ablauf
 
-Jeder Versuch höchstens 15 Minuten (außer V7), Vorgaben höchstens 500 W. Nach
-jedem Versuch der Rückweg aus Vorbedingung 5 oder V2, dann 5 Minuten warten.
+Jeder Versuch höchstens 15 Minuten (außer V7). Testsollwerte (40149 und das
+offene Fenster in V3/V4) höchstens 500 W. V2 und der Einstieg in V5/V6 öffnen
+beide Fenster bewusst auf die Werte aus 40189/40191, also den Normalbetrieb;
+V3b und V4b behalten diese Fenster aus V2 unverändert. Nach
+jedem Versuch der Rückweg aus Vorbedingung 5 oder V2. Auch nach einem regulär
+beendeten Versuch muss der Normalbetrieb innerhalb von 2 Minuten bestätigt sein
+(Kriterium aus Vorbedingung 5); sonst gilt der Rückweg nach einem Abbruch, und
+kein weiterer Versuch folgt. Danach 5 Minuten warten. Bricht eine Schreibfolge
+mittendrin ab, ohne Exception oder Timeout (Werkzeug beendet, Bedienfehler),
+gilt der Registerzustand als unbekannt und es gilt ebenfalls der Rückweg nach
+einem Abbruch.
 
 Beobachten, in dieser Reihenfolge priorisiert:
 
@@ -142,12 +203,26 @@ Beobachten, in dieser Reihenfolge priorisiert:
   active power limitation“ laut
   [SMA-Betriebsanleitung, Ereignismeldungen](https://manuals.sma.de/SBSxx-10/en-US/391460235.html)
 
+Bezugspunkt der Richtungs- und Toleranzregeln ist je Schritt die Vorgabe, die
+gerade wirken soll. In V2 und im Einstieg von V5/V6 (Normalbetrieb) gelten
+weder Richtungs- noch Toleranzregel, nur die übrigen Kriterien. In V5/V6 gelten
+Richtung und Toleranz ab 10 s nach dem ersten Schreiben von 40149=±500 und
+bleiben über jede Erneuerung bestehen; eine reguläre Entladung davor ist kein
+Abbruch.
+
 Abbruch sofort und Rückweg, wenn
 
-- die Leistung in die falsche Richtung geht oder mehr als 200 W über der Vorgabe liegt,
-- in einem Entladeversuch am Netzanschlusspunkt mehr als 100 W eingespeist werden,
+- die Leistung in die falsche Richtung geht oder mehr als 200 W über der Vorgabe liegt
+  (V3b/V4b: Vorgabe ist die vor dem Umschalten gemessene Leistung, eine
+  Fortsetzung in der geprüften Richtung ist dort Ergebnis, kein Abbruch),
+- in einem Entladeversuch am Netzanschlusspunkt mehr als 100 W eingespeist werden
+  (V4b: nur, wenn der SBS dabei entlädt, also 31395 > 0; Einspeisung von
+  PV-Überschuss ist dort das erwartete Ergebnis),
 - in einem Ladeversuch der Netzbezug um mehr als 700 W steigt (V5 darf bis 500 W
-  aus dem Netz laden, das ist der erwartete Effekt),
+  aus dem Netz laden, das ist der erwartete Effekt; in V3b ist der Anstieg durch
+  die gestoppte Entladung das erwartete Ergebnis, Abbruch dort nur, wenn der SBS
+  lädt, also 31393 > 0, und der Anstieg die Ausgangsleistung um mehr als 700 W
+  übersteigt),
 - ein Schreibzugriff mit Exception oder Timeout endet. Ein Timeout kann trotzdem
   angekommen sein; der Zustand gilt dann als unbekannt, bis der Rückweg gewirkt hat,
 - der SBS eine Ereignismeldung zeigt, 33003 nicht mehr 235 ist oder der Ladestand
@@ -156,7 +231,9 @@ Abbruch sofort und Rückweg, wenn
 
 Rückweg nach einem Abbruch: Antwortet Modbus zuverlässig und steht 33003 auf 235,
 erst N, dann V2. Sonst zuerst der unabhängige Rückweg aus Vorbedingung 5, ohne
-weitere Modbus-Schreibzugriffe. Danach keine weiteren Schritte am selben Tag ohne
+weitere Modbus-Schreibzugriffe. Ebenso, wenn N oder V2 selbst mit Exception
+oder Timeout enden, oder wenn der SBS V2 ohne Exception quittiert, aber
+innerhalb von 2 Minuten den Normalbetrieb nicht wieder aufnimmt. Danach keine weiteren Schritte am selben Tag ohne
 Rücksprache in #170.
 
 Zwei Stufen:
@@ -175,12 +252,14 @@ stehen und wirkt beim nächsten 802 kurz weiter (#151, V5a).
 | Schritt | Ziel | Schreibfolge (Stufe A) |
 |---|---|---|
 | V0 nur lesen | Vorbedingungen 2 bis 4 erfassen | keine; Diagnose im Betrieb tagsüber herunterladen |
-| V1 Pause | Laden und Entladen gesperrt, einmal beim Laden, einmal beim Entladen | N, 40793=0, 40795=0, 40797=0, 40799=0, 40801=0, 41259=303 |
-| V2 Automatisch | zurück in den Normalbetrieb | 40151=803, 40793=0, 40795=Wert aus 40189, 40797=0, 40799=Wert aus 40191, 40801=0, 41259=1438, dann 40151=802, sofort 40149=0, nach 2 s 40151=803 |
-| V3 nur Laden | Entladen gesperrt, Laden bis 500 W | wie V1, aber 40795=500, 41259=2289 |
-| V4 nur Entladen | Laden gesperrt, Entladen bis 500 W | wie V1, aber 40799=500, 41259=2290 |
-| V5 schnell Laden | Ladung mit fester Leistung | V2 bis 41259=1438, dann 40151=802, sofort 40149=0, nach 2 s 40149=−500; nach 120 s erneuern: 40151=802, nach 2 s 40149=−500; Ende: 40149=0, 40151=803 |
-| V6 schnell Entladen | Entladung mit fester Leistung | V2 bis 41259=1438, dann 40151=802, sofort 40149=0, nach 2 s 40149=500; nach 120 s erneuern: 40151=802, nach 2 s 40149=500; Ende: 40149=0, 40151=803 |
+| V1 Pause | Laden und Entladen gesperrt, einmal beim Laden (V1b), einmal beim Entladen (V1a, bestanden mit 41259=303; die Pause über 40236=303 ist noch ungetestet) | N, 40793=0, 40795=0, 40797=0, 40799=0, 40801=0, 40236=303 |
+| V2 Automatisch | zurück in den Normalbetrieb (als V2a bestanden) | 40151=803, 40793=0, 40795=Wert aus 40189, 40797=0, 40799=Wert aus 40191, 40801=0, 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40151=803 |
+| V3 nur Laden | Entladen gesperrt, Laden bis 500 W | wie V1, aber 40795=500, 40236=2289 |
+| V3b nur Laden, Betriebsart allein | sperrt 2289 das Entladen ohne Fensteränderung? | Nach V2 im Normalbetrieb mindestens 2 Minuten stabile Entladung von mindestens 500 W messen (Ausgangsleistung). Dann nur 40236=2289, kein N, keine Fenster. Bewertet wird 60 s danach: wirksam, wenn die Entladung unter 50 W liegt **und** der Netzbezug um mindestens 80 % der Ausgangsleistung gestiegen ist (Bedarf besteht fort). Wirkungslos, wenn die Entladung bei 50 W oder darüber bleibt. Unter 50 W ohne diesen Anstieg: nicht auswertbar. In jedem Fall V2. Fällt in den 60 s eine Lastspitze oder PV-Änderung über 300 W an, gilt der Versuch als nicht auswertbar |
+| V4 nur Entladen | Laden gesperrt, Entladen bis 500 W | wie V1, aber 40799=500, 40236=2290 |
+| V4b nur Entladen, Betriebsart allein | sperrt 2290 das Laden ohne Fensteränderung? | Wie V3b, aber bei stabiler PV-Ladung von mindestens 500 W und mit 40236=2290; wirksam, wenn die Ladung unter 50 W liegt **und** die Einspeisung um mindestens 80 % der Ausgangsleistung gestiegen ist; wirkungslos und nicht auswertbar wie bei V3b |
+| V5 schnell Laden | Ladung mit fester Leistung | V2 bis 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40149=−500; nach 120 s erneuern: 40151=802, nach 2 s 40149=−500; Ende: 40149=0, 40151=803 |
+| V6 schnell Entladen | Entladung mit fester Leistung | V2 bis 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40149=500; nach 120 s erneuern: 40151=802, nach 2 s 40149=500; Ende: 40149=0, 40151=803 |
 | V7 Ausfall | Verhalten nach Kommunikationsverlust | siehe unten |
 
 Die Folgen sind nach dem Muster des STP-SE-Pfads in `sma.py` gebildet
@@ -194,9 +273,9 @@ genauso umsetzt, ist **Annahme**. Insbesondere:
 - Der Treiber schreibt 803 vor jede CmpBMS-Folge, weil CmpBMS-Werte unter 802
   verworfen werden. Das steht als Grundlage im STP-SE-Code, ein unabhängiger
   Hardwarebeleg liegt hier nicht vor.
-- Für den Normalbetrieb schreibt Opti Akku 41259=1438, das evcc-Template dagegen
-  40236=2424 (Voreinstellung). Was davon den SBS wirklich in seinen Normalbetrieb
-  bringt, klärt V2. Bis dahin ist V2 kein belegter Rückweg.
+- Für den Normalbetrieb schreibt Opti Akku am STP SE 41259=1438. Am SBS hat das
+  nicht gewirkt, 40236=2424 (Voreinstellung, wie im evcc-Template) dagegen schon
+  (**Gerät**, V2a). Der SBS-Pfad weicht hier also vom STP-SE-Muster ab.
 
 Je Schritt festhalten: Uhrzeit jedes Schreibvorgangs, Antwort des Geräts
 (Exception ja/nein), Zeit bis zur Wirkung, eingeschwungene Leistung,
@@ -263,9 +342,18 @@ wiederzuverwenden statt einen zweiten zu schreiben.
    (immer Shadow, keine Übernahme in die aktive Steuerung) gilt weiter für das
    lesende Profil; das aktive Profil durchläuft wie der STP SE erst den
    Shadow-Abschluss.
-8. **Modusauswahl.** Erst die Modi anbieten, die in Stufe A bestanden haben.
+8. **BMS-Betriebsart.** Am SBS immer 40236 statt 41259, Automatisch mit 2424
+   statt 1438 (Stufe A, V2a). `_bms` hat dafür schon `opmod_address`; die
+   Zuordnung Modus zu Adresse und Wert gehört ins Profil, nicht in den
+   gemeinsamen Ablauf, und die Aufräum-Pause in `_cleanup` muss dieselbe
+   Adresse nutzen. Weil `_cleanup` nach jedem gescheiterten Schreibvorgang
+   pausiert, unabhängig vom angeforderten Modus, setzt Stufe B eine bestandene
+   Pause über 40236=303 beim Laden und beim Entladen voraus (V1b und eine Wiederholung von V1a mit 40236), auch wenn Pause selbst nicht als
+   Modus angeboten wird.
+9. **Modusauswahl.** Erst die Modi anbieten, die in Stufe A bestanden haben.
    `supported_modes` je Profil gibt es schon.
-9. **Tests.** Fake-Gerät mit SBS-Identität für jeden freigegebenen Modus,
+10. **Tests.** Fake-Gerät mit SBS-Identität für jeden freigegebenen Modus,
+   Betriebsart über 40236 (nie 41259),
    Rückfall bei 2531 vor und während einer Transaktion, 31061=1130, kurzer
    Timeout in 41195, Grenzen aus 40189/40191.
 

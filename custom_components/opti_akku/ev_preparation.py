@@ -272,15 +272,20 @@ def apply_preparation(result, preparation):
     mode, reason = result.mode, result.reason
     ordinary = result.decision_id in LOW_PRIORITY
     if preparation.get("charging_guard"):
-        # Stop ordinary PV competition and all automatic discharge into the EV.
-        # Explicit higher-priority charging (minimum SoC/balancing) is retained.
-        if ordinary or result.decision_id == "extreme_peak_hold" or mode in (
-            "Akku Dynamisch",
+        # Ordinary strategy branches use Dynamisch (PV charge and discharge) or
+        # nur Entladen. Keep the PV charge window only if it was already open.
+        # Pause and charge-only decisions, including arbitrage_hold, already
+        # prevent discharge. The extreme-price hold explicitly requires Pause.
+        if result.decision_id == "extreme_peak_hold" or mode in (
             "Akku nur Entladen",
             "Akku schnell Entladen",
             "Akku Automatisch",
         ):
-            mode, reason = "Akku Pause", "Auto-Vorrang (Ladung aktiv oder Ladesignal unbekannt)"
+            mode = "Akku Pause"
+        elif mode == "Akku Dynamisch":
+            mode = "Akku nur Laden"
+        if mode != result.mode:
+            reason = "Auto-Vorrang: Entladen gesperrt (Ladung aktiv oder Ladesignal unbekannt)"
     elif preparation.get("ready") and ordinary:
         mode, reason = (
             "Akku nur Laden",

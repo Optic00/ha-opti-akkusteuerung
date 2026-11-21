@@ -3335,6 +3335,28 @@ async def test_ev_preparation_caps_pv_charge_and_never_sets_force_minima(coordin
                                     'charge_power_limits':['Auto-Vorbereitung: nur PV-Überschuss vor dem Akku']}
 
 
+async def test_ev_priority_preserves_pv_charge_power_without_grid_minimum(coordinator, hass):
+    hass.config_entries.async_update_entry(
+        coordinator.entry,
+        options={**coordinator.entry.options, "ev_preparation": {
+            "enabled": True, "vehicle_soc": "sensor.car", "charging": "binary_sensor.car_charging",
+        }},
+    )
+    hass.states.async_set("binary_sensor.car_charging", "on")
+    coordinator.settings["input_boolean.akku_opti_automatik"] = True
+    coordinator.settings["input_number.akkusteuerung_min_ladestaerke"] = 500
+    coordinator.write_enabled = True
+    result = replace(active_hold_evaluation(), mode="Akku Dynamisch", decision_id="below_target")
+    with patch.object(coordinator.engine, "evaluate", return_value=result):
+        data = await coordinator._async_update_data()
+
+    assert data["decision_id"] == "ev_priority"
+    mode, params, _ = coordinator.device.async_apply.await_args.args
+    assert mode == "Akku nur Laden"
+    assert params["min_charge_w"] == 0
+    assert params["charge_power_w"] == result.states["sensor.opti_charge_power_w"] > 0
+
+
 @pytest.mark.parametrize("soc,charging,expected", [(21, "off", True), (40, "off", False), (45, "off", False), ("unavailable", "off", False), (21, "on", False), (21, "unavailable", False)])
 async def test_ev_write_guard_ignores_only_irrelevant_soc_changes(coordinator, hass, soc, charging, expected):
     hass.config_entries.async_update_entry(coordinator.entry, options={**coordinator.entry.options,

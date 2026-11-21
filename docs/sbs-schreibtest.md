@@ -64,7 +64,7 @@ einen Verbindungsfehler.
 
 Kalrael, SBS 5.0 mit BYD HVS 7.7, Opti Akku 2026.11-beta9 im Shadow-Modus,
 21.11.2026 ([#170](https://github.com/Optic00/ha-opti-akkusteuerung/issues/170#issuecomment-7064968900)).
-Vorbedingungen erfüllt: 31061=1129, 33003=235, Ladestand 30 bis 80 %,
+Gemeldete Ausgangsbedingungen: 31061=1129, 33003=235, Ladestand 30 bis 80 %,
 41193=2507, 41195=600 s, 41215=0 W, 44035/44037=±4600 W.
 
 | Schritt | Schreibfolge | Ergebnis (**Gerät**) |
@@ -147,8 +147,9 @@ möglich.
    V4, V3b, V4b), legt Kalrael einen Weg **ohne Modbus** fest, der eine
    BMS-Sperre aufhebt, und probiert ihn einmal nach einer V1-Pause aus, etwa
    über Webinterface oder SMA-App des SBS. Sein 803-Skript zählt dafür nicht.
-   Welcher Weg am SBS wirkt, ist **Annahme**, bis das gezeigt ist. Ohne diesen
-   Weg sind V1b bis V4b nur mit Rücksprache in #170 zulässig.
+   Für diesen Probelauf bleibt V2a als belegter Modbus-Rückweg in Reserve.
+   Welcher Weg am SBS wirkt, ist **Annahme**, bis das gezeigt ist. Ohne
+   erprobten Weg finden V1b bis V4b nicht statt.
 6. **Ladestand zwischen 30 und 80 %**, damit Laden und Entladen nicht an den
    BMS-Grenzen enden.
 
@@ -184,6 +185,12 @@ Beobachten, in dieser Reihenfolge priorisiert:
 - Ereignismeldungen des SBS, besonders 8708 „Timeout in communication for
   active power limitation“ laut
   [SMA-Betriebsanleitung, Ereignismeldungen](https://manuals.sma.de/SBSxx-10/en-US/391460235.html)
+
+Bezugspunkt der Richtungs- und Toleranzregeln ist je Schritt die Vorgabe, die
+gerade wirken soll. In V2 und im Einstieg von V5/V6 (Normalbetrieb) gilt keine
+Richtungsregel, nur die übrigen Kriterien. In V5/V6 gelten Richtung und Toleranz
+ab 10 s nach dem Schreiben von 40149; eine reguläre Entladung davor ist kein
+Abbruch.
 
 Abbruch sofort und Rückweg, wenn
 
@@ -225,9 +232,9 @@ stehen und wirkt beim nächsten 802 kurz weiter (#151, V5a).
 | V1 Pause | Laden und Entladen gesperrt, einmal beim Laden (V1b), einmal beim Entladen (V1a, bestanden mit 41259=303; die Pause über 40236=303 ist noch ungetestet) | N, 40793=0, 40795=0, 40797=0, 40799=0, 40801=0, 40236=303 |
 | V2 Automatisch | zurück in den Normalbetrieb (als V2a bestanden) | 40151=803, 40793=0, 40795=Wert aus 40189, 40797=0, 40799=Wert aus 40191, 40801=0, 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40151=803 |
 | V3 nur Laden | Entladen gesperrt, Laden bis 500 W | wie V1, aber 40795=500, 40236=2289 |
-| V3b nur Laden, Betriebsart allein | sperrt 2289 das Entladen ohne Fensteränderung? | Nach V2 im Normalbetrieb mindestens 2 Minuten stabile Entladung messen (Ausgangsleistung). Dann nur 40236=2289, kein N, keine Fenster. Bewertet wird 60 s danach: Entladung unter 50 W heißt wirksam, sonst wirkungslos. In beiden Fällen V2. Fällt in den 60 s eine Lastspitze oder PV-Änderung über 300 W an, gilt der Versuch als nicht auswertbar |
+| V3b nur Laden, Betriebsart allein | sperrt 2289 das Entladen ohne Fensteränderung? | Nach V2 im Normalbetrieb mindestens 2 Minuten stabile Entladung von mindestens 500 W messen (Ausgangsleistung). Dann nur 40236=2289, kein N, keine Fenster. Bewertet wird 60 s danach: wirksam, wenn die Entladung unter 50 W liegt **und** der Netzbezug um mindestens 80 % der Ausgangsleistung gestiegen ist (Bedarf besteht fort); sonst wirkungslos. In beiden Fällen V2. Fällt in den 60 s eine Lastspitze oder PV-Änderung über 300 W an, gilt der Versuch als nicht auswertbar |
 | V4 nur Entladen | Laden gesperrt, Entladen bis 500 W | wie V1, aber 40799=500, 40236=2290 |
-| V4b nur Entladen, Betriebsart allein | sperrt 2290 das Laden ohne Fensteränderung? | Wie V3b, aber bei stabiler PV-Ladung als Ausgangsleistung und mit 40236=2290; Ladung unter 50 W heißt wirksam |
+| V4b nur Entladen, Betriebsart allein | sperrt 2290 das Laden ohne Fensteränderung? | Wie V3b, aber bei stabiler PV-Ladung von mindestens 500 W und mit 40236=2290; wirksam, wenn die Ladung unter 50 W liegt **und** die Einspeisung um mindestens 80 % der Ausgangsleistung gestiegen ist |
 | V5 schnell Laden | Ladung mit fester Leistung | V2 bis 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40149=−500; nach 120 s erneuern: 40151=802, nach 2 s 40149=−500; Ende: 40149=0, 40151=803 |
 | V6 schnell Entladen | Entladung mit fester Leistung | V2 bis 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40149=500; nach 120 s erneuern: 40151=802, nach 2 s 40149=500; Ende: 40149=0, 40151=803 |
 | V7 Ausfall | Verhalten nach Kommunikationsverlust | siehe unten |

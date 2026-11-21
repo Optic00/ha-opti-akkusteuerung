@@ -504,7 +504,7 @@
       },
       "ev_preparation": {
         "title": "PV-Vorbereitung fürs Auto",
-        "description": "Bei niedrigem Fahrzeug-SoC vorhandenen PV-Überschuss im Hausakku vorziehen, auch unterwegs. Optional kann ein täglicher oder absoluter Abfahrtszeitpunkt mit Fahrzeugziel, nutzbarer Fahrzeugkapazität, Ladeleistung und Wirkungsgrad geplant werden. Bis zum Termin ersetzt das Fahrzeugziel die einfache Bedarfsschwelle. Angezeigt werden Energiebedarf, spätester Ladestart und Machbarkeit bei durchgehend verfügbarer Leistung; die Integration steuert keine Wallbox. Kein zusätzliches Netzladen. Auto lädt: normale Hausakkuladung und Entladung pausieren; vorrangige Schutzladungen bleiben bestehen. Fahrzeug-SoC verfällt nach 24 Stunden; unbekanntes Ladesignal sperrt die Vorbereitung. Bei aktivierter Vorbereitung wird die Mindest-Entladeleistung auf 0 W begrenzt.",
+        "description": "Bei niedrigem Fahrzeug-SoC vorhandenen PV-Überschuss im Hausakku vorziehen, auch unterwegs. Optional kann ein täglicher oder absoluter Abfahrtszeitpunkt mit Fahrzeugziel, nutzbarer Fahrzeugkapazität, Ladeleistung und Wirkungsgrad geplant werden. Bis zum Termin ersetzt das Fahrzeugziel die einfache Bedarfsschwelle. Angezeigt werden Energiebedarf, spätester Ladestart und Machbarkeit bei durchgehend verfügbarer Leistung; die Integration steuert keine Wallbox. Kein zusätzliches Netzladen. Lädt das Auto oder ist das Ladesignal unbekannt, kann der Hausakku weiter PV-Überschuss aufnehmen. Die Entladung ist gesperrt. Fahrzeug-SoC verfällt nach 24 Stunden; unbekanntes Ladesignal sperrt die Vorbereitung. Bei aktivierter Vorbereitung wird die Mindest-Entladeleistung auf 0 W begrenzt.",
         "data": {
           "enabled": "Aktivieren",
           "vehicle_soc": "Fahrzeug-Ladezustand",
@@ -521,7 +521,7 @@
         "data_description": {
           "enabled": "Zieht bei niedrigem Fahrzeug-SoC vorhandenen PV-Überschuss in den Hausakku vor. Kein zusätzliches Netzladen.",
           "vehicle_soc": "Ladezustand des Fahrzeugs in Prozent. Gilt höchstens 24 Stunden.",
-          "charging": "Verlässliches Signal, dass das Auto lädt. Aktiv oder unbekannt pausiert normale Hausakkuladung und Entladung.",
+          "charging": "Verlässliches Signal, dass das Auto lädt. Ein aktives oder unbekanntes Signal sperrt die Entladung. Der Hausakku kann weiter PV-Überschuss aufnehmen.",
           "away": "Optional. Schalter für längere Abwesenheit; sperrt nur die Vorbereitung.",
           "departure": "Optional. input_datetime oder Zeitstempel-Sensor. Eine reine Uhrzeit gilt täglich.",
           "vehicle_threshold": "Unter diesem Fahrzeug-SoC gilt Ladebedarf.",
@@ -1133,7 +1133,7 @@
       },
       "ev_preparation": {
         "title": "PV-Vorbereitung fürs Auto",
-        "description": "Bei niedrigem Fahrzeug-SoC vorhandenen PV-Überschuss im Hausakku vorziehen, auch unterwegs. Optional kann ein täglicher oder absoluter Abfahrtszeitpunkt mit Fahrzeugziel, nutzbarer Fahrzeugkapazität, Ladeleistung und Wirkungsgrad geplant werden. Bis zum Termin ersetzt das Fahrzeugziel die einfache Bedarfsschwelle. Angezeigt werden Energiebedarf, spätester Ladestart und Machbarkeit bei durchgehend verfügbarer Leistung; die Integration steuert keine Wallbox. Kein zusätzliches Netzladen. Auto lädt: normale Hausakkuladung und Entladung pausieren; vorrangige Schutzladungen bleiben bestehen. Fahrzeug-SoC verfällt nach 24 Stunden; unbekanntes Ladesignal sperrt die Vorbereitung. Bei aktivierter Vorbereitung wird die Mindest-Entladeleistung auf 0 W begrenzt.",
+        "description": "Bei niedrigem Fahrzeug-SoC vorhandenen PV-Überschuss im Hausakku vorziehen, auch unterwegs. Optional kann ein täglicher oder absoluter Abfahrtszeitpunkt mit Fahrzeugziel, nutzbarer Fahrzeugkapazität, Ladeleistung und Wirkungsgrad geplant werden. Bis zum Termin ersetzt das Fahrzeugziel die einfache Bedarfsschwelle. Angezeigt werden Energiebedarf, spätester Ladestart und Machbarkeit bei durchgehend verfügbarer Leistung; die Integration steuert keine Wallbox. Kein zusätzliches Netzladen. Lädt das Auto oder ist das Ladesignal unbekannt, kann der Hausakku weiter PV-Überschuss aufnehmen. Die Entladung ist gesperrt. Fahrzeug-SoC verfällt nach 24 Stunden; unbekanntes Ladesignal sperrt die Vorbereitung. Bei aktivierter Vorbereitung wird die Mindest-Entladeleistung auf 0 W begrenzt.",
         "data": {
           "enabled": "Aktivieren",
           "vehicle_soc": "Fahrzeug-Ladezustand",
@@ -1150,7 +1150,7 @@
         "data_description": {
           "enabled": "Zieht bei niedrigem Fahrzeug-SoC vorhandenen PV-Überschuss in den Hausakku vor. Kein zusätzliches Netzladen.",
           "vehicle_soc": "Ladezustand des Fahrzeugs in Prozent. Gilt höchstens 24 Stunden.",
-          "charging": "Verlässliches Signal, dass das Auto lädt. Aktiv oder unbekannt pausiert normale Hausakkuladung und Entladung.",
+          "charging": "Verlässliches Signal, dass das Auto lädt. Ein aktives oder unbekanntes Signal sperrt die Entladung. Der Hausakku kann weiter PV-Überschuss aufnehmen.",
           "away": "Optional. Schalter für längere Abwesenheit; sperrt nur die Vorbereitung.",
           "departure": "Optional. input_datetime oder Zeitstempel-Sensor. Eine reine Uhrzeit gilt täglich.",
           "vehicle_threshold": "Unter diesem Fahrzeug-SoC gilt Ladebedarf.",

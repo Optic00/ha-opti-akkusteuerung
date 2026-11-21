@@ -76,19 +76,32 @@ def test_preparation_preserves_higher_priorities(reason, mode):
     assert result is e and p["status"] == "higher_priority"
 
 
-@pytest.mark.parametrize("v", ["on", "unavailable"])
-def test_charging_or_unknown_blocks_competition_even_at_night(v):
+@pytest.mark.parametrize("charging", ["on", "unavailable"])
+@pytest.mark.parametrize(
+    "decision_id,mode,expected",
+    [
+        ("below_target", "Akku Dynamisch", "Akku nur Laden"),
+        ("surplus_70", "Akku Dynamisch", "Akku nur Laden"),
+        ("surplus_ac", "Akku Dynamisch", "Akku nur Laden"),
+        ("above_target", "Akku nur Entladen", "Akku Pause"),
+        ("peak_l1", "Akku nur Entladen", "Akku Pause"),
+        ("unknown", "Akku schnell Entladen", "Akku Pause"),
+        ("unknown", "Akku Automatisch", "Akku Pause"),
+        ("extreme_peak_hold", "Akku nur Laden", "Akku Pause"),
+    ],
+)
+def test_charging_guard_blocks_discharge_even_without_preparation(
+    charging, decision_id, mode, expected
+):
     s, m = fixture()
-    s["binary_sensor.charging"] = state(v)
+    s["binary_sensor.charging"] = state(charging)
     p = step(EVPreparation(), s, m, can_prepare=False)
-    result, _ = apply_preparation(evaluation(), p)
-    assert result.mode == "Akku Pause"
-    result, _ = apply_preparation(
-        evaluation("Akku nur Entladen", "Peak-Leiter L1 (VE entladen)"), p
-    )
-    assert result.mode == "Akku Pause"
-    result, _ = apply_preparation(evaluation("Akku nur Laden", "MinSOC-Schutz"), p)
-    assert result.mode == "Akku nur Laden"
+    result, report = apply_preparation(evaluation(mode, decision_id=decision_id), p)
+    assert result.mode == result.states["sensor.opti_strategie_vorschau"] == expected
+    assert result.decision_id == "ev_priority"
+    assert "Entladen gesperrt" in result.reason
+    assert result.attributes["sensor.opti_strategie_vorschau"]["grund"] == result.reason
+    assert report["controls_battery"] is True
 
 
 def test_house_ceiling_and_vehicle_hysteresis():
@@ -186,15 +199,6 @@ def test_signal_guard_detects_arrival_during_bus_wait_and_expiry():
     assert signals(CFG, s, NOW + timedelta(days=2)) != before
 
 
-@pytest.mark.parametrize(
-    "reason", ["70% Ueberschuss (tag, entprellt)", "AC Ueberschuss (tag, entprellt)"]
-)
-def test_car_priority_stops_existing_surplus_branches(reason):
-    # The real branches choose Dynamisch, not Nur Laden.
-    result, _ = apply_preparation(evaluation("Akku Dynamisch", reason), {"charging_guard": True})
-    assert result.mode == "Akku Pause"
-
-
 def test_loss_of_vehicle_data_returns_to_ordinary_self_consumption_not_forced_export():
     s, m = fixture()
     model = EVPreparation()
@@ -243,22 +247,23 @@ def test_command_signals_keep_soc_ticks_but_invalidate_boundaries_and_stale_data
     assert command_signals(holiday, s, NOW)[2] is True
 
 
-@pytest.mark.parametrize("decision_id", ["negative_price", "peak_precharge"])
-def test_vehicle_charging_retains_explicit_price_charging_priority(decision_id):
-    e = evaluation("Akku Netzladen", "Explicit price priority", decision_id)
+@pytest.mark.parametrize(
+    "decision_id,mode",
+    [
+        ("arbitrage_hold", "Akku nur Laden"),
+        ("default", "Akku Pause"),
+        ("minimum_soc", "Akku nur Laden"),
+        ("balancing_pv", "Akku nur Laden"),
+        ("balancing_grid", "Akku Netzladen"),
+        ("negative_price", "Akku Netzladen"),
+        ("peak_precharge", "Akku Netzladen"),
+    ],
+)
+def test_charging_guard_preserves_existing_charge_and_pause_decisions(decision_id, mode):
+    e = evaluation(mode, decision_id=decision_id)
     result, report = apply_preparation(e, {"charging_guard": True})
     assert result is e
     assert report["controls_battery"] is False
-
-
-def test_vehicle_charging_overrides_residual_value_hold():
-    held = evaluation(
-        "Akku nur Laden", "Restwert halten", decision_id="arbitrage_hold"
-    )
-    result, report = apply_preparation(held, {"charging_guard": True})
-    assert result.mode == "Akku Pause"
-    assert result.decision_id == "ev_priority"
-    assert report["controls_battery"] is True
 
 
 def test_deadline_plan_reports_energy_latest_start_and_feasibility():

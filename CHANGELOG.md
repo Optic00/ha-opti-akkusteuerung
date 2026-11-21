@@ -10,6 +10,11 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Behoben
 
+- **PV-Vorbereitung fürs Auto lässt den Hausakku weiter aus PV-Überschuss laden.**
+  Lädt das Auto oder ist sein Ladesignal unbekannt, wechselt „Akku Dynamisch“
+  auf „Akku nur Laden“ mit 0 W Mindestladeleistung. So kann der Hausakku
+  weiter Solarstrom aufnehmen, ohne ins Auto zu entladen. Entlademodi,
+  „Akku Automatisch“ und die Extrempreisreserve führen weiterhin zur Pause.
 - **Huawei-Verbindung im Optionsmenü zeigt verständliche Fehler (#232).**
   Unter *Konfigurieren → Erweitert und Diagnose → Verbindung* erschien bei
   einem Huawei-Eintrag der rohe Fehlerschlüssel, wenn das Gerät nicht

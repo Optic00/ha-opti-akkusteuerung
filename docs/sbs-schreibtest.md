@@ -131,7 +131,10 @@ möglich.
 1. **Nur ein Schreiber.** Eigene Skripte und Automationen sind während des Tests
    aus. Offen: Ob der Sunny Home Manager 2.0 oder der Sunny Tripower X als
    Systemmanager den SBS steuert, und ob einer davon dieselben Parameter setzt
-   (**Annahme**, Frage an Kalrael).
+   (**Annahme**, Frage an Kalrael). Kalrael kann das nicht sicher sagen
+   (12.11.2026). Ändert sich während eines Versuchs Leistung oder Betriebszustand
+   ohne eigenen Schreibzugriff, gilt das als Abbruch, und der Fall wird in #170
+   gemeldet, bevor es weitergeht.
 2. **Steuerung über Kommunikation verfügbar.** 31061 stand im Energiesparmodus
    auf 1130 (Nein). Vor V1 muss 31061 im Betrieb 1129 (Ja) zeigen. Was 1130
    auslöst, sagt die SMA-Liste nicht (**Annahme**: Standby oder fehlende Freigabe).
@@ -182,7 +185,13 @@ Jeder Versuch höchstens 15 Minuten (außer V7). Testsollwerte (40149 und das
 offene Fenster in V3/V4) höchstens 500 W. V2 und der Einstieg in V5/V6 öffnen
 beide Fenster bewusst auf die Werte aus 40189/40191, also den Normalbetrieb;
 V3b und V4b behalten diese Fenster aus V2 unverändert. Nach
-jedem Versuch der Rückweg aus Vorbedingung 5 oder V2, dann 5 Minuten warten.
+jedem Versuch der Rückweg aus Vorbedingung 5 oder V2. Auch nach einem regulär
+beendeten Versuch muss der Normalbetrieb innerhalb von 2 Minuten bestätigt sein
+(Kriterium aus Vorbedingung 5); sonst gilt der Rückweg nach einem Abbruch, und
+kein weiterer Versuch folgt. Danach 5 Minuten warten. Bricht eine Schreibfolge
+mittendrin ab, ohne Exception oder Timeout (Werkzeug beendet, Bedienfehler),
+gilt der Registerzustand als unbekannt und es gilt ebenfalls der Rückweg nach
+einem Abbruch.
 
 Beobachten, in dieser Reihenfolge priorisiert:
 

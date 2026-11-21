@@ -88,7 +88,8 @@ Folgerungen:
   Entladen, ohne die Betriebsart zu ändern). V3 und V4 setzen Fenster und
   Betriebsart gemeinsam, wie es ein aktiver SBS-Pfad tun würde. Eine Sperre dort
   belegt die Kombination, nicht die Wirkung von 2289 oder 2290 allein. Das
-  klären V3b und V4b, die das gesperrte Fenster offen lassen.
+  klären V3b und V4b: Sie schalten aus dem Normalbetrieb nur 40236 um und
+  lassen alle Fenster unverändert.
 - Offen: V1b (Pause beim Laden), V3 bis V6. V7 weiterhin nicht, solange
   44035/44037 mehr als 500 W zulassen.
 
@@ -141,11 +142,13 @@ möglich.
 5. **Unabhängiger Rückweg.** Am SBS aus #170 belegt: 40151=803 beendet eine
    reine Vorgabe über 40149 (bisherige Lösung von Kalrael). Nach einer
    BMS-Sperre über die CmpBMS-Register reicht 803 nicht; V2 endete mit 803, und
-   der SBS blieb gesperrt. Dort ist nur die vollständige V2a-Folge belegt.
-   SMA-App oder Webinterface des SBS offen. Vor dem
-   ersten Schreibtest legt Kalrael fest und probiert einmal aus, wie er den SBS
-   ohne Opti Akku in den Normalbetrieb bringt, etwa mit seiner bisherigen Lösung.
-   Welcher Weg am SBS wirkt, ist **Annahme**.
+   der SBS blieb gesperrt. Über Modbus ist dort nur die vollständige
+   V2a-Folge belegt. Bevor nach V1a weitere Sperren geschrieben werden (V1b, V3,
+   V4, V3b, V4b), legt Kalrael einen Weg **ohne Modbus** fest, der eine
+   BMS-Sperre aufhebt, und probiert ihn einmal nach einer V1-Pause aus, etwa
+   über Webinterface oder SMA-App des SBS. Sein 803-Skript zählt dafür nicht.
+   Welcher Weg am SBS wirkt, ist **Annahme**, bis das gezeigt ist. Ohne diesen
+   Weg sind V1b bis V4b nur mit Rücksprache in #170 zulässig.
 6. **Ladestand zwischen 30 und 80 %**, damit Laden und Entladen nicht an den
    BMS-Grenzen enden.
 
@@ -167,8 +170,9 @@ Unit ID 3, höheres Wort zuerst, unter den Adressen der SMA-Liste. Ein einzelnes
 ## Ablauf
 
 Jeder Versuch höchstens 15 Minuten (außer V7). Testsollwerte (40149 und das
-offene Fenster in V3/V4) höchstens 500 W; V2, V3b, V4b und der Einstieg in V5/V6
-öffnen Fenster bewusst auf die Werte aus 40189/40191, also den Normalbetrieb. Nach
+offene Fenster in V3/V4) höchstens 500 W. V2 und der Einstieg in V5/V6 öffnen
+beide Fenster bewusst auf die Werte aus 40189/40191, also den Normalbetrieb;
+V3b und V4b behalten diese Fenster aus V2 unverändert. Nach
 jedem Versuch der Rückweg aus Vorbedingung 5 oder V2, dann 5 Minuten warten.
 
 Beobachten, in dieser Reihenfolge priorisiert:
@@ -183,7 +187,9 @@ Beobachten, in dieser Reihenfolge priorisiert:
 
 Abbruch sofort und Rückweg, wenn
 
-- die Leistung in die falsche Richtung geht oder mehr als 200 W über der Vorgabe liegt,
+- die Leistung in die falsche Richtung geht oder mehr als 200 W über der Vorgabe liegt
+  (V3b/V4b: Vorgabe ist die vor dem Umschalten gemessene Leistung, eine
+  Fortsetzung in der geprüften Richtung ist dort Ergebnis, kein Abbruch),
 - in einem Entladeversuch am Netzanschlusspunkt mehr als 100 W eingespeist werden,
 - in einem Ladeversuch der Netzbezug um mehr als 700 W steigt (V5 darf bis 500 W
   aus dem Netz laden, das ist der erwartete Effekt),
@@ -195,9 +201,9 @@ Abbruch sofort und Rückweg, wenn
 
 Rückweg nach einem Abbruch: Antwortet Modbus zuverlässig und steht 33003 auf 235,
 erst N, dann V2. Sonst zuerst der unabhängige Rückweg aus Vorbedingung 5, ohne
-weitere Modbus-Schreibzugriffe. Quittiert der SBS V2 ohne Exception, nimmt aber
-innerhalb von 2 Minuten den Normalbetrieb nicht wieder auf, gilt V2 als
-gescheitert: ebenfalls der unabhängige Rückweg über SMA-App oder Webinterface. Danach keine weiteren Schritte am selben Tag ohne
+weitere Modbus-Schreibzugriffe. Ebenso, wenn N oder V2 selbst mit Exception
+oder Timeout enden, oder wenn der SBS V2 ohne Exception quittiert, aber
+innerhalb von 2 Minuten den Normalbetrieb nicht wieder aufnimmt. Danach keine weiteren Schritte am selben Tag ohne
 Rücksprache in #170.
 
 Zwei Stufen:
@@ -219,9 +225,9 @@ stehen und wirkt beim nächsten 802 kurz weiter (#151, V5a).
 | V1 Pause | Laden und Entladen gesperrt, einmal beim Laden (V1b), einmal beim Entladen (V1a, bestanden mit 41259=303; die Pause über 40236=303 ist noch ungetestet) | N, 40793=0, 40795=0, 40797=0, 40799=0, 40801=0, 40236=303 |
 | V2 Automatisch | zurück in den Normalbetrieb (als V2a bestanden) | 40151=803, 40793=0, 40795=Wert aus 40189, 40797=0, 40799=Wert aus 40191, 40801=0, 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40151=803 |
 | V3 nur Laden | Entladen gesperrt, Laden bis 500 W | wie V1, aber 40795=500, 40236=2289 |
-| V3b nur Laden, Betriebsart allein | sperrt 2289 das Entladen ohne Fenster? Beim Entladen testen | wie V3, aber 40799=Wert aus 40191. Entlädt der SBS weiter, ist das das Ergebnis (2289 wirkt nicht allein): abbrechen, V2 |
+| V3b nur Laden, Betriebsart allein | sperrt 2289 das Entladen ohne Fensteränderung? | Nach V2 im Normalbetrieb mindestens 2 Minuten stabile Entladung messen (Ausgangsleistung). Dann nur 40236=2289, kein N, keine Fenster. Bewertet wird 60 s danach: Entladung unter 50 W heißt wirksam, sonst wirkungslos. In beiden Fällen V2. Fällt in den 60 s eine Lastspitze oder PV-Änderung über 300 W an, gilt der Versuch als nicht auswertbar |
 | V4 nur Entladen | Laden gesperrt, Entladen bis 500 W | wie V1, aber 40799=500, 40236=2290 |
-| V4b nur Entladen, Betriebsart allein | sperrt 2290 das Laden ohne Fenster? Bei PV-Überschuss testen | wie V4, aber 40795=Wert aus 40189. Lädt der SBS weiter, ist das das Ergebnis (2290 wirkt nicht allein): abbrechen, V2 |
+| V4b nur Entladen, Betriebsart allein | sperrt 2290 das Laden ohne Fensteränderung? | Wie V3b, aber bei stabiler PV-Ladung als Ausgangsleistung und mit 40236=2290; Ladung unter 50 W heißt wirksam |
 | V5 schnell Laden | Ladung mit fester Leistung | V2 bis 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40149=−500; nach 120 s erneuern: 40151=802, nach 2 s 40149=−500; Ende: 40149=0, 40151=803 |
 | V6 schnell Entladen | Entladung mit fester Leistung | V2 bis 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40149=500; nach 120 s erneuern: 40151=802, nach 2 s 40149=500; Ende: 40149=0, 40151=803 |
 | V7 Ausfall | Verhalten nach Kommunikationsverlust | siehe unten |

@@ -16,7 +16,7 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   wiederhergestellt, dann 802, 40149=0, 803) dagegen sofort. Der
   [Schreibtest-Plan](docs/sbs-schreibtest.md) nutzt am SBS deshalb für jede
   BMS-Betriebsart 40236 und V2a als Rückweg; 803 allein beendet eine
-  BMS-Sperre nicht. V3b/V4b prüfen die Betriebsart ohne die Leistungsfenster. Nur Dokumentation; das SBS-Profil
+  BMS-Sperre nicht. V3b/V4b schalten aus dem Normalbetrieb nur die Betriebsart um, ohne die Leistungsfenster zu ändern. Nur Dokumentation; das SBS-Profil
   liest weiterhin nur.
 
 ### Behoben

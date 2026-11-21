@@ -12,9 +12,11 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 - **Sunny Boy Storage: Schreibtest-Plan nach Stufe A angepasst (#170).** Am
   SBS 5.0 brachte 41259=1438 den Akku nach einer Pause nicht in den
-  Normalbetrieb zurück, 40236=2424 dagegen sofort. Der
+  Normalbetrieb zurück. Die vollständige V2a-Folge mit 40236=2424 (Fenster
+  wiederhergestellt, dann 802, 40149=0, 803) dagegen sofort. Der
   [Schreibtest-Plan](docs/sbs-schreibtest.md) nutzt am SBS deshalb für jede
-  BMS-Betriebsart 40236 und 2424 als Rückweg. Nur Dokumentation; das SBS-Profil
+  BMS-Betriebsart 40236 und V2a als Rückweg; 803 allein beendet eine
+  BMS-Sperre nicht. V3b/V4b prüfen die Betriebsart ohne die Leistungsfenster. Nur Dokumentation; das SBS-Profil
   liest weiterhin nur.
 
 ### Behoben

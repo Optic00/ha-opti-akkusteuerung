@@ -155,7 +155,9 @@ möglich.
    gewirkt gilt er, wenn 31393/31395 innerhalb von 2 Minuten wieder dem
    Hausbedarf folgen und 30955 nicht dauerhaft auf 2291 (Standby) bleibt.
    V1b ist als Probelauf ausgenommen; V3, V4, V3b und V4b finden erst nach
-   erprobtem Weg statt.
+   erprobtem Weg statt. Weil V1b auch die Fenster auf 0 setzt, belegt der
+   Probelauf den Weg nur für die Pause. Bevor V3b oder V4b laufen, den Weg
+   deshalb einmal nach einem V3 oder V4 wiederholen.
 6. **Ladestand zwischen 30 und 80 %**, damit Laden und Entladen nicht an den
    BMS-Grenzen enden.
 

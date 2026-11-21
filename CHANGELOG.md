@@ -8,6 +8,15 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Geändert
+
+- **Sunny Boy Storage: Schreibtest-Plan nach Stufe A angepasst (#170).** Am
+  SBS 5.0 brachte 41259=1438 den Akku nach einer Pause nicht in den
+  Normalbetrieb zurück, 40236=2424 dagegen sofort. Der
+  [Schreibtest-Plan](docs/sbs-schreibtest.md) nutzt am SBS deshalb für jede
+  BMS-Betriebsart 40236 und 2424 als Rückweg. Nur Dokumentation; das SBS-Profil
+  liest weiterhin nur.
+
 ### Behoben
 
 - **Huawei-Verbindung im Optionsmenü zeigt verständliche Fehler (#232).**

@@ -16,7 +16,8 @@ Jede Aussage ist markiert:
   [PARAMETER-HTML_SBS3.7-6.0-10_GG10_V14](https://files.sma.de/downloads/PARAMETER-HTML_SBS3.7-6.0-10_GG10_V14.zip)
   (ab Firmware 4.04.03.R). Beide verlinkt von der
   [SMA-Produktseite](https://www.sma.de/produkte/batterie-wechselrichter/sunny-boy-storage-37-50-60).
-- **Gerät**: am SBS 5.0 aus #170 gemessen (Diagnose vom 10.11.2026).
+- **Gerät**: am SBS 5.0 aus #170 gemessen (Diagnose vom 10.11.2026,
+  Stufe A ab 21.11.2026).
 - **STP SE**: Verhalten, das Opti Akku am STP SE nutzt; am SBS ungeprüft.
 - **Annahme**: nicht belegt, im Test zu klären.
 
@@ -58,6 +59,37 @@ Bereit für Schreibzugriffe sind wie beim STP SE nur 235 und 2119. 2531 bleibt
 nicht bereit. Für den aktiven Betrieb muss 2531 bei leerem Akku nachts wie die
 Nacht-Bereitschaft aus #103 behandelt werden, sonst meldet Opti Akku jede Nacht
 einen Verbindungsfehler.
+
+## Ergebnisse Stufe A
+
+Kalrael, SBS 5.0 mit BYD HVS 7.7, Opti Akku 2026.11-beta9 im Shadow-Modus,
+21.11.2026 ([#170](https://github.com/Optic00/ha-opti-akkusteuerung/issues/170#issuecomment-7064968900)).
+Vorbedingungen erfüllt: 31061=1129, 33003=235, Ladestand 30 bis 80 %,
+41193=2507, 41195=600 s, 41215=0 W, 44035/44037=±4600 W.
+
+| Schritt | Schreibfolge | Ergebnis (**Gerät**) |
+|---|---|---|
+| N | 40151=802, 40149=0, 40151=803 | bestanden: keine Exception, Entladung lief normal weiter |
+| V1a Pause beim Entladen | N, Fenster 0, 40801=0, 41259=303 | bestanden: Entladung stoppte, Haus aus dem Netz |
+| V2 Automatisch | wie unten, mit 41259=1438 | **nicht bestanden**: keine Exception, aber der SBS blieb gesperrt |
+| V2a Automatisch | wie V2, aber 40236=2424 statt 41259=1438 | bestanden: Entladung sofort wieder aufgenommen, blieb stabil |
+
+Folgerungen:
+
+- Der belegte Rückweg am SBS ist V2a. V2 mit 41259=1438 entfällt.
+- V2a unterscheidet sich von V2 in Adresse **und** Wert. Ob 40236 oder 2424
+  entscheidend war, ist offen. Das
+  [evcc-Template](https://github.com/evcc-io/evcc/blob/master/templates/definition/meter/sma-sbs-modbus.yaml)
+  schreibt am SBS alle Betriebsarten nach 40236 und nutzt 2424 als
+  Normalbetrieb. Ab V1b folgt der Plan deshalb diesem Muster: Die
+  BMS-Betriebsart geht immer nach 40236, 41259 wird am SBS nicht mehr
+  geschrieben.
+- Unter 2424 wirken die Fenster 40793 bis 40799 weiter (evcc sperrt damit das
+  Entladen, ohne die Betriebsart zu ändern). Eine Sperre in V3 oder V4 beweist
+  deshalb nur zusammen mit dem gelesenen Betriebszustand 30955, dass die
+  Betriebsart gewirkt hat.
+- Offen: V1b (Pause beim Laden), V3 bis V6. V7 weiterhin nicht, solange
+  44035/44037 mehr als 500 W zulassen.
 
 ## Steuerregister laut SMA
 
@@ -105,7 +137,8 @@ möglich.
    Protokoll festhalten (44035/44037 sind FIX2, Rohwert ÷ 100 = W). Nicht ändern
    ohne Absprache.
 4. **Betriebsstatus 235** in 33003 zu Testbeginn.
-5. **Unabhängiger Rückweg.** SMA-App oder Webinterface des SBS offen. Vor dem
+5. **Unabhängiger Rückweg.** Belegt sind am SBS aus #170 die bisherige Lösung
+   (40151=803) und V2a. SMA-App oder Webinterface des SBS offen. Vor dem
    ersten Schreibtest legt Kalrael fest und probiert einmal aus, wie er den SBS
    ohne Opti Akku in den Normalbetrieb bringt, etwa mit seiner bisherigen Lösung.
    Welcher Weg am SBS wirkt, ist **Annahme**.
@@ -175,12 +208,12 @@ stehen und wirkt beim nächsten 802 kurz weiter (#151, V5a).
 | Schritt | Ziel | Schreibfolge (Stufe A) |
 |---|---|---|
 | V0 nur lesen | Vorbedingungen 2 bis 4 erfassen | keine; Diagnose im Betrieb tagsüber herunterladen |
-| V1 Pause | Laden und Entladen gesperrt, einmal beim Laden, einmal beim Entladen | N, 40793=0, 40795=0, 40797=0, 40799=0, 40801=0, 41259=303 |
-| V2 Automatisch | zurück in den Normalbetrieb | 40151=803, 40793=0, 40795=Wert aus 40189, 40797=0, 40799=Wert aus 40191, 40801=0, 41259=1438, dann 40151=802, sofort 40149=0, nach 2 s 40151=803 |
-| V3 nur Laden | Entladen gesperrt, Laden bis 500 W | wie V1, aber 40795=500, 41259=2289 |
-| V4 nur Entladen | Laden gesperrt, Entladen bis 500 W | wie V1, aber 40799=500, 41259=2290 |
-| V5 schnell Laden | Ladung mit fester Leistung | V2 bis 41259=1438, dann 40151=802, sofort 40149=0, nach 2 s 40149=−500; nach 120 s erneuern: 40151=802, nach 2 s 40149=−500; Ende: 40149=0, 40151=803 |
-| V6 schnell Entladen | Entladung mit fester Leistung | V2 bis 41259=1438, dann 40151=802, sofort 40149=0, nach 2 s 40149=500; nach 120 s erneuern: 40151=802, nach 2 s 40149=500; Ende: 40149=0, 40151=803 |
+| V1 Pause | Laden und Entladen gesperrt, einmal beim Laden (V1b), einmal beim Entladen (V1a, bestanden mit 41259=303) | N, 40793=0, 40795=0, 40797=0, 40799=0, 40801=0, 40236=303 |
+| V2 Automatisch | zurück in den Normalbetrieb (als V2a bestanden) | 40151=803, 40793=0, 40795=Wert aus 40189, 40797=0, 40799=Wert aus 40191, 40801=0, 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40151=803 |
+| V3 nur Laden | Entladen gesperrt, Laden bis 500 W | wie V1, aber 40795=500, 40236=2289 |
+| V4 nur Entladen | Laden gesperrt, Entladen bis 500 W | wie V1, aber 40799=500, 40236=2290 |
+| V5 schnell Laden | Ladung mit fester Leistung | V2 bis 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40149=−500; nach 120 s erneuern: 40151=802, nach 2 s 40149=−500; Ende: 40149=0, 40151=803 |
+| V6 schnell Entladen | Entladung mit fester Leistung | V2 bis 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40149=500; nach 120 s erneuern: 40151=802, nach 2 s 40149=500; Ende: 40149=0, 40151=803 |
 | V7 Ausfall | Verhalten nach Kommunikationsverlust | siehe unten |
 
 Die Folgen sind nach dem Muster des STP-SE-Pfads in `sma.py` gebildet
@@ -194,9 +227,9 @@ genauso umsetzt, ist **Annahme**. Insbesondere:
 - Der Treiber schreibt 803 vor jede CmpBMS-Folge, weil CmpBMS-Werte unter 802
   verworfen werden. Das steht als Grundlage im STP-SE-Code, ein unabhängiger
   Hardwarebeleg liegt hier nicht vor.
-- Für den Normalbetrieb schreibt Opti Akku 41259=1438, das evcc-Template dagegen
-  40236=2424 (Voreinstellung). Was davon den SBS wirklich in seinen Normalbetrieb
-  bringt, klärt V2. Bis dahin ist V2 kein belegter Rückweg.
+- Für den Normalbetrieb schreibt Opti Akku am STP SE 41259=1438. Am SBS hat das
+  nicht gewirkt, 40236=2424 (Voreinstellung, wie im evcc-Template) dagegen schon
+  (**Gerät**, V2a). Der SBS-Pfad weicht hier also vom STP-SE-Muster ab.
 
 Je Schritt festhalten: Uhrzeit jedes Schreibvorgangs, Antwort des Geräts
 (Exception ja/nein), Zeit bis zur Wirkung, eingeschwungene Leistung,
@@ -263,9 +296,15 @@ wiederzuverwenden statt einen zweiten zu schreiben.
    (immer Shadow, keine Übernahme in die aktive Steuerung) gilt weiter für das
    lesende Profil; das aktive Profil durchläuft wie der STP SE erst den
    Shadow-Abschluss.
-8. **Modusauswahl.** Erst die Modi anbieten, die in Stufe A bestanden haben.
+8. **BMS-Betriebsart.** Am SBS immer 40236 statt 41259, Automatisch mit 2424
+   statt 1438 (Stufe A, V2a). `_bms` hat dafür schon `opmod_address`; die
+   Zuordnung Modus zu Adresse und Wert gehört ins Profil, nicht in den
+   gemeinsamen Ablauf, und die Aufräum-Pause in `_cleanup` muss dieselbe
+   Adresse nutzen.
+9. **Modusauswahl.** Erst die Modi anbieten, die in Stufe A bestanden haben.
    `supported_modes` je Profil gibt es schon.
-9. **Tests.** Fake-Gerät mit SBS-Identität für jeden freigegebenen Modus,
+10. **Tests.** Fake-Gerät mit SBS-Identität für jeden freigegebenen Modus,
+   Betriebsart über 40236 (nie 41259),
    Rückfall bei 2531 vor und während einer Transaktion, 31061=1130, kurzer
    Timeout in 41195, Grenzen aus 40189/40191.
 

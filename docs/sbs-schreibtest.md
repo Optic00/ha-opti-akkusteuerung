@@ -208,7 +208,10 @@ Abbruch sofort und Rückweg, wenn
   (V4b: nur, wenn der SBS dabei entlädt, also 31395 > 0; Einspeisung von
   PV-Überschuss ist dort das erwartete Ergebnis),
 - in einem Ladeversuch der Netzbezug um mehr als 700 W steigt (V5 darf bis 500 W
-  aus dem Netz laden, das ist der erwartete Effekt),
+  aus dem Netz laden, das ist der erwartete Effekt; in V3b ist der Anstieg durch
+  die gestoppte Entladung das erwartete Ergebnis, Abbruch dort nur, wenn der SBS
+  lädt, also 31393 > 0, und der Anstieg die Ausgangsleistung um mehr als 700 W
+  übersteigt),
 - ein Schreibzugriff mit Exception oder Timeout endet. Ein Timeout kann trotzdem
   angekommen sein; der Zustand gilt dann als unbekannt, bis der Rückweg gewirkt hat,
 - der SBS eine Ereignismeldung zeigt, 33003 nicht mehr 235 ist oder der Ladestand

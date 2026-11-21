@@ -147,7 +147,10 @@ möglich.
    V4, V3b, V4b), legt Kalrael einen Weg **ohne Modbus** fest, der eine
    BMS-Sperre aufhebt, und probiert ihn einmal nach einer V1-Pause aus, etwa
    über Webinterface oder SMA-App des SBS. Sein 803-Skript zählt dafür nicht.
-   Für diesen Probelauf bleibt V2a als belegter Modbus-Rückweg in Reserve.
+   Der Probelauf ist zugleich V1b und steht direkt nach V2a; als Reserve bleibt
+   V2a, das alle Fenster und 40236=2424 neu schreibt. Scheitert auch V2a oder
+   fällt Modbus aus, wird der SBS nach SMA-Anleitung über Webinterface, App
+   oder notfalls einen Neustart zurückgeholt.
    Welcher Weg am SBS wirkt, ist **Annahme**, bis das gezeigt ist. Ohne
    erprobten Weg finden V1b bis V4b nicht statt.
 6. **Ladestand zwischen 30 und 80 %**, damit Laden und Entladen nicht an den
@@ -187,9 +190,10 @@ Beobachten, in dieser Reihenfolge priorisiert:
   [SMA-Betriebsanleitung, Ereignismeldungen](https://manuals.sma.de/SBSxx-10/en-US/391460235.html)
 
 Bezugspunkt der Richtungs- und Toleranzregeln ist je Schritt die Vorgabe, die
-gerade wirken soll. In V2 und im Einstieg von V5/V6 (Normalbetrieb) gilt keine
-Richtungsregel, nur die übrigen Kriterien. In V5/V6 gelten Richtung und Toleranz
-ab 10 s nach dem Schreiben von 40149; eine reguläre Entladung davor ist kein
+gerade wirken soll. In V2 und im Einstieg von V5/V6 (Normalbetrieb) gelten
+weder Richtungs- noch Toleranzregel, nur die übrigen Kriterien. In V5/V6 gelten
+Richtung und Toleranz ab 10 s nach dem ersten Schreiben von 40149=±500 und
+bleiben über jede Erneuerung bestehen; eine reguläre Entladung davor ist kein
 Abbruch.
 
 Abbruch sofort und Rückweg, wenn
@@ -197,7 +201,9 @@ Abbruch sofort und Rückweg, wenn
 - die Leistung in die falsche Richtung geht oder mehr als 200 W über der Vorgabe liegt
   (V3b/V4b: Vorgabe ist die vor dem Umschalten gemessene Leistung, eine
   Fortsetzung in der geprüften Richtung ist dort Ergebnis, kein Abbruch),
-- in einem Entladeversuch am Netzanschlusspunkt mehr als 100 W eingespeist werden,
+- in einem Entladeversuch am Netzanschlusspunkt mehr als 100 W eingespeist werden
+  (V4b: nur, wenn der SBS dabei entlädt, also 31395 > 0; Einspeisung von
+  PV-Überschuss ist dort das erwartete Ergebnis),
 - in einem Ladeversuch der Netzbezug um mehr als 700 W steigt (V5 darf bis 500 W
   aus dem Netz laden, das ist der erwartete Effekt),
 - ein Schreibzugriff mit Exception oder Timeout endet. Ein Timeout kann trotzdem
@@ -232,9 +238,9 @@ stehen und wirkt beim nächsten 802 kurz weiter (#151, V5a).
 | V1 Pause | Laden und Entladen gesperrt, einmal beim Laden (V1b), einmal beim Entladen (V1a, bestanden mit 41259=303; die Pause über 40236=303 ist noch ungetestet) | N, 40793=0, 40795=0, 40797=0, 40799=0, 40801=0, 40236=303 |
 | V2 Automatisch | zurück in den Normalbetrieb (als V2a bestanden) | 40151=803, 40793=0, 40795=Wert aus 40189, 40797=0, 40799=Wert aus 40191, 40801=0, 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40151=803 |
 | V3 nur Laden | Entladen gesperrt, Laden bis 500 W | wie V1, aber 40795=500, 40236=2289 |
-| V3b nur Laden, Betriebsart allein | sperrt 2289 das Entladen ohne Fensteränderung? | Nach V2 im Normalbetrieb mindestens 2 Minuten stabile Entladung von mindestens 500 W messen (Ausgangsleistung). Dann nur 40236=2289, kein N, keine Fenster. Bewertet wird 60 s danach: wirksam, wenn die Entladung unter 50 W liegt **und** der Netzbezug um mindestens 80 % der Ausgangsleistung gestiegen ist (Bedarf besteht fort); sonst wirkungslos. In beiden Fällen V2. Fällt in den 60 s eine Lastspitze oder PV-Änderung über 300 W an, gilt der Versuch als nicht auswertbar |
+| V3b nur Laden, Betriebsart allein | sperrt 2289 das Entladen ohne Fensteränderung? | Nach V2 im Normalbetrieb mindestens 2 Minuten stabile Entladung von mindestens 500 W messen (Ausgangsleistung). Dann nur 40236=2289, kein N, keine Fenster. Bewertet wird 60 s danach: wirksam, wenn die Entladung unter 50 W liegt **und** der Netzbezug um mindestens 80 % der Ausgangsleistung gestiegen ist (Bedarf besteht fort). Wirkungslos, wenn die Entladung über 50 W bleibt. Unter 50 W ohne diesen Anstieg: nicht auswertbar. In beiden Fällen V2. Fällt in den 60 s eine Lastspitze oder PV-Änderung über 300 W an, gilt der Versuch als nicht auswertbar |
 | V4 nur Entladen | Laden gesperrt, Entladen bis 500 W | wie V1, aber 40799=500, 40236=2290 |
-| V4b nur Entladen, Betriebsart allein | sperrt 2290 das Laden ohne Fensteränderung? | Wie V3b, aber bei stabiler PV-Ladung von mindestens 500 W und mit 40236=2290; wirksam, wenn die Ladung unter 50 W liegt **und** die Einspeisung um mindestens 80 % der Ausgangsleistung gestiegen ist |
+| V4b nur Entladen, Betriebsart allein | sperrt 2290 das Laden ohne Fensteränderung? | Wie V3b, aber bei stabiler PV-Ladung von mindestens 500 W und mit 40236=2290; wirksam, wenn die Ladung unter 50 W liegt **und** die Einspeisung um mindestens 80 % der Ausgangsleistung gestiegen ist; wirkungslos und nicht auswertbar wie bei V3b |
 | V5 schnell Laden | Ladung mit fester Leistung | V2 bis 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40149=−500; nach 120 s erneuern: 40151=802, nach 2 s 40149=−500; Ende: 40149=0, 40151=803 |
 | V6 schnell Entladen | Entladung mit fester Leistung | V2 bis 40236=2424, dann 40151=802, sofort 40149=0, nach 2 s 40149=500; nach 120 s erneuern: 40151=802, nach 2 s 40149=500; Ende: 40149=0, 40151=803 |
 | V7 Ausfall | Verhalten nach Kommunikationsverlust | siehe unten |
@@ -323,7 +329,10 @@ wiederzuverwenden statt einen zweiten zu schreiben.
    statt 1438 (Stufe A, V2a). `_bms` hat dafür schon `opmod_address`; die
    Zuordnung Modus zu Adresse und Wert gehört ins Profil, nicht in den
    gemeinsamen Ablauf, und die Aufräum-Pause in `_cleanup` muss dieselbe
-   Adresse nutzen.
+   Adresse nutzen. Weil `_cleanup` nach jedem gescheiterten Schreibvorgang
+   pausiert, unabhängig vom angeforderten Modus, setzt Stufe B eine bestandene
+   Pause über 40236=303 beim Laden und beim Entladen voraus (V1b und eine Wiederholung von V1a mit 40236), auch wenn Pause selbst nicht als
+   Modus angeboten wird.
 9. **Modusauswahl.** Erst die Modi anbieten, die in Stufe A bestanden haben.
    `supported_modes` je Profil gibt es schon.
 10. **Tests.** Fake-Gerät mit SBS-Identität für jeden freigegebenen Modus,

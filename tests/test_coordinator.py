@@ -6886,6 +6886,12 @@ async def test_ambitious_precharge_hold_and_standby_window(coordinator, hass):
     data, _planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=60), hold)
     assert data["mode"] == "Akku nur Laden"
     assert data["decision_id"] == "ambitious_precharge"
+    # Holding never pulls grid power through a minimum charge power.
+    command, params = coordinator.device.async_apply.await_args.args[:2]
+    assert command == "Akku nur Laden"
+    assert params["min_charge_w"] == 0 and params["min_discharge_w"] == 0
+    # The engine continues from its own mode, not from the hold.
+    assert data["engine_base_mode"] == "Akku Dynamisch"
     assert coordinator._ambitious_charging is False
     # A planned window keeps an STP SE awake via the standby reserve.
     planned_only = {**AMBITIOUS_PLAN, "status": "planned", "active": False, "action": None}
@@ -6933,18 +6939,48 @@ async def test_ambitious_precharge_failure_keeps_the_strategy(coordinator, hass)
     assert coordinator._ambitious_charging is False
 
 
-async def test_ambitious_precharge_reads_the_pv_forecast(coordinator, hass):
-    """The real planner runs on the live inputs and plans nothing without them."""
+async def test_ambitious_precharge_reads_the_pv_forecast_and_power_limits(coordinator, hass):
+    """The plan gets the PV forecast, the discharge limit and the strategy charge power."""
+    from custom_components.opti_akku import ambitious_precharge as ap
+
     set_ambitious_precharge(coordinator, hass)
     hass.config_entries.async_update_entry(coordinator.entry, options={
-        **coordinator.entry.options,
+        **coordinator.entry.options, "charge_curve": [{"soc": 50, "power_w": 800}],
         "sources": {**coordinator.entry.options.get("sources", {}), "forecast_today": "sensor.pv_today"}})
-    hass.states.async_set("sensor.pv_today", "5", {"detailedForecast": []})
+    hass.states.async_set("sensor.pv_today", "5", {})
+    coordinator.settings["input_number.akkusteuerung_max_entladestaerke"] = 2500
+    hours = {datetime(2026, 11, 15, 10, tzinfo=UTC): (1.0, 2.0)}
     coordinator.device.async_apply.reset_mock()
     coordinator._last_apply = None
-    with patch.object(coordinator.engine, "evaluate", return_value=standby_evaluation(soc=30)):
+    with (
+        patch.object(coordinator.engine, "evaluate", return_value=standby_evaluation(soc=30)),
+        patch("custom_components.opti_akku.coordinator.pv_forecast_hourly", return_value=("ready", hours)),
+        patch("custom_components.opti_akku.ambitious_precharge.plan", wraps=ap.plan) as planned,
+    ):
         data = await coordinator._async_update_data()
+    kwargs = planned.call_args.kwargs
+    assert kwargs["pv_hours"] == hours
+    assert kwargs["max_discharge_w"] == 2500
+    power = kwargs["charge_power"]
+    assert power(80) <= 800 < power(20)
     assert data["mode"] == "Akku Dynamisch"
     assert data["ambitious_precharge"]["controls_battery"] is False
-    assert data["ambitious_precharge"]["status"] in ("data_missing", "daylight", "price_horizon_short",
-                                                     "pv_forecast_missing")
+
+
+async def test_ambitious_precharge_without_forecast_or_with_invalid_curve(coordinator, hass):
+    from custom_components.opti_akku import ambitious_precharge as ap
+
+    set_ambitious_precharge(coordinator, hass)
+    hass.config_entries.async_update_entry(coordinator.entry, options={
+        **coordinator.entry.options, "charge_curve": "broken",
+        "sources": {**coordinator.entry.options.get("sources", {}), "forecast_today": "sensor.pv_today"}})
+    with (
+        patch.object(coordinator.engine, "evaluate", return_value=standby_evaluation(soc=30)),
+        patch("custom_components.opti_akku.coordinator.pv_forecast_hourly", return_value=("stale", {})),
+        patch("custom_components.opti_akku.ambitious_precharge.plan", wraps=ap.plan) as planned,
+    ):
+        await coordinator._async_update_data()
+    kwargs = planned.call_args.kwargs
+    assert kwargs["pv_hours"] == {}
+    # An unreadable charge curve blocks charging, as in the command path.
+    assert kwargs["charge_power"](20) == 0.0

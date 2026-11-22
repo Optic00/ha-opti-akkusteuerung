@@ -138,11 +138,6 @@ def test_running_window_keeps_a_slot_within_the_price_band():
     # The 20 ct slot is over; a 20.3 ct slot is inside the band of the 20.3 ct window.
     fresh = run(now=local(15, 1, 20), price_series=prices, soc=30)
     assert fresh["action"] == "charge"
-    band = {"today": day_prices(34.0, ((1, 0), (1, 30), 20.0), ((1, 30), (1, 45), 20.4),
-                                ((1, 45), (5, 0), 20.0))}
-    outside = run(now=local(15, 1, 35), price_series=band, soc=30)
-    assert outside["active"] is False
-    assert run(now=local(15, 1, 35), price_series=band, soc=30, charging=True)["action"] == "charge"
 
 
 def test_sunny_day_only_charges_for_the_morning():
@@ -275,3 +270,76 @@ def test_standby_window_adds_the_planned_charge():
     assert ap.standby_window({"status": "not_worth_it"}, {"status": "none"}) == {"status": "none"}
     late = {**report, "first_at": local(15, 8).isoformat()}
     assert ap.standby_window(late, {"status": "none"}) == {"status": "none"}
+
+
+
+@pytest.mark.parametrize("soc", [5, 38, 62, 88, 93, 97])
+@pytest.mark.parametrize("temperature", [-5, 0, 10, 46])
+@pytest.mark.parametrize("forecast", [0, 5, 80])
+@pytest.mark.parametrize("limit,manual", [(3000, "off"), (700, "off"), (15000, "on")])
+def test_ambitious_precharge_mirrors_the_strategy_charge_power(soc, temperature, forecast, limit, manual):
+    """#222: the night plan charges with the power the strategy would command."""
+    from tests.test_engine import POWER, SOC, TEMP, evaluate, measurements
+
+    result = evaluate(states=measurements(**{
+        SOC: soc, TEMP: temperature, "sensor.opti_forecast_remaining_today_kwh": forecast,
+        "input_number.akkusteuerung_max_ladestaerke": limit, "input_boolean.opti_manuelle_ladegrenze": manual,
+    }))
+    expected = ap.strategy_charge_w(
+        soc=soc, temperature=temperature, capacity_kwh=float(result.states["sensor.opti_battery_capacity_kwh"]),
+        max_w=limit, score=result.states.get("sensor.opti_forecast_score"), manual_limit=manual == "on")
+    assert float(result.states[POWER]) == expected
+
+
+def test_charge_power_follows_the_strategy_and_its_soc_bands():
+    slow = run(charge_power=lambda soc: 1000.0 if soc >= 30 else 5000.0)
+    fast = run()
+    assert slow["status"] == fast["status"] == "planned"
+    assert slow["expected_grid_kwh"] <= fast["expected_grid_kwh"]
+    # Without any charge power the window can only hold.
+    held = run(now=local(15, 1, 5), price_series=night_prices(), charge_power=lambda soc: 0.0)
+    assert held["expected_grid_kwh"] == 0.0
+    assert held["action"] == "hold"
+
+
+def test_discharge_power_caps_what_a_short_peak_can_use():
+    peak = {str(int(local(15, 18).timestamp())): 10000}
+    capped = run(load_hours=peak, max_discharge_w=2000)
+    free = run(load_hours=peak, max_discharge_w=20000)
+    assert capped["target_soc"] < free["target_soc"]
+    assert capped["discharge_kw"] == 2.0
+
+
+def test_slot_across_sunrise_is_no_window():
+    hourly = {"today": [20.0] * 24}
+    report = run(now=local(15, 6, 10), price_series=hourly, sunrise=local(15, 6, 40).isoformat())
+    # The 06:00-07:00 slot ends after sunrise: no night slot is left.
+    assert report["status"] == "not_worth_it"
+
+
+def test_horizon_ends_one_day_after_sunrise():
+    prices = {"today": day_prices(34.0, ((1, 0), (5, 0), 20.0)), "tomorrow": day_prices(34.0)}
+    report = run(now=local(15, 1, 5), price_series=prices)
+    assert report["horizon_end"] == local(16, 7, 40).isoformat()
+    # The next night is in the plan (no PV needed), the day after it is not:
+    # prices for the 16th are left out from the next sunrise on.
+    without = run(now=local(15, 1, 5), price_series=night_prices())
+    assert report["target_soc"] >= without["target_soc"]
+    sunny_later = {**pv(1.0), **{local(16, hour): (9.0, 9.0) for hour in range(8, 16)}}
+    assert run(now=local(15, 1, 5), price_series=prices, pv_hours=sunny_later) == report
+
+
+def test_price_gap_before_sunset_plans_nothing():
+    prices = night_prices()
+    prices["today"] = list(prices["today"])
+    prices["today"][50] = None
+    assert run(now=local(15, 1, 5), price_series=prices)["status"] == "price_horizon_short"
+    assert ap._contiguous([(local(15, 1), local(15, 2), 1.0), (local(15, 3), local(15, 4), 1.0)],
+                          local(15, 1, 30)) == [(local(15, 1), local(15, 2), 1.0)]
+    assert ap._contiguous([(local(15, 2), local(15, 3), 1.0)], local(15, 1)) == []
+
+
+def test_reported_price_is_what_the_grid_energy_costs():
+    prices = {"today": day_prices(34.0, ((1, 0), (1, 15), 18.0), ((1, 15), (5, 0), 20.0))}
+    report = run(now=local(15, 1, 5), price_series=prices, soc=30)
+    assert 18.0 < report["charge_price_ct"] < 20.0

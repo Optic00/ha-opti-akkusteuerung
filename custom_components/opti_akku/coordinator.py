@@ -1180,6 +1180,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
              and previous_mode == "Akku nur Laden")
             or (previous_data.get("decision_id") == PEAK_RANK_HOLD_DECISION
                 and previous_mode in ("Akku nur Laden", "Akku Pause"))
+            # Neither may the engine's hysteresis continue the grid charge or hold
+            # of the ambitious precharge after the plan ends.
+            or previous_data.get("decision_id") == ambitious_precharge.DECISION
         ):
             # The engine continues from its own L1/L2 mode, not from the hold:
             # the L2 band reads the previous mode.
@@ -1430,7 +1433,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if (curve := self._charge_curve_limit(result.states)) is not None:
             charge_power_limits.append(curve[1])
         if (arbitrage_hold.get("hold_controls_battery")
-                or result.decision_id in (PEAK_RANK_HOLD_DECISION, STANDBY_RESERVE_DECISION)):
+                or result.decision_id in (PEAK_RANK_HOLD_DECISION, STANDBY_RESERVE_DECISION)
+                or (result.decision_id == ambitious_precharge.DECISION
+                    and mode == ambitious_precharge.HOLD_MODE)):
             params["min_charge_w"] = 0
             params["min_discharge_w"] = 0
         if pv_peak_release_applies(result, mode, self.manual_mode, self.strategy_enabled):
@@ -2087,6 +2092,20 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     break
                 pv_hours = {}
             sun_attributes = result.attributes.get("sun.sun") or {}
+            capacity = finite(states.get("sensor.opti_battery_capacity_kwh")) or 0.0
+            curve = self._parse_charge_curve()
+
+            def charge_power(soc: float) -> float:
+                # The strategy's grid charge power at this SoC, capped by the charge curve.
+                watts = ambitious_precharge.strategy_charge_w(
+                    soc=soc, temperature=result.states.get("sensor.opti_battery_temp"),
+                    capacity_kwh=capacity, max_w=settings.get("input_number.akkusteuerung_max_ladestaerke"),
+                    score=result.states.get("sensor.opti_forecast_score"),
+                    manual_limit=settings.get("input_boolean.opti_manuelle_ladegrenze") is True)
+                if curve is None:
+                    return 0.0
+                return min([watts] + [float(power) for start, power in curve if soc >= start])
+
             report = ambitious_precharge.plan(
                 now=now, timezone=dt_util.DEFAULT_TIME_ZONE,
                 price_series=result.attributes.get("sensor.opti_price_series"),
@@ -2096,6 +2115,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 soc=states.get("sensor.opti_soc"), capacity_kwh=states.get("sensor.opti_battery_capacity_kwh"),
                 minsoc=settings.get("input_number.minsoc"), maxsoc=settings.get("input_number.maxsoc"),
                 max_charge_w=settings.get("input_number.akkusteuerung_max_ladestaerke"),
+                max_discharge_w=settings.get("input_number.akkusteuerung_max_entladestaerke"),
+                charge_power=charge_power,
                 feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
                 sunrise=sun_attributes.get("next_rising"), sunset=sun_attributes.get("next_setting"),
                 model=self._battery_model, min_gain_ct=cfg["min_gain_ct"],

@@ -316,17 +316,21 @@ die Preisspitzen bis wenige Stunden nach Sonnenaufgang und nur so weit, wie die
 PV vor der Spitze nicht reicht.
 
 Mit der Option rechnet Opti zwischen Sonnenuntergang und Sonnenaufgang in jedem
-Zyklus den ganzen kommenden Tag durch, bis zum Ende der bekannten Preise:
+Zyklus den kommenden Tag durch, bis zum nächsten Sonnenaufgang oder zum Ende der
+bekannten Preise:
 
 - stündliche PV-Prognose (P10, wahlweise Median) minus erwartete Hauslast aus dem
   Lastprofil (sonst „Opti Peak-Verbrauch“),
-- Ladeleistung, MinSOC und maxSoC, Wirkungsgrade, Verschleiß und Marge aus dem
-  Akkumodell, Einspeisevergütung,
+- die Ladeleistung, die die Strategie je Ladestand vorgibt (Prognose-Stufen,
+  Temperatur, Ladekurve, maximale Ladestärke), die maximale Entladestärke,
+  MinSOC und maxSoC, Wirkungsgrade, Verschleiß und Marge aus dem Akkumodell,
+  Einspeisevergütung,
 - ein **Mindestgewinn** je kWh aus dem Netz (Standard 2 ct).
 
 Verglichen werden alle Ladeziele in 1-%-Schritten mit allen Fenstern aus den
-günstigsten Nachtslots. Im gewählten Fenster lädt der Akku bis zum Ziel
-(`Akku Netzladen`) und hält die Ladung danach (`Akku nur Laden`), statt die
+günstigsten Nachtslots, die vor Sonnenaufgang enden. Im gewählten Fenster lädt der Akku bis zum Ziel
+(`Akku Netzladen`) und hält die Ladung danach (`Akku nur Laden` ohne
+Mindestladeleistung, also ohne Netzbezug), statt die
 günstige Nachtlast zu decken. Geladen wird also nur, was sich nach Verlusten,
 Verschleiß und Mindestgewinn gegen die Tagespreise lohnt; was der Akku am Tag
 ohnehin aus PV nachladen würde, wird nicht aus dem Netz geholt. Ein Start erst
@@ -337,7 +341,7 @@ Voraussetzungen und Vorrang: „Reserveplanung mit Netzladen erlauben“ muss an
 ersetzt nur haltende oder entladende Entscheidungen ohne Schutzgrund
 (Standard, über/unter Ziel, Peak L3/L4, Reserven, MinSOC). Manuelle Modi,
 Schutzfunktionen, Balancing, E-Auto-Sperren und alle Ladeentscheidungen haben
-Vorrang. Fehlen Preise bis Sonnenuntergang, die PV-Prognose bis Sonnenuntergang
+Vorrang. Fehlen Preise lückenlos bis Sonnenuntergang, die PV-Prognose bis Sonnenuntergang
 oder Akkudaten, plant sie nichts und die Strategie entscheidet wie ohne Option.
 Ein geplantes Fenster hält über die Standby-Reserve auch einen STP SE wach.
 

@@ -33,7 +33,7 @@ EV locks, manual modes and every charging decision stay untouched.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any
@@ -60,6 +60,13 @@ OVERRIDABLE_DECISIONS = frozenset({
 # Start below the target by this many percent, then charge up to the target,
 # as the stop band of the grid branches in decisions.yaml.
 START_BAND = 3.0
+# (highest score, ((SoC below, share of the capacity per hour), ...)) as in
+# sensor.opti_charge_power_w; the last band applies above the listed SoCs.
+SCORE_BANDS: tuple[tuple[float, tuple[tuple[float, float], ...]], ...] = (
+    (1, ((40, 0.40), (70, 0.30), (90, 0.20), (97, 0.10), (101, 0.05))),
+    (4, ((35, 0.35), (65, 0.25), (87, 0.15), (97, 0.08), (101, 0.05))),
+    (float("inf"), ((30, 0.30), (60, 0.20), (85, 0.15), (97, 0.08), (101, 0.05))),
+)
 # A running window keeps its slot while its price stays this close to the
 # most expensive selected slot, so a shrinking need does not toggle the mode.
 PRICE_BAND_CT = 0.5
@@ -69,7 +76,36 @@ MAX_THRESHOLDS = 12
 # A plan must beat doing nothing by more than this, so rounding never switches modes.
 MIN_PLAN_GAIN_CT = 1.0
 HALF_HOUR = timedelta(minutes=30)
+HORIZON = timedelta(hours=24)
 MAX_LOAD_W = 50000.0
+
+
+def strategy_charge_w(*, soc: float, temperature: Any, capacity_kwh: float, max_w: Any,
+                      score: Any, manual_limit: bool) -> float:
+    """Charge power of ``sensor.opti_charge_power_w`` at a SoC (templates.yaml).
+
+    Mirrors the template's temperature derating, forecast score bands and
+    manual limit, without the PV peak release and the balancing taper, which
+    do not apply to a night grid charge. ``test_ambitious_precharge`` checks
+    it against the strategy engine.
+    """
+    temp = _number(temperature)
+    temp = 25.0 if temp is None else temp
+    if temp >= 50 or temp <= -5:
+        return 0.0
+    factor = 0.5 if temp >= 45 else (0.25 if temp <= 0 else 1.0)
+    level = _number(score)
+    band = 10 if level is None else int(level)
+    cap = capacity_kwh * 1000
+    limit = _number(max_w)
+    max_helper = 3000.0 if limit is None else limit
+    bands = next(shares for top, shares in SCORE_BANDS if band <= top)
+    rate = next((share for upper, share in bands if soc < upper), bands[-1][1])
+    c = cap * rate
+    if manual_limit:
+        max_helper = min(max(max_helper, 0.0), 10000.0)
+        c = min(max_helper, c) if soc >= 97 else max_helper
+    return float(round(min(c * factor, max_helper)))
 
 
 def option_config(options: Any) -> dict[str, Any] | None:
@@ -115,9 +151,13 @@ def _pieces(periods: Sequence[tuple[datetime, datetime, float]], start: datetime
 
 
 def _simulate(start_kwh: float, steps: Sequence[tuple[float, float, float, bool]], *,
-              target_kwh: float, room_kwh: float, charge_kw: float, model: BatteryModel,
-              feed_in: float, gain_ct: float) -> tuple[float, float, float]:
-    """Cost in ct, exported kWh and grid-charged AC kWh from now to the end of the prices.
+              target_kwh: float, room_kwh: float, charge_kw: Callable[[float], float],
+              discharge_kw: float, model: BatteryModel, feed_in: float,
+              gain_ct: float) -> tuple[float, float, float, float]:
+    """Cost in ct, exported kWh, grid-charged AC kWh and its price in ct to the end of the prices.
+
+    ``charge_kw`` gives the charge power for a stored energy (charge curve),
+    ``discharge_kw`` caps the discharge power.
 
     In a window slot the grid supplies the house and the battery charges
     from the grid at ``charge_kw`` up to ``target_kwh``; above the target it
@@ -127,29 +167,46 @@ def _simulate(start_kwh: float, steps: Sequence[tuple[float, float, float, bool]
     Each grid kWh carries the minimum gain, each stored grid kWh wear and
     margin.
     """
-    energy, cost, exported, bought = start_kwh, 0.0, 0.0, 0.0
+    energy, cost, exported, bought, paid = start_kwh, 0.0, 0.0, 0.0, 0.0
     wear, margin = model.throughput_cost_ct_kwh, model.margin_ct
     eta_c, eta_d = model.charge_efficiency, model.discharge_efficiency
     for hours, net_kw, price, window in steps:
         net = net_kw * hours
         if window:
-            stored = max(0.0, min(charge_kw * hours * eta_c, target_kwh - energy))
+            stored = max(0.0, min(charge_kw(energy) * hours * eta_c, target_kwh - energy))
             energy += stored
             bought += stored / eta_c
+            paid += stored / eta_c * price
             cost += stored / eta_c * (price + gain_ct) + stored * (wear + margin)
             cost += max(0.0, -net) * price - max(0.0, net) * feed_in
             exported += max(0.0, net)
         elif net >= 0:
-            stored = min(min(net, charge_kw * hours) * eta_c, room_kwh - energy)
+            stored = max(0.0, min(min(net, charge_kw(energy) * hours) * eta_c, room_kwh - energy))
             export = net - stored / eta_c
             energy += stored
             exported += export
             cost += stored * wear - export * feed_in
         else:
-            delivered = min(-net, energy * eta_d)
+            delivered = min(-net, energy * eta_d, discharge_kw * hours)
             energy -= delivered / eta_d
             cost += delivered / eta_d * wear + (-net - delivered) * price
-    return cost, exported, bought
+    return cost, exported, bought, paid
+
+
+def _contiguous(periods: Sequence[tuple[datetime, datetime, float]],
+                now: datetime) -> list[tuple[datetime, datetime, float]]:
+    """The price slots from the one covering ``now`` up to the first gap."""
+    out: list[tuple[datetime, datetime, float]] = []
+    for slot in periods:
+        if slot[1] <= now:
+            continue
+        if not out:
+            if not slot[0] <= now < slot[1]:
+                return []
+        elif slot[0] != out[-1][1]:
+            break
+        out.append(slot)
+    return out
 
 
 def _thresholds(night: Sequence[tuple[datetime, datetime, float]]) -> list[float]:
@@ -175,6 +232,8 @@ def plan(
     minsoc: Any,
     maxsoc: Any,
     max_charge_w: Any,
+    max_discharge_w: Any = None,
+    charge_power: Callable[[float], float] | None = None,
     feed_in_ct: Any,
     sunrise: Any,
     sunset: Any,
@@ -197,7 +256,7 @@ def plan(
     if rising is None or setting is None or not now < rising < setting:
         return {"status": "daylight" if rising is not None and setting is not None else "data_missing",
                 "detail": "sun"}
-    periods = _price_periods(price_series, now, timezone)
+    periods = _contiguous(_price_periods(price_series, now, timezone), now)
     if not periods or periods[-1][1] < setting:
         return {"status": "price_horizon_short"}
     if not isinstance(pv_hours, Mapping) or not pv_hours or quantile not in QUANTILES:
@@ -207,9 +266,12 @@ def plan(
     fallback = fallback if fallback is not None and 0 <= fallback <= MAX_LOAD_W / 1000 else 0.8
     charge_w = _number(max_charge_w)
     charge_kw = charge_w / 1000 if charge_w is not None and charge_w > 0 else capacity / 2
+    discharge_w = _number(max_discharge_w)
+    discharge_kw = discharge_w / 1000 if discharge_w is not None and discharge_w > 0 else capacity / 2
     feed_in = value if (value := _number(feed_in_ct)) is not None else 0.0
 
-    end_of_prices = periods[-1][1]
+    # One day from sunrise: later days would need PV forecasts that may be missing.
+    end_of_prices = min(periods[-1][1], rising + HORIZON)
     pieces: list[tuple[datetime, float, float, float]] = []
     for at, hours, price, slot in _pieces(periods, now, end_of_prices):
         pair = pv_hours.get(_hour(at))
@@ -219,41 +281,55 @@ def plan(
                 return {"status": "pv_forecast_missing", "detail": at.isoformat()}
             value = 0.0
         pieces.append((slot, hours, value - _load_kw(load_hours, at, fallback), price))
-    night = [slot for slot in periods if slot[1] > now and slot[0] < rising]
+    # Only slots that end by sunrise: the plan never grid-charges into the morning.
+    night = [slot for slot in periods if slot[1] > now and slot[1] <= rising]
 
     room = (high - low) / 100 * capacity
     stored_now = min(room, max(0.0, (soc_now - low) / 100 * capacity))
+
+    def charge_at(energy: float) -> float:
+        """Charge power in kW at a stored energy, as the strategy would command it."""
+        if charge_power is None:
+            return charge_kw
+        return max(0.0, min(charge_kw, charge_power(low + energy / capacity * 100) / 1000))
     step = capacity * STEP_PERCENT / 100
     targets = [min(room, i * step) for i in range(int(room / step) + 1)] + [room]
 
-    def run(limit: float | None, target: float) -> tuple[float, float, float]:
+    def run(limit: float | None, target: float) -> tuple[float, float, float, float]:
         window = {slot[0] for slot in night if limit is not None and slot[2] <= limit}
         steps = [(hours, net, price, at in window) for at, hours, net, price in pieces]
-        return _simulate(stored_now, steps, target_kwh=target, room_kwh=room, charge_kw=charge_kw,
-                         model=model, feed_in=feed_in, gain_ct=min_gain_ct)
+        return _simulate(stored_now, steps, target_kwh=target, room_kwh=room, charge_kw=charge_at,
+                         discharge_kw=discharge_kw, model=model, feed_in=feed_in,
+                         gain_ct=min_gain_ct)
 
     # Every window of the night slots up to a price limit, with every target:
     # below the target the window charges, above it the battery holds. The
     # cheapest plan wins; on a tie the smaller window and the lower target.
+    # It must beat doing nothing by more than MIN_PLAN_GAIN_CT.
     baseline = run(None, 0.0)
     limit_found: float | None = None
     best_target, best = 0.0, baseline
     for limit in _thresholds(night):
         for target in dict.fromkeys(targets):
             outcome = run(limit, target)
-            if outcome[0] < best[0] - MIN_PLAN_GAIN_CT:
+            if outcome[0] < best[0]:
                 limit_found, best_target, best = limit, target, outcome
+    if best[0] >= baseline[0] - MIN_PLAN_GAIN_CT:
+        limit_found = None
     chosen = [slot for slot in night if limit_found is not None and slot[2] <= limit_found]
 
     report: dict[str, Any] = {
         "sunrise": rising.isoformat(), "sunset": setting.isoformat(),
         "charge_kw": round(charge_kw, 3),
+        "discharge_kw": round(discharge_kw, 3),
+        "horizon_end": end_of_prices.isoformat(),
         "expected_export_kwh_without": round(baseline[1], 2),
     }
     if not chosen:
         return {**report, "status": "not_worth_it", "target_soc": None}
     target_soc = round(low + max(best_target, stored_now) / capacity * 100, 1)
-    price = sum(slot[2] for slot in chosen) / len(chosen)
+    # What the planned grid energy costs; a pure hold buys none.
+    price = best[3] / best[2] if best[2] > 0 else min(slot[2] for slot in chosen)
     # Report the gain without the minimum gain the choice demanded.
     saving_ct = baseline[0] - best[0] + best[2] * min_gain_ct
     window = chosen

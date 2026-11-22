@@ -70,6 +70,7 @@ from .negative_price_hold import NegativePriceHoldShadow, negative_price_hold_ch
 from .peak_rank import HOLD_DECISION as PEAK_RANK_HOLD_DECISION
 from .peak_rank import PeakRankShadow, apply_peak_rank_hold, peak_rank_check
 from .standby_reserve import STANDBY_RESERVE_DECISION, apply_standby_reserve, next_grid_charge
+from . import ambitious_precharge
 from .peak_rank import model_assumptions as peak_rank_model_assumptions
 from .planner_shadow import ForecastHistory, PlannerInputs, PlannerShadow, price_periods, pv_forecast_hourly
 from .demand import EV_SCOPE_VERSION, DemandForecast, pv_intervals, ev_profile_sources, ev_profile_scope, profile_house_value
@@ -333,6 +334,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Memory only: after a restart the fresh check decides.
         self._peak_rank_latch: tuple[tuple[str, Any], str] | None = None
         self._standby_reserve_latched = False
+        # Memory only: a running ambitious precharge charges up to its target.
+        self._ambitious_charging = False
         self._planner = PlannerShadow()
         self._battery_model = BatteryModel.default()
         self._planner_history = ForecastHistory()
@@ -1221,6 +1224,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
              and previous_mode == "Akku nur Laden")
             or (previous_data.get("decision_id") == PEAK_RANK_HOLD_DECISION
                 and previous_mode in ("Akku nur Laden", "Akku Pause"))
+            # Neither may the engine's hysteresis continue the grid charge or hold
+            # of the ambitious precharge after the plan ends.
+            or previous_data.get("decision_id") == ambitious_precharge.DECISION
         ):
             # The engine continues from its own L1/L2 mode, not from the hold:
             # the L2 band reads the previous mode.
@@ -1442,7 +1448,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result, peak_rank_early = self._apply_peak_rank_hold(result, now)
         else:
             self._peak_rank_latch = None
-        result, standby_reserve = self._apply_standby_reserve(result, now)
+        result, ambitious = self._apply_ambitious_precharge(
+            result, now, states, captured_options, demand_sources)
+        result, standby_reserve = self._apply_standby_reserve(result, now, ambitious)
         for key, value in result.helper_updates.items():
             if (key in self.settings and revision == self._revision
                     and soft_revision == self._soft_revision):
@@ -1469,7 +1477,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if (curve := self._charge_curve_limit(result.states)) is not None:
             charge_power_limits.append(curve[1])
         if (arbitrage_hold.get("hold_controls_battery")
-                or result.decision_id in (PEAK_RANK_HOLD_DECISION, STANDBY_RESERVE_DECISION)):
+                or result.decision_id in (PEAK_RANK_HOLD_DECISION, STANDBY_RESERVE_DECISION)
+                or (result.decision_id == ambitious_precharge.DECISION
+                    and mode == ambitious_precharge.HOLD_MODE)):
             params["min_charge_w"] = 0
             params["min_discharge_w"] = 0
         if pv_peak_release_applies(result, mode, self.manual_mode, self.strategy_enabled):
@@ -1690,6 +1700,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "write_restore_blocked": self._write_restore_blocked,
                 "internal_error": self._internal_error_report(self._failsafe_pause_state(command_result))}
         self._update_operating_report(data, now, ev_report, safety_reason, write_failed)
+        data["ambitious_precharge"] = {
+            **ambitious,
+            "controls_battery": bool(ambitious.get("controls_battery")
+                                     and data["mode"] == result.mode and safety_reason is None
+                                     and self.write_enabled and not self.shadow_mode),
+        }
         data["standby_reserve"] = {
             **standby_reserve,
             # Only a hold that reached the device keeps the reserve.
@@ -2098,7 +2114,73 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             battery_model=self._battery_model,
         )
 
-    def _apply_standby_reserve(self, result, now):
+    def _apply_ambitious_precharge(self, result, now, states, options, demand_sources):
+        """Optional night grid charge for the whole coming day (#222); fail closed."""
+        cfg = ambitious_precharge.option_config(options)
+        if cfg is None:
+            self._ambitious_charging = False
+            return result, {"status": "disabled", "controls_battery": False}
+        try:
+            settings = self.settings
+            if settings.get("input_boolean.opti_prognose_netzladen") is not True:
+                self._ambitious_charging = False
+                return result, {"status": "grid_charging_off", "controls_battery": False}
+            sources = options.get("sources", {})
+            pv_hours: dict = {}
+            for today, tomorrow in ((sources.get("forecast_today"), sources.get("forecast_tomorrow")),
+                                    (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow"))):
+                entities = [self.hass.states.get(entity) for entity in (today, tomorrow) if entity]
+                pv_status, pv_hours = pv_forecast_hourly(
+                    entities, now, max_age=options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE))
+                if pv_status == "ready":
+                    break
+                pv_hours = {}
+            sun_attributes = result.attributes.get("sun.sun") or {}
+            capacity = finite(states.get("sensor.opti_battery_capacity_kwh")) or 0.0
+            curve = self._parse_charge_curve()
+
+            def charge_power(soc: float) -> float:
+                # The strategy's grid charge power at this SoC, capped by the charge curve.
+                watts = ambitious_precharge.strategy_charge_w(
+                    soc=soc, temperature=result.states.get("sensor.opti_battery_temp"),
+                    capacity_kwh=capacity, max_w=settings.get("input_number.akkusteuerung_max_ladestaerke"),
+                    score=result.states.get("sensor.opti_forecast_score"),
+                    manual_limit=settings.get("input_boolean.opti_manuelle_ladegrenze") is True)
+                if curve is None:
+                    return 0.0
+                return min([watts] + [float(power) for start, power in curve if soc >= start])
+
+            report = ambitious_precharge.plan(
+                now=now, timezone=dt_util.DEFAULT_TIME_ZONE,
+                price_series=result.attributes.get("sensor.opti_price_series"),
+                pv_hours=pv_hours, quantile=cfg["quantile"],
+                load_hours=_expected_load_hours(result.attributes.get("sensor.opti_peak_load_profile")),
+                fallback_load_kw=settings.get("input_number.opti_peak_verbrauch_kw"),
+                soc=states.get("sensor.opti_soc"), capacity_kwh=states.get("sensor.opti_battery_capacity_kwh"),
+                minsoc=settings.get("input_number.minsoc"), maxsoc=settings.get("input_number.maxsoc"),
+                max_charge_w=settings.get("input_number.akkusteuerung_max_ladestaerke"),
+                max_discharge_w=settings.get("input_number.akkusteuerung_max_entladestaerke"),
+                charge_power=charge_power,
+                feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
+                sunrise=sun_attributes.get("next_rising"), sunset=sun_attributes.get("next_setting"),
+                model=self._battery_model, min_gain_ct=cfg["min_gain_ct"],
+                charging=self._ambitious_charging,
+            )
+            changed = ambitious_precharge.apply(
+                result, report, eligible=self.strategy_enabled and self.manual_mode is None,
+                timezone=dt_util.DEFAULT_TIME_ZONE)
+        except Exception as err:  # Fail closed: without a plan the strategy decides alone.
+            _LOGGER.debug("Ambitious precharge unavailable: %s", type(err).__name__)
+            self._ambitious_charging = False
+            return result, {"status": "error", "controls_battery": False}
+        controls = changed.decision_id == ambitious_precharge.DECISION
+        self._ambitious_charging = controls and report.get("action") == "charge"
+        if report.get("active") is True and not controls:
+            report = {**report, "status": "higher_priority"}
+        return changed, {**report, "quantile": cfg["quantile"], "min_gain_ct": cfg["min_gain_ct"],
+                         "controls_battery": controls}
+
+    def _apply_standby_reserve(self, result, now, ambitious=None):
         """Keep an SMA STP SE awake until a grid charge planned tonight (#222)."""
         try:
             peak = result.attributes.get("sensor.opti_peak_reserve_soc") or {}
@@ -2116,6 +2198,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 maxsoc=settings.get("input_number.maxsoc"),
                 battery_model=self._battery_model,
             )
+            if ambitious:
+                window = ambitious_precharge.standby_window(ambitious, window)
             held, report, self._standby_reserve_latched = apply_standby_reserve(
                 result, reserve_soc=settings.get("input_number.opti_standby_reserve_soc"),
                 backend=self.entry.data.get("backend", "sma"), window=window,

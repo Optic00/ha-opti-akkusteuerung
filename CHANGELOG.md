@@ -8,6 +8,19 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Neu
+
+- **Ehrgeiziges Vorladen (experimentell, auf eigenes Risiko, #222).** Neue
+  Option unter *Optionale Funktionen*: Nachts plant Opti den ganzen kommenden
+  Tag aus PV-Prognose (P10 oder Median), Lastprofil, Preisen und Akkumodell und
+  lädt in den günstigsten Nachtslots so weit, wie es sich nach Verlusten,
+  Verschleiß und einem Mindestgewinn lohnt. Danach hält es die Ladung bis zum
+  Tag. Nur mit Pflicht-Haken „auf eigenes Risiko“ und freigegebenem
+  Netzladen; Schutzfunktionen, Balancing, E-Auto-Sperren und manuelle Modi
+  haben Vorrang, bei fehlenden Daten plant es nichts. Plan und Ersparnis stehen
+  in der Diagnose. Details unter
+  [Konfiguration](docs/configuration.md#ehrgeiziges-vorladen-experimentell-eigenes-risiko).
+
 ### Geändert
 
 - **Verlust und Rückkehr des Wechselrichters stehen im Log.** Ist der

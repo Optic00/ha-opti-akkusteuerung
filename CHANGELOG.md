@@ -16,6 +16,14 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   Home-Assistant-Log, und eine weitere, sobald er wieder antwortet. Bisher
   standen solche Lesefehler nur im Debug-Log. Der nächtliche Standby des
   STP SE zählt nicht als Verlust, solange der Status lesbar bleibt.
+- **Sunny Boy Storage: Schreibtest-Plan nach Stufe A angepasst (#170).** Am
+  SBS 5.0 brachte 41259=1438 den Akku nach einer Pause nicht in den
+  Normalbetrieb zurück. Die vollständige V2a-Folge mit 40236=2424 (Fenster
+  wiederhergestellt, dann 802, 40149=0, 803) dagegen sofort. Der
+  [Schreibtest-Plan](docs/sbs-schreibtest.md) nutzt am SBS deshalb für jede
+  BMS-Betriebsart 40236 und V2a als Rückweg; 803 allein beendet eine
+  BMS-Sperre nicht. V3b/V4b schalten aus dem Normalbetrieb nur die Betriebsart um, ohne die Leistungsfenster zu ändern. Nur Dokumentation; das SBS-Profil
+  liest weiterhin nur.
 
 ### Behoben
 

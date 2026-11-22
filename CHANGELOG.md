@@ -10,6 +10,12 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Geändert
 
+- **Verlust und Rückkehr des Wechselrichters stehen im Log.** Ist der
+  Wechselrichter nicht mehr erreichbar oder liefert keinen gültigen Status,
+  schreibt Opti Akku einmal eine Info-Meldung mit dem Grund ins
+  Home-Assistant-Log, und eine weitere, sobald er wieder antwortet. Bisher
+  standen solche Lesefehler nur im Debug-Log. Der nächtliche Standby des
+  STP SE zählt nicht als Verlust, solange der Status lesbar bleibt.
 - **Sunny Boy Storage: Schreibtest-Plan nach Stufe A angepasst (#170).** Am
   SBS 5.0 brachte 41259=1438 den Akku nach einer Pause nicht in den
   Normalbetrieb zurück. Die vollständige V2a-Folge mit 40236=2424 (Fenster

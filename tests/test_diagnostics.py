@@ -100,6 +100,8 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
             "source_observation": {"status": "warming_up", "entities": [private_entity]},
             "standby_reserve": {"status": "holding", "reserve_soc": 3.0,
                                 "grid_charge": {"status": "planned", "at": "2026-11-15T01:00:00+00:00"}},
+            "ambitious_precharge": {"status": "active", "action": "charge", "target_soc": 56.0,
+                                    "slots": ["2026-11-15T01:00:00+00:00"], "controls_battery": True},
             "shadow_status": "recording",
             "shadow_summary": {
                 "blocked_write_attempts": 2,
@@ -147,7 +149,10 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
         "reserve_plan": "planned",
         "source_observation": "warming_up",
         "standby_reserve": "holding",
+        "ambitious_precharge": "active",
     }
+    assert result["ambitious_precharge"] == {"status": "active", "action": "charge", "target_soc": 56.0,
+                                             "controls_battery": True}
     assert result["strategy_comparison"] == {
         "observation_only": True,
         "status": "learning",

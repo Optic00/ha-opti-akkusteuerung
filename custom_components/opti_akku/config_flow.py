@@ -232,7 +232,7 @@ SHADOW_COPY_OPTIONS = frozenset({
     *DEFAULT_OPTIONS, *(key for keys in OPTION_GROUPS.values() for key in keys),
     "tibber_home", "tibber_entry_id", "tibber_eur_confirmed", "price_windows", "charge_curve", "notification_service",
     "ev_preparation", "demand_forecast", "arbitrage_estimate", "source_observation",
-    "evcc_comparison", "peak_rank_control",
+    "evcc_comparison", "peak_rank_control", "ambitious_precharge",
 }) - {"settings", "single_writer_confirmed", "shadow_reference_mode"}
 SHADOW_COPY_CONNECTION = frozenset({
     CONF_HOST, CONF_PORT, CONF_UNIT_ID, CONF_PROFILE, "backend", "serial_number",
@@ -962,6 +962,35 @@ class WizardSections:
             vol.Required("enabled", default=cfg.get("enabled", False) is True): BooleanSelector(),
         }))
 
+    async def async_step_ambitious_precharge(self, user_input=None):
+        """Experimental: charge tonight for the whole coming day, at the user's own risk (#222)."""
+        cfg = self._draft.get("ambitious_precharge", {})
+        errors = {}
+        if user_input is not None:
+            if user_input.get("enabled") is True:
+                if user_input.get("risk_accepted") is not True:
+                    errors["base"] = "ambitious_precharge_risk"
+                else:
+                    self._draft["ambitious_precharge"] = {
+                        "enabled": True, "risk_accepted": True,
+                        "quantile": user_input.get("quantile", "p10"),
+                        "min_gain_ct": float(user_input.get("min_gain_ct", 2.0)),
+                    }
+                    return await self.async_step_init()
+            else:
+                self._draft.pop("ambitious_precharge", None)
+                return await self.async_step_init()
+            cfg = {**cfg, **user_input}
+        return self.async_show_form(step_id="ambitious_precharge", errors=errors, data_schema=vol.Schema({
+            vol.Required("enabled", default=cfg.get("enabled", False) is True): BooleanSelector(),
+            vol.Required("risk_accepted", default=cfg.get("risk_accepted", False) is True): BooleanSelector(),
+            vol.Required("quantile", default=cfg.get("quantile", "p10")): SelectSelector(
+                SelectSelectorConfig(options=["p10", "p50"], translation_key="pv_quantile")),
+            vol.Required("min_gain_ct", default=cfg.get("min_gain_ct", 2.0)): NumberSelector(
+                NumberSelectorConfig(min=0, max=50, step=0.5, mode=NumberSelectorMode.BOX,
+                                     unit_of_measurement="ct/kWh")),
+        }))
+
     async def async_step_sources(self, user_input=None):
         return await self._section("sources", user_input)
 
@@ -1057,7 +1086,7 @@ class WizardSections:
 
     async def async_step_features(self, user_input=None):
         if not self._guided:
-            return self.async_show_menu(step_id="features", menu_options=["ev", "ev_preparation", "balancing", "demand", "arbitrage", "peak_rank", "notifications", "init"])
+            return self.async_show_menu(step_id="features", menu_options=["ev", "ev_preparation", "balancing", "demand", "arbitrage", "peak_rank", "ambitious_precharge", "notifications", "init"])
         if user_input is not None:
             self._use_balancing = user_input.get("configure_balancing", False)
             if not self._use_balancing:
@@ -1182,6 +1211,7 @@ class OptiAkkuConfigFlow(WizardSections, ConfigFlow, domain=DOMAIN):
                 self._copy_review_steps = ["advanced"] + [
                     step for step, key in (("demand", "demand_forecast"), ("ev_preparation", "ev_preparation"),
                                           ("arbitrage", "arbitrage_estimate"), ("peak_rank", "peak_rank_control"),
+                                          ("ambitious_precharge", "ambitious_precharge"),
                                           ("observation", "source_observation"))
                     if self._draft.get(key)]
                 if error := await self._check_shadow_copy():

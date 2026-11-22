@@ -10,7 +10,7 @@ externen Helfer oder Automationen angelegt.
 Später öffnet **Konfigurieren** die Bereiche Anlage, Batterie, Stromtarif und
 PV-Prognose. Unter **Optionale Funktionen** stehen Wallbox, PV-Vorbereitung fürs
 Auto, Balancing, Bedarfsprofil, Wirtschaftlichkeitsvergleich, die experimentelle
-Peak-Rangfolge und Benachrichtigungen.
+Peak-Rangfolge, ehrgeiziges Vorladen und Benachrichtigungen.
 **Erweitert und Diagnose** enthält Verbindung, Messquellenvergleich und Feinabstimmung.
 Die eigenständige Vergleichskonfiguration bleibt erhalten, um andere Messquellen
 vor einer aktiven Umstellung zu prüfen.
@@ -305,6 +305,47 @@ Ergebnis „Halten“ wirkt; manuelle Modi und Schutzfunktionen haben Vorrang. E
 Änderung lädt die Integration nicht neu. Einzelheiten stehen unter „Optional
 steuernd: Peak-Rangfolge hält die Entladung“ in
 [Prognose und Auto](forecast-and-ev.md#optional-steuernd-peak-rangfolge-hält-die-entladung).
+
+### Ehrgeiziges Vorladen (experimentell, eigenes Risiko)
+
+Unter **Optionale Funktionen → Ehrgeiziges Vorladen (experimentell)** steht ein
+Schalter „Nachts für den ganzen kommenden Tag laden“, Standard aus. Er lässt sich
+nur zusammen mit dem Haken „Ich nutze diese experimentelle Funktion auf eigenes
+Risiko“ speichern (#222). Ohne die Option lädt das Peak-Vorladen nachts nur für
+die Preisspitzen bis wenige Stunden nach Sonnenaufgang und nur so weit, wie die
+PV vor der Spitze nicht reicht.
+
+Mit der Option rechnet Opti zwischen Sonnenuntergang und Sonnenaufgang in jedem
+Zyklus den ganzen kommenden Tag durch, bis zum Ende der bekannten Preise:
+
+- stündliche PV-Prognose (P10, wahlweise Median) minus erwartete Hauslast aus dem
+  Lastprofil (sonst „Opti Peak-Verbrauch“),
+- Ladeleistung, MinSOC und maxSoC, Wirkungsgrade, Verschleiß und Marge aus dem
+  Akkumodell, Einspeisevergütung,
+- ein **Mindestgewinn** je kWh aus dem Netz (Standard 2 ct).
+
+Verglichen werden alle Ladeziele in 1-%-Schritten mit allen Fenstern aus den
+günstigsten Nachtslots. Im gewählten Fenster lädt der Akku bis zum Ziel
+(`Akku Netzladen`) und hält die Ladung danach (`Akku nur Laden`), statt die
+günstige Nachtlast zu decken. Geladen wird also nur, was sich nach Verlusten,
+Verschleiß und Mindestgewinn gegen die Tagespreise lohnt; was der Akku am Tag
+ohnehin aus PV nachladen würde, wird nicht aus dem Netz geholt. Ein Start erst
+3 % unter dem Ziel und ein kleiner Preisabstand für ein laufendes Fenster
+verhindern Flattern.
+
+Voraussetzungen und Vorrang: „Reserveplanung mit Netzladen erlauben“ muss an sein. Die Option
+ersetzt nur haltende oder entladende Entscheidungen ohne Schutzgrund
+(Standard, über/unter Ziel, Peak L3/L4, Reserven, MinSOC). Manuelle Modi,
+Schutzfunktionen, Balancing, E-Auto-Sperren und alle Ladeentscheidungen haben
+Vorrang. Fehlen Preise bis Sonnenuntergang, die PV-Prognose bis Sonnenuntergang
+oder Akkudaten, plant sie nichts und die Strategie entscheidet wie ohne Option.
+Ein geplantes Fenster hält über die Standby-Reserve auch einen STP SE wach.
+
+Risiko: Prognosen können danebenliegen. Dann wird nachts aus dem Netz geladen
+und der PV-Überschuss am Tag trotzdem eingespeist, oder der Netzstrom kostet
+mehr, als er spart. Den Plan zeigt die Diagnose unter `ambitious_precharge`
+(Status, Aktion, Ziel-SoC, Ladepreis, erwartete Netz- und Einspeisemenge,
+erwartete Ersparnis). Eine Änderung lädt die Integration nicht neu.
 
 ### Preisabstand für Netzladen
 

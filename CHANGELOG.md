@@ -21,6 +21,17 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   entfernt, bleibt der gelernte Warmwasseranteil. Ohne die neue Quelle und ohne
   Wärmepumpenzähler ändert sich nichts.
 
+### Geändert
+
+- **Sunny Boy Storage: Schreibtest-Plan nach Stufe A angepasst (#170).** Am
+  SBS 5.0 brachte 41259=1438 den Akku nach einer Pause nicht in den
+  Normalbetrieb zurück. Die vollständige V2a-Folge mit 40236=2424 (Fenster
+  wiederhergestellt, dann 802, 40149=0, 803) dagegen sofort. Der
+  [Schreibtest-Plan](docs/sbs-schreibtest.md) nutzt am SBS deshalb für jede
+  BMS-Betriebsart 40236 und V2a als Rückweg; 803 allein beendet eine
+  BMS-Sperre nicht. V3b/V4b schalten aus dem Normalbetrieb nur die Betriebsart um, ohne die Leistungsfenster zu ändern. Nur Dokumentation; das SBS-Profil
+  liest weiterhin nur.
+
 ### Behoben
 
 - **Huawei-Verbindung im Optionsmenü zeigt verständliche Fehler (#232).**

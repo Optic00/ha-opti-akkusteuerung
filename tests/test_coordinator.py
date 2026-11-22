@@ -79,6 +79,87 @@ async def test_command_evidence_has_no_timestamp_without_fresh_power(coordinator
     assert data["command_evidence"]["observed_after_execution"] is None
 
 
+def _availability_logs(caplog):
+    return [r.getMessage() for r in caplog.records
+            if r.name == "custom_components.opti_akku.coordinator" and "inverter is" in r.getMessage()]
+
+
+async def test_unavailable_and_recovery_are_logged_once(coordinator, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == []
+
+    coordinator.device.async_read.side_effect = ModbusError("offline")
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+    logs = _availability_logs(caplog)
+    assert logs == ["Opti Test: inverter is unavailable (transport: ModbusError)"]
+    assert all(r.levelname == "INFO" for r in caplog.records if "inverter is" in r.getMessage())
+
+    coordinator.device.async_read.side_effect = None
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog)[1:] == ["Opti Test: inverter is reachable again"]
+
+
+async def test_unavailable_at_first_read_is_logged_without_recovery_noise(coordinator, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.async_read.return_value["sensor.opti_inverter_status"] = None
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (no valid inverter status)"]
+
+
+async def test_adapter_read_error_logs_role_without_raw_text(coordinator, caplog):
+    """SMA/SBS keep str(err) in last_read_errors; host and port must stay out of INFO."""
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.last_read_errors = {"transport": "Connection to 192.0.2.10:502 failed"}
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (read failed: transport)"]
+    assert "192.0.2.10" not in caplog.text
+
+
+async def test_transport_error_is_named_without_side_errors(coordinator, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.last_read_errors = {"battery_temp": "timeout", "transport": "reset"}
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (read failed: transport)"]
+
+
+async def test_huawei_validation_error_has_its_own_reason(coordinator, caplog):
+    from custom_components.opti_akku.huawei import HuaweiConfigurationError
+
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.async_read.side_effect = HuaweiConfigurationError("entry unloaded")
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (Huawei validation failed)"]
+
+
+async def test_readable_night_standby_is_not_logged_as_unavailable(coordinator, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.last_read_errors = {}
+    await coordinator._async_update_data()
+    coordinator.device.async_read.return_value["sensor.opti_inverter_status"] = 16777213
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == []
+
+
+async def test_identity_change_is_logged_with_its_reason(coordinator, entry, hass, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "serial_number": "999999999"})
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (device_identity_changed)"]
+
+
+async def test_unhealthy_huawei_backend_is_named_as_reason(coordinator, entry, hass, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "backend": "huawei_solar"})
+    coordinator.device.async_probe.return_value = {
+        **coordinator.device.async_probe.return_value, "backend_health": False}
+    coordinator.device.last_read_errors = {"optional_role": "missing_or_stale"}
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (Huawei backend not healthy)"]
+
+
 async def test_huawei_cached_entity_read_does_not_claim_measurement_time(
     coordinator, entry, hass
 ):

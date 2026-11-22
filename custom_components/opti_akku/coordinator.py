@@ -366,6 +366,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._stopping = False
         self._probed = False
         self._online = False
+        # None until the first read; afterwards the last state logged per
+        # the log-when-unavailable rule (one INFO on loss, one on return).
+        self._logged_online: bool | None = None
         self._identity: dict = {}
         self._last_signature: tuple | None = None
         self._last_apply: float | None = None
@@ -1055,6 +1058,34 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return None
         return snapshot
 
+    def _log_availability(self, reason: str) -> None:
+        """Log once when the inverter becomes unreachable and once when it returns.
+
+        The reason is a fixed category or error type, never raw exception
+        text: adapter error strings can contain the Modbus host and port.
+        """
+        previous, self._logged_online = self._logged_online, self._online
+        if self._online:
+            if previous is False:
+                _LOGGER.info("%s: inverter is reachable again", self.entry.title)
+            return
+        if previous is False:
+            return
+        _LOGGER.info("%s: inverter is unavailable (%s)", self.entry.title, reason)
+
+    @staticmethod
+    def _unavailable_reason(read_errors: Any, roles: Any = None) -> str:
+        """Name the roles that failed; values may hold raw error text and stay out."""
+        if isinstance(read_errors, dict) and read_errors:
+            if "transport" in read_errors:
+                # A lost connection is the cause; register errors from earlier
+                # in the same poll are side effects.
+                return "read failed: transport"
+            failed = sorted(str(key) for key in read_errors if roles is None or key in roles)
+            if failed:
+                return "read failed: " + ", ".join(failed)
+        return "no valid inverter status"
+
     async def _async_update_locked(self) -> dict[str, Any]:
         if self._stopping:
             return self.data or {}
@@ -1063,6 +1094,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         read_started = time.monotonic()
         battery_power_observed_at = None
         read_errors = {}
+        unavailable_reason = "no valid inverter status"
         try:
             async with asyncio.timeout(25):
                 self._identity = await self.device.async_probe()
@@ -1082,17 +1114,29 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             read_errors = getattr(self.device, "last_read_errors", {})
             self._online = (finite(self._measurements.get("sensor.opti_inverter_status")) is not None
                             and not (isinstance(read_errors, dict) and "transport" in read_errors))
+            unavailable_reason = self._unavailable_reason(read_errors)
             if self.entry.data.get("backend") == "huawei_solar":
                 from .huawei import REQUIRED_ROLES
-                self._online = self._identity.get("backend_health") is True and not (read_errors.keys() & REQUIRED_ROLES)
+                healthy = self._identity.get("backend_health") is True
+                self._online = healthy and not (read_errors.keys() & REQUIRED_ROLES)
+                unavailable_reason = ("Huawei backend not healthy" if not healthy
+                                      else self._unavailable_reason(read_errors, REQUIRED_ROLES))
         except Exception as err:  # Device/protocol failures must never retain valid telemetry.
             _LOGGER.debug("Opti measurement update failed: %s", type(err).__name__)
             read_errors = {"transport": type(err).__name__}
+            # Translated errors (e.g. device_identity_changed from _claim_device)
+            # carry a fixed key that says more than the exception class.
+            from .huawei import HuaweiConfigurationError
+            if isinstance(err, HuaweiConfigurationError):
+                unavailable_reason = "Huawei validation failed"
+            else:
+                unavailable_reason = str(getattr(err, "translation_key", None) or f"transport: {type(err).__name__}")
             self._online = False
             self._measurements = {key: "unavailable" for key in self._measurements}
             self._last_error = f"Lesefehler: {type(err).__name__}"
             self._last_signature = None
             self._applied_mode = None
+        self._log_availability(unavailable_reason)
         if (self._pause_pending and not self.write_enabled and not self.shadow_mode and self._online
                 and not self._stopping and self._pause_binding == self._writer_binding
                 and self.entry.options.get("single_writer_confirmed", False)

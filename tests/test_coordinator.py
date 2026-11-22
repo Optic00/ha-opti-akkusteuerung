@@ -79,6 +79,87 @@ async def test_command_evidence_has_no_timestamp_without_fresh_power(coordinator
     assert data["command_evidence"]["observed_after_execution"] is None
 
 
+def _availability_logs(caplog):
+    return [r.getMessage() for r in caplog.records
+            if r.name == "custom_components.opti_akku.coordinator" and "inverter is" in r.getMessage()]
+
+
+async def test_unavailable_and_recovery_are_logged_once(coordinator, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == []
+
+    coordinator.device.async_read.side_effect = ModbusError("offline")
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+    logs = _availability_logs(caplog)
+    assert logs == ["Opti Test: inverter is unavailable (transport: ModbusError)"]
+    assert all(r.levelname == "INFO" for r in caplog.records if "inverter is" in r.getMessage())
+
+    coordinator.device.async_read.side_effect = None
+    await coordinator._async_update_data()
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog)[1:] == ["Opti Test: inverter is reachable again"]
+
+
+async def test_unavailable_at_first_read_is_logged_without_recovery_noise(coordinator, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.async_read.return_value["sensor.opti_inverter_status"] = None
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (no valid inverter status)"]
+
+
+async def test_adapter_read_error_logs_role_without_raw_text(coordinator, caplog):
+    """SMA/SBS keep str(err) in last_read_errors; host and port must stay out of INFO."""
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.last_read_errors = {"transport": "Connection to 192.0.2.10:502 failed"}
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (read failed: transport)"]
+    assert "192.0.2.10" not in caplog.text
+
+
+async def test_transport_error_is_named_without_side_errors(coordinator, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.last_read_errors = {"battery_temp": "timeout", "transport": "reset"}
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (read failed: transport)"]
+
+
+async def test_huawei_validation_error_has_its_own_reason(coordinator, caplog):
+    from custom_components.opti_akku.huawei import HuaweiConfigurationError
+
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.async_read.side_effect = HuaweiConfigurationError("entry unloaded")
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (Huawei validation failed)"]
+
+
+async def test_readable_night_standby_is_not_logged_as_unavailable(coordinator, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    coordinator.device.last_read_errors = {}
+    await coordinator._async_update_data()
+    coordinator.device.async_read.return_value["sensor.opti_inverter_status"] = 16777213
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == []
+
+
+async def test_identity_change_is_logged_with_its_reason(coordinator, entry, hass, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "serial_number": "999999999"})
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (device_identity_changed)"]
+
+
+async def test_unhealthy_huawei_backend_is_named_as_reason(coordinator, entry, hass, caplog):
+    caplog.set_level("INFO", logger="custom_components.opti_akku.coordinator")
+    hass.config_entries.async_update_entry(entry, data={**entry.data, "backend": "huawei_solar"})
+    coordinator.device.async_probe.return_value = {
+        **coordinator.device.async_probe.return_value, "backend_health": False}
+    coordinator.device.last_read_errors = {"optional_role": "missing_or_stale"}
+    await coordinator._async_update_data()
+    assert _availability_logs(caplog) == ["Opti Test: inverter is unavailable (Huawei backend not healthy)"]
+
+
 async def test_huawei_cached_entity_read_does_not_claim_measurement_time(
     coordinator, entry, hass
 ):
@@ -6830,3 +6911,157 @@ async def test_standby_reserve_failure_keeps_the_strategy_decision(coordinator, 
         data = await coordinator._async_update_data()
     assert data["mode"] == "Akku Dynamisch"
     assert data["standby_reserve"] == {"status": "error", "controls_battery": False}
+
+
+AMBITIOUS_OPTION = {"enabled": True, "risk_accepted": True, "quantile": "p10", "min_gain_ct": 2.0}
+AMBITIOUS_PLAN = {"status": "active", "active": True, "action": "charge", "target_soc": 70.0,
+                  "charge_price_ct": 20.0, "first_at": "2026-11-15T01:00:00+00:00",
+                  "sunrise": "2026-11-15T06:40:00+00:00", "slots": ["2026-11-15T01:00:00+00:00"]}
+
+
+def set_ambitious_precharge(coordinator, hass, option=AMBITIOUS_OPTION):
+    set_peak_rank_control(coordinator, hass, enabled=False)
+    options = {key: value for key, value in coordinator.entry.options.items() if key != "ambitious_precharge"}
+    if option is not None:
+        options["ambitious_precharge"] = dict(option)
+    hass.config_entries.async_update_entry(coordinator.entry, options=options)
+    coordinator.settings["input_boolean.opti_prognose_netzladen"] = True
+    coordinator.settings["input_number.opti_standby_reserve_soc"] = 0
+
+
+async def run_ambitious_cycle(coordinator, evaluation, plan=AMBITIOUS_PLAN, **patches):
+    coordinator.device.async_apply.reset_mock()
+    coordinator._last_apply = None
+    target = "custom_components.opti_akku.ambitious_precharge.plan"
+    with (
+        patch.object(coordinator.engine, "evaluate", return_value=evaluation),
+        patch(target, **patches) if patches else patch(target, return_value=dict(plan)) as planned,
+    ):
+        data = await coordinator._async_update_data()
+    return data, planned
+
+
+async def test_ambitious_precharge_charges_from_the_grid_at_night(coordinator, hass):
+    """#222: with the option and the risk checkbox the night window charges for the whole day."""
+    set_ambitious_precharge(coordinator, hass)
+    data, planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=30))
+    assert coordinator.device.async_apply.await_args.args[0] == data["mode"] == "Akku Netzladen"
+    assert data["decision_id"] == "ambitious_precharge"
+    assert data["reason"] == "Ehrgeiziges Vorladen (bis 70 %, Ø 20 ct)"
+    assert data["ambitious_precharge"]["controls_battery"] is True
+    assert data["ambitious_precharge"]["quantile"] == "p10"
+    assert coordinator._ambitious_charging is True
+    kwargs = planned.call_args.kwargs
+    assert kwargs["quantile"] == "p10" and kwargs["min_gain_ct"] == 2.0
+    assert kwargs["charging"] is False
+    # The next cycle continues up to the target, without the start band.
+    _data, planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=30))
+    assert planned.call_args.kwargs["charging"] is True
+
+
+async def test_ambitious_precharge_hold_and_standby_window(coordinator, hass):
+    set_ambitious_precharge(coordinator, hass)
+    coordinator.settings["input_number.minsoc"] = 0
+    coordinator.settings["input_number.opti_standby_reserve_soc"] = 3
+    hold = {**AMBITIOUS_PLAN, "action": "hold"}
+    data, _planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=60), hold)
+    assert data["mode"] == "Akku nur Laden"
+    assert data["decision_id"] == "ambitious_precharge"
+    # Holding never pulls grid power through a minimum charge power.
+    command, params = coordinator.device.async_apply.await_args.args[:2]
+    assert command == "Akku nur Laden"
+    assert params["min_charge_w"] == 0 and params["min_discharge_w"] == 0
+    # The engine continues from its own mode, not from the hold.
+    assert data["engine_base_mode"] == "Akku Dynamisch"
+    assert coordinator._ambitious_charging is False
+    # A planned window keeps an STP SE awake via the standby reserve.
+    planned_only = {**AMBITIOUS_PLAN, "status": "planned", "active": False, "action": None}
+    with patch("custom_components.opti_akku.coordinator.next_grid_charge", return_value={"status": "none"}):
+        data, _planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=3), planned_only)
+    assert data["decision_id"] == "standby_reserve"
+    assert data["standby_reserve"]["grid_charge"]["kind"] == "ambitious_precharge"
+
+
+async def test_ambitious_precharge_yields_to_protective_decisions(coordinator, hass):
+    from custom_components.opti_akku.engine import Evaluation
+
+    set_ambitious_precharge(coordinator, hass)
+    base = standby_evaluation(soc=30)
+    balancing = Evaluation(base.states, {}, "Akku Netzladen", "Balancing", {}, decision_id="balancing_grid")
+    data, _planned = await run_ambitious_cycle(coordinator, balancing)
+    assert data["decision_id"] == "balancing_grid"
+    assert data["ambitious_precharge"]["status"] == "higher_priority"
+    assert data["ambitious_precharge"]["controls_battery"] is False
+    coordinator.manual_mode = "Akku Pause"
+    data, _planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=30))
+    assert data["ambitious_precharge"]["controls_battery"] is False
+    coordinator.manual_mode = None
+
+
+@pytest.mark.parametrize(("option", "grid", "status"), [
+    (None, True, "disabled"),
+    ({**AMBITIOUS_OPTION, "risk_accepted": False}, True, "disabled"),
+    (AMBITIOUS_OPTION, False, "grid_charging_off"),
+])
+async def test_ambitious_precharge_off_keeps_the_strategy(coordinator, hass, option, grid, status):
+    set_ambitious_precharge(coordinator, hass, option)
+    coordinator.settings["input_boolean.opti_prognose_netzladen"] = grid
+    data, planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=30))
+    assert data["mode"] == "Akku Dynamisch"
+    assert data["ambitious_precharge"] == {"status": status, "controls_battery": False}
+    planned.assert_not_called()
+
+
+async def test_ambitious_precharge_failure_keeps_the_strategy(coordinator, hass):
+    set_ambitious_precharge(coordinator, hass)
+    data, _planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=30), side_effect=RuntimeError)
+    assert data["mode"] == "Akku Dynamisch"
+    assert data["ambitious_precharge"] == {"status": "error", "controls_battery": False}
+    assert coordinator._ambitious_charging is False
+
+
+async def test_ambitious_precharge_reads_the_pv_forecast_and_power_limits(coordinator, hass):
+    """The plan gets the PV forecast, the discharge limit and the strategy charge power."""
+    from custom_components.opti_akku import ambitious_precharge as ap
+
+    set_ambitious_precharge(coordinator, hass)
+    hass.config_entries.async_update_entry(coordinator.entry, options={
+        **coordinator.entry.options, "charge_curve": [{"soc": 50, "power_w": 800}],
+        "sources": {**coordinator.entry.options.get("sources", {}), "forecast_today": "sensor.pv_today"}})
+    hass.states.async_set("sensor.pv_today", "5", {})
+    coordinator.settings["input_number.akkusteuerung_max_entladestaerke"] = 2500
+    hours = {datetime(2026, 11, 15, 10, tzinfo=UTC): (1.0, 2.0)}
+    coordinator.device.async_apply.reset_mock()
+    coordinator._last_apply = None
+    with (
+        patch.object(coordinator.engine, "evaluate", return_value=standby_evaluation(soc=30)),
+        patch("custom_components.opti_akku.coordinator.pv_forecast_hourly", return_value=("ready", hours)),
+        patch("custom_components.opti_akku.ambitious_precharge.plan", wraps=ap.plan) as planned,
+    ):
+        data = await coordinator._async_update_data()
+    kwargs = planned.call_args.kwargs
+    assert kwargs["pv_hours"] == hours
+    assert kwargs["max_discharge_w"] == 2500
+    power = kwargs["charge_power"]
+    assert power(80) <= 800 < power(20)
+    assert data["mode"] == "Akku Dynamisch"
+    assert data["ambitious_precharge"]["controls_battery"] is False
+
+
+async def test_ambitious_precharge_without_forecast_or_with_invalid_curve(coordinator, hass):
+    from custom_components.opti_akku import ambitious_precharge as ap
+
+    set_ambitious_precharge(coordinator, hass)
+    hass.config_entries.async_update_entry(coordinator.entry, options={
+        **coordinator.entry.options, "charge_curve": "broken",
+        "sources": {**coordinator.entry.options.get("sources", {}), "forecast_today": "sensor.pv_today"}})
+    with (
+        patch.object(coordinator.engine, "evaluate", return_value=standby_evaluation(soc=30)),
+        patch("custom_components.opti_akku.coordinator.pv_forecast_hourly", return_value=("stale", {})),
+        patch("custom_components.opti_akku.ambitious_precharge.plan", wraps=ap.plan) as planned,
+    ):
+        await coordinator._async_update_data()
+    kwargs = planned.call_args.kwargs
+    assert kwargs["pv_hours"] == {}
+    # An unreadable charge curve blocks charging, as in the command path.
+    assert kwargs["charge_power"](20) == 0.0

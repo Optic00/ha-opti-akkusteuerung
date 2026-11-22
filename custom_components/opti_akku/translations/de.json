@@ -572,6 +572,22 @@
           "enabled": "Experimentell. Hält in einer teuren Stunde Energie für noch teurere Stunden zurück, wenn der Akku nur für diese reicht. Verändert die Akkusteuerung."
         }
       },
+      "ambitious_precharge": {
+        "title": "Ehrgeiziges Vorladen (experimentell, eigenes Risiko)",
+        "description": "Experimentell und auf eigenes Risiko. Ohne diese Option lädt die Strategie nachts nur für die Preisspitzen bis wenige Stunden nach Sonnenaufgang aus dem Netz. Mit ihr plant Opti nachts in jedem Zyklus den ganzen kommenden Tag: PV-Prognose (P10 oder Median) minus erwartete Hauslast, Preise bis zum Ende der bekannten Preisdaten, Akkuverluste, Verschleiß und Mindestgewinn. Dann lädt es in den günstigsten Nachtslots so weit, wie es sich lohnt und möglichst wenig vom PV-Überschuss des nächsten Tages eingespeist werden muss, und hält die Ladung in diesen Slots („Akku nur Laden“), statt die günstige Nachtlast aus dem Akku zu decken. Voraussetzung ist freigegebenes Netzladen; es wirkt nur zwischen Sonnenuntergang und Sonnenaufgang und ersetzt nur haltende oder entladende Entscheidungen ohne Schutzgrund. Manuelle Modi, alle Schutzfunktionen, Balancing, E-Auto-Sperren und Ladeentscheidungen haben Vorrang. Bei fehlenden oder ungültigen Daten plant es nichts. Prognosen können falsch sein: Der Akku wird dann aus dem Netz geladen und der PV-Überschuss danach doch eingespeist, oder Netzstrom kostet mehr, als er spart. Beobachte in den ersten Nächten den Abschnitt „ambitious_precharge“ in der Diagnose.",
+        "data": {
+          "enabled": "Nachts für den ganzen kommenden Tag laden",
+          "risk_accepted": "Ich nutze diese experimentelle Funktion auf eigenes Risiko",
+          "quantile": "PV-Prognose",
+          "min_gain_ct": "Mindestgewinn"
+        },
+        "data_description": {
+          "enabled": "Experimentell. Verändert die Akkusteuerung in der Nacht.",
+          "risk_accepted": "Pflicht zum Einschalten. Prognosefehler können Geld kosten; Support für diese Option ist eingeschränkt.",
+          "quantile": "P10 ist vorsichtig und lädt mehr; der Median erwartet mehr PV und lädt weniger.",
+          "min_gain_ct": "Jede kWh aus dem Netz muss nach Verlusten und Verschleiß mindestens so viel mehr sparen, als sie kostet. 2 ct, wenn nicht gesetzt."
+        }
+      },
       "observation": {
         "title": "Messquellen beobachten",
         "description": "Rein lesend: keine Änderung der aktiven Hausquelle. Bilanz benötigt denselben Netzanschlusspunkt, weitere Wechselrichter und abgezogene Lasten. Zeitstempel sind HA-Meldungen, kein Beweis einer neuen Gerätemessung. Vergleich: eigener zeitgewichteter 60-Minuten-Wert gegen Legacy-Glättung; Unterschiede der Mittelungsverfahren bleiben sichtbar.",
@@ -655,6 +671,7 @@
       "charge_curve_power": "Jede Leistung der Kurve muss eine ganze Zahl zwischen 0 und 10000 W sein.",
       "charge_curve_duplicate": "Jeder Ladestand darf in der Kurve nur einmal vorkommen.",
       "charge_curve_rising": "Die Leistung der Kurve darf mit steigendem Ladestand nicht steigen. Gleiche Werte sind erlaubt.",
+      "ambitious_precharge_risk": "Bestätige den Haken „auf eigenes Risiko“, um das ehrgeizige Vorladen einzuschalten.",
       "demand_dhw_plan": "Ein geplanter Warmwasserstart braucht Wärmepumpenzähler, Warmwasser-Aktivmeldung und kWh je Zyklus über 0."
     },
     "abort": {
@@ -970,6 +987,7 @@
           "demand": "Bedarfsprofil und Peak-Reserve",
           "arbitrage": "Wirtschaftlichkeitsvergleich",
           "peak_rank": "Peak-Rangfolge (experimentell)",
+          "ambitious_precharge": "Ehrgeiziges Vorladen (experimentell)",
           "notifications": "Benachrichtigungen",
           "init": "Zurück zur Übersicht"
         }
@@ -1116,6 +1134,22 @@
           "enabled": "Experimentell. Hält in einer teuren Stunde Energie für noch teurere Stunden zurück, wenn der Akku nur für diese reicht. Verändert die Akkusteuerung."
         }
       },
+      "ambitious_precharge": {
+        "title": "Ehrgeiziges Vorladen (experimentell, eigenes Risiko)",
+        "description": "Experimentell und auf eigenes Risiko. Ohne diese Option lädt die Strategie nachts nur für die Preisspitzen bis wenige Stunden nach Sonnenaufgang aus dem Netz. Mit ihr plant Opti nachts in jedem Zyklus den ganzen kommenden Tag: PV-Prognose (P10 oder Median) minus erwartete Hauslast, Preise bis zum Ende der bekannten Preisdaten, Akkuverluste, Verschleiß und Mindestgewinn. Dann lädt es in den günstigsten Nachtslots so weit, wie es sich lohnt und möglichst wenig vom PV-Überschuss des nächsten Tages eingespeist werden muss, und hält die Ladung in diesen Slots („Akku nur Laden“), statt die günstige Nachtlast aus dem Akku zu decken. Voraussetzung ist freigegebenes Netzladen; es wirkt nur zwischen Sonnenuntergang und Sonnenaufgang und ersetzt nur haltende oder entladende Entscheidungen ohne Schutzgrund. Manuelle Modi, alle Schutzfunktionen, Balancing, E-Auto-Sperren und Ladeentscheidungen haben Vorrang. Bei fehlenden oder ungültigen Daten plant es nichts. Prognosen können falsch sein: Der Akku wird dann aus dem Netz geladen und der PV-Überschuss danach doch eingespeist, oder Netzstrom kostet mehr, als er spart. Beobachte in den ersten Nächten den Abschnitt „ambitious_precharge“ in der Diagnose.",
+        "data": {
+          "enabled": "Nachts für den ganzen kommenden Tag laden",
+          "risk_accepted": "Ich nutze diese experimentelle Funktion auf eigenes Risiko",
+          "quantile": "PV-Prognose",
+          "min_gain_ct": "Mindestgewinn"
+        },
+        "data_description": {
+          "enabled": "Experimentell. Verändert die Akkusteuerung in der Nacht.",
+          "risk_accepted": "Pflicht zum Einschalten. Prognosefehler können Geld kosten; Support für diese Option ist eingeschränkt.",
+          "quantile": "P10 ist vorsichtig und lädt mehr; der Median erwartet mehr PV und lädt weniger.",
+          "min_gain_ct": "Jede kWh aus dem Netz muss nach Verlusten und Verschleiß mindestens so viel mehr sparen, als sie kostet. 2 ct, wenn nicht gesetzt."
+        }
+      },
       "observation": {
         "title": "Messquellen beobachten",
         "description": "Rein lesend: keine Änderung der aktiven Hausquelle. Bilanz benötigt denselben Netzanschlusspunkt, weitere Wechselrichter und abgezogene Lasten. Zeitstempel sind HA-Meldungen, kein Beweis einer neuen Gerätemessung. Vergleich: eigener zeitgewichteter 60-Minuten-Wert gegen Legacy-Glättung; Unterschiede der Mittelungsverfahren bleiben sichtbar.",
@@ -1240,6 +1274,7 @@
       "charge_curve_power": "Jede Leistung der Kurve muss eine ganze Zahl zwischen 0 und 10000 W sein.",
       "charge_curve_duplicate": "Jeder Ladestand darf in der Kurve nur einmal vorkommen.",
       "charge_curve_rising": "Die Leistung der Kurve darf mit steigendem Ladestand nicht steigen. Gleiche Werte sind erlaubt.",
+      "ambitious_precharge_risk": "Bestätige den Haken „auf eigenes Risiko“, um das ehrgeizige Vorladen einzuschalten.",
       "demand_dhw_plan": "Ein geplanter Warmwasserstart braucht Wärmepumpenzähler, Warmwasser-Aktivmeldung und kWh je Zyklus über 0."
     }
   },
@@ -2174,6 +2209,12 @@
         "power_w": {
           "name": "Maximale Ladeleistung"
         }
+      }
+    },
+    "pv_quantile": {
+      "options": {
+        "p10": "P10 (vorsichtig)",
+        "p50": "Median"
       }
     }
   },

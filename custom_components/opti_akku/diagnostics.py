@@ -117,6 +117,20 @@ def _strategy_comparison_summary(value: Any) -> dict[str, Any]:
     }
 
 
+_AMBITIOUS_KEYS = (
+    "status", "action", "target_soc", "charge_price_ct", "expected_grid_kwh", "expected_export_kwh",
+    "expected_export_kwh_without", "expected_saving_eur", "first_at", "window_end", "quantile",
+    "min_gain_ct", "controls_battery", "detail",
+)
+
+
+def _ambitious_precharge_summary(report: Any) -> dict[str, Any] | None:
+    """Plan figures of the ambitious precharge (#222), without the slot list."""
+    if not isinstance(report, Mapping):
+        return None
+    return {key: report[key] for key in _AMBITIOUS_KEYS if key in report}
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
@@ -189,8 +203,10 @@ async def async_get_config_entry_diagnostics(
                 "reserve_plan",
                 "source_observation",
                 "standby_reserve",
+                "ambitious_precharge",
             )
         },
+        "ambitious_precharge": _ambitious_precharge_summary(data.get("ambitious_precharge")),
         "strategy_comparison": _strategy_comparison_summary(
             data.get("demand_forecast", {}).get("strategy_comparison")
             if isinstance(data.get("demand_forecast"), Mapping)

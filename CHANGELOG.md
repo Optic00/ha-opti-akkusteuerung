@@ -8,7 +8,18 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
-### Hinzugefügt
+### Neu
+
+- **Ehrgeiziges Vorladen (experimentell, auf eigenes Risiko, #222).** Neue
+  Option unter *Optionale Funktionen*: Nachts plant Opti den ganzen kommenden
+  Tag aus PV-Prognose (P10 oder Median), Lastprofil, Preisen und Akkumodell und
+  lädt in den günstigsten Nachtslots so weit, wie es sich nach Verlusten,
+  Verschleiß und einem Mindestgewinn lohnt. Danach hält es die Ladung bis zum
+  Tag. Nur mit Pflicht-Haken „auf eigenes Risiko“ und freigegebenem
+  Netzladen; Schutzfunktionen, Balancing, E-Auto-Sperren und manuelle Modi
+  haben Vorrang, bei fehlenden Daten plant es nichts. Plan und Ersparnis stehen
+  in der Diagnose. Details unter
+  [Konfiguration](docs/configuration.md#ehrgeiziges-vorladen-experimentell-eigenes-risiko).
 
 - **Peak-Reserve mit Wärmepumpenzähler und geplantem Warmwasserlauf (#248).**
   Mit separatem Wärmepumpenzähler fiel die profilbasierte Peak-Reserve bisher
@@ -23,6 +34,12 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Geändert
 
+- **Verlust und Rückkehr des Wechselrichters stehen im Log.** Ist der
+  Wechselrichter nicht mehr erreichbar oder liefert keinen gültigen Status,
+  schreibt Opti Akku einmal eine Info-Meldung mit dem Grund ins
+  Home-Assistant-Log, und eine weitere, sobald er wieder antwortet. Bisher
+  standen solche Lesefehler nur im Debug-Log. Der nächtliche Standby des
+  STP SE zählt nicht als Verlust, solange der Status lesbar bleibt.
 - **Sunny Boy Storage: Schreibtest-Plan nach Stufe A angepasst (#170).** Am
   SBS 5.0 brachte 41259=1438 den Akku nach einer Pause nicht in den
   Normalbetrieb zurück. Die vollständige V2a-Folge mit 40236=2424 (Fenster

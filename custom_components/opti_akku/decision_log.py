@@ -27,11 +27,12 @@ MAX_LABEL = 64
 MAX_CYCLES = 10_000
 
 # Entity IDs may name private devices or people; IP addresses may name hosts.
-# Both parts of an entity ID need a letter, so decimals such as 3.5 stay.
-_ENTITY = re.compile(r"\b(?=[a-z0-9_]*[a-z])[a-z0-9_]+\.(?=[a-z0-9_]*[a-z])[a-z0-9_]+\b")
+# The domain needs a letter, so decimals such as 3.5 stay; the object ID may be digits.
+_ENTITY = re.compile(r"\b(?=[a-z0-9_]*[a-z])[a-z0-9_]+\.[a-z0-9_]+\b")
 _IPV4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
 _IPV6 = re.compile(
-    r"(?<![\w:])(?:(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}"
+    r"(?<![\w:])(?:(?:[0-9a-f]{0,4}:){2,6}\d{1,3}(?:\.\d{1,3}){3}"
+    r"|(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}"
     r"|(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{0,4}::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?)(?![\w:])",
     re.IGNORECASE)
 
@@ -61,7 +62,7 @@ def _label(value: Any) -> str | None:
 def _reason(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
-    text = _IPV6.sub("<host>", _IPV4.sub("<host>", _ENTITY.sub("<entity>", value.strip())))
+    text = _IPV4.sub("<host>", _IPV6.sub("<host>", _ENTITY.sub("<entity>", value.strip())))
     return text[:MAX_REASON] if text else None
 
 
@@ -134,8 +135,8 @@ class DecisionLog:
         soc = _number(states.get("sensor.opti_soc"), 1, 0, 100)
         price = _number(states.get("sensor.opti_price_current_ct_kwh"), 2, -1000, 1000)
         reason = _reason(data.get("reason"))
-        # Only a failed safety cleanup counts, as in the operating report;
-        # a superseded command is expected when sources change during I/O.
+        # Every failed write counts; a superseded command is expected when
+        # sources change during I/O and does not.
         failed = data.get("command_result_this_update") == "failed"
         fields = self._fields(data)
         last = self._segments[-1] if self._segments else None
@@ -176,6 +177,10 @@ class DecisionLog:
         self._segments = [
             segment for segment in self._segments
             if (start := _parse(segment.get("from"))) is not None and start >= cutoff
+            # After the clock moved back by more than an hour, segments from
+            # the "future" are dropped; small corrections keep them.
+            and (until := _parse(segment.get("until"))) is not None
+            and until <= now + MAX_SEGMENT
         ][-MAX_SEGMENTS:]
 
     def report(self, now: datetime) -> list[dict[str, Any]]:

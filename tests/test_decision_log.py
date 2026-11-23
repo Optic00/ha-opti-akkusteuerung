@@ -55,7 +55,7 @@ def test_changed_mode_health_or_decision_starts_new_segment():
                data(mode="Akku Netzladen", decision_id="peak_precharge", online=False,
                     command_result_this_update="superseded"))
 
-    segments = log.report(START + timedelta(minutes=3))
+    segments = log.report(START + timedelta(minutes=3, seconds=30))
     assert [s["mode"] for s in segments] == ["Akku Dynamisch", "Akku Netzladen", "Akku Netzladen"]
     assert [s["online"] for s in segments] == [True, True, False]
     assert segments[1]["decision_id"] == "peak_precharge"
@@ -78,10 +78,11 @@ def test_foreign_entity_ids_are_masked():
     log = DecisionLog()
     log.record(START, data(reason="Quelle sensor.private_meter fehlt, sensor.opti_test ok, "
                                   "Host 192.168.1.20, sensor2.opti_two, 2001:db8::1, fe80::1, "
-                                  "ab 02:00:00, 3.5 kW, 95.0%", decision_id="input_select.private"))
+                                  "ab 02:00:00, 3.5 kW, 95.0%, sensor.12345, 2001:db8:0:1:2:3:192.0.2.1",
+                                  decision_id="input_select.private"))
     [segment] = log.report(START)
     assert segment["reason"] == ("Quelle <entity> fehlt, <entity> ok, Host <host>, <entity>, <host>, "
-                                 "<host>, ab 02:00:00, 3.5 kW, 95.0%")
+                                 "<host>, ab 02:00:00, 3.5 kW, 95.0%, <entity>, <host>")
     assert segment["decision_id"] == "<entity>"
     assert "private" not in json.dumps(segment)
 
@@ -170,3 +171,11 @@ def test_clock_moving_backwards_opens_a_new_segment():
     segments = log.report(START + timedelta(minutes=5))
     assert len(segments) == 2
     assert all(s["until"] >= s["from"] for s in segments)
+
+
+def test_segments_from_the_future_are_dropped_after_a_clock_jump():
+    log = DecisionLog()
+    log.record(START, data())
+    log.record(START - timedelta(days=4), data(mode="Akku Pause"))
+    [segment] = log.report(START - timedelta(days=4))
+    assert segment["mode"] == "Akku Pause"

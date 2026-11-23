@@ -896,8 +896,8 @@ gleicher Entscheidung geteilt und nennt je Abschnitt Beginn und Ende, Modus,
 Regel, Entscheidungsgrund, Ladestand und Strompreis am Anfang und Ende sowie
 Verbindungs- und Quellenstatus. Ein Abschnitt umfasst höchstens eine Stunde. Damit lässt sich etwa eine Nacht mit geplantem
 Netzladen ohne weitere Screenshots nachvollziehen. Hostnamen, IP-Adressen,
-Seriennummern, Entity-IDs, Fahrzeugdaten und Energiemengen werden nicht
-exportiert. Der Entscheidungsgrund ist der Text der jeweiligen Regel und kann die
+Seriennummern, Entity-IDs, Fahrzeugdaten und die gemessenen Energiesummen des
+Betriebsberichts werden nicht exportiert. Der Entscheidungsgrund ist der Text der jeweiligen Regel und kann die
 Zahlen enthalten, mit denen sie entschieden hat, etwa Ladestand, Preis,
 Exportleistung oder Zellspannung. Prüfe die Datei trotzdem vor einer
 Veröffentlichung und teile sie bevorzugt über die Issue-Vorlage statt als

@@ -29,16 +29,17 @@ MAX_CYCLES = 10_000
 # Entity IDs may name private devices or people; IP addresses and host names
 # may name hosts. The domain of an entity ID needs a letter, so decimals such
 # as 3.5 stay; the object ID may be digits.
-_ENTITY = re.compile(r"(?<![\w.-])(?=[a-z0-9_]*[a-z])[a-z0-9_]+\.[a-z0-9_]+(?![\w-]|\.\w)")
+_ENTITY = re.compile(r"(?<![\w.-])(?![a-z]\.[a-z]\.?(?![\w-]|\.\w))(?=[a-z0-9_]*[a-z])[a-z0-9_]+\.[a-z0-9_]+(?![\w-]|\.\w)")
 # Any run of hex digits, dots and colons with "::" or at least three colons is
 # an IPv6 address in some notation (also with an embedded IPv4 part).
 # A trailing colon does not count, so "um 14:35:15: ..." stays a time.
 _IPV6 = re.compile(r"(?<![\w.])(?=[0-9a-f.:]*::|(?:[0-9a-f.]*:){3}[0-9a-f])[0-9a-f.:]+(?![\w:.])",
                    re.IGNORECASE)
 _IPV4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
-# Dotted host names; the last label starts with a letter and has at least two
-# characters, so text such as 3.5kW or z.B. stays.
-_HOST = re.compile(r"(?<![\w.-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z][a-z0-9-]+(?![\w-]|\.\w)",
+# Dotted host names; the last label starts with a letter, so text such as 3.5kW
+# stays, and abbreviations of two single letters (z.B., d.h., u.a.) are skipped.
+_HOST = re.compile(r"(?<![\w.-])(?![a-z]\.[a-z]\.?(?![\w-]|\.\w))"
+                   r"[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z][a-z0-9-]*(?![\w-]|\.\w)",
                    re.IGNORECASE)
 # Plain text a mode name or decision id may hold after masking.
 _LABEL = re.compile(r"[\w <>().,%+-]+")

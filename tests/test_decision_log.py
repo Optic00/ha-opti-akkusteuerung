@@ -212,7 +212,7 @@ def test_labels_never_carry_hosts_or_free_text():
 def test_mixed_case_hosts_and_times():
     log = DecisionLog()
     log.record(START, data(reason="Wechselrichter.lan, Host:fe80::1, um 14:35:15: Ende 18:30:45, "
-                                  "Zellspannung 3.05 V, Uhr 06:00-07:30"))
+                                  "Zellspannung 3.05 V, Uhr 06:00-07:30, wechselrichter-ost.a, Z.B. u.a. d.h."))
     [segment] = log.report(START)
     assert segment["reason"] == ("<host>, Host:<host>, um 14:35:15: Ende 18:30:45, "
-                                 "Zellspannung 3.05 V, Uhr 06:00-07:30")
+                                 "Zellspannung 3.05 V, Uhr 06:00-07:30, <host>, Z.B. u.a. d.h.")

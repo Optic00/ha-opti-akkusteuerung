@@ -26,15 +26,27 @@ MAX_REASON = 200
 MAX_LABEL = 64
 MAX_CYCLES = 10_000
 
-# Entity IDs may name private devices or people; IP addresses may name hosts.
-# The domain needs a letter, so decimals such as 3.5 stay; the object ID may be digits.
-_ENTITY = re.compile(r"\b(?=[a-z0-9_]*[a-z])[a-z0-9_]+\.[a-z0-9_]+\b")
+# Entity IDs may name private devices or people; IP addresses and host names
+# may name hosts. The domain of an entity ID needs a letter, so decimals such
+# as 3.5 stay; the object ID may be digits.
+_ENTITY = re.compile(r"(?<![\w.-])(?=[a-z0-9_]*[a-z])[a-z0-9_]+\.[a-z0-9_]+(?![\w-]|\.\w)")
+# Any run of hex digits, dots and colons with "::" or at least three colons is
+# an IPv6 address in some notation (also with an embedded IPv4 part).
+_IPV6 = re.compile(r"(?<![\w:.])(?=[0-9a-f.:]*::|(?:[0-9a-f.]*:){3})[0-9a-f.:]+(?![\w:.])",
+                   re.IGNORECASE)
 _IPV4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
-_IPV6 = re.compile(
-    r"(?<![\w:])(?:(?:[0-9a-f]{0,4}:){2,6}\d{1,3}(?:\.\d{1,3}){3}"
-    r"|(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}"
-    r"|(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{0,4}::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?)(?![\w:])",
-    re.IGNORECASE)
+# Dotted lower-case host names; the last label starts with a letter, so text
+# such as 3.5kW or z.B. stays.
+_HOST = re.compile(r"(?<![\w.-])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z][a-z0-9-]*(?![\w-]|\.\w)")
+# Plain text a mode name or decision id may hold after masking.
+_LABEL = re.compile(r"[\w <>().,%+-]+")
+
+
+def _mask(text: str) -> str:
+    text = _ENTITY.sub("<entity>", text)
+    text = _IPV4.sub("<host>", _IPV6.sub("<host>", text))
+    return _HOST.sub("<host>", text)
+
 
 _TEXT_FIELDS = ("mode", "requested_mode", "manual_mode", "decision_id")
 _BOOL_FIELDS = ("online", "source_errors", "strategy_enabled", "write_enabled")
@@ -53,16 +65,17 @@ def _number(value: Any, digits: int, low: float, high: float) -> float | None:
 
 
 def _label(value: Any) -> str | None:
-    """A mode or decision id: short plain text, never an entity ID."""
+    """A mode or decision id: short plain text, never an entity ID or host."""
     if not isinstance(value, str) or not value.strip():
         return None
-    return _ENTITY.sub("<entity>", value.strip())[:MAX_LABEL]
+    text = _mask(value.strip())[:MAX_LABEL]
+    return text if _LABEL.fullmatch(text) else "<invalid>"
 
 
 def _reason(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
-    text = _IPV4.sub("<host>", _IPV6.sub("<host>", _ENTITY.sub("<entity>", value.strip())))
+    text = _mask(value.strip())
     return text[:MAX_REASON] if text else None
 
 

@@ -78,11 +78,14 @@ def test_foreign_entity_ids_are_masked():
     log = DecisionLog()
     log.record(START, data(reason="Quelle sensor.private_meter fehlt, sensor.opti_test ok, "
                                   "Host 192.168.1.20, sensor2.opti_two, 2001:db8::1, fe80::1, "
-                                  "ab 02:00:00, 3.5 kW, 95.0%, sensor.12345, 2001:db8:0:1:2:3:192.0.2.1",
+                                  "ab 02:00:00, 3.5 kW, 95.0%, sensor.12345, 2001:db8:0:1:2:3:192.0.2.1, "
+                                  "::1:2:3:4:5:192.0.2.1, Host wechselrichter-ost.technik.example, "
+                                  "z.B. 600.0W am 23.11.2026",
                                   decision_id="input_select.private"))
     [segment] = log.report(START)
     assert segment["reason"] == ("Quelle <entity> fehlt, <entity> ok, Host <host>, <entity>, <host>, "
-                                 "<host>, ab 02:00:00, 3.5 kW, 95.0%, <entity>, <host>")
+                                 "<host>, ab 02:00:00, 3.5 kW, 95.0%, <entity>, <host>, <host>, Host <host>, "
+                                 "z.B. 600.0W am 23.11.2026")
     assert segment["decision_id"] == "<entity>"
     assert "private" not in json.dumps(segment)
 
@@ -190,3 +193,17 @@ def test_invalid_inputs_are_ignored():
     assert segment["soc"] is None
     log.restore({"version": 2, "segments": ["not a segment"]}, START)
     assert log.report(START) == []
+
+
+def test_labels_never_carry_hosts_or_free_text():
+    log = DecisionLog()
+    log.restore({"version": 2, "segments": [{
+        "from": START.isoformat(), "until": START.isoformat(), "cycles": 1, "write_failures": 0,
+        "mode": "192.0.2.20", "requested_mode": "Akku nur Laden", "manual_mode": "a\nb{}",
+        "decision_id": "inverter.example.org",
+    }]}, START)
+    [segment] = log.report(START)
+    assert segment["mode"] == "<host>"
+    assert segment["requested_mode"] == "Akku nur Laden"
+    assert segment["manual_mode"] == "<invalid>"
+    assert segment["decision_id"] == "<host>"

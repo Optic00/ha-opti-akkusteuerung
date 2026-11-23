@@ -11,7 +11,8 @@ in einem öffentlichen Issue melden, sondern privat über
 - Zugangsdaten, Seriennummern, Hostnamen oder Messhistorien im Diagnoseexport, in
   Logs oder in Benachrichtigungen; ausgenommen ist der dokumentierte
   Entscheidungsverlauf der letzten 24 Stunden mit Ladestand, Preis und
-  Entscheidungsgrund ([Diagnose herunterladen](docs/operation.md#diagnose-herunterladen))
+  Entscheidungsgrund sowie die Ladestände des aktuellen und letzten Peak-Zeitraums
+  aus dem Betriebsbericht ([Diagnose herunterladen](docs/operation.md#diagnose-herunterladen))
 
 Fehlentscheidungen der Strategie, falsche eigene Einstellungen, Herstellerfirmware
 und Modbus ohne Authentifizierung im lokalen Netz sind keine Sicherheitslücken

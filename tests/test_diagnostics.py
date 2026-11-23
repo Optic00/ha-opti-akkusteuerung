@@ -82,10 +82,11 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
             "reserve_plan": {"status": "planned", "required_soc": 47.2},
             "operating_report": {
                 "status": "collecting", "totals": {"house": 99}, "write_failures": 1,
-                "incidents": [{"at": "2026-11-23T01:00:00+00:00", "kind": "write_failed"}],
+                "incidents": [{"at": "2026-11-23T01:00:00+00:00", "kind": "write_failed"},
+                              {"at": "2026-11-23T02:00:00+00:00", "kind": []}],
                 "last_control": {"reason": f"Quelle {private_entity}"},
                 "last_peak": {"started_at": "2026-11-22T17:00:00+00:00", "plan_at_start": {"x": 1},
-                              "house_energy_kwh": 4.2},
+                              "house_energy_kwh": 4.2, "end_reason": ["x"]},
             },
             "demand_forecast": {
                 "status": "ready",

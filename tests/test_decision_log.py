@@ -77,9 +77,11 @@ def test_history_keeps_24_hours_and_a_fixed_count():
 def test_foreign_entity_ids_are_masked():
     log = DecisionLog()
     log.record(START, data(reason="Quelle sensor.private_meter fehlt, sensor.opti_test ok, "
-                                  "Host 192.168.1.20, 3.5 kW", decision_id="input_select.private"))
+                                  "Host 192.168.1.20, sensor2.opti_two, 2001:db8::1, fe80::1, "
+                                  "ab 02:00:00, 3.5 kW, 95.0%", decision_id="input_select.private"))
     [segment] = log.report(START)
-    assert segment["reason"] == "Quelle <entity> fehlt, <entity> ok, Host <host>, 3.5 kW"
+    assert segment["reason"] == ("Quelle <entity> fehlt, <entity> ok, Host <host>, <entity>, <host>, "
+                                 "<host>, ab 02:00:00, 3.5 kW, 95.0%")
     assert segment["decision_id"] == "<entity>"
     assert "private" not in json.dumps(segment)
 
@@ -88,7 +90,7 @@ def test_restore_round_trip_and_restart_split():
     log = DecisionLog()
     log.record(START, data())
     restored = DecisionLog()
-    restored.restore(json.loads(json.dumps(log.snapshot())))
+    restored.restore(json.loads(json.dumps(log.snapshot(START))), START)
     restored.record(START + timedelta(minutes=1), data())
 
     segments = restored.report(START + timedelta(minutes=1))
@@ -102,7 +104,7 @@ def test_restore_rejects_malformed_data():
                   {"version": 2, "segments": [{"from": "x"}]},
                   {"version": 2, "segments": [{}] * (MAX_SEGMENTS + 1)}):
         log = DecisionLog()
-        log.restore(saved)
+        log.restore(saved, START)
         assert log.report(START) == []
 
 
@@ -114,17 +116,17 @@ def test_restore_rebuilds_segments_from_allowed_fields():
         "price_ct": "nan",
     }]}
     log = DecisionLog()
-    log.restore(saved)
+    log.restore(saved, START + timedelta(minutes=5))
     [segment] = log.report(START + timedelta(minutes=5))
     assert "secret" not in segment
     assert len(segment["reason"]) == 200
     assert segment["soc"] is None and segment["price_ct"] is None
-    assert "token-123" not in json.dumps(log.snapshot())
+    assert "token-123" not in json.dumps(log.snapshot(START + timedelta(minutes=5)))
 
 
 def test_first_start_is_not_marked_as_restart():
     log = DecisionLog()
-    log.restore(None)
+    log.restore(None, START)
     log.record(START, data())
     [segment] = log.report(START)
     assert "after_restart" not in segment
@@ -147,3 +149,24 @@ def test_manual_mode_is_recorded():
     log.record(START, data(manual_mode="Akku Netzladen"))
     [segment] = log.report(START)
     assert segment["manual_mode"] == "Akku Netzladen"
+
+
+def test_restore_and_snapshot_drop_segments_older_than_24_hours():
+    log = DecisionLog()
+    log.record(START, data())
+    saved = log.snapshot(START)
+    later = START + timedelta(hours=48)
+    restored = DecisionLog()
+    restored.restore(saved, later)
+    assert restored.snapshot(later)["segments"] == []
+    assert log.snapshot(later)["segments"] == []
+
+
+def test_clock_moving_backwards_opens_a_new_segment():
+    log = DecisionLog()
+    log.record(START, data())
+    log.record(START + timedelta(minutes=10), data())
+    log.record(START + timedelta(minutes=5), data())
+    segments = log.report(START + timedelta(minutes=5))
+    assert len(segments) == 2
+    assert all(s["until"] >= s["from"] for s in segments)

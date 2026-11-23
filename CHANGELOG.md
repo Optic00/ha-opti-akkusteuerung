@@ -14,11 +14,12 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   jetzt die Entscheidungen der letzten 24 Stunden als Abschnitte (Modus,
   angeforderter Modus, Regel, Grund, Ladestand und Preis am Anfang und Ende,
   manueller Modus, Verbindungs- und Quellenstatus, fehlgeschlagene
-  Sicherheits-Pausen) sowie Zähler, Vorfälle und Peak-Zeiträume aus dem
+  Schreibvorgänge) sowie Zähler, Vorfälle und Peak-Zeiträume aus dem
   Betriebsbericht. Ein Bericht über eine Nacht
   lässt sich damit aus einer einzigen Datei nachvollziehen. Der Verlauf
   übersteht Neustarts, ist auf 200 Abschnitte von höchstens einer Stunde
-  begrenzt und maskiert Entitäts-IDs und IP-Adressen.
+  begrenzt und maskiert Entitäts-IDs und IP-Adressen. Der Entscheidungsgrund
+  kann die Zahlen der Regel enthalten (z. B. Exportleistung, Zellspannung).
 
 ## [2026.11-beta10] - 2026-11-22
 

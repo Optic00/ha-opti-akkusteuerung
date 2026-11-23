@@ -545,7 +545,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._planner_history.error = type(err).__name__
         self._demand_forecast.restore(stored.get("demand_forecast", {}))
         self._source_observation.restore(stored.get("source_observation", {}))
-        self.decision_log.restore(stored.get("decision_log"))
+        self.decision_log.restore(stored.get("decision_log"), dt_util.utcnow())
         previous_load_source = stored.get("load_source_fingerprint")
         same_load_source = (
             _canonical_load_fingerprint(previous_load_source) == self._load_source_fingerprint
@@ -683,7 +683,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "demand_forecast": demand,
                 "source_observation": self._source_observation.snapshot(),
                 "engine": self._engine_snapshot, "operating_report": self._operating_report.snapshot(),
-                "decision_log": self.decision_log.snapshot(),
+                "decision_log": self.decision_log.snapshot(dt_util.utcnow()),
                 "precharge_comparison": self._precharge_comparison.snapshot(),
                 "refill_reserve_comparison": self._refill_comparison.snapshot(),
                 "evcc_comparison": self._evcc_comparison.snapshot(),

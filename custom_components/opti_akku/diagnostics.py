@@ -162,7 +162,9 @@ def _peak_summary(peak: Any) -> dict[str, Any] | None:
     summary: dict[str, Any] = {key: _timestamp(peak.get(key)) for key in _PEAK_TIMES}
     summary.update({key: _soc(peak.get(key)) for key in _PEAK_SOCS})
     reason = peak.get("end_reason")
-    summary["end_reason"] = reason if reason in _PEAK_END_REASONS else None
+    summary["end_reason"] = (
+        reason if isinstance(reason, str) and reason in _PEAK_END_REASONS else None
+    )
     summary["control_enabled_at_start"] = peak.get("control_enabled_at_start") is True
     return summary
 
@@ -189,12 +191,21 @@ def _operating_report_summary(report: Any) -> dict[str, Any] | None:
     summary["incidents"] = [
         {"at": at, "kind": item["kind"]}
         for item in (incidents[-20:] if isinstance(incidents, list) else [])
-        if isinstance(item, Mapping) and item.get("kind") in _INCIDENT_KINDS
+        if isinstance(item, Mapping) and isinstance(item.get("kind"), str)
+        and item["kind"] in _INCIDENT_KINDS
         and (at := _timestamp(item.get("at"))) is not None
     ]
     summary["current_peak"] = _peak_summary(report.get("current_peak"))
     summary["last_peak"] = _peak_summary(report.get("last_peak"))
     return summary
+
+
+def _safe_operating_report(report: Any) -> dict[str, Any] | None:
+    """A malformed stored report must not break the diagnostics download."""
+    try:
+        return _operating_report_summary(report)
+    except Exception:  # noqa: BLE001 - diagnostics must still download
+        return {"status": "error"}
 
 
 def _decision_history(coordinator: Any) -> list[dict[str, Any]]:
@@ -294,7 +305,7 @@ async def async_get_config_entry_diagnostics(
             )
         },
         "ambitious_precharge": _ambitious_precharge_summary(data.get("ambitious_precharge")),
-        "operating_report": _operating_report_summary(data.get("operating_report")),
+        "operating_report": _safe_operating_report(data.get("operating_report")),
         "decision_history": _decision_history(coordinator),
         "strategy_comparison": _strategy_comparison_summary(
             data.get("demand_forecast", {}).get("strategy_comparison")

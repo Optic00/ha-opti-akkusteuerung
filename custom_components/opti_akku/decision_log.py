@@ -26,9 +26,14 @@ MAX_REASON = 200
 MAX_LABEL = 64
 MAX_CYCLES = 10_000
 
-# Entity IDs may name private devices or people; IPv4 addresses may name hosts.
-_ENTITY = re.compile(r"\b[a-z_]+\.[a-z0-9_]+\b")
+# Entity IDs may name private devices or people; IP addresses may name hosts.
+# Both parts of an entity ID need a letter, so decimals such as 3.5 stay.
+_ENTITY = re.compile(r"\b(?=[a-z0-9_]*[a-z])[a-z0-9_]+\.(?=[a-z0-9_]*[a-z])[a-z0-9_]+\b")
 _IPV4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
+_IPV6 = re.compile(
+    r"(?<![\w:])(?:(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}"
+    r"|(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{0,4}::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?)(?![\w:])",
+    re.IGNORECASE)
 
 _TEXT_FIELDS = ("mode", "requested_mode", "manual_mode", "decision_id")
 _BOOL_FIELDS = ("online", "source_errors", "strategy_enabled", "write_enabled")
@@ -56,7 +61,7 @@ def _label(value: Any) -> str | None:
 def _reason(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
-    text = _IPV4.sub("<host>", _ENTITY.sub("<entity>", value.strip()))
+    text = _IPV6.sub("<host>", _IPV4.sub("<host>", _ENTITY.sub("<entity>", value.strip())))
     return text[:MAX_REASON] if text else None
 
 
@@ -136,8 +141,12 @@ class DecisionLog:
         last = self._segments[-1] if self._segments else None
         same = last is not None and all(last[name] == value for name, value in fields.items())
         start = _parse(last["from"]) if last is not None else None
+        until = _parse(last["until"]) if last is not None else None
         too_long = start is not None and now - start >= MAX_SEGMENT
-        if same and not self._split_next and not too_long and last["cycles"] < MAX_CYCLES:
+        # A clock that moved backwards opens a new segment instead of ending before its start.
+        backwards = until is not None and now < until
+        if (same and not self._split_next and not too_long and not backwards
+                and last["cycles"] < MAX_CYCLES):
             last["until"] = now.isoformat()
             last["cycles"] += 1
             last["soc_last"] = soc
@@ -174,12 +183,13 @@ class DecisionLog:
         self._prune(now)
         return [clean for segment in self._segments if (clean := _clean(segment)) is not None]
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, now: datetime) -> dict[str, Any]:
+        self._prune(now)
         return {"version": VERSION,
                 "segments": [clean for segment in self._segments
                              if (clean := _clean(segment)) is not None]}
 
-    def restore(self, saved: Any) -> None:
+    def restore(self, saved: Any, now: datetime) -> None:
         """Rebuild saved segments field by field; malformed history starts empty."""
         self._segments = []
         if saved is None:
@@ -194,3 +204,4 @@ class DecisionLog:
         if any(segment is None for segment in restored):
             return
         self._segments = [segment for segment in restored if segment is not None]
+        self._prune(now)

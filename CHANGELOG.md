@@ -10,6 +10,17 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Neu
 
+- **Entscheidungsverlauf in der Diagnose (#222).** Die Diagnosedatei enthält
+  jetzt die Entscheidungen der letzten 24 Stunden als Abschnitte (Modus,
+  angeforderter Modus, Regel, Grund, Ladestand und Preis am Anfang und Ende,
+  manueller Modus, Verbindungs- und Quellenstatus, fehlgeschlagene
+  Schreibvorgänge) sowie Zähler, Vorfälle und Peak-Zeiträume aus dem
+  Betriebsbericht. Ein Bericht über eine Nacht
+  lässt sich damit aus einer einzigen Datei nachvollziehen. Der Verlauf
+  übersteht Neustarts, ist auf 200 Abschnitte von höchstens einer Stunde
+  begrenzt und maskiert Entitäts-IDs und IP-Adressen. Der Entscheidungsgrund
+  kann die Zahlen der Regel enthalten (z. B. Exportleistung, Zellspannung).
+
 - **Peak-Reserve mit Wärmepumpenzähler und geplantem Warmwasserlauf (#248).**
   Mit separatem Wärmepumpenzähler fiel die profilbasierte Peak-Reserve bisher
   komplett auf den eingestellten Ersatzverbrauch zurück. Sie verwendet jetzt das

@@ -9,7 +9,10 @@ in einem öffentlichen Issue melden, sondern privat über
 - Schreibzugriffe trotz ausgeschalteter Schreibfreigabe oder im Shadow-Betrieb
 - umgangene Schreibsperren, Sicherheitsgrenzen oder Gerätebindungen
 - Zugangsdaten, Seriennummern, Hostnamen oder Messhistorien im Diagnoseexport, in
-  Logs oder in Benachrichtigungen
+  Logs oder in Benachrichtigungen; ausgenommen ist der dokumentierte
+  Entscheidungsverlauf der letzten 24 Stunden mit Ladestand, Preis und
+  Entscheidungsgrund sowie die Ladestände des aktuellen und letzten Peak-Zeitraums
+  aus dem Betriebsbericht ([Diagnose herunterladen](docs/operation.md#diagnose-herunterladen))
 
 Fehlentscheidungen der Strategie, falsche eigene Einstellungen, Herstellerfirmware
 und Modbus ohne Authentifizierung im lokalen Netz sind keine Sicherheitslücken

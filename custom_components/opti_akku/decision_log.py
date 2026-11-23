@@ -155,14 +155,21 @@ class DecisionLog:
         # sources change during I/O and does not.
         failed = data.get("command_result_this_update") == "failed"
         fields = self._fields(data)
+        clock_back = False
+        if self._segments and (until := _parse(self._segments[-1]["until"])) is not None and now < until:
+            # The clock moved backwards: history after "now" can no longer be
+            # placed, so it is dropped and the list stays in chronological order.
+            self._segments = [segment for segment in self._segments
+                              if (start := _parse(segment["from"])) is not None and start <= now]
+            for segment in self._segments:
+                if (end := _parse(segment["until"])) is not None and end > now:
+                    segment["until"] = now.isoformat()
+            clock_back = True
         last = self._segments[-1] if self._segments else None
         same = last is not None and all(last[name] == value for name, value in fields.items())
         start = _parse(last["from"]) if last is not None else None
-        until = _parse(last["until"]) if last is not None else None
         too_long = start is not None and now - start >= MAX_SEGMENT
-        # A clock that moved backwards opens a new segment instead of ending before its start.
-        backwards = until is not None and now < until
-        if (same and not self._split_next and not too_long and not backwards
+        if (same and not self._split_next and not too_long and not clock_back
                 and last["cycles"] < MAX_CYCLES):
             last["until"] = now.isoformat()
             last["cycles"] += 1

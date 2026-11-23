@@ -46,6 +46,7 @@ def test_unchanged_decision_extends_one_segment():
 def test_changed_mode_health_or_decision_starts_new_segment():
     log = DecisionLog()
     log.record(START, data())
+    log.record(START + timedelta(seconds=30), data(decision_id="peak_hold"))
     log.record(START + timedelta(minutes=1), data(mode="Akku Netzladen", decision_id="peak_precharge"))
     log.record(START + timedelta(minutes=2), data(mode="Akku Netzladen", decision_id="peak_precharge",
                                                   online=False))
@@ -56,10 +57,12 @@ def test_changed_mode_health_or_decision_starts_new_segment():
                     command_result_this_update="superseded"))
 
     segments = log.report(START + timedelta(minutes=3, seconds=30))
-    assert [s["mode"] for s in segments] == ["Akku Dynamisch", "Akku Netzladen", "Akku Netzladen"]
-    assert [s["online"] for s in segments] == [True, True, False]
-    assert segments[1]["decision_id"] == "peak_precharge"
-    assert segments[2]["write_failures"] == 1
+    assert [s["decision_id"] for s in segments] == [
+        "default", "peak_hold", "peak_precharge", "peak_precharge"]
+    assert [s["mode"] for s in segments] == [
+        "Akku Dynamisch", "Akku Dynamisch", "Akku Netzladen", "Akku Netzladen"]
+    assert [s["online"] for s in segments] == [True, True, True, False]
+    assert segments[3]["write_failures"] == 1
 
 
 def test_history_keeps_24_hours_and_a_fixed_count():
@@ -116,7 +119,7 @@ def test_restore_rebuilds_segments_from_allowed_fields():
     saved = {"version": 2, "segments": [{
         "from": START.isoformat(), "until": (START + timedelta(minutes=5)).isoformat(),
         "cycles": 10, "write_failures": 0, "mode": "Akku Pause",
-        "reason": "x" * 500 + " sensor.private_meter", "secret": "token-123", "soc": 140,
+        "reason": "Halten für sensor.private_meter " + "x" * 500, "secret": "token-123", "soc": 140,
         "price_ct": "nan",
     }]}
     log = DecisionLog()
@@ -124,8 +127,10 @@ def test_restore_rebuilds_segments_from_allowed_fields():
     [segment] = log.report(START + timedelta(minutes=5))
     assert "secret" not in segment
     assert len(segment["reason"]) == 200
+    assert segment["reason"].startswith("Halten für <entity> x")
     assert segment["soc"] is None and segment["price_ct"] is None
-    assert "token-123" not in json.dumps(log.snapshot(START + timedelta(minutes=5)))
+    snapshot = json.dumps(log.snapshot(START + timedelta(minutes=5)))
+    assert "token-123" not in snapshot and "private_meter" not in snapshot
 
 
 def test_first_start_is_not_marked_as_restart():
@@ -174,6 +179,21 @@ def test_clock_moving_backwards_opens_a_new_segment():
     segments = log.report(START + timedelta(minutes=5))
     assert len(segments) == 2
     assert all(s["until"] >= s["from"] for s in segments)
+    assert segments[0]["until"] == segments[1]["from"]
+    assert "after_restart" not in segments[1]
+
+
+def test_clock_moving_backwards_keeps_history_in_order():
+    log = DecisionLog()
+    log.record(START, data())
+    log.record(START + timedelta(minutes=20), data(mode="Akku Pause"))
+    log.record(START + timedelta(minutes=30), data(mode="Akku Pause"))
+    log.record(START + timedelta(minutes=10), data(mode="Akku Netzladen"))
+    log.record(START + timedelta(minutes=11), data(mode="Akku Netzladen"))
+    segments = log.report(START + timedelta(minutes=11))
+    assert [s["mode"] for s in segments] == ["Akku Dynamisch", "Akku Netzladen"]
+    assert [s["from"] for s in segments] == sorted(s["from"] for s in segments)
+    assert segments[1]["cycles"] == 2
 
 
 def test_segments_from_the_future_are_dropped_after_a_clock_jump():

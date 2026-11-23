@@ -311,3 +311,45 @@ async def test_diagnostics_summarises_the_charge_curve(hass):
     assert result["configuration"]["charge_curve"] == "ab 85 % 4000 W, ab 100 % 70 W"
     without = MockConfigEntry(domain="opti_akku", data={}, options={})
     assert "charge_curve" not in (await async_get_config_entry_diagnostics(hass, without))["configuration"]
+
+
+class _BrokenReport(dict):
+    """A report whose incident list cannot be read."""
+
+    def get(self, key, default=None):
+        if key == "incidents":
+            raise RuntimeError("broken")
+        return super().get(key, default)
+
+
+class _BrokenLog:
+    def report(self, _now):
+        raise RuntimeError("broken")
+
+
+async def test_diagnostics_survive_malformed_history_and_report(hass):
+    entry = config_entry(hass)
+    entry.runtime_data = SimpleNamespace(
+        shadow_mode=False, strategy_enabled=True, decision_log=_BrokenLog(),
+        data={"operating_report": _BrokenReport()},
+    )
+    result = await async_get_config_entry_diagnostics(hass, entry)
+    assert result["operating_report"] == {"status": "error"}
+    assert result["decision_history"] == []
+
+    entry.runtime_data.data = {"operating_report": {
+        "status": 3, "started_at": "nope", "last_observation": "2026-11-23T01:00:00",
+        "coverage_percent": True, "disconnects": -1,
+        "current_peak": {"started_at": 7, "start_soc": "50", "last_soc": True, "min_soc": 150,
+                         "max_soc": 42.26, "end_reason": "price_period_ended"},
+    }}
+    report = (await async_get_config_entry_diagnostics(hass, entry))["operating_report"]
+    assert report["status"] is None
+    assert report["started_at"] is None and report["last_observation"] is None
+    assert report["coverage_percent"] is None and report["disconnects"] is None
+    assert report["current_peak"]["started_at"] is None
+    assert report["current_peak"]["start_soc"] is None
+    assert report["current_peak"]["last_soc"] is None
+    assert report["current_peak"]["min_soc"] is None
+    assert report["current_peak"]["max_soc"] == 42.3
+    assert report["current_peak"]["end_reason"] == "price_period_ended"

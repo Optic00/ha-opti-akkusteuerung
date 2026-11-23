@@ -179,3 +179,14 @@ def test_segments_from_the_future_are_dropped_after_a_clock_jump():
     log.record(START - timedelta(days=4), data(mode="Akku Pause"))
     [segment] = log.report(START - timedelta(days=4))
     assert segment["mode"] == "Akku Pause"
+
+
+def test_invalid_inputs_are_ignored():
+    log = DecisionLog()
+    log.record(START, None)
+    assert log.report(START) == []
+    log.record(START, data(soc=True))
+    [segment] = log.report(START)
+    assert segment["soc"] is None
+    log.restore({"version": 2, "segments": ["not a segment"]}, START)
+    assert log.report(START) == []

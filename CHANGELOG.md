@@ -13,11 +13,12 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 - **Entscheidungsverlauf in der Diagnose (#222).** Die Diagnosedatei enthält
   jetzt die Entscheidungen der letzten 24 Stunden als Abschnitte (Modus,
   angeforderter Modus, Regel, Grund, Ladestand und Preis am Anfang und Ende,
-  Verbindungs- und Quellenstatus, fehlgeschlagene Schreibversuche) sowie
-  Zähler und Vorfälle aus dem Betriebsbericht. Ein Bericht über eine Nacht
+  manueller Modus, Verbindungs- und Quellenstatus, fehlgeschlagene
+  Sicherheits-Pausen) sowie Zähler, Vorfälle und Peak-Zeiträume aus dem
+  Betriebsbericht. Ein Bericht über eine Nacht
   lässt sich damit aus einer einzigen Datei nachvollziehen. Der Verlauf
-  übersteht Neustarts, ist auf 200 Abschnitte begrenzt und maskiert
-  Entitäts-IDs außerhalb von Opti Akku.
+  übersteht Neustarts, ist auf 200 Abschnitte von höchstens einer Stunde
+  begrenzt und maskiert Entitäts-IDs und IP-Adressen.
 
 ## [2026.11-beta10] - 2026-11-22
 

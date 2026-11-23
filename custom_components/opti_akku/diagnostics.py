@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from collections import Counter
+from datetime import datetime
+from math import isfinite
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -125,24 +127,73 @@ _AMBITIOUS_KEYS = (
 )
 
 
-_OPERATING_KEYS = (
-    "status", "started_at", "last_observation", "coverage_percent", "disconnects",
-    "source_error_episodes", "write_failures", "sampling_gaps", "restarts", "clock_changes",
-    "incidents", "current_peak", "last_peak",
+_OPERATING_COUNTERS = (
+    "disconnects", "source_error_episodes", "write_failures", "sampling_gaps", "restarts",
+    "clock_changes",
 )
+_INCIDENT_KINDS = frozenset({
+    "clock_moved_backwards", "coverage_gap", "offline", "restart", "source_error", "write_failed",
+})
+_PEAK_TIMES = ("started_at", "ended_at")
+_PEAK_SOCS = ("start_soc", "last_soc", "min_soc", "max_soc")
+_PEAK_END_REASONS = frozenset({"strategy_disabled", "price_period_ended"})
+
+
+def _timestamp(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed.isoformat() if parsed.tzinfo is not None else None
+
+
+def _soc(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return round(float(value), 1) if isfinite(value) and 0 <= value <= 100 else None
+
+
+def _peak_summary(peak: Any) -> dict[str, Any] | None:
+    """Start, end and charge levels of a peak period; no energies or plan copy."""
+    if not isinstance(peak, Mapping):
+        return None
+    summary: dict[str, Any] = {key: _timestamp(peak.get(key)) for key in _PEAK_TIMES}
+    summary.update({key: _soc(peak.get(key)) for key in _PEAK_SOCS})
+    reason = peak.get("end_reason")
+    summary["end_reason"] = reason if reason in _PEAK_END_REASONS else None
+    summary["control_enabled_at_start"] = peak.get("control_enabled_at_start") is True
+    return summary
 
 
 def _operating_report_summary(report: Any) -> dict[str, Any] | None:
-    """Counters, incidents and peak periods of the operating report."""
+    """Counters, incidents and peak periods of the operating report (allowlist)."""
     if not isinstance(report, Mapping):
         return None
-    summary = {key: report[key] for key in _OPERATING_KEYS if key in report}
-    for key in ("current_peak", "last_peak"):
-        # The plan copy at the peak start is already covered by reserve_plan.
-        if isinstance(summary.get(key), Mapping):
-            summary[key] = {
-                name: value for name, value in summary[key].items() if name != "plan_at_start"
-            }
+    summary: dict[str, Any] = {
+        "status": report.get("status") if isinstance(report.get("status"), str) else None,
+        "started_at": _timestamp(report.get("started_at")),
+        "last_observation": _timestamp(report.get("last_observation")),
+    }
+    coverage = report.get("coverage_percent")
+    summary["coverage_percent"] = (
+        round(float(coverage), 1)
+        if isinstance(coverage, (int, float)) and not isinstance(coverage, bool)
+        and isfinite(coverage) and 0 <= coverage <= 100 else None
+    )
+    for key in _OPERATING_COUNTERS:
+        value = report.get(key)
+        summary[key] = value if type(value) is int and value >= 0 else None
+    incidents = report.get("incidents")
+    summary["incidents"] = [
+        {"at": at, "kind": item["kind"]}
+        for item in (incidents[-20:] if isinstance(incidents, list) else [])
+        if isinstance(item, Mapping) and item.get("kind") in _INCIDENT_KINDS
+        and (at := _timestamp(item.get("at"))) is not None
+    ]
+    summary["current_peak"] = _peak_summary(report.get("current_peak"))
+    summary["last_peak"] = _peak_summary(report.get("last_peak"))
     return summary
 
 

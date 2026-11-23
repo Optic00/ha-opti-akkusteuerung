@@ -84,7 +84,8 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
                 "status": "collecting", "totals": {"house": 99}, "write_failures": 1,
                 "incidents": [{"at": "2026-11-23T01:00:00+00:00", "kind": "write_failed"}],
                 "last_control": {"reason": f"Quelle {private_entity}"},
-                "last_peak": {"started_at": "2026-11-22T17:00:00+00:00", "plan_at_start": {"x": 1}},
+                "last_peak": {"started_at": "2026-11-22T17:00:00+00:00", "plan_at_start": {"x": 1},
+                              "house_energy_kwh": 4.2},
             },
             "demand_forecast": {
                 "status": "ready",
@@ -163,9 +164,14 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
         "ambitious_precharge": "active",
     }
     assert result["operating_report"] == {
-        "status": "collecting", "write_failures": 1,
+        "status": "collecting", "started_at": None, "last_observation": None,
+        "coverage_percent": None, "disconnects": None, "source_error_episodes": None,
+        "write_failures": 1, "sampling_gaps": None, "restarts": None, "clock_changes": None,
         "incidents": [{"at": "2026-11-23T01:00:00+00:00", "kind": "write_failed"}],
-        "last_peak": {"started_at": "2026-11-22T17:00:00+00:00"},
+        "current_peak": None,
+        "last_peak": {"started_at": "2026-11-22T17:00:00+00:00", "ended_at": None,
+                      "start_soc": None, "last_soc": None, "min_soc": None, "max_soc": None,
+                      "end_reason": None, "control_enabled_at_start": False},
     }
     [segment] = result["decision_history"]
     assert segment["mode"] == "Akku Pause"

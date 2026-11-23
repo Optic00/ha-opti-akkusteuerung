@@ -888,11 +888,17 @@ richtig ist.
 
 Unter **Einstellungen -> Geräte & Dienste -> Opti Akku -> Drei-Punkte-Menü ->
 Diagnose herunterladen** stellt Home Assistant eine kompakte Support-Datei
-bereit. Sie enthält Betriebsart, Verbindungs- und Funktionsstatus sowie
-zusammengefasste Fehlercodes. Hostnamen, IP-Adressen, Seriennummern, Entity-IDs,
-Fahrzeugdaten, Messwerte und Historien werden nicht exportiert. Prüfe die Datei
-trotzdem vor einer Veröffentlichung und teile sie bevorzugt über die
-Issue-Vorlage statt als vollständige Home-Assistant-Konfiguration.
+bereit. Sie enthält Betriebsart, Verbindungs- und Funktionsstatus,
+zusammengefasste Fehlercodes, Zähler und Vorfälle des Betriebsberichts sowie den
+Entscheidungsverlauf der letzten 24 Stunden. Der Verlauf ist in Abschnitte
+gleicher Entscheidung geteilt und nennt je Abschnitt Beginn und Ende, Modus,
+Regel, Entscheidungsgrund, Ladestand und Strompreis am Anfang und Ende sowie
+Verbindungs- und Quellenstatus. Damit lässt sich etwa eine Nacht mit geplantem
+Netzladen ohne weitere Screenshots nachvollziehen. Hostnamen, IP-Adressen,
+Seriennummern, Entity-IDs fremder Integrationen, Fahrzeugdaten und weitere
+Messwerte werden nicht exportiert. Prüfe die Datei trotzdem vor einer
+Veröffentlichung und teile sie bevorzugt über die Issue-Vorlage statt als
+vollständige Home-Assistant-Konfiguration.
 
 ### Wie viel Energie zum Nachfüllen fehlt
 

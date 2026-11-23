@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.opti_akku.decision_log import DecisionLog
 from custom_components.opti_akku.diagnostics import async_get_config_entry_diagnostics
 
 
@@ -38,9 +40,13 @@ def config_entry(hass):
 async def test_diagnostics_reports_health_without_private_bindings(hass):
     entry = config_entry(hass)
     private_entity = "sensor.private_house_meter"
+    log = DecisionLog()
+    log.record(datetime.now(UTC), {"mode": "Akku Pause", "reason": f"Quelle {private_entity} fehlt",
+                                   "online": True, "states": {"sensor.opti_soc": 12.0}})
     entry.runtime_data = SimpleNamespace(
         shadow_mode=True,
         strategy_enabled=True,
+        decision_log=log,
         data={
             "online": True,
             "write_enabled": False,
@@ -74,7 +80,12 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
             "last_error": f"Failed source {private_entity}",
             "notification_error": "notify.mobile_app_private_phone",
             "reserve_plan": {"status": "planned", "required_soc": 47.2},
-            "operating_report": {"status": "collecting", "totals": {"house": 99}},
+            "operating_report": {
+                "status": "collecting", "totals": {"house": 99}, "write_failures": 1,
+                "incidents": [{"at": "2026-11-23T01:00:00+00:00", "kind": "write_failed"}],
+                "last_control": {"reason": f"Quelle {private_entity}"},
+                "last_peak": {"started_at": "2026-11-22T17:00:00+00:00", "plan_at_start": {"x": 1}},
+            },
             "demand_forecast": {
                 "status": "ready",
                 "history": [1, 2, 3],
@@ -151,6 +162,14 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
         "standby_reserve": "holding",
         "ambitious_precharge": "active",
     }
+    assert result["operating_report"] == {
+        "status": "collecting", "write_failures": 1,
+        "incidents": [{"at": "2026-11-23T01:00:00+00:00", "kind": "write_failed"}],
+        "last_peak": {"started_at": "2026-11-22T17:00:00+00:00"},
+    }
+    [segment] = result["decision_history"]
+    assert segment["mode"] == "Akku Pause"
+    assert segment["reason"] == "Quelle <entity> fehlt"
     assert result["ambitious_precharge"] == {"status": "active", "action": "charge", "target_soc": 56.0,
                                              "controls_battery": True}
     assert result["strategy_comparison"] == {

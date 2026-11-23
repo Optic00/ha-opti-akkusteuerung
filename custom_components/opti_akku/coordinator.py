@@ -28,6 +28,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.util import dt as dt_util
 
 from .alerts import HealthAlerts, night_standby
+from .decision_log import DecisionLog
 from .repairs import RepairIssues
 from .arbitrage import (
     PrechargeComparison,
@@ -325,6 +326,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._load_profile = LoadProfile()
         self._score_load_profile = LoadProfile()
         self._operating_report = OperatingReport()
+        self.decision_log = DecisionLog()
         self._precharge_comparison = PrechargeComparison()
         self._refill_comparison = RefillReserveComparison()
         self._evcc_comparison = EvccComparison()
@@ -543,6 +545,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._planner_history.error = type(err).__name__
         self._demand_forecast.restore(stored.get("demand_forecast", {}))
         self._source_observation.restore(stored.get("source_observation", {}))
+        self.decision_log.restore(stored.get("decision_log"))
         previous_load_source = stored.get("load_source_fingerprint")
         same_load_source = (
             _canonical_load_fingerprint(previous_load_source) == self._load_source_fingerprint
@@ -680,6 +683,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "demand_forecast": demand,
                 "source_observation": self._source_observation.snapshot(),
                 "engine": self._engine_snapshot, "operating_report": self._operating_report.snapshot(),
+                "decision_log": self.decision_log.snapshot(),
                 "precharge_comparison": self._precharge_comparison.snapshot(),
                 "refill_reserve_comparison": self._refill_comparison.snapshot(),
                 "evcc_comparison": self._evcc_comparison.snapshot(),
@@ -983,6 +987,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.alerts.update(data)
         with self._auxiliary_guard("repairs"):
             self.repairs.sync(data)
+        with self._auxiliary_guard("decision_log"):
+            self.decision_log.record(dt_util.utcnow(), data)
         data["notification_error"] = self.alerts.delivery_error
         # Never await journal I/O here: HA serializes this whole method.
         with self._auxiliary_guard("journal"):

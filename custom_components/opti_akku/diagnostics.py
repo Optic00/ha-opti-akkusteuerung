@@ -8,6 +8,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from .charge_curve import format_curve
 
@@ -124,6 +125,38 @@ _AMBITIOUS_KEYS = (
 )
 
 
+_OPERATING_KEYS = (
+    "status", "started_at", "last_observation", "coverage_percent", "disconnects",
+    "source_error_episodes", "write_failures", "sampling_gaps", "restarts", "clock_changes",
+    "incidents", "current_peak", "last_peak",
+)
+
+
+def _operating_report_summary(report: Any) -> dict[str, Any] | None:
+    """Counters, incidents and peak periods of the operating report."""
+    if not isinstance(report, Mapping):
+        return None
+    summary = {key: report[key] for key in _OPERATING_KEYS if key in report}
+    for key in ("current_peak", "last_peak"):
+        # The plan copy at the peak start is already covered by reserve_plan.
+        if isinstance(summary.get(key), Mapping):
+            summary[key] = {
+                name: value for name, value in summary[key].items() if name != "plan_at_start"
+            }
+    return summary
+
+
+def _decision_history(coordinator: Any) -> list[dict[str, Any]]:
+    """Decision segments of the last 24 hours, oldest first."""
+    log = getattr(coordinator, "decision_log", None)
+    if log is None:
+        return []
+    try:
+        return log.report(dt_util.utcnow())
+    except Exception:  # noqa: BLE001 - diagnostics must still download
+        return []
+
+
 def _ambitious_precharge_summary(report: Any) -> dict[str, Any] | None:
     """Plan figures of the ambitious precharge (#222), without the slot list."""
     if not isinstance(report, Mapping):
@@ -134,7 +167,10 @@ def _ambitious_precharge_summary(report: Any) -> dict[str, Any] | None:
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
-    """Return support data without hosts, serials, entity IDs or history."""
+    """Return support data without hosts, serials or foreign entity IDs.
+
+    History is limited to the integration's own decisions of the last 24 hours.
+    """
     options = entry.options if isinstance(entry.options, Mapping) else {}
     coordinator = getattr(entry, "runtime_data", None)
     data = (
@@ -207,6 +243,8 @@ async def async_get_config_entry_diagnostics(
             )
         },
         "ambitious_precharge": _ambitious_precharge_summary(data.get("ambitious_precharge")),
+        "operating_report": _operating_report_summary(data.get("operating_report")),
+        "decision_history": _decision_history(coordinator),
         "strategy_comparison": _strategy_comparison_summary(
             data.get("demand_forecast", {}).get("strategy_comparison")
             if isinstance(data.get("demand_forecast"), Mapping)

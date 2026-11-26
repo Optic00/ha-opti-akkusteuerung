@@ -8,6 +8,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+## [2026.11-beta10] - 2026-11-26
+
 ### Neu
 
 - **Entscheidungsverlauf in der Diagnose (#222).** Die Diagnosedatei enthält
@@ -20,11 +22,6 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   übersteht Neustarts, ist auf 200 Abschnitte von höchstens einer Stunde
   begrenzt und maskiert Entitäts-IDs und IP-Adressen. Der Entscheidungsgrund
   kann die Zahlen der Regel enthalten (z. B. Exportleistung, Zellspannung).
-
-## [2026.11-beta10] - 2026-11-22
-
-### Neu
-
 - **Ehrgeiziges Vorladen (experimentell, auf eigenes Risiko, #222).** Neue
   Option unter *Optionale Funktionen*: Nachts plant Opti den ganzen kommenden
   Tag aus PV-Prognose (P10 oder Median), Lastprofil, Preisen und Akkumodell und

@@ -309,6 +309,15 @@ Tag summiert, nicht als getrennte Mediane verrechnet. Ohne geplanten Lauf bleibt
 gelernte Warmwasseranteil in der Stunde, in der er bisher lief. Mit Zähler gibt es
 keinen Recorder-Import; bis genug Tage gelernt sind, gilt der Ersatzverbrauch.
 
+Als Wärmepumpenzähler eignet sich jeder Sensor mit der **elektrischen**
+Leistungsaufnahme in W oder kW, die im Hausverbrauch bereits enthalten ist, zum
+Beispiel ein eigener Zwischenzähler oder ein Modbus-Register der Wärmepumpe wie die
+elektrische Aufnahmeleistung beim Stiebel Eltron WPM-G. Die thermische Leistung wird
+nicht benötigt. Ein kleiner Standby-Wert von einigen Watt stört nicht. Ein
+elektrischer Heizstab sollte im Wert enthalten sein; sonst bleibt seine Last in der
+Grundlast. Warmwasserläufe erkennt Opti über die Warmwasser-Aktivmeldung, nicht aus
+dem Leistungsverlauf.
+
 Optional liefert eine Entität den **nächsten geplanten Warmwasserstart**: ein
 Zeitstempel-Sensor oder ein `input_datetime` mit Datum und Uhrzeit, den eine eigene
 Automation setzt, etwa auf das günstigste Preisfenster oder den PV-Überschuss.

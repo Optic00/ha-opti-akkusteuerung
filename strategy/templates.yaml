@@ -246,8 +246,15 @@ template_blocks:
          (load_source *_ev_fallback, etwa beim Ladestart), rechnet der Score
          mit der Wallbox-Ladung; der Horizont haelt dann seinen Vorzustand in
          beide Richtungen (#155). Ohne Vorzustand (Neueintrag, #125)
-         bleibt die bisherige Einstiegsregel. #}
-      {% set war_an = this is defined and this.state == 'on' %} {% set alt = this.attributes if this is defined and this.attributes is mapping else {} %} {% set an_echt = war_an and alt.get('an_quelle', 'score') != 'score_fehlt' %} {% set hat_vorzustand = this is defined and this.state in ['on', 'off'] %} {% set nacht = is_state('sun.sun', 'below_horizon') %} {% set nacht_halt = state_attr('sensor.opti_forecast_score_sonnentag', 'load_source') != 'tagesmittel_24h' %} {% set ev_fehlt = state_attr('sensor.opti_forecast_score_sonnentag', 'load_source') in ['raw_60min_ev_fallback', 'current_house_ev_fallback'] %} {% set score = states('sensor.opti_forecast_score_sonnentag') | float(none) %} {% if score is none %}
+         bleibt die bisherige Einstiegsregel.
+         Winter-Tor (Issue #257): Faellt der naechste Sonnenaufgang in die
+         Monate November bis Februar, ist der Horizont immer lang. Die PV
+         laedt dann nach Sonnenaufgang den Akku bis zur Abendspitze nicht
+         verlaesslich nach; der Score gilt schon ab 30 % Tagesdeckung als gut.
+         Grobes, DST-festes Monatstor wie in opti_pv_reichtag. #}
+      {% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {% set winter = rise is not none and rise.month in [11, 12, 1, 2] %} {% set war_an = this is defined and this.state == 'on' %} {% set alt = this.attributes if this is defined and this.attributes is mapping else {} %} {% set an_echt = war_an and alt.get('an_quelle', 'score') != 'score_fehlt' %} {% set hat_vorzustand = this is defined and this.state in ['on', 'off'] %} {% set nacht = is_state('sun.sun', 'below_horizon') %} {% set nacht_halt = state_attr('sensor.opti_forecast_score_sonnentag', 'load_source') != 'tagesmittel_24h' %} {% set ev_fehlt = state_attr('sensor.opti_forecast_score_sonnentag', 'load_source') in ['raw_60min_ev_fallback', 'current_house_ev_fallback'] %} {% set score = states('sensor.opti_forecast_score_sonnentag') | float(none) %} {% if winter %}
+        {{ true }}
+      {% elif score is none %}
         {{ true }}
       {% elif ev_fehlt and hat_vorzustand %}
         {{ war_an }}
@@ -262,7 +269,9 @@ template_blocks:
            Ein bei fehlender EV-Bereinigung gehaltenes "an" behaelt seine Herkunft. #}
         {% set war_an = this is defined and this.state == 'on' %} {% set alt = this.attributes if this is defined and this.attributes is mapping else {} %} {% set an_echt = war_an and alt.get('an_quelle', 'score') != 'score_fehlt' %} {% set ev_fehlt = state_attr('sensor.opti_forecast_score_sonnentag', 'load_source') in ['raw_60min_ev_fallback', 'current_house_ev_fallback'] %} {{ 'score_fehlt' if not an_echt and (states('sensor.opti_forecast_score_sonnentag') | float(none) is none or (ev_fehlt and war_an)) else 'score' }}
       branch: |
-        {% set war_an = this is defined and this.state == 'on' %} {% set alt = this.attributes if this is defined and this.attributes is mapping else {} %} {% set an_echt = war_an and alt.get('an_quelle', 'score') != 'score_fehlt' %} {% set hat_vorzustand = this is defined and this.state in ['on', 'off'] %} {% set nacht = is_state('sun.sun', 'below_horizon') %} {% set nacht_halt = state_attr('sensor.opti_forecast_score_sonnentag', 'load_source') != 'tagesmittel_24h' %} {% set ev_fehlt = state_attr('sensor.opti_forecast_score_sonnentag', 'load_source') in ['raw_60min_ev_fallback', 'current_house_ev_fallback'] %} {% set roh = states('sensor.opti_forecast_score_sonnentag') %} {% set score = roh | float(none) %} {% if score is none %}
+        {% set war_an = this is defined and this.state == 'on' %} {% set alt = this.attributes if this is defined and this.attributes is mapping else {} %} {% set an_echt = war_an and alt.get('an_quelle', 'score') != 'score_fehlt' %} {% set hat_vorzustand = this is defined and this.state in ['on', 'off'] %} {% set nacht = is_state('sun.sun', 'below_horizon') %} {% set nacht_halt = state_attr('sensor.opti_forecast_score_sonnentag', 'load_source') != 'tagesmittel_24h' %} {% set ev_fehlt = state_attr('sensor.opti_forecast_score_sonnentag', 'load_source') in ['raw_60min_ev_fallback', 'current_house_ev_fallback'] %} {% set roh = states('sensor.opti_forecast_score_sonnentag') %} {% set score = roh | float(none) %} {% set rising = state_attr('sun.sun', 'next_rising') %} {% set rise = (rising | as_datetime | as_local) if rising else none %} {% if rise is not none and rise.month in [11, 12, 1, 2] %}
+          Score={{ roh }} -> an (36 h, Winter-Tor: Sonnenaufgang {{ rise.strftime('%d.%m.') }}, November bis Februar)
+        {% elif score is none %}
           Score={{ roh }} fehlt -> an (36 h{{ ', echter Vorzustand an' if an_echt else ', haelt nicht als Vorzustand' }})
         {% elif ev_fehlt and hat_vorzustand %}
           Score={{ roh }} -> EV-bereinigte Last fehlt ({{ state_attr('sensor.opti_forecast_score_sonnentag', 'load_source') }}): Vorzustand {{ 'an' if war_an else 'aus' }} gehalten
@@ -950,7 +959,7 @@ template_blocks:
         {% set rising = state_attr('sun.sun', 'next_rising') %}
         {% set rise = (rising | as_datetime | as_local) if rising else none %}
         {# Score-Auswahl und Hysterese liegen ausschliesslich in
-           binary_sensor.opti_peak_horizont_lang (Issue #70), Score-
+           binary_sensor.opti_peak_horizont_lang (Issue #70, Winter-Tor #257), Score-
            Hysterese, Monatstor und 06:30-Riegel des 1-h-Puffers in
            opti_pv_reichtag. Beide
            lesen denselben Sonnentag-Score; die Pruefungen daher nicht hier

@@ -1718,8 +1718,12 @@ async def test_score_ev_opt_in_uses_cleaned_load_without_changing_real_house(coo
     assert invalid["reserve_plan"]["score_load_error"] == "ev_power"
 
 
-async def test_ev_power_ahead_of_house_load_marks_the_score_and_holds_the_horizon(coordinator, hass):
+async def test_ev_power_ahead_of_house_load_marks_the_score_and_holds_the_horizon(
+    coordinator, hass, freezer
+):
     """Charge start (#155): wallbox power arrives before the house load contains it."""
+    # Ausserhalb des Winter-Tors (#257), sonst ist der Horizont immer lang.
+    freezer.move_to("2026-10-22T01:45:00+00:00")
     options = {**coordinator.entry.options,
                "sources": {"ev1_power": "sensor.ev", "ev1_charging": "binary_sensor.ev",
                            "forecast_today": "sensor.pv_today", "forecast_tomorrow": "sensor.pv_tomorrow"},

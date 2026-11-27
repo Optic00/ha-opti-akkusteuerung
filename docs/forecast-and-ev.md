@@ -200,6 +200,10 @@ Ansonsten gilt ohne EV-Option weiterhin die bisherige Berechnung.
 `score_load_error`. Ein neuer Eintrag startet bei gültigem Score zwischen den
 Schaltschwellen mit kurzem Horizont; ein vorhandener langer Horizont bleibt
 in diesem Bereich erhalten. Ein fehlender Score wählt weiterhin 36 Stunden.
+Fällt der nächste Sonnenaufgang in die Monate November bis Februar, ist der
+Horizont unabhängig vom Score lang (Winter-Tor, #257): Im Winter lädt die PV den
+Akku nach Sonnenaufgang bis zur Abendspitze nicht verlässlich nach, obwohl der
+Score schon ab 30 % Tagesdeckung als gut gilt.
 Dieses „an“ zählt aber nicht als Vorzustand: Kehrt der Score zurück, gilt die
 Einstiegsregel wie bei einem Neueintrag, und der Horizont hält weder in der
 Hysterese noch nachts. Ein bereits aus einem gültigen Score stammendes „an“

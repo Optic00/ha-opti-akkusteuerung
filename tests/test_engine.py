@@ -833,6 +833,53 @@ def test_peak_precharge_requires_full_entry_gap_but_continues_below_reserve(
     assert result.states["sensor.opti_engine_diagnostics"] == "ok"
 
 
+@pytest.mark.parametrize("day,short", [
+    (dt.date(2026, 10, 31), True),
+    (dt.date(2026, 11, 1), False),
+    (dt.date(2026, 12, 15), False),
+    (dt.date(2027, 1, 15), False),
+    (dt.date(2027, 2, 28), False),
+    (dt.date(2027, 3, 1), True),
+])
+def test_winter_gate_keeps_long_night_horizon(day, short):
+    # Issue #257: Im Winter deckt die PV nach Sonnenaufgang die Abendspitze
+    # nicht, auch wenn der Sonnentag-Score gut ist. Der Nachthorizont endet
+    # dann nicht bei Sonnenaufgang plus Puffer, sondern nach 36 h.
+    now = dt.datetime.combine(day, dt.time(5, 0), tzinfo=TZ)
+    rise = dt.datetime.combine(day, dt.time(8, 1), tzinfo=TZ)
+    states = measurements(**{
+        SOC: 50, CAPACITY: 12.8,
+        "input_number.minsoc": 5, "input_number.maxsoc": 95,
+        "input_number.opti_peak_verbrauch_kw": 0.8,
+        "input_number.opti_peak_min_aufschlag_ct": 5,
+        "sensor.opti_house_consumption_w": 800,
+        "sensor.opti_price_current_ct_kwh": 30,
+        "sensor.opti_forecast_today_kwh": 20,
+        "sensor.opti_forecast_tomorrow_kwh": 20,
+        "sensor.opti_forecast_remaining_today_kwh": 20,
+        "sun.sun": "below_horizon",
+    })
+    attrs = {"sun.sun": {"next_rising": rise.isoformat(),
+                         "next_setting": rise.replace(hour=16, minute=45).isoformat()},
+             **model_attributes()}
+    prices = [30] * 96
+    prices[70] = 53  # 17:30-17:45, Abendspitze nach dem kurzen Horizont.
+    attrs["sensor.opti_price_series"] = {"today": prices, "tomorrow": [30] * 96}
+
+    result = evaluate(states=states, attributes=attrs, now=now)
+
+    horizon = result.attributes["binary_sensor.opti_peak_horizont_lang"]
+    assert result.states["binary_sensor.opti_peak_horizont_lang"] == ("off" if short else "on")
+    assert ("Winter-Tor" in horizon["branch"]) is not short
+    assert horizon["an_quelle"] == "score"
+    ende = dt.datetime.fromisoformat(result.attributes["sensor.opti_peak_reserve_soc"]["horizont_ende"])
+    if short:
+        assert ende == rise + dt.timedelta(hours=3)
+    else:
+        assert ende == now + dt.timedelta(hours=36)
+    assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+
+
 @pytest.mark.parametrize(
     ("soc", "expected_mode", "reason_prefix"),
     [

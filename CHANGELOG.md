@@ -23,6 +23,11 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ### Behoben
 
+- **PV-Vorbereitung fürs Auto lässt den Hausakku weiter aus PV-Überschuss laden.**
+  Lädt das Auto oder ist sein Ladesignal unbekannt, wechselt „Akku Dynamisch“
+  auf „Akku nur Laden“ mit 0 W Mindestladeleistung. So kann der Hausakku
+  weiter Solarstrom aufnehmen, ohne ins Auto zu entladen. Entlademodi,
+  „Akku Automatisch“ und die Extrempreisreserve führen weiterhin zur Pause.
 - **Peak-Horizont im Winter (#257).** Fällt der nächste Sonnenaufgang in die
   Monate November bis Februar, plant die Peak-Reserve nachts immer über 36
   Stunden. Bisher endete der Horizont bei gutem Sonnentag-Score schon 3 Stunden

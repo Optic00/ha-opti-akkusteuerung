@@ -971,7 +971,7 @@ class WizardSections:
             if user_input.get("enabled") is True:
                 if user_input.get("risk_accepted") is not True:
                     errors["base"] = "ambitious_precharge_risk"
-                elif (self._ambitious_pv_timeline() != "ready"
+                elif (self._ambitious_pv_timeline(user_input.get("quantile", "p10")) != "ready"
                       and not getattr(self, "_ambitious_pv_warned", False)):
                     # Warn once; saving again keeps the option (the source may come later).
                     self._ambitious_pv_warned = True
@@ -997,7 +997,7 @@ class WizardSections:
                                      unit_of_measurement="ct/kWh")),
         }))
 
-    def _ambitious_pv_timeline(self) -> str:
+    def _ambitious_pv_timeline(self, quantile: str) -> str:
         """Whether the draft's PV sources give the time series the precharge plans with (#262)."""
         sources = self._draft.get("sources", {})
         demand = self._draft.get("demand_forecast", {})
@@ -1010,7 +1010,8 @@ class WizardSections:
                      (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow")))]
         try:
             status, _ = ambitious_precharge.pv_timeline(
-                pairs, dt_util.utcnow(), max_age=self._draft.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE))
+                pairs, dt_util.utcnow(), max_age=self._draft.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE),
+                quantile=quantile)
         except Exception:  # noqa: BLE001 - a hint only, never block the dialog on it
             return "invalid"
         return status

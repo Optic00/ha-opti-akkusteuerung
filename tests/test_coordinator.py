@@ -6941,12 +6941,6 @@ async def test_standby_reserve_failure_keeps_the_strategy_decision(coordinator, 
     assert data["standby_reserve"] == {"status": "error", "controls_battery": False}
 
 
-def ap_statuses():
-    from custom_components.opti_akku.ambitious_precharge import PV_SOURCE_STATUSES
-
-    return PV_SOURCE_STATUSES
-
-
 AMBITIOUS_OPTION = {"enabled": True, "risk_accepted": True, "quantile": "p10", "min_gain_ct": 2.0}
 AMBITIOUS_PLAN = {"status": "active", "active": True, "action": "charge", "target_soc": 70.0,
                   "charge_price_ct": 20.0, "first_at": "2026-11-15T01:00:00+00:00",
@@ -6990,7 +6984,7 @@ async def test_ambitious_precharge_charges_from_the_grid_at_night(coordinator, h
     assert kwargs["charging"] is False
     # The coordinator fixture has no Solcast time series; the plan learns why (#262).
     assert kwargs["pv_hours"] == {}
-    assert kwargs["pv_source_status"] in ap_statuses()
+    assert kwargs["pv_source_status"] == "not_configured"
     # The next cycle continues up to the target, without the start band.
     _data, planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=30))
     assert planned.call_args.kwargs["charging"] is True
@@ -7098,11 +7092,10 @@ async def test_ambitious_precharge_without_forecast_or_with_invalid_curve(coordi
         patch("custom_components.opti_akku.ambitious_precharge.pv_forecast_hourly", return_value=("stale", {})),
         patch("custom_components.opti_akku.ambitious_precharge.plan", wraps=ap.plan) as planned,
     ):
-        data = await coordinator._async_update_data()
+        await coordinator._async_update_data()
     kwargs = planned.call_args.kwargs
     assert kwargs["pv_hours"] == {}
+    # The reason reaches the plan; its mapping into the report is tested in test_ambitious_precharge.
     assert kwargs["pv_source_status"] == "stale"
-    if data["ambitious_precharge"]["status"] == "pv_forecast_missing":
-        assert data["ambitious_precharge"]["detail"] == "stale"
     # An unreadable charge curve blocks charging, as in the command path.
     assert kwargs["charge_power"](20) == 0.0

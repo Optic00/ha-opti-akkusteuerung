@@ -221,12 +221,13 @@ def _thresholds(night: Sequence[tuple[datetime, datetime, float]]) -> list[float
 # Why no PV time series is available, in diagnostic order (#262).
 PV_SOURCE_STATUSES = (
     "not_configured", "source_unavailable", "no_detailed_forecast", "stale", "invalid",
+    "quantile_missing",
 )
 _UNUSABLE_STATES = (None, "unknown", "unavailable")
 
 
-def pv_timeline(source_pairs: Sequence[Sequence[Any]], now: datetime,
-                max_age: float) -> tuple[str, dict[datetime, tuple[float | None, float | None]]]:
+def pv_timeline(source_pairs: Sequence[Sequence[Any]], now: datetime, max_age: float,
+                quantile: str | None = None) -> tuple[str, dict[datetime, tuple[float | None, float | None]]]:
     """Hourly PV time series of the first usable source pair, else why there is none.
 
     ``source_pairs`` lists the states (``None`` for a missing entity) of the
@@ -235,13 +236,18 @@ def pv_timeline(source_pairs: Sequence[Sequence[Any]], now: datetime,
     precharge needs the Solcast interval rows (``detailedForecast`` or
     ``detailedHourly``); daily kWh alone cannot place PV in the day. The
     reason of the first configured source is returned, so the diagnostics
-    point at the source the user set up first.
+    point at the source the user set up first. With ``quantile`` a source
+    counts only when it delivers that quantile for the current hour.
     """
     reason = "not_configured"
     for states in source_pairs:
         if not states:
             continue
         status, hours = pv_forecast_hourly(states, now, max_age=max_age)
+        if status == "ready" and quantile in QUANTILES:
+            current = hours.get(_hour(now))
+            if current is None or current[QUANTILES.index(quantile)] is None:
+                status = "quantile_missing"
         if status == "ready":
             return "ready", hours
         if status == "no_forecast":

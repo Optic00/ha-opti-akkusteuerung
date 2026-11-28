@@ -260,6 +260,17 @@ def test_pv_timeline_names_why_there_is_none(pairs, status):
     assert ap.pv_timeline(pairs, local(14, 23), max_age=3 * 3600) == (status, {})
 
 
+def test_pv_timeline_needs_the_selected_quantile():
+    rows = [{"period_start": (local(14, 0) + i * ap.HALF_HOUR).isoformat(), "pv_estimate": 1.0}
+            for i in range(96)]
+    only_median = State(attributes={"detailedForecast": rows})
+    now = local(14, 23)
+    assert ap.pv_timeline([[only_median]], now, max_age=3 * 3600, quantile="p10") == ("quantile_missing", {})
+    assert ap.pv_timeline([[only_median]], now, max_age=3 * 3600, quantile="p50")[0] == "ready"
+    # A later source with the quantile still delivers.
+    assert ap.pv_timeline([[only_median], [solcast()]], now, max_age=3 * 3600, quantile="p10")[0] == "ready"
+
+
 def test_pv_timeline_uses_the_first_usable_source():
     status, hours = ap.pv_timeline([[State()], [solcast()]], local(14, 23), max_age=3 * 3600)
     assert status == "ready"

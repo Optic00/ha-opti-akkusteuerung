@@ -2139,7 +2139,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                  for today, tomorrow in (
                      (sources.get("forecast_today"), sources.get("forecast_tomorrow")),
                      (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow")))],
-                now, max_age=options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE))
+                now, max_age=options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE), quantile=cfg["quantile"])
             sun_attributes = result.attributes.get("sun.sun") or {}
             capacity = finite(states.get("sensor.opti_battery_capacity_kwh")) or 0.0
             curve = self._parse_charge_curve()

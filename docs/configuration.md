@@ -355,6 +355,7 @@ Diagnose `pv_forecast_missing` mit dem Grund in `detail`:
 | `no_detailed_forecast` | Sensoren liefern nur Tageswerte, kein `detailedForecast`/`detailedHourly` |
 | `stale` | Prognose zu alt (`forecast_max_age`) oder ohne die aktuelle Stunde |
 | `invalid` | Zeitverlauf unlesbar oder widersprüchlich |
+| `quantile_missing` | Zeitverlauf ohne das gewählte Quantil (`pv_estimate10` für P10, `pv_estimate` für Median) |
 | `daylight_gap` | Lücke in den Sonnenstunden, die Stunde steht in `at` |
 | `quantile` | Ungültiges Quantil in der Option |
 

@@ -1597,7 +1597,9 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             return False
                     if (
                         (peak_rank_control or (isinstance(arbitrage_cfg, dict)
-                                               and arbitrage_cfg.get("hold_enabled") is True))
+                                               and arbitrage_cfg.get("hold_enabled") is True)
+                         # The ambitious precharge chose its slot by price (#263 review).
+                         or getattr(result, "decision_id", None) == ambitious_precharge.DECISION)
                         # Numeric comparison: the engine returns states as
                         # text, the fresh inputs are numbers. Compared raw,
                         # every write looked superseded (write stall).
@@ -2134,13 +2136,14 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._ambitious_charging = False
                 return result, {"status": "grid_charging_off", "controls_battery": False}
             sources = options.get("sources", {})
+            sun_attributes = result.attributes.get("sun.sun") or {}
             pv_status, pv_hours = ambitious_precharge.pv_timeline(
                 [[self.hass.states.get(entity) for entity in (today, tomorrow) if entity]
                  for today, tomorrow in (
                      (sources.get("forecast_today"), sources.get("forecast_tomorrow")),
                      (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow")))],
-                now, max_age=options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE), quantile=cfg["quantile"])
-            sun_attributes = result.attributes.get("sun.sun") or {}
+                now, max_age=options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE), quantile=cfg["quantile"],
+                daylight=(sun_attributes.get("next_rising"), sun_attributes.get("next_setting")))
             capacity = finite(states.get("sensor.opti_battery_capacity_kwh")) or 0.0
             curve = self._parse_charge_curve()
 
@@ -2171,6 +2174,10 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 model=self._battery_model, min_gain_ct=cfg["min_gain_ct"],
                 charging=self._ambitious_charging, pv_source_status=pv_status,
             )
+            report = ambitious_precharge.check_current_price(
+                report, price_series=result.attributes.get("sensor.opti_price_series"),
+                current_price_ct=result.states.get("sensor.opti_price_current_ct_kwh"),
+                now=now, timezone=dt_util.DEFAULT_TIME_ZONE)
             changed = ambitious_precharge.apply(
                 result, report, eligible=self.strategy_enabled and self.manual_mode is None,
                 timezone=dt_util.DEFAULT_TIME_ZONE)

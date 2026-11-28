@@ -221,42 +221,105 @@ def _thresholds(night: Sequence[tuple[datetime, datetime, float]]) -> list[float
 # Why no PV time series is available, in diagnostic order (#262).
 PV_SOURCE_STATUSES = (
     "not_configured", "source_unavailable", "no_detailed_forecast", "stale", "invalid",
-    "quantile_missing",
+    "quantile_missing", "daylight_gap",
 )
+_DETAIL_ATTRIBUTES = ("detailedForecast", "detailedHourly")
+HOUR = timedelta(hours=1)
 _UNUSABLE_STATES = (None, "unknown", "unavailable")
 
 
+def _daylight(daylight: Any) -> tuple[datetime, datetime] | None:
+    """Next sunrise and the sunset after it, or None when the sun data is unusable."""
+    if not isinstance(daylight, Sequence) or len(daylight) != 2:
+        return None
+    rising, setting = _instant(daylight[0]), _instant(daylight[1])
+    if rising is None or setting is None:
+        return None
+    while setting <= rising:  # by day ``next_setting`` is today's sunset
+        setting += timedelta(days=1)
+    return (rising, setting) if setting - rising <= timedelta(days=1) else None
+
+
+def _covers(hours: Mapping[datetime, tuple[float | None, float | None]], index: int,
+            daylight: tuple[datetime, datetime] | None) -> bool:
+    """Whether the quantile covers every hour of the next daylight the plan simulates."""
+    if daylight is None:
+        return any(pair[index] is not None for pair in hours.values())
+    hour = _hour(daylight[0])
+    while hour < daylight[1]:
+        pair = hours.get(hour)
+        if pair is None or pair[index] is None:
+            return False
+        hour += HOUR
+    return True
+
+
 def pv_timeline(source_pairs: Sequence[Sequence[Any]], now: datetime, max_age: float,
-                quantile: str | None = None) -> tuple[str, dict[datetime, tuple[float | None, float | None]]]:
+                quantile: str | None = None,
+                daylight: Any = None) -> tuple[str, dict[datetime, tuple[float | None, float | None]]]:
     """Hourly PV time series of the first usable source pair, else why there is none.
 
     ``source_pairs`` lists the states (``None`` for a missing entity) of the
     configured today/tomorrow forecast entities per source, first choice
     first; an empty pair means that source is not configured. The ambitious
     precharge needs the Solcast interval rows (``detailedForecast`` or
-    ``detailedHourly``); daily kWh alone cannot place PV in the day. The
-    reason of the first configured source is returned, so the diagnostics
-    point at the source the user set up first. With ``quantile`` a source
-    counts only when it delivers that quantile for the current hour.
+    ``detailedHourly``); daily kWh alone cannot place PV in the day. With
+    ``quantile`` a source counts only when that quantile covers every hour of
+    the next daylight (``daylight`` = next rising and setting); otherwise the
+    next source is tried. The reason of the first configured source is
+    returned, so the diagnostics point at the source the user set up first.
     """
+    window = _daylight(daylight)
     reason = "not_configured"
     for states in source_pairs:
         if not states:
             continue
         status, hours = pv_forecast_hourly(states, now, max_age=max_age)
         if status == "ready" and quantile in QUANTILES:
-            current = hours.get(_hour(now))
-            if current is None or current[QUANTILES.index(quantile)] is None:
-                status = "quantile_missing"
+            index = QUANTILES.index(quantile)
+            if not _covers(hours, index, window):
+                present = any(pair[index] is not None for pair in hours.values())
+                status = "daylight_gap" if present else "quantile_missing"
         if status == "ready":
             return "ready", hours
         if status == "no_forecast":
-            usable = any(state is not None and getattr(state, "state", None) not in _UNUSABLE_STATES
-                         for state in states)
-            status = "no_detailed_forecast" if usable else "source_unavailable"
+            usable = [state for state in states
+                      if state is not None and getattr(state, "state", None) not in _UNUSABLE_STATES]
+            if any(name in (getattr(state, "attributes", None) or {})
+                   for state in usable for name in _DETAIL_ATTRIBUTES):
+                status = "invalid"  # the attribute exists, but is no row list
+            else:
+                status = "no_detailed_forecast" if usable else "source_unavailable"
         if reason == "not_configured":
             reason = status
     return reason, {}
+
+
+def current_price_ok(price_series: Any, current_price_ct: Any, now: datetime, timezone: tzinfo) -> bool:
+    """Whether the price series agrees with the current price sensor for this slot.
+
+    With the "entities" provider the series and the current price can come
+    from different sensors. Grid charging is only commanded when both agree
+    within the price band, so a stale or foreign series never buys at a high
+    current price (#263 review).
+    """
+    current = _number(current_price_ct)
+    if current is None:
+        return False
+    slot = next((price for start, end, price in _price_periods(price_series, now, timezone)
+                 if start <= now < end), None)
+    return slot is not None and abs(slot - current) <= PRICE_BAND_CT
+
+
+def check_current_price(report: Mapping[str, Any], *, price_series: Any, current_price_ct: Any,
+                        now: datetime, timezone: tzinfo) -> Mapping[str, Any]:
+    """Withdraw an active charge plan whose slot price the current price contradicts."""
+    if report.get("active") is not True or report.get("action") != "charge":
+        return report
+    if current_price_ok(price_series, current_price_ct, now, timezone):
+        return report
+    return {**report, "status": "price_mismatch", "active": False,
+            "current_price_ct": _number(current_price_ct)}
 
 
 def plan(
@@ -309,10 +372,11 @@ def plan(
     index = QUANTILES.index(quantile)
     fallback = _number(fallback_load_kw)
     fallback = fallback if fallback is not None and 0 <= fallback <= MAX_LOAD_W / 1000 else 0.8
+    # A configured 0 W limit means no charging or discharging, not "unknown" (#263 review).
     charge_w = _number(max_charge_w)
-    charge_kw = charge_w / 1000 if charge_w is not None and charge_w > 0 else capacity / 2
+    charge_kw = charge_w / 1000 if charge_w is not None and charge_w >= 0 else capacity / 2
     discharge_w = _number(max_discharge_w)
-    discharge_kw = discharge_w / 1000 if discharge_w is not None and discharge_w > 0 else capacity / 2
+    discharge_kw = discharge_w / 1000 if discharge_w is not None and discharge_w >= 0 else capacity / 2
     feed_in = value if (value := _number(feed_in_ct)) is not None else 0.0
 
     # One day from sunrise: later days would need PV forecasts that may be missing.
@@ -322,7 +386,8 @@ def plan(
         pair = pv_hours.get(_hour(at))
         value = _number(pair[index]) if isinstance(pair, Sequence) and len(pair) == 2 else None
         if value is None or value < 0:
-            if rising <= at < setting:
+            # Any piece that overlaps daylight needs PV, also one that starts before sunrise.
+            if at < setting and at + timedelta(hours=hours) > rising:
                 return {"status": "pv_forecast_missing", "detail": "daylight_gap", "at": at.isoformat()}
             value = 0.0
         pieces.append((slot, hours, value - _load_kw(load_hours, at, fallback), price))

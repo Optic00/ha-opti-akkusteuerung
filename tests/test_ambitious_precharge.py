@@ -238,7 +238,7 @@ class State:
         self.last_reported = self.last_updated = reported or local(14, 22)
 
 
-def solcast(hours=48, reported=None):
+def solcast(hours=48, reported=None):  # rows from midnight of the 14th
     start = local(14, 0)
     rows = [{"period_start": (start + i * ap.HALF_HOUR).isoformat(), "pv_estimate10": 0.4,
              "pv_estimate": 1.0} for i in range(hours * 2)]
@@ -269,6 +269,81 @@ def test_pv_timeline_needs_the_selected_quantile():
     assert ap.pv_timeline([[only_median]], now, max_age=3 * 3600, quantile="p50")[0] == "ready"
     # A later source with the quantile still delivers.
     assert ap.pv_timeline([[only_median], [solcast()]], now, max_age=3 * 3600, quantile="p10")[0] == "ready"
+
+
+DAYLIGHT = (local(15, 7, 40).isoformat(), local(15, 16, 30).isoformat())
+
+
+def test_pv_timeline_needs_the_next_daylight_and_falls_back():
+    """#263 review: a source with only today's rows must not block a later complete one."""
+    now = local(14, 23)
+    today_only = solcast(hours=24)
+    assert ap.pv_timeline([[today_only]], now, max_age=3 * 3600, quantile="p10",
+                          daylight=DAYLIGHT) == ("daylight_gap", {})
+    status, _ = ap.pv_timeline([[today_only], [solcast()]], now, max_age=3 * 3600, quantile="p10",
+                               daylight=DAYLIGHT)
+    assert status == "ready"
+
+
+def test_pv_timeline_ignores_a_missing_quantile_at_night():
+    """#263 review: P10 missing only in the current night hour is no reason to refuse."""
+    rows = [{"period_start": (local(14, 0) + i * ap.HALF_HOUR).isoformat(), "pv_estimate": 1.0,
+             **({} if local(14, 23) <= local(14, 0) + i * ap.HALF_HOUR < local(15, 0) else {"pv_estimate10": 0.4})}
+            for i in range(96)]
+    state = State(attributes={"detailedForecast": rows})
+    assert ap.pv_timeline([[state]], local(14, 23), max_age=3 * 3600, quantile="p10",
+                          daylight=DAYLIGHT)[0] == "ready"
+
+
+@pytest.mark.parametrize("daylight", [None, ("x", "y"), (local(15, 7).isoformat(),), (
+    local(15, 7).isoformat(), local(17, 16).isoformat())])
+def test_pv_timeline_without_usable_sun_data_needs_the_quantile_somewhere(daylight):
+    assert ap.pv_timeline([[solcast(hours=24)]], local(14, 23), max_age=3 * 3600, quantile="p10",
+                          daylight=daylight)[0] == "ready"
+
+
+def test_pv_timeline_by_day_uses_the_sunset_after_the_next_sunrise():
+    by_day = (local(15, 7, 40).isoformat(), local(14, 16, 30).isoformat())
+    assert ap.pv_timeline([[solcast(hours=24)]], local(14, 22), max_age=3 * 3600, quantile="p10",
+                          daylight=by_day)[0] == "daylight_gap"
+
+
+def test_pv_timeline_reports_a_detail_attribute_that_is_no_list():
+    state = State(attributes={"detailedForecast": "rows"})
+    assert ap.pv_timeline([[state]], local(14, 23), max_age=3 * 3600) == ("invalid", {})
+
+
+def test_zero_power_limits_mean_none_not_unknown():
+    """#263 review: 0 W discharge must not become half the capacity."""
+    assert run()["status"] == "planned"
+    assert run(max_discharge_w=0)["status"] not in ("planned", "active")
+    # Without charge power the plan can at most hold, never buy from the grid.
+    no_charge = run(max_charge_w=0)
+    assert no_charge.get("action") != "charge" and no_charge.get("expected_grid_kwh", 0) == 0
+
+
+def test_sunrise_piece_needs_pv():
+    """#263 review: the piece 07:30-08:00 overlaps a 07:40 sunrise and needs a PV value."""
+    report = run(pv_hours=pv(1.0, missing=(7,)))
+    assert report["status"] == "pv_forecast_missing" and report["detail"] == "daylight_gap"
+
+
+def test_current_price_must_match_the_series():
+    now = local(15, 2)
+    series = night_prices()
+    assert ap.current_price_ok(series, 20.0, now, TZ)
+    assert ap.current_price_ok(series, 20.4, now, TZ)
+    assert not ap.current_price_ok(series, 80.0, now, TZ)
+    assert not ap.current_price_ok(series, None, now, TZ)
+    assert not ap.current_price_ok({}, 20.0, now, TZ)
+    charge = {"status": "active", "active": True, "action": "charge"}
+    kwargs = dict(price_series=series, now=now, timezone=TZ)
+    assert ap.check_current_price(charge, current_price_ct=20.0, **kwargs) is charge
+    withdrawn = ap.check_current_price(charge, current_price_ct=80.0, **kwargs)
+    assert withdrawn["status"] == "price_mismatch" and withdrawn["active"] is False
+    assert withdrawn["current_price_ct"] == 80.0
+    hold = {"status": "active", "active": True, "action": "hold"}
+    assert ap.check_current_price(hold, current_price_ct=None, **kwargs) is hold
 
 
 def test_pv_timeline_uses_the_first_usable_source():

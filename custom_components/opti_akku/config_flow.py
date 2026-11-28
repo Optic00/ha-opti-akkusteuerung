@@ -1008,10 +1008,13 @@ class WizardSections:
                  for today, tomorrow in (
                      (sources.get("forecast_today"), sources.get("forecast_tomorrow")),
                      (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow")))]
+        sun = self.hass.states.get("sun.sun")
+        sun_attributes = getattr(sun, "attributes", None) or {}
         try:
             status, _ = pv_timeline(
                 pairs, dt_util.utcnow(), max_age=self._draft.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE),
-                quantile=quantile)
+                quantile=quantile,
+                daylight=(sun_attributes.get("next_rising"), sun_attributes.get("next_setting")))
         except Exception:  # noqa: BLE001 - a hint only, never block the dialog on it
             return "invalid"
         return status

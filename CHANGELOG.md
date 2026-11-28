@@ -27,7 +27,17 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   `pv_forecast_missing`. Jetzt steht der Grund in `detail` (nicht eingetragen,
   nicht verfügbar, nur Tageswerte, zu alt, unlesbar, Lücke am Tag). Beim
   Einschalten ohne Zeitverlauf warnt der Dialog einmal. Die Doku nennt die
-  Voraussetzung ausdrücklich.
+  Voraussetzung ausdrücklich. Eine Quelle gilt nur, wenn das gewählte Quantil
+  den nächsten Tag lückenlos abdeckt; sonst greifen die PV-Quellen der
+  Bedarfsprognose.
+- **Ehrgeiziges Vorladen: Sicherheitskorrekturen aus dem Codex-Review (#263).**
+  Netzladen wird nur angefordert, wenn der aktuelle Strompreis zum Slot der
+  Preisreihe passt (Abstand höchstens 0,5 ct), und der Schreibschutz verwirft
+  den Befehl, wenn sich der aktuelle Preis vor dem Schreiben ändert. Eine
+  Entlade- oder Ladegrenze von 0 W heißt jetzt „keine Leistung“ statt
+  „unbekannt, halbe Kapazität“. Ein Preisslot, der vor Sonnenaufgang beginnt
+  und in den Tag reicht, braucht ebenfalls einen PV-Wert. Weitere Befunde
+  stehen in #264.
 
 ### Tests
 

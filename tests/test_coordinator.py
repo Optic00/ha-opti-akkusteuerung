@@ -6957,12 +6957,14 @@ def set_ambitious_precharge(coordinator, hass, option=AMBITIOUS_OPTION):
     coordinator.settings["input_number.opti_standby_reserve_soc"] = 0
 
 
-async def run_ambitious_cycle(coordinator, evaluation, plan=AMBITIOUS_PLAN, **patches):
+async def run_ambitious_cycle(coordinator, evaluation, plan=AMBITIOUS_PLAN, price_ok=True, **patches):
     coordinator.device.async_apply.reset_mock()
     coordinator._last_apply = None
     target = "custom_components.opti_akku.ambitious_precharge.plan"
     with (
         patch.object(coordinator.engine, "evaluate", return_value=evaluation),
+        # The fixture has no price series; the price check has its own tests.
+        patch("custom_components.opti_akku.ambitious_precharge.current_price_ok", return_value=price_ok),
         patch(target, **patches) if patches else patch(target, return_value=dict(plan)) as planned,
     ):
         data = await coordinator._async_update_data()
@@ -6988,6 +6990,17 @@ async def test_ambitious_precharge_charges_from_the_grid_at_night(coordinator, h
     # The next cycle continues up to the target, without the start band.
     _data, planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=30))
     assert planned.call_args.kwargs["charging"] is True
+
+
+async def test_ambitious_precharge_never_charges_against_the_current_price(coordinator, hass):
+    """#263 review: series and current price from different sensors must agree before charging."""
+    set_ambitious_precharge(coordinator, hass)
+    data, _planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=30), price_ok=False)
+    assert data["mode"] != "Akku Netzladen"
+    assert data["decision_id"] != "ambitious_precharge"
+    assert data["ambitious_precharge"]["status"] == "price_mismatch"
+    assert data["ambitious_precharge"]["controls_battery"] is False
+    assert coordinator._ambitious_charging is False
 
 
 async def test_ambitious_precharge_hold_and_standby_window(coordinator, hass):

@@ -2377,3 +2377,24 @@ def test_missing_ev_adjustment_does_not_hold_a_winter_gate_on_into_march():
     assert march.attributes[SUNNY]["load_source"] == "raw_60min_ev_fallback"
     assert march.states[HORIZON] == "off"
     assert "EV-bereinigte Last fehlt" not in march.attributes[HORIZON]["branch"]
+
+
+def test_score_backed_winter_horizon_keeps_score_origin_and_hysteresis():
+    # Sourcery zu #261: Traegt auch der Score das "an", bleibt die Herkunft
+    # score, und die Hysterese haelt nach dem Winter wie bisher.
+    entity = "binary_sensor.opti_peak_horizont_lang"
+    engine = StrategyEngine()
+    feb = dt.datetime(2027, 2, 28, 3, 0, tzinfo=TZ)
+    rise_feb = _winter_attrs(feb.replace(hour=6, minute=55))
+    low = evaluate(engine, _night_horizon_states(700), rise_feb, feb)
+    assert low.states["sensor.opti_forecast_score_sonnentag"] == "1"
+    assert (low.states[entity], low.attributes[entity]["an_quelle"]) == ("on", "score")
+    mid = evaluate(engine, _night_horizon_states(530), rise_feb, feb + dt.timedelta(minutes=1))
+    assert mid.states["sensor.opti_forecast_score_sonnentag"] == "2"
+    assert (mid.states[entity], mid.attributes[entity]["an_quelle"]) == ("on", "score")
+    restored = StrategyEngine()
+    restored.restore(engine.snapshot())
+    march = evaluate(restored, _night_horizon_states(530),
+                     _winter_attrs(dt.datetime(2027, 3, 1, 6, 53, tzinfo=TZ)), feb.replace(hour=23))
+    assert march.states[entity] == "on"
+    assert "Vorzustand an gehalten" in march.attributes[entity]["branch"]

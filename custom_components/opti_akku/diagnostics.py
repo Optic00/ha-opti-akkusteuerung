@@ -123,7 +123,7 @@ def _strategy_comparison_summary(value: Any) -> dict[str, Any]:
 _AMBITIOUS_KEYS = (
     "status", "action", "target_soc", "charge_price_ct", "expected_grid_kwh", "expected_export_kwh",
     "expected_export_kwh_without", "expected_saving_eur", "first_at", "window_end", "quantile",
-    "min_gain_ct", "controls_battery", "detail",
+    "min_gain_ct", "controls_battery", "detail", "at",
 )
 
 

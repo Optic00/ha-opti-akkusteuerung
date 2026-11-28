@@ -6957,12 +6957,14 @@ def set_ambitious_precharge(coordinator, hass, option=AMBITIOUS_OPTION):
     coordinator.settings["input_number.opti_standby_reserve_soc"] = 0
 
 
-async def run_ambitious_cycle(coordinator, evaluation, plan=AMBITIOUS_PLAN, **patches):
+async def run_ambitious_cycle(coordinator, evaluation, plan=AMBITIOUS_PLAN, price_ok=True, **patches):
     coordinator.device.async_apply.reset_mock()
     coordinator._last_apply = None
     target = "custom_components.opti_akku.ambitious_precharge.plan"
     with (
         patch.object(coordinator.engine, "evaluate", return_value=evaluation),
+        # The fixture has no price series; the price check has its own tests.
+        patch("custom_components.opti_akku.ambitious_precharge.current_price_ok", return_value=price_ok),
         patch(target, **patches) if patches else patch(target, return_value=dict(plan)) as planned,
     ):
         data = await coordinator._async_update_data()
@@ -6982,9 +6984,23 @@ async def test_ambitious_precharge_charges_from_the_grid_at_night(coordinator, h
     kwargs = planned.call_args.kwargs
     assert kwargs["quantile"] == "p10" and kwargs["min_gain_ct"] == 2.0
     assert kwargs["charging"] is False
+    # The coordinator fixture has no Solcast time series; the plan learns why (#262).
+    assert kwargs["pv_hours"] == {}
+    assert kwargs["pv_source_status"] == "not_configured"
     # The next cycle continues up to the target, without the start band.
     _data, planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=30))
     assert planned.call_args.kwargs["charging"] is True
+
+
+async def test_ambitious_precharge_never_charges_against_the_current_price(coordinator, hass):
+    """#263 review: series and current price from different sensors must agree before charging."""
+    set_ambitious_precharge(coordinator, hass)
+    data, _planned = await run_ambitious_cycle(coordinator, standby_evaluation(soc=30), price_ok=False)
+    assert data["mode"] != "Akku Netzladen"
+    assert data["decision_id"] != "ambitious_precharge"
+    assert data["ambitious_precharge"]["status"] == "price_mismatch"
+    assert data["ambitious_precharge"]["controls_battery"] is False
+    assert coordinator._ambitious_charging is False
 
 
 async def test_ambitious_precharge_hold_and_standby_window(coordinator, hass):
@@ -7058,17 +7074,20 @@ async def test_ambitious_precharge_reads_the_pv_forecast_and_power_limits(coordi
         "sources": {**coordinator.entry.options.get("sources", {}), "forecast_today": "sensor.pv_today"}})
     hass.states.async_set("sensor.pv_today", "5", {})
     coordinator.settings["input_number.akkusteuerung_max_entladestaerke"] = 2500
-    hours = {datetime(2026, 11, 15, 10, tzinfo=UTC): (1.0, 2.0)}
+    # The selected quantile must cover the current hour (#262).
+    hour = dt_util.utcnow().replace(minute=0, second=0, microsecond=0)
+    hours = {hour: (1.0, 2.0), hour + timedelta(hours=1): (1.0, 2.0)}
     coordinator.device.async_apply.reset_mock()
     coordinator._last_apply = None
     with (
         patch.object(coordinator.engine, "evaluate", return_value=standby_evaluation(soc=30)),
-        patch("custom_components.opti_akku.coordinator.pv_forecast_hourly", return_value=("ready", hours)),
+        patch("custom_components.opti_akku.ambitious_precharge.pv_forecast_hourly", return_value=("ready", hours)),
         patch("custom_components.opti_akku.ambitious_precharge.plan", wraps=ap.plan) as planned,
     ):
         data = await coordinator._async_update_data()
     kwargs = planned.call_args.kwargs
     assert kwargs["pv_hours"] == hours
+    assert kwargs["pv_source_status"] == "ready"
     assert kwargs["max_discharge_w"] == 2500
     power = kwargs["charge_power"]
     assert power(80) <= 800 < power(20)
@@ -7085,11 +7104,13 @@ async def test_ambitious_precharge_without_forecast_or_with_invalid_curve(coordi
         "sources": {**coordinator.entry.options.get("sources", {}), "forecast_today": "sensor.pv_today"}})
     with (
         patch.object(coordinator.engine, "evaluate", return_value=standby_evaluation(soc=30)),
-        patch("custom_components.opti_akku.coordinator.pv_forecast_hourly", return_value=("stale", {})),
+        patch("custom_components.opti_akku.ambitious_precharge.pv_forecast_hourly", return_value=("stale", {})),
         patch("custom_components.opti_akku.ambitious_precharge.plan", wraps=ap.plan) as planned,
     ):
         await coordinator._async_update_data()
     kwargs = planned.call_args.kwargs
     assert kwargs["pv_hours"] == {}
+    # The reason reaches the plan; its mapping into the report is tested in test_ambitious_precharge.
+    assert kwargs["pv_source_status"] == "stale"
     # An unreadable charge curve blocks charging, as in the command path.
     assert kwargs["charge_power"](20) == 0.0

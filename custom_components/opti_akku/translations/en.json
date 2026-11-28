@@ -667,7 +667,8 @@
       "charge_curve_power": "Each power in the curve must be a whole number between 0 and 10000 W.",
       "charge_curve_duplicate": "Each charge level may appear only once in the curve.",
       "charge_curve_rising": "The power in the curve must not rise with the charge level. Equal values are allowed.",
-      "ambitious_precharge_risk": "Confirm the own-risk checkbox to enable the ambitious precharge."
+      "ambitious_precharge_risk": "Confirm the own-risk checkbox to enable the ambitious precharge.",
+      "ambitious_precharge_no_pv_timeline": "No usable PV time series found: the ambitious precharge needs Solcast forecast sensors for today and tomorrow with the attribute detailedForecast (or detailedHourly), covering the next daylight with the selected quantile (pv_estimate10 for P10, pv_estimate for the median); daily kWh alone are not enough. Without it the option plans nothing, the diagnostics name the reason. Submit again to save anyway."
     },
     "abort": {
       "already_configured": "An entry already exists for this device and operating mode.",
@@ -1265,7 +1266,8 @@
       "charge_curve_power": "Each power in the curve must be a whole number between 0 and 10000 W.",
       "charge_curve_duplicate": "Each charge level may appear only once in the curve.",
       "charge_curve_rising": "The power in the curve must not rise with the charge level. Equal values are allowed.",
-      "ambitious_precharge_risk": "Confirm the own-risk checkbox to enable the ambitious precharge."
+      "ambitious_precharge_risk": "Confirm the own-risk checkbox to enable the ambitious precharge.",
+      "ambitious_precharge_no_pv_timeline": "No usable PV time series found: the ambitious precharge needs Solcast forecast sensors for today and tomorrow with the attribute detailedForecast (or detailedHourly), covering the next daylight with the selected quantile (pv_estimate10 for P10, pv_estimate for the median); daily kWh alone are not enough. Without it the option plans nothing, the diagnostics name the reason. Submit again to save anyway."
     }
   },
   "entity": {

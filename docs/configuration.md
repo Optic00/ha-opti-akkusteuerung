@@ -337,6 +337,32 @@ ohnehin aus PV nachladen würde, wird nicht aus dem Netz geholt. Ein Start erst
 3 % unter dem Ziel und ein kleiner Preisabstand für ein laufendes Fenster
 verhindern Flattern.
 
+**Voraussetzung PV-Zeitverlauf:** Die Option braucht die PV-Prognose als
+Zeitverlauf, nicht nur als Tages-kWh. Gelesen werden die unter Quellen
+eingetragenen Prognosesensoren für heute und morgen, ersatzweise die
+PV-Quellen der Bedarfsprognose, jeweils mit dem Attribut `detailedForecast`
+(halbstündlich) oder `detailedHourly` und den Werten `pv_estimate10`
+beziehungsweise `pv_estimate`, wie sie die Solcast-Integration liefert. Die
+Prognose darf nicht älter sein als „Maximales Prognosealter“, muss die
+aktuelle Stunde abdecken und mit dem gewählten Quantil alle Stunden vom nächsten
+Sonnenaufgang bis Sonnenuntergang enthalten. Fehlt der Zeitverlauf beim Einschalten, warnt der
+Dialog einmal; erneutes Absenden speichert trotzdem. Ohne Zeitverlauf zeigt die
+Diagnose `pv_forecast_missing` mit dem Grund in `detail`:
+
+| `detail` | Bedeutung |
+| --- | --- |
+| `not_configured` | Keine Prognosesensoren für heute/morgen eingetragen |
+| `source_unavailable` | Sensoren fehlen oder sind `unknown`/`unavailable` |
+| `no_detailed_forecast` | Sensoren liefern nur Tageswerte, kein `detailedForecast`/`detailedHourly` |
+| `stale` | Prognose zu alt (`forecast_max_age`) oder ohne die aktuelle Stunde |
+| `invalid` | Zeitverlauf unlesbar, widersprüchlich oder kein Zeilen-Array |
+| `quantile_missing` | Zeitverlauf ohne das gewählte Quantil (`pv_estimate10` für P10, `pv_estimate` für Median) |
+| `daylight_gap` | Das gewählte Quantil deckt den nächsten Tag nicht lückenlos ab; die erste Lücke steht in `at`, falls der Plan sie gefunden hat |
+
+Deckt die erste Quelle den nächsten Tag nicht ab, etwa weil nur der Sensor für
+heute eingetragen ist, nutzt Opti die PV-Quellen der Bedarfsprognose, sofern
+diese den Tag abdecken.
+
 Voraussetzungen und Vorrang: „Reserveplanung mit Netzladen erlauben“ muss an sein. Die Option
 ersetzt nur haltende oder entladende Entscheidungen ohne Schutzgrund
 (Standard, über/unter Ziel, Peak L3/L4, Reserven, MinSOC). Manuelle Modi,

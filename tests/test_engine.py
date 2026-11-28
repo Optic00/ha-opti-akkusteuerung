@@ -2360,3 +2360,20 @@ def test_three_level_tariff_with_dominant_top_level_is_expensive():
     states = measurements(**{"sensor.opti_price_current_ct_kwh": 26.0})
     result = evaluate(states=states, attributes=attrs, now=now.replace(hour=2))
     assert result.states["sensor.opti_price_level"] in ("VERY_CHEAP", "CHEAP")
+
+
+def test_missing_ev_adjustment_does_not_hold_a_winter_gate_on_into_march():
+    # Issue #257, Re-Review: Der EV-Fallback haelt den Vorzustand in beide
+    # Richtungen, ein vom Winter-Tor erzwungenes "an" aber nicht.
+    feb = dt.datetime(2027, 2, 28, 3, 0, tzinfo=TZ)
+    engine = _ev_engine(feb)
+    states = _ev_night_states("unavailable", 9.6)
+    winter = evaluate(engine, states, _winter_attrs(feb.replace(hour=6, minute=55)), feb)
+    assert winter.attributes[SUNNY]["load_source"] == "raw_60min_ev_fallback"
+    assert (winter.states[SUNNY], winter.states[HORIZON]) == ("8", "on")
+    assert winter.attributes[HORIZON]["an_quelle"] == "winter"
+    march = evaluate(engine, states, _winter_attrs(dt.datetime(2027, 3, 1, 6, 53, tzinfo=TZ)),
+                     feb.replace(hour=23))
+    assert march.attributes[SUNNY]["load_source"] == "raw_60min_ev_fallback"
+    assert march.states[HORIZON] == "off"
+    assert "EV-bereinigte Last fehlt" not in march.attributes[HORIZON]["branch"]

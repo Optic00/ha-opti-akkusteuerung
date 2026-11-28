@@ -871,7 +871,7 @@ def test_winter_gate_keeps_long_night_horizon(day, short):
     horizon = result.attributes["binary_sensor.opti_peak_horizont_lang"]
     assert result.states["binary_sensor.opti_peak_horizont_lang"] == ("off" if short else "on")
     assert ("Winter-Tor" in horizon["branch"]) is not short
-    assert horizon["an_quelle"] == "score"
+    assert horizon["an_quelle"] == ("score" if short else "winter")
     ende = dt.datetime.fromisoformat(result.attributes["sensor.opti_peak_reserve_soc"]["horizont_ende"])
     if short:
         assert ende == rise + dt.timedelta(hours=3)
@@ -1160,6 +1160,61 @@ def test_peak_horizon_night_latch_ignores_load_driven_score_jumps():
     assert evaluate(short, _night_horizon_states(530), _NIGHT_ATTRS, now).states[entity] == "off"
     assert evaluate(short, _night_horizon_states(407), _NIGHT_ATTRS, now + dt.timedelta(minutes=1)).states[entity] == "off"
     assert evaluate(short, _night_horizon_states(700), _NIGHT_ATTRS, now + dt.timedelta(minutes=2)).states[entity] == "on"
+
+
+def _winter_attrs(rise):
+    # next_rising wie von HA in UTC; der Monat zaehlt in Ortszeit.
+    return {"sun.sun": {"next_rising": rise.astimezone(dt.timezone.utc).isoformat(),
+                        "next_setting": rise.replace(hour=17).isoformat()}}
+
+
+def test_winter_gate_on_does_not_latch_into_march():
+    # Issue #257, Review: Ein vom Winter-Tor erzwungenes "an" darf nach dem
+    # Winter weder nachts noch in der Hysterese als Vorzustand halten.
+    entity = "binary_sensor.opti_peak_horizont_lang"
+    engine = StrategyEngine()
+    feb = dt.datetime(2027, 2, 28, 3, 0, tzinfo=TZ)
+    winter = evaluate(engine, _night_horizon_states(530), _winter_attrs(feb.replace(hour=6, minute=55)), feb)
+    assert winter.states["sensor.opti_forecast_score_sonnentag"] == "2"
+    assert winter.states[entity] == "on"
+    assert winter.attributes[entity]["an_quelle"] == "winter"
+    restored = StrategyEngine()
+    restored.restore(engine.snapshot())
+    night = feb.replace(hour=23)
+    march = evaluate(restored, _night_horizon_states(530),
+                     _winter_attrs(dt.datetime(2027, 3, 1, 6, 53, tzinfo=TZ)), night)
+    assert march.states[entity] == "off"
+    assert "Winter-Tor nicht gehalten" in march.attributes[entity]["branch"]
+    # Tag mit Score 2: Hysterese haelt ein Winter-"an" ebenfalls nicht.
+    day = StrategyEngine()
+    evaluate(day, _night_horizon_states(530), _winter_attrs(feb.replace(hour=6, minute=55)), feb)
+    states = _night_horizon_states(530, sun="above_horizon")
+    states["sensor.opti_forecast_tomorrow_kwh"] = 2.5
+    held = evaluate(day, states, _winter_attrs(dt.datetime(2027, 3, 1, 6, 53, tzinfo=TZ)),
+                    feb.replace(hour=12))
+    assert held.states["sensor.opti_forecast_score_sonnentag"] == "2"
+    assert held.states[entity] == "off"
+    assert "Winter-Tor" in held.attributes[entity]["branch"]
+
+
+def test_winter_gate_switches_on_into_november_and_uses_local_month():
+    entity = "binary_sensor.opti_peak_horizont_lang"
+    engine = StrategyEngine()
+    octo = dt.datetime(2026, 10, 31, 3, 0, tzinfo=TZ)
+    short = evaluate(engine, _night_horizon_states(407), _winter_attrs(octo.replace(hour=7, minute=5)), octo)
+    assert short.states["sensor.opti_forecast_score_sonnentag"] == "3"
+    assert short.states[entity] == "off"
+    nov = evaluate(engine, _night_horizon_states(407),
+                   _winter_attrs(dt.datetime(2026, 11, 1, 7, 7, tzinfo=TZ)), octo.replace(hour=23))
+    assert nov.states[entity] == "on"
+    assert nov.attributes[entity]["an_quelle"] == "winter"
+    # UTC-Datum Februar, Ortszeit bereits Maerz: kein Winter-Tor.
+    local_march = dt.datetime(2027, 3, 1, 0, 30, tzinfo=TZ)
+    assert local_march.astimezone(dt.timezone.utc).month == 2
+    fresh = evaluate(StrategyEngine(), _night_horizon_states(407), _winter_attrs(local_march),
+                     dt.datetime(2027, 2, 28, 23, 0, tzinfo=TZ))
+    assert fresh.states[entity] == "off"
+    assert fresh.attributes[entity]["an_quelle"] == "score"
 
 
 def test_peak_horizon_day_hysteresis_still_switches_off_at_score_three():

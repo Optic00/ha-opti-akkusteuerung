@@ -235,8 +235,10 @@ async def test_latch_transitions_are_persisted_immediately(coordinator):
         assert not any(call.args[1] == 0 for call in delayed.call_args_list)
 
 
-async def test_horizon_origin_change_is_persisted_immediately(coordinator):
+async def test_horizon_origin_change_is_persisted_immediately(coordinator, freezer):
     """Restore reads an_quelle back as previous state (#155); its change must not wait a minute."""
+    # Ausserhalb des Winter-Tors (#257), sonst heisst die Herkunft "winter".
+    freezer.move_to("2026-10-22T01:45:00+00:00")
     horizon = "binary_sensor.opti_peak_horizont_lang"
     with patch.object(coordinator._store, "async_delay_save") as delayed:
         data = await coordinator._async_update_data()  # no forecast source: score missing

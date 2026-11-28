@@ -203,7 +203,11 @@ in diesem Bereich erhalten. Ein fehlender Score wählt weiterhin 36 Stunden.
 Fällt der nächste Sonnenaufgang in die Monate November bis Februar, ist der
 Horizont unabhängig vom Score lang (Winter-Tor, #257): Im Winter lädt die PV den
 Akku nach Sonnenaufgang bis zur Abendspitze nicht verlässlich nach, obwohl der
-Score schon ab 30 % Tagesdeckung als gut gilt.
+Score schon ab 30 % Tagesdeckung als gut gilt. Das Attribut `an_quelle` heißt
+dann `winter`. Ein solches „an“ zählt wie `score_fehlt` nicht als Vorzustand und
+hält nach Februar weder nachts noch in der Hysterese. Tagsüber gilt weiter der
+Tageszweig: Bei gutem Heute-Score und mindestens 3 Stunden bis Sonnenuntergang
+bleibt der Horizont leer, auch wenn `long_horizon` im Bericht `true` zeigt.
 Dieses „an“ zählt aber nicht als Vorzustand: Kehrt der Score zurück, gilt die
 Einstiegsregel wie bei einem Neueintrag, und der Horizont hält weder in der
 Hysterese noch nachts. Ein bereits aus einem gültigen Score stammendes „an“

@@ -568,6 +568,22 @@
           "enabled": "Experimental. Holds energy in an expensive hour for even more expensive hours if the battery only lasts for those. Changes the battery control."
         }
       },
+      "ambitious_precharge": {
+        "title": "Ambitious precharge (experimental, own risk)",
+        "description": "Experimental and at your own risk. Without this option the strategy charges from the grid at night only for the price peaks up to a few hours after sunrise. With it, Opti plans the whole coming day every cycle at night: forecast PV (P10 or median) minus the expected house load, prices until the end of the known price data, battery losses, wear and the minimum gain. It then charges in the cheapest night slots as far as that pays off and as little as possible of tomorrow's PV surplus has to be exported, and holds the charge in those slots ('Akku nur Laden') instead of covering the cheap night load. It needs grid charging enabled, works only between sunset and sunrise and only replaces holding or discharging decisions without a protective reason; manual modes, all protection functions, balancing, EV locks and charging decisions take precedence. With missing or invalid data it plans nothing. Forecasts can be wrong: the battery may be charged from the grid and the PV surplus exported afterwards, or grid energy may cost more than it saves. Watch the 'ambitious_precharge' section in the diagnostics during the first nights.",
+        "data": {
+          "enabled": "Charge tonight for the whole coming day",
+          "risk_accepted": "I use this experimental function at my own risk",
+          "quantile": "PV forecast",
+          "min_gain_ct": "Minimum gain"
+        },
+        "data_description": {
+          "enabled": "Experimental. Changes the battery control at night.",
+          "risk_accepted": "Required to enable. Forecast errors can cost money; support for this option is limited.",
+          "quantile": "P10 is cautious and charges more; the median expects more PV and charges less.",
+          "min_gain_ct": "Each kWh from the grid must save at least this much more than it costs, after losses and wear. 2 ct if not set."
+        }
+      },
       "observation": {
         "title": "Observe measurement sources",
         "description": "Read-only: active house source stays unchanged. Match the grid connection, additional inverters and excluded loads. HA report timestamps are not proof of a new device measurement. Compare our time-weighted 60-minute value with legacy smoothing; interpolation can differ.",
@@ -650,7 +666,8 @@
       "charge_curve_soc": "Each charge level in the curve must be a whole number between 0 and 100 %.",
       "charge_curve_power": "Each power in the curve must be a whole number between 0 and 10000 W.",
       "charge_curve_duplicate": "Each charge level may appear only once in the curve.",
-      "charge_curve_rising": "The power in the curve must not rise with the charge level. Equal values are allowed."
+      "charge_curve_rising": "The power in the curve must not rise with the charge level. Equal values are allowed.",
+      "ambitious_precharge_risk": "Confirm the own-risk checkbox to enable the ambitious precharge."
     },
     "abort": {
       "already_configured": "An entry already exists for this device and operating mode.",
@@ -965,6 +982,7 @@
           "demand": "Demand profile and peak reserve",
           "arbitrage": "Battery arbitrage estimate",
           "peak_rank": "Peak rank control (experimental)",
+          "ambitious_precharge": "Ambitious precharge (experimental)",
           "notifications": "Notifications",
           "init": "Back to overview"
         }
@@ -1107,6 +1125,22 @@
           "enabled": "Experimental. Holds energy in an expensive hour for even more expensive hours if the battery only lasts for those. Changes the battery control."
         }
       },
+      "ambitious_precharge": {
+        "title": "Ambitious precharge (experimental, own risk)",
+        "description": "Experimental and at your own risk. Without this option the strategy charges from the grid at night only for the price peaks up to a few hours after sunrise. With it, Opti plans the whole coming day every cycle at night: forecast PV (P10 or median) minus the expected house load, prices until the end of the known price data, battery losses, wear and the minimum gain. It then charges in the cheapest night slots as far as that pays off and as little as possible of tomorrow's PV surplus has to be exported, and holds the charge in those slots ('Akku nur Laden') instead of covering the cheap night load. It needs grid charging enabled, works only between sunset and sunrise and only replaces holding or discharging decisions without a protective reason; manual modes, all protection functions, balancing, EV locks and charging decisions take precedence. With missing or invalid data it plans nothing. Forecasts can be wrong: the battery may be charged from the grid and the PV surplus exported afterwards, or grid energy may cost more than it saves. Watch the 'ambitious_precharge' section in the diagnostics during the first nights.",
+        "data": {
+          "enabled": "Charge tonight for the whole coming day",
+          "risk_accepted": "I use this experimental function at my own risk",
+          "quantile": "PV forecast",
+          "min_gain_ct": "Minimum gain"
+        },
+        "data_description": {
+          "enabled": "Experimental. Changes the battery control at night.",
+          "risk_accepted": "Required to enable. Forecast errors can cost money; support for this option is limited.",
+          "quantile": "P10 is cautious and charges more; the median expects more PV and charges less.",
+          "min_gain_ct": "Each kWh from the grid must save at least this much more than it costs, after losses and wear. 2 ct if not set."
+        }
+      },
       "observation": {
         "title": "Observe measurement sources",
         "description": "Read-only: active house source stays unchanged. Match the grid connection, additional inverters and excluded loads. HA report timestamps are not proof of a new device measurement. Compare our time-weighted 60-minute value with legacy smoothing; interpolation can differ.",
@@ -1230,7 +1264,8 @@
       "charge_curve_soc": "Each charge level in the curve must be a whole number between 0 and 100 %.",
       "charge_curve_power": "Each power in the curve must be a whole number between 0 and 10000 W.",
       "charge_curve_duplicate": "Each charge level may appear only once in the curve.",
-      "charge_curve_rising": "The power in the curve must not rise with the charge level. Equal values are allowed."
+      "charge_curve_rising": "The power in the curve must not rise with the charge level. Equal values are allowed.",
+      "ambitious_precharge_risk": "Confirm the own-risk checkbox to enable the ambitious precharge."
     }
   },
   "entity": {
@@ -2164,6 +2199,12 @@
         "power_w": {
           "name": "Maximum charge power"
         }
+      }
+    },
+    "pv_quantile": {
+      "options": {
+        "p10": "P10 (cautious)",
+        "p50": "Median"
       }
     }
   },

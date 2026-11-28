@@ -15,6 +15,64 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   auf „Akku nur Laden“ mit 0 W Mindestladeleistung. So kann der Hausakku
   weiter Solarstrom aufnehmen, ohne ins Auto zu entladen. Entlademodi,
   „Akku Automatisch“ und die Extrempreisreserve führen weiterhin zur Pause.
+- **Peak-Horizont im Winter (#257).** Fällt der nächste Sonnenaufgang in die
+  Monate November bis Februar, plant die Peak-Reserve nachts immer über 36
+  Stunden. Bisher endete der Horizont bei gutem Sonnentag-Score schon 3 Stunden
+  nach Sonnenaufgang, obwohl die PV im Winter den Akku bis zur Abendspitze
+  nicht verlässlich nachlädt. Wirtschaftlichkeitsprüfung und PV-Abzug vor der
+  Spitze (#155) gelten unverändert. `binary_sensor.opti_peak_horizont_lang`
+  zeigt den Grund „Winter-Tor“.
+
+### Tests
+
+- **SOC<15 Notfall bei sehr teurem Preis (#256).** Ein Regressionstest hält
+  fest, dass die Halte-Regel in der Preisstufe VERY_EXPENSIVE den Rest bewusst
+  freigibt. Die harte Untergrenze bleibt der minimale Ladestand.
+
+## [2026.11-beta10] - 2026-11-26
+
+### Neu
+
+- **Entscheidungsverlauf in der Diagnose (#222).** Die Diagnosedatei enthält
+  jetzt die Entscheidungen der letzten 24 Stunden als Abschnitte (Modus,
+  angeforderter Modus, Regel, Grund, Ladestand und Preis am Anfang und Ende,
+  manueller Modus, Verbindungs- und Quellenstatus, fehlgeschlagene
+  Schreibvorgänge) sowie Zähler, Vorfälle und Peak-Zeiträume aus dem
+  Betriebsbericht. Ein Bericht über eine Nacht
+  lässt sich damit aus einer einzigen Datei nachvollziehen. Der Verlauf
+  übersteht Neustarts, ist auf 200 Abschnitte von höchstens einer Stunde
+  begrenzt und maskiert Entitäts-IDs und IP-Adressen. Der Entscheidungsgrund
+  kann die Zahlen der Regel enthalten (z. B. Exportleistung, Zellspannung).
+- **Ehrgeiziges Vorladen (experimentell, auf eigenes Risiko, #222).** Neue
+  Option unter *Optionale Funktionen*: Nachts plant Opti den ganzen kommenden
+  Tag aus PV-Prognose (P10 oder Median), Lastprofil, Preisen und Akkumodell und
+  lädt in den günstigsten Nachtslots so weit, wie es sich nach Verlusten,
+  Verschleiß und einem Mindestgewinn lohnt. Danach hält es die Ladung bis zum
+  Tag. Nur mit Pflicht-Haken „auf eigenes Risiko“ und freigegebenem
+  Netzladen; Schutzfunktionen, Balancing, E-Auto-Sperren und manuelle Modi
+  haben Vorrang, bei fehlenden Daten plant es nichts. Plan und Ersparnis stehen
+  in der Diagnose. Details unter
+  [Konfiguration](docs/configuration.md#ehrgeiziges-vorladen-experimentell-eigenes-risiko).
+
+### Geändert
+
+- **Verlust und Rückkehr des Wechselrichters stehen im Log.** Ist der
+  Wechselrichter nicht mehr erreichbar oder liefert keinen gültigen Status,
+  schreibt Opti Akku einmal eine Info-Meldung mit dem Grund ins
+  Home-Assistant-Log, und eine weitere, sobald er wieder antwortet. Bisher
+  standen solche Lesefehler nur im Debug-Log. Der nächtliche Standby des
+  STP SE zählt nicht als Verlust, solange der Status lesbar bleibt.
+- **Sunny Boy Storage: Schreibtest-Plan nach Stufe A angepasst (#170).** Am
+  SBS 5.0 brachte 41259=1438 den Akku nach einer Pause nicht in den
+  Normalbetrieb zurück. Die vollständige V2a-Folge mit 40236=2424 (Fenster
+  wiederhergestellt, dann 802, 40149=0, 803) dagegen sofort. Der
+  [Schreibtest-Plan](docs/sbs-schreibtest.md) nutzt am SBS deshalb für jede
+  BMS-Betriebsart 40236 und V2a als Rückweg; 803 allein beendet eine
+  BMS-Sperre nicht. V3b/V4b schalten aus dem Normalbetrieb nur die Betriebsart um, ohne die Leistungsfenster zu ändern. Nur Dokumentation; das SBS-Profil
+  liest weiterhin nur.
+
+### Behoben
+
 - **Huawei-Verbindung im Optionsmenü zeigt verständliche Fehler (#232).**
   Unter *Konfigurieren → Erweitert und Diagnose → Verbindung* erschien bei
   einem Huawei-Eintrag der rohe Fehlerschlüssel, wenn das Gerät nicht
@@ -752,7 +810,8 @@ Alle Korrekturen aus [#196](https://github.com/Optic00/ha-opti-akkusteuerung/pul
 - Frühere YAML-Lösung bleibt im Legacy-Archiv erhalten. Bestehende
   Integrationseinträge bei der Migration beibehalten.
 
-[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta9...HEAD
+[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta10...HEAD
+[2026.11-beta10]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta10
 [2026.11-beta9]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta9
 [2026.11-beta8]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta8
 [2026.11-beta7]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta7

@@ -1,6 +1,6 @@
 [project]
 name = "ha-opti-akku-hacs"
-version = "2026.11-beta9"
+version = "2026.11-beta10"
 requires-python = ">=3.14.2"
 
 [tool.pytest.ini_options]
@@ -18,6 +18,7 @@ select = ["E4", "E7", "E9", "F", "B"]
 
 [tool.mypy]
 files = [
+  "custom_components/opti_akku/ambitious_precharge.py",
   "custom_components/opti_akku/arbitrage.py",
   "custom_components/opti_akku/battery_model.py",
   "custom_components/opti_akku/charge_curve.py",

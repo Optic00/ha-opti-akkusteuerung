@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.opti_akku.decision_log import DecisionLog
 from custom_components.opti_akku.diagnostics import async_get_config_entry_diagnostics
 
 
@@ -38,9 +40,13 @@ def config_entry(hass):
 async def test_diagnostics_reports_health_without_private_bindings(hass):
     entry = config_entry(hass)
     private_entity = "sensor.private_house_meter"
+    log = DecisionLog()
+    log.record(datetime.now(UTC), {"mode": "Akku Pause", "reason": f"Quelle {private_entity} fehlt",
+                                   "online": True, "states": {"sensor.opti_soc": 12.0}})
     entry.runtime_data = SimpleNamespace(
         shadow_mode=True,
         strategy_enabled=True,
+        decision_log=log,
         data={
             "online": True,
             "write_enabled": False,
@@ -74,7 +80,14 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
             "last_error": f"Failed source {private_entity}",
             "notification_error": "notify.mobile_app_private_phone",
             "reserve_plan": {"status": "planned", "required_soc": 47.2},
-            "operating_report": {"status": "collecting", "totals": {"house": 99}},
+            "operating_report": {
+                "status": "collecting", "totals": {"house": 99}, "write_failures": 1,
+                "incidents": [{"at": "2026-11-23T01:00:00+00:00", "kind": "write_failed"},
+                              {"at": "2026-11-23T02:00:00+00:00", "kind": []}],
+                "last_control": {"reason": f"Quelle {private_entity}"},
+                "last_peak": {"started_at": "2026-11-22T17:00:00+00:00", "plan_at_start": {"x": 1},
+                              "house_energy_kwh": 4.2, "end_reason": ["x"]},
+            },
             "demand_forecast": {
                 "status": "ready",
                 "history": [1, 2, 3],
@@ -100,6 +113,8 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
             "source_observation": {"status": "warming_up", "entities": [private_entity]},
             "standby_reserve": {"status": "holding", "reserve_soc": 3.0,
                                 "grid_charge": {"status": "planned", "at": "2026-11-15T01:00:00+00:00"}},
+            "ambitious_precharge": {"status": "active", "action": "charge", "target_soc": 56.0,
+                                    "slots": ["2026-11-15T01:00:00+00:00"], "controls_battery": True},
             "shadow_status": "recording",
             "shadow_summary": {
                 "blocked_write_attempts": 2,
@@ -147,7 +162,23 @@ async def test_diagnostics_reports_health_without_private_bindings(hass):
         "reserve_plan": "planned",
         "source_observation": "warming_up",
         "standby_reserve": "holding",
+        "ambitious_precharge": "active",
     }
+    assert result["operating_report"] == {
+        "status": "collecting", "started_at": None, "last_observation": None,
+        "coverage_percent": None, "disconnects": None, "source_error_episodes": None,
+        "write_failures": 1, "sampling_gaps": None, "restarts": None, "clock_changes": None,
+        "incidents": [{"at": "2026-11-23T01:00:00+00:00", "kind": "write_failed"}],
+        "current_peak": None,
+        "last_peak": {"started_at": "2026-11-22T17:00:00+00:00", "ended_at": None,
+                      "start_soc": None, "last_soc": None, "min_soc": None, "max_soc": None,
+                      "end_reason": None, "control_enabled_at_start": False},
+    }
+    [segment] = result["decision_history"]
+    assert segment["mode"] == "Akku Pause"
+    assert segment["reason"] == "Quelle <entity> fehlt"
+    assert result["ambitious_precharge"] == {"status": "active", "action": "charge", "target_soc": 56.0,
+                                             "controls_battery": True}
     assert result["strategy_comparison"] == {
         "observation_only": True,
         "status": "learning",
@@ -280,3 +311,45 @@ async def test_diagnostics_summarises_the_charge_curve(hass):
     assert result["configuration"]["charge_curve"] == "ab 85 % 4000 W, ab 100 % 70 W"
     without = MockConfigEntry(domain="opti_akku", data={}, options={})
     assert "charge_curve" not in (await async_get_config_entry_diagnostics(hass, without))["configuration"]
+
+
+class _BrokenReport(dict):
+    """A report whose incident list cannot be read."""
+
+    def get(self, key, default=None):
+        if key == "incidents":
+            raise RuntimeError("broken")
+        return super().get(key, default)
+
+
+class _BrokenLog:
+    def report(self, _now):
+        raise RuntimeError("broken")
+
+
+async def test_diagnostics_survive_malformed_history_and_report(hass):
+    entry = config_entry(hass)
+    entry.runtime_data = SimpleNamespace(
+        shadow_mode=False, strategy_enabled=True, decision_log=_BrokenLog(),
+        data={"operating_report": _BrokenReport()},
+    )
+    result = await async_get_config_entry_diagnostics(hass, entry)
+    assert result["operating_report"] == {"status": "error"}
+    assert result["decision_history"] == []
+
+    entry.runtime_data.data = {"operating_report": {
+        "status": 3, "started_at": "nope", "last_observation": "2026-11-23T01:00:00",
+        "coverage_percent": True, "disconnects": -1,
+        "current_peak": {"started_at": 7, "start_soc": "50", "last_soc": True, "min_soc": 150,
+                         "max_soc": 42.26, "end_reason": "price_period_ended"},
+    }}
+    report = (await async_get_config_entry_diagnostics(hass, entry))["operating_report"]
+    assert report["status"] is None
+    assert report["started_at"] is None and report["last_observation"] is None
+    assert report["coverage_percent"] is None and report["disconnects"] is None
+    assert report["current_peak"]["started_at"] is None
+    assert report["current_peak"]["start_soc"] is None
+    assert report["current_peak"]["last_soc"] is None
+    assert report["current_peak"]["min_soc"] is None
+    assert report["current_peak"]["max_soc"] == 42.3
+    assert report["current_peak"]["end_reason"] == "price_period_ended"

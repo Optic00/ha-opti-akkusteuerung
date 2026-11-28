@@ -21,7 +21,8 @@ async def configure_options(hass, flow_id, user_input):
     """Navigate the real submenu before submitting an existing feature test."""
     section = user_input.get("next_step_id")
     parents = {
-        **dict.fromkeys(("ev_preparation", "demand", "arbitrage", "peak_rank", "notifications"), "features"),
+        **dict.fromkeys(("ev_preparation", "demand", "arbitrage", "peak_rank", "ambitious_precharge",
+                          "notifications"), "features"),
         **dict.fromkeys(("connection", "observation", "evcc_comparison", "advanced"), "maintenance"),
     }
     if section in parents and hass.config_entries.options.async_get(flow_id)["step_id"] == "init":
@@ -468,7 +469,7 @@ async def test_options_menu_groups_optional_features(hass):
     assert "ev" not in result["menu_options"]
     result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "features"})
     assert result["menu_options"] == ["ev", "ev_preparation", "balancing", "demand", "arbitrage", "peak_rank",
-                                      "notifications", "init"]
+                                      "ambitious_precharge", "notifications", "init"]
     hass.config_entries.options.async_abort(result["flow_id"])
     assert not entry.options
 
@@ -1270,6 +1271,62 @@ def test_peak_rank_control_texts_exist_in_every_language():
             step = data[flow]["step"]["peak_rank"]
             assert step["title"] and step["data"]["enabled"]
             assert ("experimentell" if path.name == "de.json" else "experimental") in step["description"].lower()
+
+
+async def test_ambitious_precharge_needs_the_own_risk_checkbox(hass):
+    from custom_components.opti_akku.config_flow import SHADOW_COPY_OPTIONS
+    from custom_components.opti_akku.const import NO_RELOAD_OPTION_KEYS
+
+    assert "ambitious_precharge" in NO_RELOAD_OPTION_KEYS
+    assert "ambitious_precharge" in SHADOW_COPY_OPTIONS
+    entry = MockConfigEntry(domain="opti_akku", title="Test", data={"host": "127.0.0.1", "port": 502, "unit_id": 3},
+                            options={"single_inverter": True, "sources": {}})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "ambitious_precharge"})
+    assert result["step_id"] == "ambitious_precharge"
+    assert form_values(result) == {"enabled": False, "risk_accepted": False, "quantile": "p10",
+                                   "min_gain_ct": 2.0}
+    off = {"enabled": True, "risk_accepted": False, "quantile": "p50", "min_gain_ct": 3}
+    result = await hass.config_entries.options.async_configure(result["flow_id"], off)
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "ambitious_precharge_risk"}
+    # The rejected input stays in the form.
+    assert form_values(result)["quantile"] == "p50"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**off, "risk_accepted": True})
+    assert result["type"] == "menu"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["type"] == "create_entry"
+    assert entry.options["ambitious_precharge"] == {"enabled": True, "risk_accepted": True,
+                                                    "quantile": "p50", "min_gain_ct": 3.0}
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "ambitious_precharge"})
+    assert form_values(result)["risk_accepted"] is True
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"enabled": False, "risk_accepted": True, "quantile": "p10", "min_gain_ct": 2})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert "ambitious_precharge" not in entry.options
+
+
+def test_ambitious_precharge_texts_exist_in_every_language():
+    import json
+    from pathlib import Path
+
+    base = Path(__file__).parents[1] / "custom_components" / "opti_akku"
+    for path in (base / "strings.json", base / "translations" / "de.json", base / "translations" / "en.json"):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["options"]["step"]["features"]["menu_options"]["ambitious_precharge"]
+        assert set(data["selector"]["pv_quantile"]["options"]) == {"p10", "p50"}
+        for flow in ("config", "options"):
+            step = data[flow]["step"]["ambitious_precharge"]
+            assert set(step["data"]) == {"enabled", "risk_accepted", "quantile", "min_gain_ct"}
+            assert set(step["data_description"]) == set(step["data"])
+            assert data[flow]["error"]["ambitious_precharge_risk"]
+            assert ("eigenes risiko" if path.name == "de.json" else "own risk") in step["description"].lower()
 
 
 async def test_active_arbitrage_hold_requires_demand_forecast_and_is_saved(hass):

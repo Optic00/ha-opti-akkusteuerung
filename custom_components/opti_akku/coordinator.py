@@ -2134,15 +2134,12 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._ambitious_charging = False
                 return result, {"status": "grid_charging_off", "controls_battery": False}
             sources = options.get("sources", {})
-            pv_hours: dict = {}
-            for today, tomorrow in ((sources.get("forecast_today"), sources.get("forecast_tomorrow")),
-                                    (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow"))):
-                entities = [self.hass.states.get(entity) for entity in (today, tomorrow) if entity]
-                pv_status, pv_hours = pv_forecast_hourly(
-                    entities, now, max_age=options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE))
-                if pv_status == "ready":
-                    break
-                pv_hours = {}
+            pv_status, pv_hours = ambitious_precharge.pv_timeline(
+                [[self.hass.states.get(entity) for entity in (today, tomorrow) if entity]
+                 for today, tomorrow in (
+                     (sources.get("forecast_today"), sources.get("forecast_tomorrow")),
+                     (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow")))],
+                now, max_age=options.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE))
             sun_attributes = result.attributes.get("sun.sun") or {}
             capacity = finite(states.get("sensor.opti_battery_capacity_kwh")) or 0.0
             curve = self._parse_charge_curve()
@@ -2172,7 +2169,7 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 feed_in_ct=settings.get("input_number.opti_einspeiseverguetung_ct"),
                 sunrise=sun_attributes.get("next_rising"), sunset=sun_attributes.get("next_setting"),
                 model=self._battery_model, min_gain_ct=cfg["min_gain_ct"],
-                charging=self._ambitious_charging,
+                charging=self._ambitious_charging, pv_source_status=pv_status,
             )
             changed = ambitious_precharge.apply(
                 result, report, eligible=self.strategy_enabled and self.manual_mode is None,

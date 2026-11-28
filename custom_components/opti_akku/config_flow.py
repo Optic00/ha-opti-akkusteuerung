@@ -9,6 +9,7 @@ from uuid import uuid4
 from homeassistant.util import dt as dt_util
 from .charge_curve import MAX_POWER_W as MAX_CURVE_POWER_W, ChargeCurveError, normalized_curve
 from .definitions import NUMBER_DEFINITIONS, SWITCH_DEFINITIONS
+from . import ambitious_precharge
 from .coordinator import validate_setting
 from .migration import MIGRATABLE, snapshot, describe
 from .sources import normalize_price_unit, build_inputs, finite
@@ -970,6 +971,11 @@ class WizardSections:
             if user_input.get("enabled") is True:
                 if user_input.get("risk_accepted") is not True:
                     errors["base"] = "ambitious_precharge_risk"
+                elif (self._ambitious_pv_timeline() != "ready"
+                      and not getattr(self, "_ambitious_pv_warned", False)):
+                    # Warn once; saving again keeps the option (the source may come later).
+                    self._ambitious_pv_warned = True
+                    errors["base"] = "ambitious_precharge_no_pv_timeline"
                 else:
                     self._draft["ambitious_precharge"] = {
                         "enabled": True, "risk_accepted": True,
@@ -990,6 +996,24 @@ class WizardSections:
                 NumberSelectorConfig(min=0, max=50, step=0.5, mode=NumberSelectorMode.BOX,
                                      unit_of_measurement="ct/kWh")),
         }))
+
+    def _ambitious_pv_timeline(self) -> str:
+        """Whether the draft's PV sources give the time series the precharge plans with (#262)."""
+        sources = self._draft.get("sources", {})
+        demand = self._draft.get("demand_forecast", {})
+        demand_sources = demand.get("sources", {}) if isinstance(demand, dict) and demand.get("enabled") is True else {}
+        if not isinstance(demand_sources, dict):
+            demand_sources = {}
+        pairs = [[self.hass.states.get(entity) for entity in (today, tomorrow) if entity]
+                 for today, tomorrow in (
+                     (sources.get("forecast_today"), sources.get("forecast_tomorrow")),
+                     (demand_sources.get("pv_today"), demand_sources.get("pv_tomorrow")))]
+        try:
+            status, _ = ambitious_precharge.pv_timeline(
+                pairs, dt_util.utcnow(), max_age=self._draft.get("forecast_max_age", DEFAULT_FORECAST_MAX_AGE))
+        except Exception:  # noqa: BLE001 - a hint only, never block the dialog on it
+            return "invalid"
+        return status
 
     async def async_step_sources(self, user_input=None):
         return await self._section("sources", user_input)

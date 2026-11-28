@@ -41,7 +41,7 @@ from typing import Any
 from .arbitrage import _instant, _price_periods
 from .battery_model import BatteryModel
 from .peak_rank import _number
-from .planner_shadow import _hour
+from .planner_shadow import _hour, pv_forecast_hourly
 
 OPTION = "ambitious_precharge"
 DECISION = "ambitious_precharge"
@@ -218,6 +218,41 @@ def _thresholds(night: Sequence[tuple[datetime, datetime, float]]) -> list[float
     return sorted({prices[round(i * last / (MAX_THRESHOLDS - 1))] for i in range(MAX_THRESHOLDS)})
 
 
+# Why no PV time series is available, in diagnostic order (#262).
+PV_SOURCE_STATUSES = (
+    "not_configured", "source_unavailable", "no_detailed_forecast", "stale", "invalid",
+)
+_UNUSABLE_STATES = (None, "unknown", "unavailable")
+
+
+def pv_timeline(source_pairs: Sequence[Sequence[Any]], now: datetime,
+                max_age: float) -> tuple[str, dict[datetime, tuple[float | None, float | None]]]:
+    """Hourly PV time series of the first usable source pair, else why there is none.
+
+    ``source_pairs`` lists the states (``None`` for a missing entity) of the
+    configured today/tomorrow forecast entities per source, first choice
+    first; an empty pair means that source is not configured. The ambitious
+    precharge needs the Solcast interval rows (``detailedForecast`` or
+    ``detailedHourly``); daily kWh alone cannot place PV in the day. The
+    reason of the first configured source is returned, so the diagnostics
+    point at the source the user set up first.
+    """
+    reason = "not_configured"
+    for states in source_pairs:
+        if not states:
+            continue
+        status, hours = pv_forecast_hourly(states, now, max_age=max_age)
+        if status == "ready":
+            return "ready", hours
+        if status == "no_forecast":
+            usable = any(state is not None and getattr(state, "state", None) not in _UNUSABLE_STATES
+                         for state in states)
+            status = "no_detailed_forecast" if usable else "source_unavailable"
+        if reason == "not_configured":
+            reason = status
+    return reason, {}
+
+
 def plan(
     *,
     now: datetime,
@@ -240,6 +275,7 @@ def plan(
     model: BatteryModel,
     min_gain_ct: float,
     charging: bool = False,
+    pv_source_status: str | None = None,
 ) -> dict[str, Any]:
     """Plan of the ambitious precharge; never raises for invalid inputs."""
     rising, setting = _instant(sunrise), _instant(sunset)
@@ -259,8 +295,11 @@ def plan(
     periods = _contiguous(_price_periods(price_series, now, timezone), now)
     if not periods or periods[-1][1] < setting:
         return {"status": "price_horizon_short"}
-    if not isinstance(pv_hours, Mapping) or not pv_hours or quantile not in QUANTILES:
-        return {"status": "pv_forecast_missing"}
+    if quantile not in QUANTILES:
+        return {"status": "pv_forecast_missing", "detail": "quantile"}
+    if not isinstance(pv_hours, Mapping) or not pv_hours:
+        reason = pv_source_status if pv_source_status in PV_SOURCE_STATUSES else "no_forecast"
+        return {"status": "pv_forecast_missing", "detail": reason}
     index = QUANTILES.index(quantile)
     fallback = _number(fallback_load_kw)
     fallback = fallback if fallback is not None and 0 <= fallback <= MAX_LOAD_W / 1000 else 0.8
@@ -278,7 +317,7 @@ def plan(
         value = _number(pair[index]) if isinstance(pair, Sequence) and len(pair) == 2 else None
         if value is None or value < 0:
             if rising <= at < setting:
-                return {"status": "pv_forecast_missing", "detail": at.isoformat()}
+                return {"status": "pv_forecast_missing", "detail": "daylight_gap", "at": at.isoformat()}
             value = 0.0
         pieces.append((slot, hours, value - _load_kw(load_hours, at, fallback), price))
     # Only slots that end by sunrise: the plan never grid-charges into the morning.

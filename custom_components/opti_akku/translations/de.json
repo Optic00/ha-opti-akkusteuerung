@@ -667,7 +667,8 @@
       "charge_curve_power": "Jede Leistung der Kurve muss eine ganze Zahl zwischen 0 und 10000 W sein.",
       "charge_curve_duplicate": "Jeder Ladestand darf in der Kurve nur einmal vorkommen.",
       "charge_curve_rising": "Die Leistung der Kurve darf mit steigendem Ladestand nicht steigen. Gleiche Werte sind erlaubt.",
-      "ambitious_precharge_risk": "Bestätige den Haken „auf eigenes Risiko“, um das ehrgeizige Vorladen einzuschalten."
+      "ambitious_precharge_risk": "Bestätige den Haken „auf eigenes Risiko“, um das ehrgeizige Vorladen einzuschalten.",
+      "ambitious_precharge_no_pv_timeline": "Kein PV-Zeitverlauf gefunden: Das ehrgeizige Vorladen braucht Solcast-Prognosesensoren für heute und morgen mit dem Attribut detailedForecast (oder detailedHourly); Tages-kWh allein reichen nicht. Ohne Zeitverlauf plant die Option nichts. Erneut absenden speichert trotzdem."
     },
     "abort": {
       "already_configured": "Für dieses Gerät und diese Betriebsart ist bereits ein Eintrag vorhanden.",
@@ -1265,7 +1266,8 @@
       "charge_curve_power": "Jede Leistung der Kurve muss eine ganze Zahl zwischen 0 und 10000 W sein.",
       "charge_curve_duplicate": "Jeder Ladestand darf in der Kurve nur einmal vorkommen.",
       "charge_curve_rising": "Die Leistung der Kurve darf mit steigendem Ladestand nicht steigen. Gleiche Werte sind erlaubt.",
-      "ambitious_precharge_risk": "Bestätige den Haken „auf eigenes Risiko“, um das ehrgeizige Vorladen einzuschalten."
+      "ambitious_precharge_risk": "Bestätige den Haken „auf eigenes Risiko“, um das ehrgeizige Vorladen einzuschalten.",
+      "ambitious_precharge_no_pv_timeline": "Kein PV-Zeitverlauf gefunden: Das ehrgeizige Vorladen braucht Solcast-Prognosesensoren für heute und morgen mit dem Attribut detailedForecast (oder detailedHourly); Tages-kWh allein reichen nicht. Ohne Zeitverlauf plant die Option nichts. Erneut absenden speichert trotzdem."
     }
   },
   "entity": {

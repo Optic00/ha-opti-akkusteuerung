@@ -213,6 +213,59 @@ def test_missing_inputs_plan_nothing(overrides, status):
     assert report.get("active") is not True
 
 
+@pytest.mark.parametrize(("overrides", "detail"), [
+    ({"pv_hours": {}}, "no_forecast"),
+    ({"pv_hours": {}, "pv_source_status": "no_detailed_forecast"}, "no_detailed_forecast"),
+    ({"pv_hours": {}, "pv_source_status": "stale"}, "stale"),
+    ({"pv_hours": {}, "pv_source_status": "bogus"}, "no_forecast"),
+    ({"quantile": "p90"}, "quantile"),
+])
+def test_missing_pv_forecast_names_the_reason(overrides, detail):
+    """#262: the diagnostics say why the PV time series is missing."""
+    report = run(**overrides)
+    assert report == {"status": "pv_forecast_missing", "detail": detail}
+
+
+def test_gap_in_daylight_names_the_hour():
+    report = run(pv_hours=pv(1.0, missing=(12,)))
+    assert report == {"status": "pv_forecast_missing", "detail": "daylight_gap",
+                      "at": local(15, 12).isoformat()}
+
+
+class State:
+    def __init__(self, state="12.5", attributes=None, reported=None):
+        self.state, self.attributes = state, attributes or {}
+        self.last_reported = self.last_updated = reported or local(14, 22)
+
+
+def solcast(hours=48, reported=None):
+    start = local(14, 0)
+    rows = [{"period_start": (start + i * ap.HALF_HOUR).isoformat(), "pv_estimate10": 0.4,
+             "pv_estimate": 1.0} for i in range(hours * 2)]
+    return State(attributes={"detailedForecast": rows}, reported=reported)
+
+
+@pytest.mark.parametrize(("pairs", "status"), [
+    ([[], []], "not_configured"),
+    ([[None, None], []], "source_unavailable"),
+    ([[State("unavailable")], []], "source_unavailable"),
+    ([[State()], []], "no_detailed_forecast"),
+    ([[solcast(reported=local(13, 12))], []], "stale"),
+    ([[State(attributes={"detailedForecast": [{"period_start": "x"}]})], []], "invalid"),
+    # The first configured source names the reason, a later one may still deliver.
+    ([[State()], [None]], "no_detailed_forecast"),
+    ([[], [State()]], "no_detailed_forecast"),
+])
+def test_pv_timeline_names_why_there_is_none(pairs, status):
+    assert ap.pv_timeline(pairs, local(14, 23), max_age=3 * 3600) == (status, {})
+
+
+def test_pv_timeline_uses_the_first_usable_source():
+    status, hours = ap.pv_timeline([[State()], [solcast()]], local(14, 23), max_age=3 * 3600)
+    assert status == "ready"
+    assert hours[local(15, 12)] == (0.4, 1.0)
+
+
 def test_window_limits_are_spread_over_many_prices():
     night = [(local(15, 1), local(15, 1, 15), float(price)) for price in range(30)]
     limits = ap._thresholds(night)

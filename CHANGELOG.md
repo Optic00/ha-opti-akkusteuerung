@@ -22,6 +22,12 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   nicht verlässlich nachlädt. Wirtschaftlichkeitsprüfung und PV-Abzug vor der
   Spitze (#155) gelten unverändert. `binary_sensor.opti_peak_horizont_lang`
   zeigt den Grund „Winter-Tor“.
+- **Ehrgeiziges Vorladen nennt den fehlenden PV-Zeitverlauf (#262).** Ohne
+  Solcast-`detailedForecast` plante die Option nie, die Diagnose zeigte nur
+  `pv_forecast_missing`. Jetzt steht der Grund in `detail` (nicht eingetragen,
+  nicht verfügbar, nur Tageswerte, zu alt, unlesbar, Lücke am Tag). Beim
+  Einschalten ohne Zeitverlauf warnt der Dialog einmal. Die Doku nennt die
+  Voraussetzung ausdrücklich.
 
 ### Tests
 

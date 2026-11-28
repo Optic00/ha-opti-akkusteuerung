@@ -1293,6 +1293,11 @@ async def test_ambitious_precharge_needs_the_own_risk_checkbox(hass):
     assert result["errors"] == {"base": "ambitious_precharge_risk"}
     # The rejected input stays in the form.
     assert form_values(result)["quantile"] == "p50"
+    # Without a PV time series (#262) the dialog warns once, a second submit saves anyway.
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {**off, "risk_accepted": True})
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "ambitious_precharge_no_pv_timeline"}
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {**off, "risk_accepted": True})
     assert result["type"] == "menu"
@@ -1312,6 +1317,26 @@ async def test_ambitious_precharge_needs_the_own_risk_checkbox(hass):
     assert "ambitious_precharge" not in entry.options
 
 
+async def test_ambitious_precharge_does_not_warn_with_a_pv_time_series(hass):
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+
+    start = dt_util.utcnow().replace(minute=0, second=0, microsecond=0) - timedelta(hours=12)
+    rows = [{"period_start": (start + timedelta(minutes=30 * i)).isoformat(), "pv_estimate10": 0.2,
+             "pv_estimate": 0.5} for i in range(96)]
+    hass.states.async_set("sensor.solcast_today", "3.1", {"detailedForecast": rows})
+    entry = MockConfigEntry(domain="opti_akku", title="Test", data={"host": "127.0.0.1", "port": 502, "unit_id": 3},
+                            options={"single_inverter": True,
+                                     "sources": {"forecast_today": "sensor.solcast_today"}})
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "ambitious_precharge"})
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"enabled": True, "risk_accepted": True, "quantile": "p10", "min_gain_ct": 2})
+    assert result["type"] == "menu"
+
+
 def test_ambitious_precharge_texts_exist_in_every_language():
     import json
     from pathlib import Path
@@ -1326,6 +1351,7 @@ def test_ambitious_precharge_texts_exist_in_every_language():
             assert set(step["data"]) == {"enabled", "risk_accepted", "quantile", "min_gain_ct"}
             assert set(step["data_description"]) == set(step["data"])
             assert data[flow]["error"]["ambitious_precharge_risk"]
+            assert "detailedForecast" in data[flow]["error"]["ambitious_precharge_no_pv_timeline"]
             assert ("eigenes risiko" if path.name == "de.json" else "own risk") in step["description"].lower()
 
 

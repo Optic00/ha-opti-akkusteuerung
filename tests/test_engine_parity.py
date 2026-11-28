@@ -406,3 +406,30 @@ def test_balancing_hold_branch_and_preview_have_identical_priority(decision_engi
     assert result.attributes["sensor.opti_strategie_vorschau"]["grund"] == result.reason
     assert result.reason == "Balancing-Watchdog (Haltefenster)"
     assert result.states["sensor.opti_engine_diagnostics"] == "ok"
+
+
+@pytest.mark.parametrize("price_level, expected_mode, expected_decision", [
+    ("EXPENSIVE", "Akku nur Laden", "reserve_today_low"),
+    ("VERY_EXPENSIVE", "Akku Dynamisch", "default"),
+])
+def test_low_soc_reserve_releases_in_very_expensive_slot(
+    decision_engine, price_level, expected_mode, expected_decision
+):
+    # Issue #256: "SOC<15 Notfall" haelt den Rest bei schlechter Prognose
+    # (nur Laden, kein Netzbezug). In der teuersten Preisstufe gibt er ihn
+    # bewusst frei: Spaeter wird der Strom nicht teurer. Die harte Grenze
+    # bleibt input_number.minsoc, hier 0 wie beim Melder.
+    states = {**BASE,
+        "input_boolean.akku_opti_automatik": "on",
+        "sensor.opti_soc": "6",
+        "input_number.minsoc": "0",
+        "sensor.opti_forecast_score": "1",
+        "sensor.opti_forecast_score_tomorrow": "1",
+        "binary_sensor.opti_winter_charging_allowed": "off",
+        "sensor.opti_price_level": price_level,
+        "sensor.opti_price_current_ct_kwh": "52",
+    }
+    result = decision_engine.evaluate(states, {}, NOW)
+    assert result.mode == expected_mode
+    assert result.decision_id == expected_decision
+    assert result.states["sensor.opti_strategie_vorschau"] == expected_mode

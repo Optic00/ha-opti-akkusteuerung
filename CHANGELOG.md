@@ -21,6 +21,22 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   entfernt, bleibt der gelernte Warmwasseranteil. Ohne die neue Quelle und ohne
   Wärmepumpenzähler ändert sich nichts.
 
+### Behoben
+
+- **Peak-Horizont im Winter (#257).** Fällt der nächste Sonnenaufgang in die
+  Monate November bis Februar, plant die Peak-Reserve nachts immer über 36
+  Stunden. Bisher endete der Horizont bei gutem Sonnentag-Score schon 3 Stunden
+  nach Sonnenaufgang, obwohl die PV im Winter den Akku bis zur Abendspitze
+  nicht verlässlich nachlädt. Wirtschaftlichkeitsprüfung und PV-Abzug vor der
+  Spitze (#155) gelten unverändert. `binary_sensor.opti_peak_horizont_lang`
+  zeigt den Grund „Winter-Tor“.
+
+### Tests
+
+- **SOC<15 Notfall bei sehr teurem Preis (#256).** Ein Regressionstest hält
+  fest, dass die Halte-Regel in der Preisstufe VERY_EXPENSIVE den Rest bewusst
+  freigibt. Die harte Untergrenze bleibt der minimale Ladestand.
+
 ## [2026.11-beta10] - 2026-11-26
 
 ### Neu

@@ -7061,7 +7061,9 @@ async def test_ambitious_precharge_reads_the_pv_forecast_and_power_limits(coordi
         "sources": {**coordinator.entry.options.get("sources", {}), "forecast_today": "sensor.pv_today"}})
     hass.states.async_set("sensor.pv_today", "5", {})
     coordinator.settings["input_number.akkusteuerung_max_entladestaerke"] = 2500
-    hours = {datetime(2026, 11, 15, 10, tzinfo=UTC): (1.0, 2.0)}
+    # The selected quantile must cover the current hour (#262).
+    hour = dt_util.utcnow().replace(minute=0, second=0, microsecond=0)
+    hours = {hour: (1.0, 2.0), hour + timedelta(hours=1): (1.0, 2.0)}
     coordinator.device.async_apply.reset_mock()
     coordinator._last_apply = None
     with (

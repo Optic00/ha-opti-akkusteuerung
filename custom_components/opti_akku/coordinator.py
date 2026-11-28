@@ -1508,6 +1508,8 @@ class OptiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # This feature never imposes minimum export/discharge or minimum
             # charging that could pull power from the grid.
             params["min_discharge_w"] = 0
+            if result.decision_id == "ev_priority":
+                params["min_charge_w"] = 0
             if ev_report.get("status") == "preparing" and safety_reason is None:
                 params["min_charge_w"] = 0
                 params["charge_power_w"] = min(params["charge_power_w"], ev_report.get("surplus_before_battery_w", 0))

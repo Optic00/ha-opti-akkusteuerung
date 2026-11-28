@@ -504,7 +504,7 @@
       },
       "ev_preparation": {
         "title": "PV preparation for the car",
-        "description": "Prepare the home battery from PV surplus when vehicle SOC is low, including while away. An optional recurring or absolute departure time can add a vehicle target, usable capacity, available charge power and efficiency. Until that deadline, the vehicle target replaces the simple demand threshold. The report shows required energy, latest charge start and feasibility assuming continuous power; the integration does not control the charger. No additional grid charging. While the car charges, ordinary home charging/discharging pauses and priority protection charging remains. Vehicle SOC expires after 24h; an unknown charging state blocks preparation. Minimum discharge power is limited to 0 W while preparation is enabled.",
+        "description": "Prepare the home battery from PV surplus when vehicle SOC is low, including while away. An optional recurring or absolute departure time can add a vehicle target, usable capacity, available charge power and efficiency. Until that deadline, the vehicle target replaces the simple demand threshold. The report shows required energy, latest charge start and feasibility assuming continuous power; the integration does not control the charger. No additional grid charging. If the car is charging or its charging signal is unknown, the home battery can keep charging from surplus PV. Discharge is blocked. Vehicle SOC expires after 24h; an unknown charging state blocks preparation. Minimum discharge power is limited to 0 W while preparation is enabled.",
         "data": {
           "enabled": "Enable",
           "vehicle_soc": "Vehicle SOC",
@@ -521,7 +521,7 @@
         "data_description": {
           "enabled": "Pulls existing PV surplus into the house battery earlier when the vehicle state of charge is low. No additional grid charging.",
           "vehicle_soc": "State of charge of the vehicle in percent. Valid for at most 24 hours.",
-          "charging": "Reliable signal that the car is charging. Active or unknown pauses normal house battery charging and discharging.",
+          "charging": "Reliable signal that the car is charging. An active or unknown signal blocks discharge. The home battery can keep charging from surplus PV.",
           "away": "Optional. Switch for longer absence; blocks only the preparation.",
           "departure": "Optional. input_datetime or timestamp sensor. A time of day alone applies daily.",
           "vehicle_threshold": "Below this vehicle state of charge, charging is needed.",
@@ -1167,7 +1167,7 @@
       },
       "ev_preparation": {
         "title": "PV preparation for the car",
-        "description": "Prepare the home battery from PV surplus when vehicle SOC is low, including while away. An optional recurring or absolute departure time can add a vehicle target, usable capacity, available charge power and efficiency. Until that deadline, the vehicle target replaces the simple demand threshold. The report shows required energy, latest charge start and feasibility assuming continuous power; the integration does not control the charger. No additional grid charging. While the car charges, ordinary home charging/discharging pauses and priority protection charging remains. Vehicle SOC expires after 24h; an unknown charging state blocks preparation. Minimum discharge power is limited to 0 W while preparation is enabled.",
+        "description": "Prepare the home battery from PV surplus when vehicle SOC is low, including while away. An optional recurring or absolute departure time can add a vehicle target, usable capacity, available charge power and efficiency. Until that deadline, the vehicle target replaces the simple demand threshold. The report shows required energy, latest charge start and feasibility assuming continuous power; the integration does not control the charger. No additional grid charging. If the car is charging or its charging signal is unknown, the home battery can keep charging from surplus PV. Discharge is blocked. Vehicle SOC expires after 24h; an unknown charging state blocks preparation. Minimum discharge power is limited to 0 W while preparation is enabled.",
         "data": {
           "enabled": "Enable",
           "vehicle_soc": "Vehicle SOC",
@@ -1184,7 +1184,7 @@
         "data_description": {
           "enabled": "Pulls existing PV surplus into the house battery earlier when the vehicle state of charge is low. No additional grid charging.",
           "vehicle_soc": "State of charge of the vehicle in percent. Valid for at most 24 hours.",
-          "charging": "Reliable signal that the car is charging. Active or unknown pauses normal house battery charging and discharging.",
+          "charging": "Reliable signal that the car is charging. An active or unknown signal blocks discharge. The home battery can keep charging from surplus PV.",
           "away": "Optional. Switch for longer absence; blocks only the preparation.",
           "departure": "Optional. input_datetime or timestamp sensor. A time of day alone applies daily.",
           "vehicle_threshold": "Below this vehicle state of charge, charging is needed.",

@@ -690,9 +690,10 @@ Damit führen kleine Prognoseänderungen nicht alle 15 Sekunden zu einem
 Moduswechsel. Der Schutz übernimmt keine Mindestlade- oder Entladeleistung und
 startet kein Netzladen. Fehlende, ältere als 90 Sekunden oder nicht mehr zu SoC,
 Kapazität und Min-/Max-SoC passende Berechnungen lassen die bisherige
-Strategieentscheidung unverändert. Schutz- und Ladeentscheidungen sowie der
-Vorrang eines ladenden Autos bleiben übergeordnet. Nach einer Sicherheitspause
-muss der Entladeschutz erneut die höhere Eintrittsschwelle erreichen.
+Strategieentscheidung unverändert. Schutz- und Ladeentscheidungen bleiben
+übergeordnet. Bei laufender Autoladung kann „Akku nur Laden“ aktiv bleiben.
+Nach einer Sicherheitspause muss der Entladeschutz erneut die höhere
+Eintrittsschwelle erreichen.
 
 ### PV-Vorbereitung fürs Auto (0.5.2b4)
 
@@ -733,10 +734,13 @@ vorrangig. Die Funktion wählt nur PV-Ladung ohne Entladung, nie einen Netzladem
 Mindestladeleistung wird dabei null, die Ladeobergrenze höchstens der ermittelte
 Überschuss. Sie senkt ein ohnehin höheres normales Ladeziel nicht ab.
 
-Bei aktivem oder unbekanntem Fahrzeug-Ladesignal pausieren normale Hausakkuladung
-und automatische Entladung, auch nachts. Höher priorisierte Schutz-, Balancing-, Reserve- und Preisladungen
-bleiben möglich, insbesondere Vorladen vor einem Preispeak oder bei negativen
-Preisen. Hausakku und Fahrzeug können dann gleichzeitig aus dem Netz laden;
+Bei aktivem oder unbekanntem Fahrzeug-Ladesignal wechselt „Akku Dynamisch“ auf
+„Akku nur Laden“ mit 0 W Mindestladeleistung. Der Hausakku kann weiter PV-Überschuss
+aufnehmen, ohne ins Auto zu entladen. „Akku nur Entladen“, „Akku schnell Entladen“,
+„Akku Automatisch“ und die Extrempreisreserve führen zur Pause. Ein bereits gewähltes
+„Akku nur Laden“ bleibt in den übrigen Fällen aktiv. Höher priorisierte Schutz-,
+Balancing-, Reserve- und Preisladungen bleiben möglich, insbesondere Vorladen vor
+einem Preispeak oder bei negativen Preisen. Hausakku und Fahrzeug können dann gleichzeitig aus dem Netz laden;
 die EV-Funktion ist keine globale Netzbezugs- oder Anschlussleistungsbegrenzung. Die bestehende Wallboxregelung bleibt zuständig für das Auto.
 Mit aktivierter Funktion wird im Automatikbetrieb keine Mindestentladeleistung
 erzwungen. Nach Ende der Vorbereitung deckt der Hausakku wieder normalen

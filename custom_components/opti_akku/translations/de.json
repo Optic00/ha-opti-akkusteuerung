@@ -460,7 +460,7 @@
       },
       "demand": {
         "title": "Bedarfsprofil und Peak-Reserve",
-        "description": "Das Lernen und der Vergleich bleiben beobachtend. Optional verwendet die aktive Strategie das Stundenprofil für Peak-Reserve und Resttages-Score: vergleichbare historische oder gelernte Stunden, 20 % Prognosepuffer in der Peak-Reserve, sonst eingestellter Ersatzverbrauch beziehungsweise bisherige Resttages-Hochrechnung. Dies verändert die Akkusteuerung. Heizungs- und Warmwasserverbrauch ist bereits im Hausprofil enthalten; zukünftige Zyklen werden nicht zeitlich vorhergesagt. Bei unklarem Heizkontext oder erkennbarem, unbeziffertem Warmwasserbedarf bleibt der sichere Rückfall. Ein eigener Wärmepumpenzähler wird im aktiven Peak-Profil noch nicht unterstützt.",
+        "description": "Das Lernen und der Vergleich bleiben beobachtend. Optional verwendet die aktive Strategie das Stundenprofil für Peak-Reserve und Resttages-Score: vergleichbare historische oder gelernte Stunden, 20 % Prognosepuffer in der Peak-Reserve, sonst eingestellter Ersatzverbrauch beziehungsweise bisherige Resttages-Hochrechnung. Dies verändert die Akkusteuerung. Heizungs- und Warmwasserverbrauch ist bereits im Hausprofil enthalten; zukünftige Zyklen werden nicht zeitlich vorhergesagt. Bei unklarem Heizkontext oder erkennbarem, unbeziffertem Warmwasserbedarf bleibt der sichere Rückfall. Mit eigenem Wärmepumpenzähler rechnet das aktive Peak-Profil je Stunde Grundlast plus Raumheizung; ein geplanter Warmwasserstart bucht den Zyklus in die Stunden, in denen er tatsächlich läuft.",
         "data": {
           "enabled": "Bedarfsprofil lernen und Prognose beobachten",
           "heat_power": "Elektrische Gesamtleistung der Wärmepumpe, im Hausverbrauch enthalten",
@@ -479,7 +479,9 @@
           "history_house": "Historischer Hausverbrauch (gleicher Messumfang)",
           "house_includes_ev": "Hausverbrauch enthält Wallbox-Ladung (konfigurierte EV-Leistung abziehen)",
           "temperature_matching": "Ähnliche Außentemperaturen bevorzugen (experimentell)",
-          "use_for_peak_reserve": "Stundenprofil in der aktiven Strategie verwenden"
+          "use_for_peak_reserve": "Stundenprofil in der aktiven Strategie verwenden",
+          "dhw_planned_start": "Nächster geplanter Warmwasserstart (optional)",
+          "dhw_run_minutes": "Dauer eines geplanten Warmwasserlaufs"
         },
         "data_description": {
           "enabled": "Lernt den Hausverbrauch nach Stunde und Wochentag und vergleicht die Prognose. Rein beobachtend.",
@@ -499,7 +501,9 @@
           "history_house": "Sensor für den einmaligen Import aus dem Recorder. Muss denselben Verbrauchsumfang wie der aktuelle Hausverbrauch messen.",
           "house_includes_ev": "Nur einschalten, wenn der Hausverbrauch die Wallbox enthält. Dann werden die EV-Leistungen abgezogen; eine Änderung setzt das gelernte Profil zurück.",
           "temperature_matching": "Bevorzugt historische Stunden innerhalb von 3 °C der aktuellen Außentemperatur, für die ersten vier Prognosestunden.",
-          "use_for_peak_reserve": "Verwendet das Stundenprofil für Peak-Reserve und Resttages-Score. Verändert die Akkusteuerung."
+          "use_for_peak_reserve": "Verwendet das Stundenprofil für Peak-Reserve und Resttages-Score. Verändert die Akkusteuerung.",
+          "dhw_planned_start": "Optional. Zeitstempel-Sensor oder input_datetime mit Datum und Uhrzeit, den deine Automation auf den nächsten Warmwasserstart setzt. Die Peak-Reserve bucht dann die kWh je Zyklus in diese Stunden statt in die gelernte Uhrzeit. Braucht Wärmepumpenzähler, Warmwasser-Aktivmeldung und kWh je Zyklus. Ist der Wert unbekannt, vorbei oder mehr als 24 h entfernt, bleibt der gelernte Warmwasseranteil.",
+          "dhw_run_minutes": "Laufzeit, auf die die kWh je Zyklus verteilt werden."
         }
       },
       "ev_preparation": {
@@ -668,6 +672,7 @@
       "charge_curve_duplicate": "Jeder Ladestand darf in der Kurve nur einmal vorkommen.",
       "charge_curve_rising": "Die Leistung der Kurve darf mit steigendem Ladestand nicht steigen. Gleiche Werte sind erlaubt.",
       "ambitious_precharge_risk": "Bestätige den Haken „auf eigenes Risiko“, um das ehrgeizige Vorladen einzuschalten.",
+      "demand_dhw_plan": "Ein geplanter Warmwasserstart braucht Wärmepumpenzähler, Warmwasser-Aktivmeldung und kWh je Zyklus über 0.",
       "ambitious_precharge_no_pv_timeline": "Kein nutzbarer PV-Zeitverlauf gefunden: Das ehrgeizige Vorladen braucht Solcast-Prognosesensoren für heute und morgen mit dem Attribut detailedForecast (oder detailedHourly), die den nächsten Tag mit dem gewählten Quantil abdecken (pv_estimate10 für P10, pv_estimate für den Median); Tages-kWh allein reichen nicht. Ohne Zeitverlauf plant die Option nichts, die Diagnose nennt den Grund. Erneut absenden speichert trotzdem."
     },
     "abort": {
@@ -1048,7 +1053,7 @@
       },
       "demand": {
         "title": "Bedarfsprofil und Peak-Reserve",
-        "description": "Das Lernen und der Vergleich bleiben beobachtend. Optional verwendet die aktive Strategie das Stundenprofil für Peak-Reserve und Resttages-Score: vergleichbare historische oder gelernte Stunden, 20 % Prognosepuffer in der Peak-Reserve, sonst eingestellter Ersatzverbrauch beziehungsweise bisherige Resttages-Hochrechnung. Dies verändert die Akkusteuerung. Heizungs- und Warmwasserverbrauch ist bereits im Hausprofil enthalten; zukünftige Zyklen werden nicht zeitlich vorhergesagt. Bei unklarem Heizkontext oder erkennbarem, unbeziffertem Warmwasserbedarf bleibt der sichere Rückfall. Ein eigener Wärmepumpenzähler wird im aktiven Peak-Profil noch nicht unterstützt.",
+        "description": "Das Lernen und der Vergleich bleiben beobachtend. Optional verwendet die aktive Strategie das Stundenprofil für Peak-Reserve und Resttages-Score: vergleichbare historische oder gelernte Stunden, 20 % Prognosepuffer in der Peak-Reserve, sonst eingestellter Ersatzverbrauch beziehungsweise bisherige Resttages-Hochrechnung. Dies verändert die Akkusteuerung. Heizungs- und Warmwasserverbrauch ist bereits im Hausprofil enthalten; zukünftige Zyklen werden nicht zeitlich vorhergesagt. Bei unklarem Heizkontext oder erkennbarem, unbeziffertem Warmwasserbedarf bleibt der sichere Rückfall. Mit eigenem Wärmepumpenzähler rechnet das aktive Peak-Profil je Stunde Grundlast plus Raumheizung; ein geplanter Warmwasserstart bucht den Zyklus in die Stunden, in denen er tatsächlich läuft.",
         "data": {
           "enabled": "Bedarfsprofil lernen und Prognose beobachten",
           "heat_power": "Elektrische Gesamtleistung der Wärmepumpe, im Hausverbrauch enthalten",
@@ -1067,7 +1072,9 @@
           "history_house": "Historischer Hausverbrauch (gleicher Messumfang)",
           "house_includes_ev": "Hausverbrauch enthält Wallbox-Ladung (konfigurierte EV-Leistung abziehen)",
           "temperature_matching": "Ähnliche Außentemperaturen bevorzugen (experimentell)",
-          "use_for_peak_reserve": "Stundenprofil in der aktiven Strategie verwenden"
+          "use_for_peak_reserve": "Stundenprofil in der aktiven Strategie verwenden",
+          "dhw_planned_start": "Nächster geplanter Warmwasserstart (optional)",
+          "dhw_run_minutes": "Dauer eines geplanten Warmwasserlaufs"
         },
         "data_description": {
           "enabled": "Lernt den Hausverbrauch nach Stunde und Wochentag und vergleicht die Prognose. Rein beobachtend.",
@@ -1087,7 +1094,9 @@
           "history_house": "Sensor für den einmaligen Import aus dem Recorder. Muss denselben Verbrauchsumfang wie der aktuelle Hausverbrauch messen.",
           "house_includes_ev": "Nur einschalten, wenn der Hausverbrauch die Wallbox enthält. Dann werden die EV-Leistungen abgezogen; eine Änderung setzt das gelernte Profil zurück.",
           "temperature_matching": "Bevorzugt historische Stunden innerhalb von 3 °C der aktuellen Außentemperatur, für die ersten vier Prognosestunden.",
-          "use_for_peak_reserve": "Verwendet das Stundenprofil für Peak-Reserve und Resttages-Score. Verändert die Akkusteuerung."
+          "use_for_peak_reserve": "Verwendet das Stundenprofil für Peak-Reserve und Resttages-Score. Verändert die Akkusteuerung.",
+          "dhw_planned_start": "Optional. Zeitstempel-Sensor oder input_datetime mit Datum und Uhrzeit, den deine Automation auf den nächsten Warmwasserstart setzt. Die Peak-Reserve bucht dann die kWh je Zyklus in diese Stunden statt in die gelernte Uhrzeit. Braucht Wärmepumpenzähler, Warmwasser-Aktivmeldung und kWh je Zyklus. Ist der Wert unbekannt, vorbei oder mehr als 24 h entfernt, bleibt der gelernte Warmwasseranteil.",
+          "dhw_run_minutes": "Laufzeit, auf die die kWh je Zyklus verteilt werden."
         }
       },
       "arbitrage": {
@@ -1267,6 +1276,7 @@
       "charge_curve_duplicate": "Jeder Ladestand darf in der Kurve nur einmal vorkommen.",
       "charge_curve_rising": "Die Leistung der Kurve darf mit steigendem Ladestand nicht steigen. Gleiche Werte sind erlaubt.",
       "ambitious_precharge_risk": "Bestätige den Haken „auf eigenes Risiko“, um das ehrgeizige Vorladen einzuschalten.",
+      "demand_dhw_plan": "Ein geplanter Warmwasserstart braucht Wärmepumpenzähler, Warmwasser-Aktivmeldung und kWh je Zyklus über 0.",
       "ambitious_precharge_no_pv_timeline": "Kein nutzbarer PV-Zeitverlauf gefunden: Das ehrgeizige Vorladen braucht Solcast-Prognosesensoren für heute und morgen mit dem Attribut detailedForecast (oder detailedHourly), die den nächsten Tag mit dem gewählten Quantil abdecken (pv_estimate10 für P10, pv_estimate für den Median); Tages-kWh allein reichen nicht. Ohne Zeitverlauf plant die Option nichts, die Diagnose nennt den Grund. Erneut absenden speichert trotzdem."
     }
   },

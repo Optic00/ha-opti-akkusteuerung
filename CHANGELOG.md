@@ -8,6 +8,19 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
 
 ## [Unreleased]
 
+### Neu
+
+- **Peak-Reserve mit Wärmepumpenzähler und geplantem Warmwasserlauf (#248).**
+  Mit separatem Wärmepumpenzähler fiel die profilbasierte Peak-Reserve bisher
+  komplett auf den eingestellten Ersatzverbrauch zurück. Sie verwendet jetzt das
+  gelernte Stundenprofil aus Grundlast und Wärmepumpe. Neu ist außerdem eine
+  optionale Quelle für den nächsten geplanten Warmwasserstart (Zeitstempel-Sensor
+  oder `input_datetime`) mit einstellbarer Laufdauer. Opti bucht die kWh je Zyklus
+  dann in die Stunden, in denen der Lauf tatsächlich stattfindet, statt in die
+  gelernte Uhrzeit. Ist die Quelle unbekannt, abgelaufen oder mehr als 24 Stunden
+  entfernt, bleibt der gelernte Warmwasseranteil. Ohne die neue Quelle und ohne
+  Wärmepumpenzähler ändert sich nichts.
+
 ## [2026.11-beta11] - 2026-11-28
 
 ### Behoben

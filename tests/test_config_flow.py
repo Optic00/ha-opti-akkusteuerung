@@ -2757,3 +2757,36 @@ async def test_charge_curve_selector_rejects_out_of_range_values(hass, item):
 def test_charge_curve_is_copied_to_shadow_entries():
     from custom_components.opti_akku.config_flow import SHADOW_COPY_OPTIONS
     assert "charge_curve" in SHADOW_COPY_OPTIONS
+
+
+async def test_planned_hot_water_start_requires_meter_and_is_saved(hass):
+    entry = MockConfigEntry(domain="opti_akku", title="Test",
+                            data={"host": "127.0.0.1", "port": 502, "unit_id": 3},
+                            options={"single_inverter": True, "sources": {}})
+    entry.add_to_hass(hass)
+    hass.states.async_set("sensor.dhw_start", "2026-09-14T15:00:00+00:00",
+                          {"device_class": "timestamp"})
+    hass.states.async_set("sensor.heat", "20", {"unit_of_measurement": "W"})
+    hass.states.async_set("binary_sensor.dhw", "off")
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "demand"})
+    schema = result["data_schema"].schema
+    minutes = next(k for k in schema if k.schema == "dhw_run_minutes")
+    assert minutes.default() == 75
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {
+        "enabled": True, "dhw_cycle_kwh": 1.2, "dhw_planned_start": "sensor.dhw_start"})
+    assert result["errors"]["dhw_planned_start"] == "demand_dhw_plan"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {
+        "enabled": True, "dhw_cycle_kwh": 1.2, "dhw_planned_start": "sensor.missing",
+        "heat_power": "sensor.heat", "dhw_active": "binary_sensor.dhw"})
+    assert result["errors"]["dhw_planned_start"] == "missing_or_stale"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {
+        "enabled": True, "dhw_cycle_kwh": 1.2, "dhw_planned_start": "sensor.dhw_start",
+        "dhw_run_minutes": 60, "heat_power": "sensor.heat", "dhw_active": "binary_sensor.dhw"})
+    assert result["type"] == "menu"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    cfg = entry.options["demand_forecast"]
+    assert cfg["dhw_planned_start"] == "sensor.dhw_start"
+    assert cfg["dhw_run_minutes"] == 60
+    assert "dhw_planned_start" not in cfg["sources"]

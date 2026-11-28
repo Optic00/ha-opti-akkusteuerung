@@ -1337,6 +1337,27 @@ async def test_ambitious_precharge_does_not_warn_with_a_pv_time_series(hass):
     assert result["type"] == "menu"
 
 
+async def test_ambitious_precharge_pv_hint_never_breaks_the_dialog(hass):
+    from unittest.mock import patch as mock_patch
+
+    entry = MockConfigEntry(domain="opti_akku", title="Test", data={"host": "127.0.0.1", "port": 502, "unit_id": 3},
+                            options={"single_inverter": True, "sources": {},
+                                     "demand_forecast": {"enabled": True, "sources": "broken"}})
+    entry.add_to_hass(hass)
+    enabled = {"enabled": True, "risk_accepted": True, "quantile": "p10", "min_gain_ct": 2}
+    # Broken demand sources count as none: the dialog warns.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "ambitious_precharge"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], enabled)
+    assert result["errors"] == {"base": "ambitious_precharge_no_pv_timeline"}
+    # An unexpected error in the check is only a missing hint, never a crash.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await configure_options(hass, result["flow_id"], {"next_step_id": "ambitious_precharge"})
+    with mock_patch("custom_components.opti_akku.config_flow.pv_timeline", side_effect=RuntimeError):
+        result = await hass.config_entries.options.async_configure(result["flow_id"], enabled)
+    assert result["errors"] == {"base": "ambitious_precharge_no_pv_timeline"}
+
+
 def test_ambitious_precharge_texts_exist_in_every_language():
     import json
     from pathlib import Path

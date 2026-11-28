@@ -21,6 +21,8 @@ Neustart Quellen und Gerätestatus prüfen, bevor Schreibzugriffe wieder freigeg
   entfernt, bleibt der gelernte Warmwasseranteil. Ohne die neue Quelle und ohne
   Wärmepumpenzähler ändert sich nichts.
 
+## [2026.11-beta11] - 2026-11-28
+
 ### Behoben
 
 - **PV-Vorbereitung fürs Auto lässt den Hausakku weiter aus PV-Überschuss laden.**
@@ -839,7 +841,8 @@ Alle Korrekturen aus [#196](https://github.com/Optic00/ha-opti-akkusteuerung/pul
 - Frühere YAML-Lösung bleibt im Legacy-Archiv erhalten. Bestehende
   Integrationseinträge bei der Migration beibehalten.
 
-[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta10...HEAD
+[Unreleased]: https://github.com/Optic00/ha-opti-akkusteuerung/compare/2026.11-beta11...HEAD
+[2026.11-beta11]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta11
 [2026.11-beta10]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta10
 [2026.11-beta9]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta9
 [2026.11-beta8]: https://github.com/Optic00/ha-opti-akkusteuerung/releases/tag/2026.11-beta8
